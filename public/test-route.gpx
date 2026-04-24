@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Ruta de prueba Madrid-Sierra</name>
+    <trkseg>
+      <trkpt lat="40.4168" lon="-3.7038"><ele>655</ele></trkpt>
+      <trkpt lat="40.4300" lon="-3.7200"><ele>690</ele></trkpt>
+      <trkpt lat="40.4450" lon="-3.7400"><ele>750</ele></trkpt>
+      <trkpt lat="40.4600" lon="-3.7600"><ele>820</ele></trkpt>
+      <trkpt lat="40.4750" lon="-3.7800"><ele>920</ele></trkpt>
+      <trkpt lat="40.4900" lon="-3.8000"><ele>1050</ele></trkpt>
+      <trkpt lat="40.5050" lon="-3.8200"><ele>1200</ele></trkpt>
+      <trkpt lat="40.5200" lon="-3.8400"><ele>1380</ele></trkpt>
+      <trkpt lat="40.5350" lon="-3.8600"><ele>1520</ele></trkpt>
+      <trkpt lat="40.5500" lon="-3.8800"><ele>1680</ele></trkpt>
+      <trkpt lat="40.5650" lon="-3.9000"><ele>1820</ele></trkpt>
+      <trkpt lat="40.5800" lon="-3.9200"><ele>1950</ele></trkpt>
+      <trkpt lat="40.5950" lon="-3.9400"><ele>2050</ele></trkpt>
+      <trkpt lat="40.6100" lon="-3.9600"><ele>2150</ele></trkpt>
+      <trkpt lat="40.6200" lon="-3.9800"><ele>2200</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
