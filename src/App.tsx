@@ -14,6 +14,7 @@ import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { useLivePosition } from './lib/useLivePosition'
+import { useFreshnessLabel } from './lib/useFreshnessLabel'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -50,6 +51,12 @@ export default function App() {
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
   const [pdfLoading, setPdfLoading] = useState(false)
+
+  // ── Weather freshness ──────────────────────────────────────────────────────
+  const [weatherFetchedAt, setWeatherFetchedAt] = useState<Date | null>(null)
+  const [refreshingWeather, setRefreshingWeather] = useState(false)
+  /** true = show "has estado fuera X min" banner */
+  const [returnBanner, setReturnBanner] = useState(false)
 
   // ── App mode ───────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState<AppMode>('plan')
@@ -124,6 +131,7 @@ export default function App() {
           results.forEach((r, i) => { next[idxs[i]] = r.weather })
           return next
         })
+        setWeatherFetchedAt(new Date())
       })
       .catch(console.error)
   }, [appMode, livePos.coords])
@@ -137,6 +145,8 @@ export default function App() {
     setErrorMsg(null)
     setLocationWarning(null)
     setLocationProgress({ done: 0, total: 0 })
+    setWeatherFetchedAt(null)
+    setReturnBanner(false)
   }
 
   function handleTrack(t: GpxTrack) {
@@ -164,6 +174,7 @@ export default function App() {
 
       const weatherPromise = fetchWeatherForWaypoints(wps).then((results) => {
         setWeatherArr(results.map((r) => r.weather))
+        setWeatherFetchedAt(new Date())
       })
 
       const locationPromise = fetchLocationForWaypoints(
@@ -203,6 +214,7 @@ export default function App() {
 
       const results = await fetchWeatherForWaypoints(wps)
       setWeatherArr(results.map((r) => r.weather))
+      setWeatherFetchedAt(new Date())
       setStatus('done')
       setAppMode('live')  // enter live mode right away
     } catch (err) {
@@ -211,9 +223,55 @@ export default function App() {
     }
   }
 
+  // ── Refresh weather manually ───────────────────────────────────────────────
+  async function handleRefreshWeather() {
+    if (refreshingWeather) return
+    setRefreshingWeather(true)
+    setReturnBanner(false)
+    try {
+      if (appMode === 'live') {
+        // Only refresh pending waypoints
+        const { liveWaypoints: wps, liveOriginalIndices: idxs } = liveDataRef.current
+        if (wps.length === 0) return
+        const results = await fetchWeatherForWaypoints(wps)
+        setWeatherArr((prev) => {
+          const next = [...prev]
+          results.forEach((r, i) => { next[idxs[i]] = r.weather })
+          return next
+        })
+      } else {
+        // Plan mode: refresh all
+        const results = await fetchWeatherForWaypoints(baseWaypoints)
+        setWeatherArr(results.map((r) => r.weather))
+      }
+      setWeatherFetchedAt(new Date())
+    } catch (err) {
+      console.error('Weather refresh failed:', err)
+    } finally {
+      setRefreshingWeather(false)
+    }
+  }
+
   const isLoading = status === 'loading'
   const isLiveLoading = status === 'live-loading'
   const isDone = status === 'done' && baseWaypoints.length > 0
+
+  // ── Visibility change: show banner after ≥ 30 min in background ───────────
+  useEffect(() => {
+    if (!isDone) return
+    let hiddenAt: number | null = null
+    function onVisibility() {
+      if (document.hidden) {
+        hiddenAt = Date.now()
+      } else if (hiddenAt !== null) {
+        const awayMs = Date.now() - hiddenAt
+        hiddenAt = null
+        if (awayMs >= 30 * 60_000) setReturnBanner(true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [isDone])
 
   async function handleExportPdf() {
     if (!track || !isDone) return
@@ -412,9 +470,31 @@ export default function App() {
           </>
         )}
 
+        {/* ── Return-from-background banner ── */}
+        {returnBanner && isDone && (
+          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-amber-900/30 border border-amber-700/50 text-amber-300 text-sm">
+            <span>⏰</span>
+            <span className="flex-1">Has estado fuera un rato — la previsión puede estar desactualizada.</span>
+            <button
+              onClick={handleRefreshWeather}
+              disabled={refreshingWeather}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-600 disabled:opacity-60 text-white text-xs font-medium transition-colors"
+            >
+              {refreshingWeather
+                ? <><span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full inline-block" /> Actualizando…</>
+                : <>↻ Actualizar</>}
+            </button>
+            <button
+              onClick={() => setReturnBanner(false)}
+              className="text-amber-500 hover:text-amber-300 transition-colors text-lg leading-none px-1"
+              aria-label="Cerrar"
+            >×</button>
+          </div>
+        )}
+
         {/* ── Live mode: GPS status bar ── */}
         {appMode === 'live' && (
-          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm ${
+          <div className={`flex flex-wrap items-center gap-3 px-5 py-3.5 rounded-xl text-sm ${
             livePos.error
               ? 'bg-red-900/30 border border-red-700/50 text-red-400'
               : livePos.isLocating
@@ -437,19 +517,33 @@ export default function App() {
                   Quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
                 </span>
                 {liveEta && (
-                  <span className="ml-auto text-slate-400 text-xs">
+                  <span className="text-slate-400 text-xs">
                     Llegada estimada:{' '}
                     <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
                   </span>
                 )}
               </>
             )}
+            {/* Freshness chip — always shown in live bar once data is available */}
+            <WeatherFreshnessChip
+              fetchedAt={weatherFetchedAt}
+              onRefresh={handleRefreshWeather}
+              refreshing={refreshingWeather}
+              className="ml-auto"
+            />
           </div>
         )}
 
         {/* ── Weather summary (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
-          <WeatherSummary waypoints={enrichedWaypoints} />
+          <>
+            <WeatherSummary waypoints={enrichedWaypoints} />
+            <WeatherFreshnessChip
+              fetchedAt={weatherFetchedAt}
+              onRefresh={handleRefreshWeather}
+              refreshing={refreshingWeather}
+            />
+          </>
         )}
 
         {/* ── Map ── */}
@@ -510,6 +604,45 @@ export default function App() {
   )
 }
 
+// ── WeatherFreshnessChip ────────────────────────────────────────────────────
+function WeatherFreshnessChip({
+  fetchedAt,
+  onRefresh,
+  refreshing,
+  className = '',
+}: {
+  fetchedAt: Date | null
+  onRefresh: () => void
+  refreshing: boolean
+  className?: string
+}) {
+  const freshness = useFreshnessLabel(fetchedAt)
+  if (!freshness) return null
+
+  const colorClass =
+    freshness.severity === 'fresh' ? 'text-green-400' :
+    freshness.severity === 'stale' ? 'text-amber-400' :
+    'text-red-400'
+
+  return (
+    <div className={`flex items-center gap-2 text-xs ${className}`}>
+      <span className={colorClass}>⏱ Meteo: {freshness.label}</span>
+      <button
+        onClick={onRefresh}
+        disabled={refreshing}
+        className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-50 transition-colors text-slate-300 border border-slate-600"
+        title="Actualizar previsión meteorológica"
+      >
+        {refreshing
+          ? <span className="animate-spin w-3 h-3 border border-slate-400 border-t-transparent rounded-full inline-block" />
+          : <span>↻</span>}
+        <span>Actualizar</span>
+      </button>
+    </div>
+  )
+}
+
+// ── WeatherSummary ──────────────────────────────────────────────────────────
 function WeatherSummary({ waypoints }: { waypoints: ReturnType<typeof useMemo> }) {
   const wps = (waypoints as Array<{ weather: { temperatureC: number; precipProbability: number } | null }>)
     .filter((w) => w.weather !== null)
