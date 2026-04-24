@@ -691,12 +691,12 @@ export function RoutePdfDocument({ track, waypoints, startTime, mapMode }: PdfPr
   const startTimeLabel = formatTime(startTime)
 
   return (
-    <Document title={track.name} author="LlueveONoLlueve">
+    <Document title={track.name} author="SiLoSeNoSalgo">
       <Page size="A4" style={styles.page}>
 
         {/* Header */}
         <View>
-          <Text style={styles.appTitle}>LlueveONoLlueve</Text>
+          <Text style={styles.appTitle}>SiLoSeNoSalgo</Text>
           <Text style={styles.routeName}>{track.name || 'Ruta sin nombre'}</Text>
           <Text style={{ fontSize: 7.5, color: C.muted, marginBottom: 8 }}>
             Salida: {startDateLabel} a las {startTimeLabel}
