@@ -1,4 +1,4 @@
-import { createElement, useMemo, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { SamplingPanel } from './components/SamplingPanel'
@@ -26,7 +26,7 @@ function toLocalInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-type LoadStatus = 'idle' | 'loading' | 'done' | 'error'
+type LoadStatus = 'idle' | 'loading' | 'live-loading' | 'done' | 'error'
 type AppMode = 'plan' | 'live'
 
 export default function App() {
@@ -51,7 +51,7 @@ export default function App() {
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
   const [pdfLoading, setPdfLoading] = useState(false)
 
-  // ── App mode: plan vs live ─────────────────────────────────────────────────
+  // ── App mode ───────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState<AppMode>('plan')
 
   // ── GPS live position ──────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export default function App() {
 
   const hasGpxTimes = !!track?.points.some((p) => p.time)
 
-  // ── Enriched waypoints (plan mode) ────────────────────────────────────────
+  // ── Enriched waypoints (plan base) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
     () =>
       baseWaypoints.map((w, i) => ({
@@ -70,21 +70,65 @@ export default function App() {
     [baseWaypoints, weatherArr, locationArr],
   )
 
-  // ── Live waypoints: remaining only, ETAs from now using configured pace ───
-  const liveWaypoints = useMemo(() => {
-    if (appMode !== 'live' || !livePos.coords) return enrichedWaypoints
+  // ── Live waypoints: remaining only, ETAs from now ─────────────────────────
+  // Also tracks which original indices survived the filter (for weather re-fetch)
+  const { liveWaypoints, liveOriginalIndices } = useMemo(() => {
+    if (appMode !== 'live' || !livePos.coords) {
+      return {
+        liveWaypoints: enrichedWaypoints,
+        liveOriginalIndices: enrichedWaypoints.map((_, i) => i),
+      }
+    }
     const now = Date.now()
     const lockedKm = livePos.trackKm
-    return enrichedWaypoints
-      .filter((wp) => wp.distanceKm >= lockedKm - 0.05)
-      .map((wp) => ({
-        ...wp,
-        estimatedTime: new Date(
-          now + Math.max(0, wp.distanceKm - lockedKm) * paceConfig.paceMinPerKm * 60000,
-        ),
-      }))
+    const wps: typeof enrichedWaypoints = []
+    const idxs: number[] = []
+    enrichedWaypoints.forEach((wp, i) => {
+      if (wp.distanceKm >= lockedKm - 0.05) {
+        wps.push({
+          ...wp,
+          estimatedTime: new Date(
+            now + Math.max(0, wp.distanceKm - lockedKm) * paceConfig.paceMinPerKm * 60000,
+          ),
+        })
+        idxs.push(i)
+      }
+    })
+    return { liveWaypoints: wps, liveOriginalIndices: idxs }
   }, [appMode, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm])
 
+  // Keep a ref to the latest live waypoints/indices so the effect below can
+  // read them without re-firing on every GPS update
+  const liveDataRef = useRef({ liveWaypoints, liveOriginalIndices })
+  liveDataRef.current = { liveWaypoints, liveOriginalIndices }
+
+  // Flag: true once weather has been re-fetched for this live session
+  const liveWeatherFetchedRef = useRef(false)
+
+  // ── Re-fetch weather on first GPS fix in live mode ─────────────────────────
+  useEffect(() => {
+    if (appMode !== 'live') {
+      liveWeatherFetchedRef.current = false
+      return
+    }
+    if (!livePos.coords || liveWeatherFetchedRef.current) return
+
+    liveWeatherFetchedRef.current = true
+    const { liveWaypoints: wps, liveOriginalIndices: idxs } = liveDataRef.current
+    if (wps.length === 0) return
+
+    fetchWeatherForWaypoints(wps)
+      .then((results) => {
+        setWeatherArr((prev) => {
+          const next = [...prev]
+          results.forEach((r, i) => { next[idxs[i]] = r.weather })
+          return next
+        })
+      })
+      .catch(console.error)
+  }, [appMode, livePos.coords])
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
   function reset() {
     setBaseWaypoints([])
     setWeatherArr([])
@@ -98,12 +142,14 @@ export default function App() {
   function handleTrack(t: GpxTrack) {
     setTrack(t)
     setAppMode('plan')
+    liveWeatherFetchedRef.current = false
     reset()
     if (t.points.some((p) => p.time)) {
       setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
     }
   }
 
+  // Plan mode: full compute with configured start time + sampling
   async function handleCompute() {
     if (!track) return
     setStatus('loading')
@@ -140,7 +186,33 @@ export default function App() {
     }
   }
 
+  // Live shortcut: use now() + auto sampling, skip date/time and waypoint steps,
+  // switch directly to live mode after fetching weather
+  async function handleComputeLive() {
+    if (!track) return
+    setStatus('live-loading')
+    setErrorMsg(null)
+    liveWeatherFetchedRef.current = true // weather will be current; no need to re-fetch on GPS fix
+
+    try {
+      const now = new Date()
+      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING)
+      setBaseWaypoints(wps)
+      setLocationArr(wps.map(() => null))
+      setWeatherArr(wps.map(() => null))
+
+      const results = await fetchWeatherForWaypoints(wps)
+      setWeatherArr(results.map((r) => r.weather))
+      setStatus('done')
+      setAppMode('live')  // enter live mode right away
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')
+      setStatus('idle')
+    }
+  }
+
   const isLoading = status === 'loading'
+  const isLiveLoading = status === 'live-loading'
   const isDone = status === 'done' && baseWaypoints.length > 0
 
   async function handleExportPdf() {
@@ -175,7 +247,6 @@ export default function App() {
     }
   }
 
-  // ETA to finish in live mode (last remaining waypoint)
   const liveEta = liveWaypoints.length > 0
     ? liveWaypoints[liveWaypoints.length - 1].estimatedTime
     : null
@@ -193,8 +264,6 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">SiLoSeNoSalgo</h1>
             <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
-
-          {/* Mode toggle — only when route is computed */}
           {isDone && (
             <div className="ml-auto flex rounded-lg overflow-hidden border border-slate-700 text-xs">
               <button
@@ -204,7 +273,7 @@ export default function App() {
                 🗺️ <span className="hidden sm:inline">Planificar</span>
               </button>
               <button
-                onClick={() => setAppMode('live')}
+                onClick={() => { setAppMode('live') }}
                 className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
               >
                 📍 <span className="hidden sm:inline">En vivo</span>
@@ -216,7 +285,7 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
 
-        {/* ── Paso 1: GPX (always visible) ── */}
+        {/* ── Paso 1: GPX ── */}
         <section className="space-y-3">
           <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">1 · Carga tu ruta</h2>
           {track ? (
@@ -240,7 +309,7 @@ export default function App() {
           )}
         </section>
 
-        {/* ── Plan mode sections (hidden in live mode) ── */}
+        {/* ── Plan mode sections ── */}
         {appMode === 'plan' && (
           <>
             {track && (
@@ -278,20 +347,39 @@ export default function App() {
             )}
 
             {track && (
-              <button
-                onClick={handleCompute}
-                disabled={isLoading}
-                className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    Consultando…
-                  </>
-                ) : (
-                  'Calcular y obtener previsión →'
-                )}
-              </button>
+              <div className="space-y-3">
+                {/* Primary: plan mode */}
+                <button
+                  onClick={handleCompute}
+                  disabled={isLoading || isLiveLoading}
+                  className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      Consultando…
+                    </>
+                  ) : (
+                    'Calcular y obtener previsión →'
+                  )}
+                </button>
+
+                {/* Secondary: live shortcut */}
+                <button
+                  onClick={handleComputeLive}
+                  disabled={isLoading || isLiveLoading}
+                  className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-600 hover:border-sky-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+                >
+                  {isLiveLoading ? (
+                    <>
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full" />
+                      Preparando modo en vivo…
+                    </>
+                  ) : (
+                    <>📍 Ya estoy en ruta — calcular ahora y abrir modo en vivo</>
+                  )}
+                </button>
+              </div>
             )}
 
             {isLoading && locationProgress.total > 0 && (
