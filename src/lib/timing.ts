@@ -186,6 +186,73 @@ export function computeWaypoints(
   return waypoints
 }
 
+/**
+ * Expected travel time (minutes) for the segment [fromKm, toKm] along the track.
+ *
+ * - GPX mode with timestamps: linearly interpolates the original GPX timestamps
+ *   at fromKm and toKm (independent of absolute clock — purely elapsed time).
+ * - Fixed / Naismith mode: (toKm − fromKm) × paceMinPerKm.
+ *   (Naismith elevation adjustment is omitted for live delta — elevation noise
+ *   from GPS would add more error than it removes.)
+ */
+export function expectedMinutesForSegment(
+  track: GpxTrack,
+  fromKm: number,
+  toKm: number,
+  paceConfig: PaceConfig,
+): number {
+  if (fromKm >= toKm) return 0
+  const pts = track.points
+  if (pts.length < 2) return 0
+
+  if (paceConfig.mode === 'gpx' && pts.some((p) => p.time)) {
+    // Build cumulative km (O(n), fast for typical 10k-point tracks)
+    const cum = new Float64Array(pts.length)
+    for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + haversineKm(pts[i - 1], pts[i])
+
+    // Binary search: last index where cum[i] <= km
+    function segIdx(km: number): number {
+      let lo = 0, hi = pts.length - 2
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1
+        if (cum[mid] <= km) lo = mid
+        else hi = mid - 1
+      }
+      return lo
+    }
+
+    function interpolateMs(km: number): number {
+      const i = segIdx(km)
+      const t0 = pts[i].time?.getTime() ?? 0
+      const t1 = pts[i + 1]?.time?.getTime() ?? t0
+      const segLen = cum[i + 1] - cum[i]
+      const frac = segLen > 0 ? (km - cum[i]) / segLen : 0
+      return t0 + frac * (t1 - t0)
+    }
+
+    const clampedFrom = Math.max(0, fromKm)
+    const clampedTo = Math.min(track.totalDistanceKm, toKm)
+    return (interpolateMs(clampedTo) - interpolateMs(clampedFrom)) / 60_000
+  }
+
+  // Fixed or Naismith: linear pace
+  return (toKm - fromKm) * paceConfig.paceMinPerKm
+}
+
+/**
+ * Format a time delta (minutes) for the pace-vs-plan chip.
+ * Positive = slower than planned, negative = faster.
+ */
+export function formatDelta(deltaMin: number): string {
+  const abs = Math.abs(deltaMin)
+  if (abs < 1) return 'en hora'
+  const sign = deltaMin > 0 ? '+' : '−'
+  const h = Math.floor(abs / 60)
+  const m = Math.round(abs % 60)
+  if (h === 0) return `${sign}${m} min`
+  return `${sign}${h}h ${m.toString().padStart(2, '0')} min`
+}
+
 export function formatPace(minPerKm: number): string {
   const min = Math.floor(minPerKm)
   const sec = Math.round((minPerKm - min) * 60)

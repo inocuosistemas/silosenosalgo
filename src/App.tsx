@@ -8,7 +8,7 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { computeWaypoints, DEFAULT_SAMPLING, formatTime } from './lib/timing'
+import { computeWaypoints, DEFAULT_SAMPLING, expectedMinutesForSegment, formatDelta, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
@@ -63,6 +63,10 @@ export default function App() {
 
   // ── GPS live position ──────────────────────────────────────────────────────
   const livePos = useLivePosition(track, appMode === 'live')
+
+  // ── Live pace anchor: { time, km } at the moment tracking began ───────────
+  // Reset when leaving live mode or when the pace config changes (decision: new baseline)
+  const [liveStart, setLiveStart] = useState<{ time: Date; km: number } | null>(null)
 
   const hasGpxTimes = !!track?.points.some((p) => p.time)
 
@@ -135,6 +139,16 @@ export default function App() {
       })
       .catch(console.error)
   }, [appMode, livePos.coords])
+
+  // ── Live pace anchor management ────────────────────────────────────────────
+  // Nullify anchor whenever the mode leaves live OR pace config changes
+  useEffect(() => { setLiveStart(null) }, [appMode, paceConfig])
+
+  // Establish anchor on first GPS fix after it was nulled
+  useEffect(() => {
+    if (appMode !== 'live' || !livePos.coords || liveStart !== null) return
+    setLiveStart({ time: new Date(), km: livePos.trackKm })
+  }, [appMode, livePos.coords, livePos.trackKm, liveStart])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function reset() {
@@ -311,6 +325,15 @@ export default function App() {
   const liveRemainingKm = track
     ? Math.max(0, track.totalDistanceKm - livePos.trackKm)
     : 0
+
+  // Pace delta: actual elapsed vs expected for [liveStart.km → current km]
+  // Only meaningful once ≥ 0.2 km have been covered from the anchor
+  const paceDelta = useMemo<number | null>(() => {
+    if (!liveStart || !track || livePos.trackKm - liveStart.km < 0.2) return null
+    const expectedMin = expectedMinutesForSegment(track, liveStart.km, livePos.trackKm, paceConfig)
+    const actualMin = (Date.now() - liveStart.time.getTime()) / 60_000
+    return actualMin - expectedMin  // positive = slow, negative = fast
+  }, [liveStart, track, livePos.trackKm, paceConfig])
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -520,6 +543,20 @@ export default function App() {
                   <span className="text-slate-400 text-xs">
                     Llegada estimada:{' '}
                     <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
+                  </span>
+                )}
+                {paceDelta !== null && (
+                  <span
+                    className={`text-xs font-mono font-semibold px-2 py-0.5 rounded-md ${
+                      Math.abs(paceDelta) < 1
+                        ? 'bg-slate-700 text-slate-400'
+                        : paceDelta > 0
+                        ? 'bg-red-900/40 text-red-400'
+                        : 'bg-green-900/40 text-green-400'
+                    }`}
+                    title={paceDelta > 0 ? 'Vas más lento de lo previsto' : paceDelta < 0 ? 'Vas más rápido de lo previsto' : 'Vas según lo previsto'}
+                  >
+                    {formatDelta(paceDelta)}
                   </span>
                 )}
               </>
