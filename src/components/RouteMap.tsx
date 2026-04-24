@@ -1,6 +1,6 @@
 import 'leaflet/dist/leaflet.css'
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint } from '../lib/places'
 import { formatTime } from '../lib/timing'
@@ -15,6 +15,12 @@ interface Props {
   waypoints: EnrichedWaypoint[]
   mapMode: MapMode
   onMapModeChange: (m: MapMode) => void
+  /** When true, slider is replaced by a GPS progress bar */
+  liveMode?: boolean
+  /** Current GPS coordinates in live mode */
+  liveCoords?: { lat: number; lon: number } | null
+  /** 0..1 progress derived from GPS position */
+  liveProgress?: number
 }
 
 const RAIN_LEGEND = [
@@ -32,21 +38,40 @@ const WIND_LEGEND = [
   { label: 'Calmado', color: '#94a3b8' },
 ]
 
-// Number of slider steps (0..SLIDER_STEPS maps to 0..1 progress)
 const SLIDER_STEPS = 1000
-// Auto-play: advance this much progress every tick
 const PLAY_STEP = 0.003
-// Auto-play tick interval in ms (~30fps, full replay in ~11 s)
 const PLAY_INTERVAL_MS = 30
 
-export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) {
+// ── Sub-component: auto-centers the map on live GPS position ─────────────────
+function MapCentering({ coords }: { coords: { lat: number; lon: number } | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (coords) {
+      map.panTo([coords.lat, coords.lon], { animate: true, duration: 1 })
+    }
+  }, [coords, map])
+  return null
+}
+
+export function RouteMap({
+  track,
+  waypoints,
+  mapMode,
+  onMapModeChange,
+  liveMode = false,
+  liveCoords = null,
+  liveProgress = 0,
+}: Props) {
   const { points } = track
 
-  const [progress, setProgress] = useState(1) // 0..1, 1 = full route
+  const [progress, setProgress] = useState(1)
   const [isPlaying, setIsPlaying] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // ── Cumulative km per track point ──────────────────────────────────────────
+  // In live mode the progress is driven externally; in plan mode it's the slider
+  const effectiveProgress = liveMode ? liveProgress : progress
+
+  // ── Cumulative km per track point ─────────────────────────────────────────
   const cumKm = useMemo(() => {
     const arr = new Float64Array(points.length)
     for (let i = 1; i < points.length; i++) {
@@ -56,9 +81,9 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
   }, [points])
 
   const totalKm = track.totalDistanceKm
-  const targetKm = progress * totalKm
+  const targetKm = effectiveProgress * totalKm
 
-  // ── Pre-compute segment metadata (color, km range, point indices) ───────────
+  // ── Pre-compute colored segment metadata ──────────────────────────────────
   const allSegments = useMemo(() => {
     return waypoints.slice(1).map((curr, i) => {
       const prev = waypoints[i]
@@ -81,36 +106,34 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
     })
   }, [waypoints, points, mapMode, cumKm])
 
-  // ── Visible colored segments (truncated at targetKm) ───────────────────────
+  // ── Visible colored segments (truncated at targetKm) ──────────────────────
   const visibleSegments = useMemo(() => {
-    if (progress >= 1) {
+    if (effectiveProgress >= 1) {
       return allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color }))
     }
 
     const result: { key: number; positions: [number, number][]; color: string }[] = []
 
     for (const seg of allSegments) {
-      // All remaining segments are beyond the slider — stop
       if (seg.startKm >= targetKm) break
 
       if (seg.endKm <= targetKm) {
-        // Full segment visible
         result.push({ key: seg.key, positions: seg.pts, color: seg.color })
         continue
       }
 
-      // Partial segment: truncate at targetKm with linear interpolation
+      // Partial segment: truncate with linear interpolation
       const truncated: [number, number][] = []
       for (let pi = seg.ptStart; pi <= seg.ptEnd; pi++) {
         if (cumKm[pi] > targetKm) {
-          // Interpolate the cut point
           if (pi > seg.ptStart) {
             const span = cumKm[pi] - cumKm[pi - 1]
             if (span > 0) {
               const t = (targetKm - cumKm[pi - 1]) / span
-              const lat = points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat)
-              const lon = points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon)
-              truncated.push([lat, lon])
+              truncated.push([
+                points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
+                points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
+              ])
             }
           }
           break
@@ -121,25 +144,24 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
       if (truncated.length >= 2) {
         result.push({ key: seg.key, positions: truncated, color: seg.color })
       }
-      break // Only one partial segment possible (segments are ordered)
+      break
     }
 
     return result
-  }, [allSegments, progress, targetKm, cumKm, points])
+  }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
-  // ── Visible waypoint markers ───────────────────────────────────────────────
+  // ── Visible waypoint markers ──────────────────────────────────────────────
   const visibleWaypoints = useMemo(() => {
-    if (progress >= 1) return waypoints
+    if (effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
-  }, [waypoints, progress, targetKm])
+  }, [waypoints, effectiveProgress, targetKm])
 
-  // ── Full-route positions (static) ──────────────────────────────────────────
+  // ── Static helpers ────────────────────────────────────────────────────────
   const fullRoute = useMemo(
     () => points.map((p): [number, number] => [p.lat, p.lon]),
     [points],
   )
 
-  // ── Map bounds (always full extent) ───────────────────────────────────────
   const bounds = useMemo((): [[number, number], [number, number]] => {
     const lats = points.map((p) => p.lat)
     const lons = points.map((p) => p.lon)
@@ -149,9 +171,9 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
     ]
   }, [points])
 
-  // ── Auto-play ──────────────────────────────────────────────────────────────
+  // ── Auto-play (plan mode only) ────────────────────────────────────────────
   useEffect(() => {
-    if (!isPlaying) {
+    if (liveMode || !isPlaying) {
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
@@ -162,10 +184,7 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
     intervalRef.current = setInterval(() => {
       setProgress((p) => {
         const next = p + PLAY_STEP
-        if (next >= 1) {
-          setIsPlaying(false)
-          return 1
-        }
+        if (next >= 1) { setIsPlaying(false); return 1 }
         return next
       })
     }, PLAY_INTERVAL_MS)
@@ -176,16 +195,11 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
         intervalRef.current = null
       }
     }
-  }, [isPlaying])
+  }, [isPlaying, liveMode])
 
   const handlePlayPause = () => {
-    if (progress >= 1 && !isPlaying) {
-      // Restart from beginning
-      setProgress(0)
-      setIsPlaying(true)
-    } else {
-      setIsPlaying((p) => !p)
-    }
+    if (progress >= 1 && !isPlaying) { setProgress(0); setIsPlaying(true) }
+    else setIsPlaying((p) => !p)
   }
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,13 +207,12 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
     setProgress(parseInt(e.target.value) / SLIDER_STEPS)
   }
 
-  // ── Interpolated time label for slider position ───────────────────────────
+  // ── Interpolated time label ───────────────────────────────────────────────
   const currentTimeLabel = useMemo(() => {
     if (waypoints.length === 0) return null
-    if (progress <= 0) return formatTime(waypoints[0].estimatedTime)
-    if (progress >= 1) return formatTime(waypoints[waypoints.length - 1].estimatedTime)
+    if (effectiveProgress <= 0) return formatTime(waypoints[0].estimatedTime)
+    if (effectiveProgress >= 1) return formatTime(waypoints[waypoints.length - 1].estimatedTime)
 
-    // Find the two waypoints that bracket targetKm
     let prevWp = waypoints[0]
     let nextWp = waypoints[waypoints.length - 1]
     for (let i = 1; i < waypoints.length; i++) {
@@ -217,9 +230,9 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
       prevWp.estimatedTime.getTime() +
       t * (nextWp.estimatedTime.getTime() - prevWp.estimatedTime.getTime())
     return formatTime(new Date(ms))
-  }, [waypoints, targetKm, progress])
+  }, [waypoints, targetKm, effectiveProgress])
 
-  // ── Derived UI values ──────────────────────────────────────────────────────
+  // ── Derived UI values ─────────────────────────────────────────────────────
   const hasWeather = waypoints.some((w) => w.weather !== null)
   const legend = mapMode === 'wind' ? WIND_LEGEND : RAIN_LEGEND
   const legendTitle = mapMode === 'wind' ? 'Viento:' : 'Prob. lluvia:'
@@ -228,11 +241,10 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
 
   return (
     <div className="space-y-2">
-      {/* ── Header row (title + toggle + legend) ── */}
+      {/* ── Header row ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold text-slate-200">Mapa de ruta</h2>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Mode toggle */}
           {hasWeather && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
               <button
@@ -249,7 +261,6 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
               </button>
             </div>
           )}
-          {/* Legend */}
           <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
             <span>{legendTitle}</span>
             {legend.map((l) => (
@@ -262,42 +273,63 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
         </div>
       </div>
 
-      {/* ── Slider row ── */}
-      <div className="flex items-center gap-3 px-1">
-        {/* Play / Pause / Restart button */}
-        <button
-          onClick={handlePlayPause}
-          title={isPlaying ? 'Pausar' : sliderAtFull ? 'Reproducir desde el inicio' : 'Reproducir'}
-          className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors text-sm"
-        >
-          {playIcon}
-        </button>
-
-        {/* Range slider */}
-        <input
-          type="range"
-          min={0}
-          max={SLIDER_STEPS}
-          step={1}
-          value={Math.round(progress * SLIDER_STEPS)}
-          onChange={handleSliderChange}
-          className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-sky-500"
-          style={{ background: `linear-gradient(to right, #0ea5e9 ${progress * 100}%, #334155 ${progress * 100}%)` }}
-        />
-
-        {/* km + time label */}
-        <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
-          <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
-          {' / '}
-          <span>{totalKm.toFixed(1)} km</span>
-          {currentTimeLabel && (
-            <span className="text-slate-300">
-              {' · '}
-              <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
-            </span>
-          )}
-        </span>
-      </div>
+      {/* ── Progress row: slider (plan) or GPS bar (live) ── */}
+      {liveMode ? (
+        <div className="flex items-center gap-3 px-1">
+          <span className="flex items-center gap-2 text-xs text-sky-400 flex-shrink-0">
+            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse inline-block" />
+            GPS en vivo
+          </span>
+          <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-sky-500 rounded-full transition-all duration-1000"
+              style={{ width: `${effectiveProgress * 100}%` }}
+            />
+          </div>
+          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
+            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
+            {' / '}
+            <span>{totalKm.toFixed(1)} km</span>
+            {currentTimeLabel && (
+              <span className="text-slate-300">
+                {' · '}
+                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
+              </span>
+            )}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 px-1">
+          <button
+            onClick={handlePlayPause}
+            title={isPlaying ? 'Pausar' : sliderAtFull ? 'Reproducir desde el inicio' : 'Reproducir'}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors text-sm"
+          >
+            {playIcon}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={SLIDER_STEPS}
+            step={1}
+            value={Math.round(progress * SLIDER_STEPS)}
+            onChange={handleSliderChange}
+            className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-sky-500"
+            style={{ background: `linear-gradient(to right, #0ea5e9 ${progress * 100}%, #334155 ${progress * 100}%)` }}
+          />
+          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
+            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
+            {' / '}
+            <span>{totalKm.toFixed(1)} km</span>
+            {currentTimeLabel && (
+              <span className="text-slate-300">
+                {' · '}
+                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* ── Map ── */}
       <div className="rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
@@ -312,19 +344,22 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
 
-          {/* Dark shadow for the whole route */}
+          {/* Auto-center on GPS position in live mode */}
+          {liveMode && <MapCentering coords={liveCoords} />}
+
+          {/* Dark shadow for the full route */}
           <Polyline
             positions={fullRoute}
             pathOptions={{ color: '#0f172a', weight: 9, opacity: 0.5 }}
           />
 
-          {/* Grey "pending" route — always shows the full trazado */}
+          {/* Grey "pending" route */}
           <Polyline
             positions={fullRoute}
-            pathOptions={{ color: '#475569', weight: 5, opacity: progress < 1 ? 0.55 : 0 }}
+            pathOptions={{ color: '#475569', weight: 5, opacity: effectiveProgress < 1 ? 0.55 : 0 }}
           />
 
-          {/* Colored segments (painted portion) */}
+          {/* Colored segments */}
           {visibleSegments.length > 0
             ? visibleSegments.map((seg) => (
                 <Polyline
@@ -333,7 +368,7 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
                   pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
                 />
               ))
-            : progress >= 1 && (
+            : effectiveProgress >= 1 && (
                 <Polyline
                   positions={fullRoute}
                   pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
@@ -349,7 +384,6 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
             const { emoji, label } = w ? weatherLabel(w.weatherCode) : { emoji: '', label: '' }
             const dotColor =
               mapMode === 'wind' ? impactToColor(wp) : precipToColor(w?.precipProbability)
-
             const impact = w ? windImpact(w.windDirection, wp.bearing, w.windSpeedKmh) : null
             const { label: impactLabel, color: impactColor } = impact
               ? windImpactStyle(impact)
@@ -381,17 +415,13 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
                     </p>
                     {w ? (
                       <>
-                        <p>
-                          {emoji} {label}
-                        </p>
+                        <p>{emoji} {label}</p>
                         <p>🌡️ {w.temperatureC.toFixed(1)}°C</p>
                         <p>🌧️ {w.precipProbability}% lluvia</p>
                         <p>
                           💨 {Math.round(w.windSpeedKmh)} km/h {windDirectionLabel(w.windDirection)}
                           {impact && impact !== 'calm' && (
-                            <span style={{ color: impactColor, marginLeft: 4 }}>
-                              · {impactLabel}
-                            </span>
+                            <span style={{ color: impactColor, marginLeft: 4 }}>· {impactLabel}</span>
                           )}
                         </p>
                       </>
@@ -408,6 +438,24 @@ export function RouteMap({ track, waypoints, mapMode, onMapModeChange }: Props) 
               </CircleMarker>
             )
           })}
+
+          {/* Live GPS position markers */}
+          {liveMode && liveCoords && (
+            <>
+              {/* Outer glow */}
+              <CircleMarker
+                center={[liveCoords.lat, liveCoords.lon]}
+                radius={14}
+                pathOptions={{ fillColor: '#38bdf8', color: 'transparent', fillOpacity: 0.25 }}
+              />
+              {/* Inner solid dot */}
+              <CircleMarker
+                center={[liveCoords.lat, liveCoords.lon]}
+                radius={7}
+                pathOptions={{ fillColor: '#38bdf8', color: 'white', weight: 2.5, fillOpacity: 1 }}
+              />
+            </>
+          )}
         </MapContainer>
       </div>
     </div>
