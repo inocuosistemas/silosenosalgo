@@ -160,7 +160,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3">
           <span className="text-2xl">🌧️</span>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">LlueveONoLlueve</h1>
+            <h1 className="text-xl font-bold tracking-tight">SiLoSeNoSalgo</h1>
             <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
         </div>
