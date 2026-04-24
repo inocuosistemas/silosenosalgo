@@ -8,11 +8,12 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { computeWaypoints, DEFAULT_SAMPLING } from './lib/timing'
+import { computeWaypoints, DEFAULT_SAMPLING, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
+import { useLivePosition } from './lib/useLivePosition'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -26,6 +27,7 @@ function toLocalInputValue(d: Date): string {
 }
 
 type LoadStatus = 'idle' | 'loading' | 'done' | 'error'
+type AppMode = 'plan' | 'live'
 
 export default function App() {
   const [track, setTrack] = useState<GpxTrack | null>(null)
@@ -38,7 +40,6 @@ export default function App() {
   const [paceConfig, setPaceConfig] = useState<PaceConfig>(DEFAULT_PACE)
   const [sampling, setSampling] = useState<SamplingConfig>(DEFAULT_SAMPLING)
 
-  // Separate state layers to avoid race conditions in parallel fetches
   const [baseWaypoints, setBaseWaypoints] = useState<Waypoint[]>([])
   const [weatherArr, setWeatherArr] = useState<(WeatherData | null)[]>([])
   const [locationArr, setLocationArr] = useState<(LocationInfo | null)[]>([])
@@ -50,8 +51,15 @@ export default function App() {
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
   const [pdfLoading, setPdfLoading] = useState(false)
 
+  // ── App mode: plan vs live ─────────────────────────────────────────────────
+  const [appMode, setAppMode] = useState<AppMode>('plan')
+
+  // ── GPS live position ──────────────────────────────────────────────────────
+  const livePos = useLivePosition(track, appMode === 'live')
+
   const hasGpxTimes = !!track?.points.some((p) => p.time)
 
+  // ── Enriched waypoints (plan mode) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
     () =>
       baseWaypoints.map((w, i) => ({
@@ -61,6 +69,21 @@ export default function App() {
       })),
     [baseWaypoints, weatherArr, locationArr],
   )
+
+  // ── Live waypoints: remaining only, ETAs from now using configured pace ───
+  const liveWaypoints = useMemo(() => {
+    if (appMode !== 'live' || !livePos.coords) return enrichedWaypoints
+    const now = Date.now()
+    const lockedKm = livePos.trackKm
+    return enrichedWaypoints
+      .filter((wp) => wp.distanceKm >= lockedKm - 0.05)
+      .map((wp) => ({
+        ...wp,
+        estimatedTime: new Date(
+          now + Math.max(0, wp.distanceKm - lockedKm) * paceConfig.paceMinPerKm * 60000,
+        ),
+      }))
+  }, [appMode, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm])
 
   function reset() {
     setBaseWaypoints([])
@@ -74,6 +97,7 @@ export default function App() {
 
   function handleTrack(t: GpxTrack) {
     setTrack(t)
+    setAppMode('plan')
     reset()
     if (t.points.some((p) => p.time)) {
       setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
@@ -92,12 +116,10 @@ export default function App() {
       setWeatherArr(wps.map(() => null))
       setLocationArr(wps.map(() => null))
 
-      // Fire weather and location in parallel; each updates its own state slice
       const weatherPromise = fetchWeatherForWaypoints(wps).then((results) => {
         setWeatherArr(results.map((r) => r.weather))
       })
 
-      // Location is non-fatal: if Overpass/Nominatim fail, weather still shows
       const locationPromise = fetchLocationForWaypoints(
         wps,
         track.totalDistanceKm,
@@ -125,7 +147,6 @@ export default function App() {
     if (!track || !isDone) return
     setPdfLoading(true)
     try {
-      // Dynamic import to avoid bloating the initial bundle
       const [{ pdf }, { RoutePdfDocument }] = await Promise.all([
         import('@react-pdf/renderer'),
         import('./components/RoutePdf'),
@@ -154,8 +175,17 @@ export default function App() {
     }
   }
 
+  // ETA to finish in live mode (last remaining waypoint)
+  const liveEta = liveWaypoints.length > 0
+    ? liveWaypoints[liveWaypoints.length - 1].estimatedTime
+    : null
+  const liveRemainingKm = track
+    ? Math.max(0, track.totalDistanceKm - livePos.trackKm)
+    : 0
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* ── Header ── */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3">
           <span className="text-2xl">🌧️</span>
@@ -163,12 +193,30 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">SiLoSeNoSalgo</h1>
             <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
+
+          {/* Mode toggle — only when route is computed */}
+          {isDone && (
+            <div className="ml-auto flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+              <button
+                onClick={() => setAppMode('plan')}
+                className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              >
+                🗺️ <span className="hidden sm:inline">Planificar</span>
+              </button>
+              <button
+                onClick={() => setAppMode('live')}
+                className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              >
+                📍 <span className="hidden sm:inline">En vivo</span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
 
-        {/* Paso 1 */}
+        {/* ── Paso 1: GPX (always visible) ── */}
         <section className="space-y-3">
           <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">1 · Carga tu ruta</h2>
           {track ? (
@@ -181,7 +229,7 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={() => { setTrack(null); reset() }}
+                onClick={() => { setTrack(null); setAppMode('plan'); reset() }}
                 className="text-slate-500 hover:text-red-400 text-sm transition-colors shrink-0"
               >
                 Cambiar
@@ -192,119 +240,166 @@ export default function App() {
           )}
         </section>
 
-        {/* Paso 2 */}
-        {track && (
-          <section className="space-y-3">
-            <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">2 · Fecha y hora de salida</h2>
-            <input
-              type="datetime-local"
-              value={toLocalInputValue(startTime)}
-              onChange={(e) => { setStartTime(new Date(e.target.value)); reset() }}
-              className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
-            />
-          </section>
+        {/* ── Plan mode sections (hidden in live mode) ── */}
+        {appMode === 'plan' && (
+          <>
+            {track && (
+              <section className="space-y-3">
+                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">2 · Fecha y hora de salida</h2>
+                <input
+                  type="datetime-local"
+                  value={toLocalInputValue(startTime)}
+                  onChange={(e) => { setStartTime(new Date(e.target.value)); reset() }}
+                  className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
+                />
+              </section>
+            )}
+
+            {track && (
+              <section className="space-y-3">
+                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">3 · Ritmo</h2>
+                <PaceConfigPanel
+                  config={paceConfig}
+                  hasGpxTimes={hasGpxTimes}
+                  onChange={(c) => { setPaceConfig(c); reset() }}
+                />
+              </section>
+            )}
+
+            {track && (
+              <section className="space-y-3">
+                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">4 · Detalle de waypoints</h2>
+                <SamplingPanel
+                  config={sampling}
+                  totalKm={track.totalDistanceKm}
+                  onChange={(c) => { setSampling(c); reset() }}
+                />
+              </section>
+            )}
+
+            {track && (
+              <button
+                onClick={handleCompute}
+                disabled={isLoading}
+                className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    Consultando…
+                  </>
+                ) : (
+                  'Calcular y obtener previsión →'
+                )}
+              </button>
+            )}
+
+            {isLoading && locationProgress.total > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Obteniendo comarcas…</span>
+                  <span>{locationProgress.done}/{locationProgress.total}</span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-sky-500 transition-all duration-300"
+                    style={{ width: `${(locationProgress.done / locationProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {errorMsg && (
+              <div className="bg-red-900/30 border border-red-700 rounded-xl px-5 py-4 text-red-300 text-sm">
+                <strong>Error:</strong> {errorMsg}
+              </div>
+            )}
+
+            {locationWarning && (
+              <div className="bg-amber-900/20 border border-amber-700/50 rounded-xl px-5 py-3 text-amber-400 text-sm flex items-center gap-2">
+                <span>⚠️</span>
+                <span>Población/comarca no disponible ({locationWarning}). La previsión meteorológica sigue activa.</span>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Paso 3 */}
-        {track && (
-          <section className="space-y-3">
-            <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">3 · Ritmo</h2>
-            <PaceConfigPanel
-              config={paceConfig}
-              hasGpxTimes={hasGpxTimes}
-              onChange={(c) => { setPaceConfig(c); reset() }}
-            />
-          </section>
-        )}
-
-        {/* Paso 4 */}
-        {track && (
-          <section className="space-y-3">
-            <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">4 · Detalle de waypoints</h2>
-            <SamplingPanel
-              config={sampling}
-              totalKm={track.totalDistanceKm}
-              onChange={(c) => { setSampling(c); reset() }}
-            />
-          </section>
-        )}
-
-        {/* Botón */}
-        {track && (
-          <button
-            onClick={handleCompute}
-            disabled={isLoading}
-            className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
+        {/* ── Live mode: GPS status bar ── */}
+        {appMode === 'live' && (
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm ${
+            livePos.error
+              ? 'bg-red-900/30 border border-red-700/50 text-red-400'
+              : livePos.isLocating
+              ? 'bg-slate-800 border border-slate-700 text-slate-400'
+              : 'bg-sky-900/20 border border-sky-800/40 text-sky-300'
+          }`}>
+            {livePos.error ? (
+              <><span>⚠️</span><span>{livePos.error}</span></>
+            ) : livePos.isLocating ? (
               <>
-                <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                Consultando…
+                <span className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full inline-block flex-shrink-0" />
+                <span>Localizando posición GPS…</span>
               </>
             ) : (
-              'Calcular y obtener previsión →'
+              <>
+                <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
+                <span className="font-mono">
+                  Km <span className="font-semibold text-sky-200">{livePos.trackKm.toFixed(1)}</span>
+                  {' · '}
+                  Quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
+                </span>
+                {liveEta && (
+                  <span className="ml-auto text-slate-400 text-xs">
+                    Llegada estimada:{' '}
+                    <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
+                  </span>
+                )}
+              </>
             )}
-          </button>
-        )}
-
-        {/* Progreso Nominatim */}
-        {isLoading && locationProgress.total > 0 && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>Obteniendo comarcas…</span>
-              <span>{locationProgress.done}/{locationProgress.total}</span>
-            </div>
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-sky-500 transition-all duration-300"
-                style={{ width: `${(locationProgress.done / locationProgress.total) * 100}%` }}
-              />
-            </div>
           </div>
         )}
 
-        {/* Error fatal */}
-        {errorMsg && (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl px-5 py-4 text-red-300 text-sm">
-            <strong>Error:</strong> {errorMsg}
-          </div>
-        )}
-
-        {/* Aviso no-fatal: localidades no disponibles */}
-        {locationWarning && (
-          <div className="bg-amber-900/20 border border-amber-700/50 rounded-xl px-5 py-3 text-amber-400 text-sm flex items-center gap-2">
-            <span>⚠️</span>
-            <span>Población/comarca no disponible ({locationWarning}). La previsión meteorológica sigue activa.</span>
-          </div>
-        )}
-
-        {/* Resumen meteorológico */}
-        {enrichedWaypoints.some((w) => w.weather) && (
+        {/* ── Weather summary (plan mode only) ── */}
+        {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <WeatherSummary waypoints={enrichedWaypoints} />
         )}
 
-        {/* Mapa */}
+        {/* ── Map ── */}
         {track && baseWaypoints.length > 0 && (
           <RouteMap
             track={track}
-            waypoints={enrichedWaypoints}
+            waypoints={appMode === 'live' ? liveWaypoints : enrichedWaypoints}
             mapMode={mapMode}
             onMapModeChange={setMapMode}
+            liveMode={appMode === 'live'}
+            liveCoords={livePos.coords}
+            liveProgress={livePos.progress}
           />
         )}
 
-        {/* Gráficas */}
-        {enrichedWaypoints.some((w) => w.weather) && (
+        {/* ── Charts (plan mode only) ── */}
+        {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <WeatherCharts waypoints={enrichedWaypoints} />
         )}
 
-        {/* Tabla */}
+        {/* ── Waypoints table ── */}
         {baseWaypoints.length > 0 && (
-          <WaypointsTable waypoints={enrichedWaypoints} startTime={startTime} />
+          <>
+            {appMode === 'live' && livePos.coords && liveWaypoints.length < enrichedWaypoints.length && (
+              <p className="text-slate-500 text-xs text-center">
+                Mostrando {liveWaypoints.length} waypoints restantes
+                · {enrichedWaypoints.length - liveWaypoints.length} ya pasados ocultos
+              </p>
+            )}
+            <WaypointsTable
+              waypoints={appMode === 'live' ? liveWaypoints : enrichedWaypoints}
+              startTime={appMode === 'live' ? new Date() : startTime}
+            />
+          </>
         )}
 
-        {/* Exportar PDF */}
-        {isDone && (
+        {/* ── PDF export (plan mode only) ── */}
+        {isDone && appMode === 'plan' && (
           <div className="flex justify-end pt-2 pb-8">
             <button
               onClick={handleExportPdf}
@@ -317,10 +412,7 @@ export default function App() {
                   Generando PDF…
                 </>
               ) : (
-                <>
-                  <span>📄</span>
-                  Exportar PDF
-                </>
+                <><span>📄</span> Exportar PDF</>
               )}
             </button>
           </div>
