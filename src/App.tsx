@@ -8,7 +8,7 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { computeWaypoints, DEFAULT_SAMPLING, expectedMinutesForSegment, formatDelta, formatTime } from './lib/timing'
+import { computeWaypoints, DEFAULT_SAMPLING, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
@@ -64,11 +64,19 @@ export default function App() {
   // ── GPS live position ──────────────────────────────────────────────────────
   const livePos = useLivePosition(track, appMode === 'live')
 
-  // ── Live pace anchor: { time, km } at the moment tracking began ───────────
-  // Reset when leaving live mode or when the pace config changes (decision: new baseline)
-  const [liveStart, setLiveStart] = useState<{ time: Date; km: number } | null>(null)
+  // ── Inline start-time editor in GPS bar ───────────────────────────────────
+  const [liveEditingStart, setLiveEditingStart] = useState(false)
 
   const hasGpxTimes = !!track?.points.some((p) => p.time)
+
+  // ── Real average pace from startTime (min/km) ─────────────────────────────
+  // Only valid when ≥ 0.3 km covered AND startTime is in the past
+  const realPaceMinPerKm = useMemo(() => {
+    if (appMode !== 'live' || !livePos.coords || livePos.trackKm < 0.3) return null
+    const elapsedMin = (Date.now() - startTime.getTime()) / 60_000
+    if (elapsedMin <= 0) return null
+    return elapsedMin / livePos.trackKm
+  }, [appMode, livePos.coords, livePos.trackKm, startTime])
 
   // ── Enriched waypoints (plan base) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
@@ -82,6 +90,7 @@ export default function App() {
   )
 
   // ── Live waypoints: remaining only, ETAs from now ─────────────────────────
+  // Uses real average pace if available, else falls back to planned pace.
   // Also tracks which original indices survived the filter (for weather re-fetch)
   const { liveWaypoints, liveOriginalIndices } = useMemo(() => {
     if (appMode !== 'live' || !livePos.coords) {
@@ -92,6 +101,8 @@ export default function App() {
     }
     const now = Date.now()
     const lockedKm = livePos.trackKm
+    // Real average pace preferred; fallback to configured pace when < 0.3 km covered
+    const effectivePace = realPaceMinPerKm ?? paceConfig.paceMinPerKm
     const wps: typeof enrichedWaypoints = []
     const idxs: number[] = []
     enrichedWaypoints.forEach((wp, i) => {
@@ -99,14 +110,14 @@ export default function App() {
         wps.push({
           ...wp,
           estimatedTime: new Date(
-            now + Math.max(0, wp.distanceKm - lockedKm) * paceConfig.paceMinPerKm * 60000,
+            now + Math.max(0, wp.distanceKm - lockedKm) * effectivePace * 60_000,
           ),
         })
         idxs.push(i)
       }
     })
     return { liveWaypoints: wps, liveOriginalIndices: idxs }
-  }, [appMode, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm])
+  }, [appMode, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm, realPaceMinPerKm])
 
   // Keep a ref to the latest live waypoints/indices so the effect below can
   // read them without re-firing on every GPS update
@@ -139,16 +150,6 @@ export default function App() {
       })
       .catch(console.error)
   }, [appMode, livePos.coords])
-
-  // ── Live pace anchor management ────────────────────────────────────────────
-  // Nullify anchor whenever the mode leaves live OR pace config changes
-  useEffect(() => { setLiveStart(null) }, [appMode, paceConfig])
-
-  // Establish anchor on first GPS fix after it was nulled
-  useEffect(() => {
-    if (appMode !== 'live' || !livePos.coords || liveStart !== null) return
-    setLiveStart({ time: new Date(), km: livePos.trackKm })
-  }, [appMode, livePos.coords, livePos.trackKm, liveStart])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function reset() {
@@ -221,6 +222,7 @@ export default function App() {
 
     try {
       const now = new Date()
+      setStartTime(now)  // record actual departure time as "now"
       const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING)
       setBaseWaypoints(wps)
       setLocationArr(wps.map(() => null))
@@ -326,14 +328,17 @@ export default function App() {
     ? Math.max(0, track.totalDistanceKm - livePos.trackKm)
     : 0
 
-  // Pace delta: actual elapsed vs expected for [liveStart.km → current km]
-  // Only meaningful once ≥ 0.2 km have been covered from the anchor
+  // Pace delta: actual elapsed since startTime vs expected from km 0 to current km.
+  // startTime = real departure time — this works even if app was opened mid-route.
   const paceDelta = useMemo<number | null>(() => {
-    if (!liveStart || !track || livePos.trackKm - liveStart.km < 0.2) return null
-    const expectedMin = expectedMinutesForSegment(track, liveStart.km, livePos.trackKm, paceConfig)
-    const actualMin = (Date.now() - liveStart.time.getTime()) / 60_000
+    if (appMode !== 'live' || !livePos.coords || !track) return null
+    if (livePos.trackKm < 0.2) return null
+    const now = Date.now()
+    if (startTime.getTime() >= now) return null  // startTime is in the future
+    const actualMin = (now - startTime.getTime()) / 60_000
+    const expectedMin = expectedMinutesForSegment(track, 0, livePos.trackKm, paceConfig)
     return actualMin - expectedMin  // positive = slow, negative = fast
-  }, [liveStart, track, livePos.trackKm, paceConfig])
+  }, [appMode, livePos.coords, livePos.trackKm, startTime, track, paceConfig])
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -517,57 +522,104 @@ export default function App() {
 
         {/* ── Live mode: GPS status bar ── */}
         {appMode === 'live' && (
-          <div className={`flex flex-wrap items-center gap-3 px-5 py-3.5 rounded-xl text-sm ${
+          <div className={`rounded-xl text-sm overflow-hidden ${
             livePos.error
               ? 'bg-red-900/30 border border-red-700/50 text-red-400'
               : livePos.isLocating
               ? 'bg-slate-800 border border-slate-700 text-slate-400'
               : 'bg-sky-900/20 border border-sky-800/40 text-sky-300'
           }`}>
-            {livePos.error ? (
-              <><span>⚠️</span><span>{livePos.error}</span></>
-            ) : livePos.isLocating ? (
-              <>
-                <span className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full inline-block flex-shrink-0" />
-                <span>Localizando posición GPS…</span>
-              </>
-            ) : (
-              <>
-                <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
-                <span className="font-mono">
-                  Km <span className="font-semibold text-sky-200">{livePos.trackKm.toFixed(1)}</span>
-                  {' · '}
-                  Quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
-                </span>
-                {liveEta && (
-                  <span className="text-slate-400 text-xs">
-                    Llegada estimada:{' '}
-                    <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
+            {/* Row 1: GPS position info */}
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+              {livePos.error ? (
+                <><span>⚠️</span><span>{livePos.error}</span></>
+              ) : livePos.isLocating ? (
+                <>
+                  <span className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full inline-block flex-shrink-0" />
+                  <span>Localizando posición GPS…</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
+                  <span className="font-mono">
+                    Km <span className="font-semibold text-sky-200">{livePos.trackKm.toFixed(1)}</span>
+                    {' · '}
+                    Quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
                   </span>
-                )}
-                {paceDelta !== null && (
-                  <span
-                    className={`text-xs font-mono font-semibold px-2 py-0.5 rounded-md ${
-                      Math.abs(paceDelta) < 1
-                        ? 'bg-slate-700 text-slate-400'
-                        : paceDelta > 0
-                        ? 'bg-red-900/40 text-red-400'
-                        : 'bg-green-900/40 text-green-400'
-                    }`}
-                    title={paceDelta > 0 ? 'Vas más lento de lo previsto' : paceDelta < 0 ? 'Vas más rápido de lo previsto' : 'Vas según lo previsto'}
+                  {liveEta && (
+                    <span className="text-slate-400 text-xs">
+                      Llegada estimada:{' '}
+                      <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
+                    </span>
+                  )}
+                  {paceDelta !== null && (
+                    <span
+                      className={`text-xs font-mono font-semibold px-2 py-0.5 rounded-md ${
+                        Math.abs(paceDelta) < 1
+                          ? 'bg-slate-700/80 text-slate-400'
+                          : paceDelta > 0
+                          ? 'bg-red-900/50 text-red-300'
+                          : 'bg-green-900/50 text-green-300'
+                      }`}
+                      title={paceDelta > 0 ? 'Vas más lento de lo previsto' : paceDelta < 0 ? 'Vas más rápido de lo previsto' : 'Vas según lo previsto'}
+                    >
+                      {formatDelta(paceDelta)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Row 2: startTime editor + real pace + freshness chip */}
+            {!livePos.error && (
+              <div className="flex flex-wrap items-center gap-3 px-5 pb-3 pt-1 border-t border-sky-900/40">
+                {/* Inline start-time editor */}
+                {liveEditingStart ? (
+                  <input
+                    type="time"
+                    defaultValue={`${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`}
+                    autoFocus
+                    onBlur={(e) => {
+                      const [h, m] = e.target.value.split(':').map(Number)
+                      if (!isNaN(h) && !isNaN(m)) {
+                        const d = new Date(startTime)
+                        d.setHours(h, m, 0, 0)
+                        setStartTime(d)
+                      }
+                      setLiveEditingStart(false)
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                    className="bg-slate-800 border border-sky-500 rounded px-2 py-0.5 text-xs font-mono text-sky-200 w-24 focus:outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => setLiveEditingStart(true)}
+                    className="text-xs text-slate-400 hover:text-sky-300 transition-colors flex items-center gap-1"
+                    title="Editar hora de salida real"
                   >
-                    {formatDelta(paceDelta)}
+                    🕘 <span className="font-mono">{formatTime(startTime)}</span>
+                    <span className="text-slate-600 text-[10px]">✎</span>
+                  </button>
+                )}
+                {/* Hint when startTime looks wrong */}
+                {startTime.getTime() > Date.now() && (
+                  <span className="text-xs text-amber-400">← ajusta si ya saliste</span>
+                )}
+                {/* Real average pace */}
+                {realPaceMinPerKm !== null && (
+                  <span className="text-xs text-slate-400">
+                    ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm)}</span>
                   </span>
                 )}
-              </>
+                {/* Weather freshness */}
+                <WeatherFreshnessChip
+                  fetchedAt={weatherFetchedAt}
+                  onRefresh={handleRefreshWeather}
+                  refreshing={refreshingWeather}
+                  className="ml-auto"
+                />
+              </div>
             )}
-            {/* Freshness chip — always shown in live bar once data is available */}
-            <WeatherFreshnessChip
-              fetchedAt={weatherFetchedAt}
-              onRefresh={handleRefreshWeather}
-              refreshing={refreshingWeather}
-              className="ml-auto"
-            />
           </div>
         )}
 
@@ -612,7 +664,7 @@ export default function App() {
             )}
             <WaypointsTable
               waypoints={appMode === 'live' ? liveWaypoints : enrichedWaypoints}
-              startTime={appMode === 'live' ? new Date() : startTime}
+              startTime={startTime}
             />
           </>
         )}
