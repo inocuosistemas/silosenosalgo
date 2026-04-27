@@ -240,6 +240,56 @@ export function expectedMinutesForSegment(
 }
 
 /**
+ * Inverse of expectedMinutesForSegment(track, 0, k, paceConfig):
+ * given an elapsed time in minutes, returns the km on the track where
+ * the user "should be" at that elapsed time.
+ *
+ * - GPX mode with timestamps: uses the GPX time anchor of the first
+ *   point with a timestamp; finds the segment whose duration window
+ *   contains the target elapsed.
+ * - Fixed / Naismith: elapsedMin / paceMinPerKm (linear).
+ *
+ * Result is clamped to [0, totalDistanceKm].
+ */
+export function expectedKmAtElapsed(
+  track: GpxTrack,
+  elapsedMin: number,
+  paceConfig: PaceConfig,
+): number {
+  if (elapsedMin <= 0) return 0
+  const pts = track.points
+  if (pts.length < 2) return 0
+
+  if (paceConfig.mode === 'gpx' && pts.some((p) => p.time)) {
+    // Find first point with time as anchor
+    let firstIdx = 0
+    while (firstIdx < pts.length && !pts[firstIdx].time) firstIdx++
+    if (firstIdx >= pts.length - 1) {
+      return Math.min(track.totalDistanceKm, elapsedMin / paceConfig.paceMinPerKm)
+    }
+    const t0 = pts[firstIdx].time!.getTime()
+    const targetMs = t0 + elapsedMin * 60_000
+
+    const cum = new Float64Array(pts.length)
+    for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + haversineKm(pts[i - 1], pts[i])
+
+    for (let i = firstIdx; i < pts.length - 1; i++) {
+      const ti = pts[i].time?.getTime()
+      const tj = pts[i + 1].time?.getTime()
+      if (ti === undefined || tj === undefined) continue
+      if (tj >= targetMs) {
+        const span = tj - ti
+        const t = span > 0 ? (targetMs - ti) / span : 0
+        return cum[i] + Math.max(0, Math.min(1, t)) * (cum[i + 1] - cum[i])
+      }
+    }
+    return track.totalDistanceKm
+  }
+
+  return Math.max(0, Math.min(track.totalDistanceKm, elapsedMin / paceConfig.paceMinPerKm))
+}
+
+/**
  * Format a time delta (minutes) for the pace-vs-plan chip.
  * Positive = slower than planned, negative = faster.
  */
