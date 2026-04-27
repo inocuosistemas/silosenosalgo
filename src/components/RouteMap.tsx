@@ -21,6 +21,8 @@ interface Props {
   liveCoords?: { lat: number; lon: number } | null
   /** 0..1 progress derived from GPS position */
   liveProgress?: number
+  /** Km on the track where the user "should be" per the plan (live mode) */
+  expectedKm?: number | null
 }
 
 const RAIN_LEGEND = [
@@ -61,6 +63,7 @@ export function RouteMap({
   liveMode = false,
   liveCoords = null,
   liveProgress = 0,
+  expectedKm = null,
 }: Props) {
   const { points } = track
 
@@ -106,55 +109,90 @@ export function RouteMap({
     })
   }, [waypoints, points, mapMode, cumKm])
 
-  // ── Visible colored segments (truncated at targetKm) ──────────────────────
-  const visibleSegments = useMemo(() => {
+  // ── Split allSegments at targetKm into "before" and "after" parts ─────────
+  // Before  = traveled (live) / shown by slider drag (plan)
+  // After   = pending (live) / hidden behind grey background (plan)
+  const { beforeSegments, afterSegments } = useMemo(() => {
+    type SegRender = { key: number; positions: [number, number][]; color: string }
     if (effectiveProgress >= 1) {
-      return allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color }))
+      return {
+        beforeSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color })),
+        afterSegments: [] as SegRender[],
+      }
+    }
+    if (effectiveProgress <= 0) {
+      return {
+        beforeSegments: [] as SegRender[],
+        afterSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color })),
+      }
     }
 
-    const result: { key: number; positions: [number, number][]; color: string }[] = []
+    const before: SegRender[] = []
+    const after: SegRender[] = []
 
     for (const seg of allSegments) {
-      if (seg.startKm >= targetKm) break
-
       if (seg.endKm <= targetKm) {
-        result.push({ key: seg.key, positions: seg.pts, color: seg.color })
+        before.push({ key: seg.key, positions: seg.pts, color: seg.color })
         continue
       }
-
-      // Partial segment: truncate with linear interpolation
-      const truncated: [number, number][] = []
+      if (seg.startKm >= targetKm) {
+        after.push({ key: seg.key, positions: seg.pts, color: seg.color })
+        continue
+      }
+      // Straddles targetKm — split with linear interpolation at the boundary
+      const beforePts: [number, number][] = []
+      const afterPts: [number, number][] = []
+      let crossed = false
       for (let pi = seg.ptStart; pi <= seg.ptEnd; pi++) {
-        if (cumKm[pi] > targetKm) {
-          if (pi > seg.ptStart) {
+        if (cumKm[pi] <= targetKm) {
+          beforePts.push([points[pi].lat, points[pi].lon])
+        } else {
+          if (!crossed && pi > seg.ptStart) {
             const span = cumKm[pi] - cumKm[pi - 1]
             if (span > 0) {
               const t = (targetKm - cumKm[pi - 1]) / span
-              truncated.push([
+              const crossPt: [number, number] = [
                 points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
                 points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
-              ])
+              ]
+              beforePts.push(crossPt)
+              afterPts.push(crossPt)
             }
+            crossed = true
           }
-          break
+          afterPts.push([points[pi].lat, points[pi].lon])
         }
-        truncated.push([points[pi].lat, points[pi].lon])
       }
-
-      if (truncated.length >= 2) {
-        result.push({ key: seg.key, positions: truncated, color: seg.color })
-      }
-      break
+      if (beforePts.length >= 2) before.push({ key: seg.key, positions: beforePts, color: seg.color })
+      if (afterPts.length >= 2) after.push({ key: seg.key, positions: afterPts, color: seg.color })
     }
 
-    return result
+    return { beforeSegments: before, afterSegments: after }
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
   // ── Visible waypoint markers ──────────────────────────────────────────────
+  // In live mode, App already filters waypoints to pending only — show them all.
+  // In plan mode, the slider progressively reveals waypoints as it's dragged.
   const visibleWaypoints = useMemo(() => {
-    if (effectiveProgress >= 1) return waypoints
+    if (liveMode || effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
-  }, [waypoints, effectiveProgress, targetKm])
+  }, [waypoints, liveMode, effectiveProgress, targetKm])
+
+  // ── Expected position dot (live mode) ─────────────────────────────────────
+  const expectedCoords = useMemo<[number, number] | null>(() => {
+    if (expectedKm === null || points.length < 2) return null
+    const km = Math.max(0, Math.min(totalKm, expectedKm))
+    // Find segment containing km
+    let i = 0
+    while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+    if (i >= cumKm.length - 1) return [points[points.length - 1].lat, points[points.length - 1].lon]
+    const span = cumKm[i + 1] - cumKm[i]
+    const t = span > 0 ? (km - cumKm[i]) / span : 0
+    return [
+      points[i].lat + t * (points[i + 1].lat - points[i].lat),
+      points[i].lon + t * (points[i + 1].lon - points[i].lon),
+    ]
+  }, [expectedKm, cumKm, points, totalKm])
 
   // ── Static helpers ────────────────────────────────────────────────────────
   const fullRoute = useMemo(
@@ -269,6 +307,25 @@ export function RouteMap({
                 {l.label}
               </span>
             ))}
+            {liveMode && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="flex items-center gap-1" title="Posición real (GPS)">
+                  <span className="inline-block w-3 h-3 rounded-full bg-sky-400 border-2 border-white" />
+                  GPS
+                </span>
+                <span
+                  className="flex items-center gap-1"
+                  title="Posición prevista según la hora de salida y el ritmo planificado"
+                >
+                  <span
+                    className="inline-block w-3 h-3 rounded-full"
+                    style={{ border: '2px dashed #ec4899', background: 'transparent' }}
+                  />
+                  Prevista
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -353,27 +410,51 @@ export function RouteMap({
             pathOptions={{ color: '#0f172a', weight: 9, opacity: 0.5 }}
           />
 
-          {/* Grey "pending" route */}
-          <Polyline
-            positions={fullRoute}
-            pathOptions={{ color: '#475569', weight: 5, opacity: effectiveProgress < 1 ? 0.55 : 0 }}
-          />
+          {/* Grey "pending" background — only in plan mode (live shows real ahead) */}
+          {!liveMode && (
+            <Polyline
+              positions={fullRoute}
+              pathOptions={{ color: '#475569', weight: 5, opacity: effectiveProgress < 1 ? 0.55 : 0 }}
+            />
+          )}
 
-          {/* Colored segments */}
-          {visibleSegments.length > 0
-            ? visibleSegments.map((seg) => (
-                <Polyline
-                  key={`${seg.key}-${seg.color}`}
-                  positions={seg.positions}
-                  pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
-                />
-              ))
-            : effectiveProgress >= 1 && (
-                <Polyline
-                  positions={fullRoute}
-                  pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
-                />
-              )}
+          {/* "Before" segments
+              Plan mode: weather-coloured (revealed by slider)
+              Live mode: muted grey-blue (already traveled) */}
+          {beforeSegments.map((seg) => (
+            <Polyline
+              key={`before-${seg.key}`}
+              positions={seg.positions}
+              pathOptions={
+                liveMode
+                  ? { color: '#64748b', weight: 4, opacity: 0.6 }
+                  : { color: seg.color, weight: 5, opacity: 1 }
+              }
+            />
+          ))}
+
+          {/* "After" segments — only rendered in live mode (weather-coloured pending route) */}
+          {liveMode && afterSegments.map((seg) => (
+            <Polyline
+              key={`after-${seg.key}`}
+              positions={seg.positions}
+              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
+            />
+          ))}
+
+          {/* Plain-grey fallback when there are no segments at all */}
+          {!liveMode && effectiveProgress >= 1 && beforeSegments.length === 0 && (
+            <Polyline
+              positions={fullRoute}
+              pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
+            />
+          )}
+          {liveMode && allSegments.length === 0 && (
+            <Polyline
+              positions={fullRoute}
+              pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
+            />
+          )}
 
           {/* Waypoint markers */}
           {visibleWaypoints.map((wp, i) => {
@@ -438,6 +519,32 @@ export function RouteMap({
               </CircleMarker>
             )
           })}
+
+          {/* Expected position dot — magenta dashed ring (rendered first so GPS sits on top) */}
+          {liveMode && expectedCoords && (
+            <CircleMarker
+              center={expectedCoords}
+              radius={9}
+              pathOptions={{
+                color: '#ec4899',
+                fillColor: '#ec4899',
+                fillOpacity: 0.15,
+                weight: 2.5,
+                dashArray: '5 4',
+              }}
+            >
+              <Popup>
+                <div style={{ minWidth: 140, fontSize: 12, lineHeight: 1.5 }}>
+                  <p style={{ fontWeight: 700, margin: 0, color: '#be185d' }}>📍 Posición prevista</p>
+                  {expectedKm !== null && (
+                    <p style={{ color: '#64748b', margin: '4px 0 0' }}>
+                      Km {expectedKm.toFixed(1)} · según ritmo planificado
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
+          )}
 
           {/* Live GPS position markers */}
           {liveMode && liveCoords && (

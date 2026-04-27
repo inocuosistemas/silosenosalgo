@@ -8,13 +8,14 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { computeWaypoints, DEFAULT_SAMPLING, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
+import { computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
+import { useNowTick } from './lib/useNowTick'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -77,6 +78,18 @@ export default function App() {
     if (elapsedMin <= 0) return null
     return elapsedMin / livePos.trackKm
   }, [appMode, livePos.coords, livePos.trackKm, startTime])
+
+  // ── Tick every 30s in live mode so the "expected position" dot moves ──────
+  // even when GPS is silent (user standing still).
+  const nowTick = useNowTick(30_000, appMode === 'live')
+
+  // ── Expected km on the track at this point in time (per the plan) ─────────
+  const expectedKm = useMemo<number | null>(() => {
+    if (appMode !== 'live' || !track) return null
+    const elapsedMin = (nowTick - startTime.getTime()) / 60_000
+    if (elapsedMin <= 0) return null
+    return expectedKmAtElapsed(track, elapsedMin, paceConfig)
+  }, [appMode, track, startTime, paceConfig, nowTick])
 
   // ── Enriched waypoints (plan base) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
@@ -645,6 +658,7 @@ export default function App() {
             liveMode={appMode === 'live'}
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
+            expectedKm={expectedKm}
           />
         )}
 
