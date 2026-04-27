@@ -1,9 +1,25 @@
 import type { GpxPoint, GpxTrack } from './gpx'
 
+export type ActivityType = 'walk' | 'run' | 'bike'
+
 export interface PaceConfig {
   mode: 'fixed' | 'naismith' | 'gpx'
   paceMinPerKm: number
   naismithMin100mUp: number
+  activity: ActivityType
+}
+
+/** Realistic max speed (km/h) per activity — used for GPS plausibility filter */
+export const ACTIVITY_MAX_SPEED_KMH: Record<ActivityType, number> = {
+  walk: 12,
+  run: 25,
+  bike: 80,
+}
+
+export const ACTIVITY_LABEL: Record<ActivityType, { emoji: string; label: string }> = {
+  walk: { emoji: '🚶', label: 'Caminar' },
+  run: { emoji: '🏃', label: 'Correr' },
+  bike: { emoji: '🚴', label: 'Bici' },
 }
 
 export type SamplingMode = 'auto' | 'km' | 'time' | 'count'
