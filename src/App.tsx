@@ -8,7 +8,7 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
+import { ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo } from './lib/places'
@@ -21,6 +21,29 @@ const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
   paceMinPerKm: 5.5,
   naismithMin100mUp: 6,
+  activity: 'walk',
+}
+
+const PACE_LS_KEY = 'silosenosalgo-pace-v1'
+
+function loadPaceConfig(): PaceConfig {
+  try {
+    const raw = localStorage.getItem(PACE_LS_KEY)
+    if (!raw) return DEFAULT_PACE
+    const obj = JSON.parse(raw)
+    return {
+      mode: obj.mode === 'naismith' || obj.mode === 'gpx' ? obj.mode : 'fixed',
+      paceMinPerKm: typeof obj.paceMinPerKm === 'number' && obj.paceMinPerKm > 0 ? obj.paceMinPerKm : DEFAULT_PACE.paceMinPerKm,
+      naismithMin100mUp: typeof obj.naismithMin100mUp === 'number' ? obj.naismithMin100mUp : DEFAULT_PACE.naismithMin100mUp,
+      activity: obj.activity === 'run' || obj.activity === 'bike' ? obj.activity : 'walk',
+    }
+  } catch {
+    return DEFAULT_PACE
+  }
+}
+
+function savePaceConfig(c: PaceConfig) {
+  try { localStorage.setItem(PACE_LS_KEY, JSON.stringify(c)) } catch { /* ignore quota errors */ }
 }
 
 function toLocalInputValue(d: Date): string {
@@ -39,7 +62,10 @@ export default function App() {
     d.setHours(d.getHours() + 1)
     return d
   })
-  const [paceConfig, setPaceConfig] = useState<PaceConfig>(DEFAULT_PACE)
+  const [paceConfig, setPaceConfig] = useState<PaceConfig>(loadPaceConfig)
+
+  // Persist pace config across reloads
+  useEffect(() => { savePaceConfig(paceConfig) }, [paceConfig])
   const [sampling, setSampling] = useState<SamplingConfig>(DEFAULT_SAMPLING)
 
   const [baseWaypoints, setBaseWaypoints] = useState<Waypoint[]>([])
@@ -63,7 +89,7 @@ export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('plan')
 
   // ── GPS live position ──────────────────────────────────────────────────────
-  const livePos = useLivePosition(track, appMode === 'live')
+  const livePos = useLivePosition(track, appMode === 'live', ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
 
   // ── Inline start-time editor in GPS bar ───────────────────────────────────
   const [liveEditingStart, setLiveEditingStart] = useState(false)
@@ -652,12 +678,13 @@ export default function App() {
         {track && baseWaypoints.length > 0 && (
           <RouteMap
             track={track}
-            waypoints={appMode === 'live' ? liveWaypoints : enrichedWaypoints}
+            waypoints={enrichedWaypoints}
             mapMode={mapMode}
             onMapModeChange={setMapMode}
             liveMode={appMode === 'live'}
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
+            liveTrackKm={livePos.trackKm}
             expectedKm={expectedKm}
           />
         )}

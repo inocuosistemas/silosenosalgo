@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { PaceConfig } from '../lib/timing'
+import type { ActivityType, PaceConfig } from '../lib/timing'
+import { ACTIVITY_LABEL } from '../lib/timing'
 
 interface Props {
   config: PaceConfig
@@ -33,8 +34,34 @@ export function PaceConfigPanel({ config, hasGpxTimes, onChange }: Props) {
   const paceStr = `${paceMin}:${paceSec.toString().padStart(2, '0')}`
   const speedKmh = (60 / config.paceMinPerKm).toFixed(1)
 
+  function setActivity(activity: ActivityType) {
+    onChange({ ...config, activity })
+  }
+
   return (
     <div className="space-y-4">
+      {/* Activity selector — controls realistic-speed filter for live GPS */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-slate-400 text-xs uppercase tracking-wide">Tipo de actividad</span>
+        <div className="flex gap-2 flex-wrap">
+          {(['walk', 'run', 'bike'] as const).map((a) => {
+            const { emoji, label } = ACTIVITY_LABEL[a]
+            return (
+              <button
+                key={a}
+                onClick={() => setActivity(a)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5
+                  ${config.activity === a
+                    ? 'bg-sky-500 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+              >
+                <span>{emoji}</span> {label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="flex gap-2 flex-wrap">
         {(['fixed', 'naismith', 'gpx'] as const).map((m) => (
           <button

@@ -21,6 +21,8 @@ interface Props {
   liveCoords?: { lat: number; lon: number } | null
   /** 0..1 progress derived from GPS position */
   liveProgress?: number
+  /** Km along the track where the user currently is (live mode, used to hide passed waypoint markers) */
+  liveTrackKm?: number
   /** Km on the track where the user "should be" per the plan (live mode) */
   expectedKm?: number | null
 }
@@ -63,6 +65,7 @@ export function RouteMap({
   liveMode = false,
   liveCoords = null,
   liveProgress = 0,
+  liveTrackKm = 0,
   expectedKm = null,
 }: Props) {
   const { points } = track
@@ -171,12 +174,13 @@ export function RouteMap({
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
   // ── Visible waypoint markers ──────────────────────────────────────────────
-  // In live mode, App already filters waypoints to pending only — show them all.
-  // In plan mode, the slider progressively reveals waypoints as it's dragged.
+  // Live mode: show only pending waypoints (filter by current GPS km)
+  // Plan mode: slider progressively reveals waypoints as it's dragged
   const visibleWaypoints = useMemo(() => {
-    if (liveMode || effectiveProgress >= 1) return waypoints
+    if (liveMode) return waypoints.filter((wp) => wp.distanceKm >= liveTrackKm - 0.05)
+    if (effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
-  }, [waypoints, liveMode, effectiveProgress, targetKm])
+  }, [waypoints, liveMode, liveTrackKm, effectiveProgress, targetKm])
 
   // ── Expected position dot (live mode) ─────────────────────────────────────
   const expectedCoords = useMemo<[number, number] | null>(() => {

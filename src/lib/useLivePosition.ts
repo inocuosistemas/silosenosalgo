@@ -29,24 +29,32 @@ const INITIAL: LivePositionState = {
 export function useLivePosition(
   track: GpxTrack | null,
   active: boolean,
+  maxSpeedKmh: number,
 ): LivePositionState {
   const [state, setState] = useState<LivePositionState>(INITIAL)
   const cumKmRef = useRef<Float64Array | null>(null)
+  /** Last accepted fix — used to filter implausible "teleports" on self-crossing tracks */
+  const lastFixRef = useRef<{ trackKm: number; ts: number } | null>(null)
+  /** Always-current max speed so the GPS callback closure can read latest value without restarting watch */
+  const maxSpeedRef = useRef(maxSpeedKmh)
+  maxSpeedRef.current = maxSpeedKmh
 
   // Pre-compute cumulative km array whenever the track changes
   useEffect(() => {
-    if (!track) { cumKmRef.current = null; return }
+    if (!track) { cumKmRef.current = null; lastFixRef.current = null; return }
     const pts = track.points
     const arr = new Float64Array(pts.length)
     for (let i = 1; i < pts.length; i++) {
       arr[i] = arr[i - 1] + haversineKm(pts[i - 1], pts[i])
     }
     cumKmRef.current = arr
+    lastFixRef.current = null  // new track → drop the old anchor
   }, [track])
 
   useEffect(() => {
     if (!active) {
       setState(INITIAL)
+      lastFixRef.current = null
       return
     }
     if (!track) return
@@ -63,11 +71,22 @@ export function useLivePosition(
         const cumKm = cumKmRef.current
         if (!cumKm) return
 
-        // O(n) nearest-point scan — fast enough for up to ~20k points
-        let minDist = Infinity
-        let nearestIdx = 0
         const pts = track.points
+        const lastFix = lastFixRef.current
+        const now = Date.now()
+
+        // Plausibility window: how far in km could the user have realistically
+        // moved along the track since the last accepted fix?
+        // maxSpeedKmh × dtSec / 3600 + 50m buffer for GPS noise / quick maneuvers.
+        const maxJumpKm = lastFix
+          ? (maxSpeedRef.current / 3600) * ((now - lastFix.ts) / 1000) + 0.05
+          : Infinity
+
+        // Pass 1: nearest point WITHIN the plausibility window
+        let minDist = Infinity
+        let nearestIdx = -1
         for (let i = 0; i < pts.length; i++) {
+          if (lastFix && Math.abs(cumKm[i] - lastFix.trackKm) > maxJumpKm) continue
           const d = haversineKm({ lat, lon }, pts[i])
           if (d < minDist) {
             minDist = d
@@ -75,7 +94,21 @@ export function useLivePosition(
           }
         }
 
+        // Pass 2 (fallback): if the window excluded everything, scan globally.
+        // Happens after very long GPS gaps or when user is genuinely off-track.
+        if (nearestIdx === -1) {
+          for (let i = 0; i < pts.length; i++) {
+            const d = haversineKm({ lat, lon }, pts[i])
+            if (d < minDist) {
+              minDist = d
+              nearestIdx = i
+            }
+          }
+        }
+
         const trackKm = cumKm[nearestIdx]
+        lastFixRef.current = { trackKm, ts: now }
+
         setState({
           isLocating: false,
           error: null,
