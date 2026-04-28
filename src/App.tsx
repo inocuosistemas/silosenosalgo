@@ -1,4 +1,4 @@
-import { createElement, memo, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { SamplingPanel } from './components/SamplingPanel'
@@ -13,6 +13,7 @@ import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
+import { CutoffSummary } from './components/CutoffSummary'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
@@ -44,6 +45,36 @@ function loadPaceConfig(): PaceConfig {
 
 function savePaceConfig(c: PaceConfig) {
   try { localStorage.setItem(PACE_LS_KEY, JSON.stringify(c)) } catch { /* ignore quota errors */ }
+}
+
+// ── Cut-off time helpers ───────────────────────────────────────────────────────
+/** Stable key for a named waypoint based on its coordinates. */
+function wptKey(lat: number, lon: number) {
+  return `${lat.toFixed(6)},${lon.toFixed(6)}`
+}
+
+const CUTOFF_LS_PREFIX = 'silosenosalgo-cutoffs-'
+
+function loadCutoffTimes(trackName: string): Map<string, Date> {
+  try {
+    const raw = localStorage.getItem(CUTOFF_LS_PREFIX + trackName)
+    if (!raw) return new Map()
+    const obj = JSON.parse(raw) as Record<string, string>
+    const map = new Map<string, Date>()
+    for (const [key, val] of Object.entries(obj)) {
+      const d = new Date(val)
+      if (!isNaN(d.getTime())) map.set(key, d)
+    }
+    return map
+  } catch { return new Map() }
+}
+
+function saveCutoffTimes(trackName: string, times: Map<string, Date>) {
+  try {
+    const obj: Record<string, string> = {}
+    for (const [key, val] of times) obj[key] = val.toISOString()
+    localStorage.setItem(CUTOFF_LS_PREFIX + trackName, JSON.stringify(obj))
+  } catch { /* ignore quota errors */ }
 }
 
 function toLocalInputValue(d: Date): string {
@@ -90,6 +121,21 @@ export default function App() {
 
   // ── Analyze range (null = play mode / full view) ───────────────────────────
   const [analyzeRange, setAnalyzeRange] = useState<{ from: number; to: number } | null>(null)
+
+  // ── Cut-off times for named waypoints (persisted per track name) ──────────
+  const [cutoffTimes, setCutoffTimesState] = useState<Map<string, Date>>(new Map())
+
+  const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
+    if (!track) return
+    const key = wptKey(lat, lon)
+    setCutoffTimesState((prev) => {
+      const next = new Map(prev)
+      if (time === null) next.delete(key)
+      else next.set(key, time)
+      saveCutoffTimes(track.name, next)
+      return next
+    })
+  }, [track])
   // Deferred: WeatherCharts, WeatherSummary and the waypoints table only re-render
   // when React is idle, keeping slider drag at 60 fps.
   const deferredAnalyzeRange = useDeferredValue(analyzeRange)
@@ -169,9 +215,16 @@ export default function App() {
         if (d < minDiff) { minDiff = d; weather = wp.weather }
       }
 
-      return { ...wpt, estimatedTime, weather }
+      const key = wptKey(wpt.lat, wpt.lon)
+      const cutoffTime = cutoffTimes.get(key)
+      const cutoffMarginMin =
+        cutoffTime && estimatedTime
+          ? (cutoffTime.getTime() - estimatedTime.getTime()) / 60_000
+          : undefined
+
+      return { ...wpt, estimatedTime, weather, cutoffTime, cutoffMarginMin }
     })
-  }, [track, enrichedWaypoints])
+  }, [track, enrichedWaypoints, cutoffTimes])
 
   // ── Live waypoints: remaining only, ETAs from now ─────────────────────────
   // Uses real average pace if available, else falls back to planned pace.
@@ -252,7 +305,8 @@ export default function App() {
     setTrack(t)
     setAppMode('plan')
     liveWeatherFetchedRef.current = false
-    setAnalyzeRange(null)  // new track → reset section view
+    setAnalyzeRange(null)
+    setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
     reset()
     if (t.points.some((p) => p.time)) {
       setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
@@ -465,8 +519,17 @@ export default function App() {
               <div>
                 <p className="font-semibold text-slate-100">{track.name}</p>
                 <p className="text-slate-400 text-sm">
-                  {track.totalDistanceKm.toFixed(1)} km · {track.points.length} puntos
+                  {track.totalDistanceKm.toFixed(1)} km
+                  {' · '}
+                  <span className="text-orange-400">+{Math.round(track.elevGainM)} m</span>
+                  {' / '}
+                  <span className="text-blue-400">-{Math.round(track.elevLossM)} m</span>
+                  {' · '}
+                  {track.points.length} puntos
                   {hasGpxTimes && <span className="ml-2 text-sky-400">· con tiempos GPS</span>}
+                  {track.namedWaypoints.length > 0 && (
+                    <span className="ml-2 text-amber-500">· 🚩 {track.namedWaypoints.length} POI</span>
+                  )}
                 </p>
               </div>
               <button
@@ -744,6 +807,11 @@ export default function App() {
           />
         )}
 
+        {/* ── Cut-off summary (plan mode, when at least one cut-off is defined) ── */}
+        {appMode === 'plan' && enrichedNamedWaypoints.some((w) => w.cutoffTime) && (
+          <CutoffSummary namedWaypoints={enrichedNamedWaypoints} />
+        )}
+
         {/* ── Charts (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <WeatherCharts
@@ -797,6 +865,7 @@ export default function App() {
                     waypoints={tableWaypoints}
                     namedWaypoints={tableNamedWaypoints}
                     startTime={startTime}
+                    onSetCutoff={appMode === 'plan' ? setCutoff : undefined}
                   />
                 </>
               )

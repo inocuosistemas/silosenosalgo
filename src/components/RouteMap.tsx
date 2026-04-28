@@ -58,6 +58,15 @@ const PLAY_STEP = 0.003
 const PLAY_INTERVAL_MS = 30
 const PRECISION_STEP_KM = 0.1
 
+/** Format a cut-off margin (minutes) as "+2h 05m" or "−8 min" */
+function cutoffMarginText(min: number): string {
+  const abs = Math.abs(min)
+  const h = Math.floor(abs / 60)
+  const m = Math.round(abs % 60)
+  const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
+  return min >= 0 ? `+${t}` : `−${t}`
+}
+
 // Flag icon for GPX named waypoints — created once at module level (browser-only SPA)
 const FLAG_ICON = L.divIcon({
   className: '',
@@ -800,7 +809,25 @@ export function RouteMap({
                       {wpt.ele != null && ` · ${Math.round(wpt.ele)} m`}
                     </p>
                     {wpt.estimatedTime && (
-                      <p>⏱️ {formatTime(wpt.estimatedTime)}</p>
+                      <p>⏱️ Llegada: {formatTime(wpt.estimatedTime)}</p>
+                    )}
+                    {wpt.cutoffTime && (
+                      <>
+                        <p style={{ color: '#fbbf24' }}>
+                          🚧 Corte: {formatTime(wpt.cutoffTime)}
+                        </p>
+                        {wpt.cutoffMarginMin !== undefined && (
+                          <p style={{
+                            fontWeight: 600,
+                            color: wpt.cutoffMarginMin >= 20 ? '#4ade80'
+                              : wpt.cutoffMarginMin >= 0 ? '#fbbf24'
+                              : '#f87171',
+                          }}>
+                            {wpt.cutoffMarginMin >= 0 ? '✅' : '❌'}{' '}
+                            {cutoffMarginText(wpt.cutoffMarginMin)}
+                          </p>
+                        )}
+                      </>
                     )}
                     {wpt.weather && (
                       <p>

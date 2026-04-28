@@ -503,11 +503,27 @@ type PdfRow =
   | { kind: 'computed'; wp: EnrichedWaypoint; idx: number }
   | { kind: 'gpx-wpt'; wpt: EnrichedNamedWaypoint }
 
+function cutoffMarginLabel(min: number): string {
+  const abs = Math.abs(min)
+  const h = Math.floor(abs / 60)
+  const m = Math.round(abs % 60)
+  const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m}m`
+  return min >= 0 ? `+${t}` : `-${t}`
+}
+
+function cutoffMarginColor(min: number): string {
+  if (min >= 20) return '#16a34a'  // green-600
+  if (min >= 0)  return '#b45309'  // amber-700
+  return '#dc2626'                 // red-600
+}
+
 function TableSection({
   waypoints, namedWaypoints = [], startTime,
 }: { waypoints: EnrichedWaypoint[]; namedWaypoints?: EnrichedNamedWaypoint[]; startTime: Date }) {
-  const hasWeather = waypoints.some((w) => w.weather !== null)
-  const hasLocation = waypoints.some((w) => w.location !== null)
+  const hasWeather   = waypoints.some((w) => w.weather !== null)
+  const hasLocation  = waypoints.some((w) => w.location !== null)
+  const hasCutoffCol = namedWaypoints.length > 0
+  const hasNameCol   = hasLocation || namedWaypoints.length > 0
 
   // Merge and sort by km
   const rows: PdfRow[] = [
@@ -520,13 +536,15 @@ function TableSection({
     return aKm - bKm
   })
 
-  const BASE_W = 28 + 48 + 28 + 28 + 68   // 200
+  const BASE_W    = 28 + 48 + 28 + 28 + 68              // 200
   const WEATHER_W = hasWeather ? 56 + 24 + 38 + 46 : 0  // 164
-  const LOC_W = hasLocation ? Math.max(70, CW - BASE_W - WEATHER_W) : 0
+  const CORTE_W   = hasCutoffCol ? 52 : 0
+  const LOC_W     = hasNameCol ? Math.max(65, CW - BASE_W - WEATHER_W - CORTE_W) : 0
 
   const COL = {
     km: 28, dplus: 48, alt: 28, grade: 28, hora: 68,
     wLabel: 56, temp: 24, lluvia: 38, wind: 46,
+    corte: CORTE_W,
     loc: LOC_W,
   }
 
@@ -574,6 +592,9 @@ function TableSection({
           <Text style={[styles.th, { width: COL.alt, textAlign: 'right' }]}>Alt</Text>
           <Text style={[styles.th, { width: COL.grade, textAlign: 'right' }]}>Pend</Text>
           <Text style={[styles.th, { width: COL.hora, textAlign: 'center' }]}>Hora · Tiempo</Text>
+          {hasCutoffCol && (
+            <Text style={[styles.th, { width: COL.corte }]}>Corte</Text>
+          )}
           {hasWeather && (
             <>
               <Text style={[styles.th, { width: COL.wLabel }]}>Tiempo</Text>
@@ -582,8 +603,10 @@ function TableSection({
               <Text style={[styles.th, { width: COL.wind, textAlign: 'right' }]}>Viento</Text>
             </>
           )}
-          {hasLocation && (
-            <Text style={[styles.th, { width: COL.loc }]}>Población</Text>
+          {hasNameCol && (
+            <Text style={[styles.th, { width: COL.loc }]}>
+              {hasLocation ? 'Población' : 'Nombre'}
+            </Text>
           )}
         </View>
 
@@ -618,6 +641,25 @@ function TableSection({
                     <Text style={styles.tdFaint}>—</Text>
                   )}
                 </View>
+                {/* Corte */}
+                {hasCutoffCol && (
+                  <View style={{ width: COL.corte, paddingHorizontal: 4 }}>
+                    {wpt.cutoffTime ? (
+                      <>
+                        <Text style={{ fontSize: 7, fontFamily: 'Courier-Bold', color: C.wptAccent }}>
+                          {formatTime(wpt.cutoffTime)}
+                        </Text>
+                        {wpt.cutoffMarginMin !== undefined && (
+                          <Text style={{ fontSize: 6, fontFamily: 'Courier-Bold', color: cutoffMarginColor(wpt.cutoffMarginMin) }}>
+                            {cutoffMarginLabel(wpt.cutoffMarginMin)}
+                          </Text>
+                        )}
+                      </>
+                    ) : (
+                      <Text style={styles.tdFaint}>—</Text>
+                    )}
+                  </View>
+                )}
                 {hasWeather && (
                   <>
                     <Text style={[styles.td, { width: COL.wLabel, fontSize: 6.5 }]}>
@@ -642,15 +684,17 @@ function TableSection({
                     </View>
                   </>
                 )}
-                {/* Name in the location column (or appended if no location) */}
-                <View style={{ width: COL.loc > 0 ? COL.loc : 80, paddingHorizontal: 4 }}>
-                  <Text style={{ fontSize: 7, color: C.wptAccent, fontFamily: 'Helvetica-Bold' }}>
-                    {wpt.name}
-                  </Text>
-                  {wpt.desc && (
-                    <Text style={{ fontSize: 5.5, color: C.faint }}>{wpt.desc}</Text>
-                  )}
-                </View>
+                {/* Name in the location/name column */}
+                {hasNameCol && (
+                  <View style={{ width: COL.loc, paddingHorizontal: 4 }}>
+                    <Text style={{ fontSize: 7, color: C.wptAccent, fontFamily: 'Helvetica-Bold' }}>
+                      {wpt.name}
+                    </Text>
+                    {wpt.desc && (
+                      <Text style={{ fontSize: 5.5, color: C.faint }}>{wpt.desc}</Text>
+                    )}
+                  </View>
+                )}
               </View>
             )
           }
@@ -698,6 +742,11 @@ function TableSection({
                 </Text>
               </View>
 
+              {/* Empty Corte cell (keeps column alignment) */}
+              {hasCutoffCol && (
+                <Text style={[styles.tdFaint, { width: COL.corte, textAlign: 'center' }]}>—</Text>
+              )}
+
               {/* Weather columns */}
               {hasWeather && (
                 <>
@@ -725,8 +774,8 @@ function TableSection({
                 </>
               )}
 
-              {/* Location */}
-              {hasLocation && (
+              {/* Location / Name */}
+              {hasNameCol && (
                 <View style={{ width: COL.loc, paddingHorizontal: 4 }}>
                   {loc?.nearestPlace ? (
                     <>
