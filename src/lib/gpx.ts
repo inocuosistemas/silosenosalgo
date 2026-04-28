@@ -5,10 +5,32 @@ export interface GpxPoint {
   time: Date | null
 }
 
+/** A <wpt> element in the GPX file (a named POI along or near the route). */
+export interface GpxNamedWaypoint {
+  lat: number
+  lon: number
+  /** Elevation from the <ele> tag, or null if absent */
+  ele: number | null
+  /** <name> tag content */
+  name: string
+  /** <desc> tag content, if present */
+  desc?: string
+  /** <sym> tag content (e.g. "Lodge", "Summit"), if present */
+  sym?: string
+  /** <type> tag content, if present */
+  type?: string
+  /** km along the track at the snapped (nearest) track point */
+  distanceKm: number
+  /** Index into GpxTrack.points of the nearest track point */
+  nearestTrackIndex: number
+}
+
 export interface GpxTrack {
   name: string
   points: GpxPoint[]
   totalDistanceKm: number
+  /** Named waypoints parsed from <wpt> elements — empty array if none */
+  namedWaypoints: GpxNamedWaypoint[]
 }
 
 function haversineKm(a: GpxPoint, b: GpxPoint): number {
@@ -43,10 +65,37 @@ export function parseGpx(xml: string): GpxTrack {
     return { lat, lon, ele, time }
   })
 
+  // Build cumulative km array (used for both totalDistanceKm and wpt snapping)
   let totalDistanceKm = 0
+  const cumKm: number[] = [0]
   for (let i = 1; i < points.length; i++) {
     totalDistanceKm += haversineKm(points[i - 1], points[i])
+    cumKm.push(totalDistanceKm)
   }
 
-  return { name, points, totalDistanceKm }
+  // ── Parse <wpt> elements ─────────────────────────────────────────────────
+  const namedWaypoints: GpxNamedWaypoint[] = Array.from(doc.querySelectorAll('wpt'))
+    .map((el) => {
+      const lat = parseFloat(el.getAttribute('lat') ?? '0')
+      const lon = parseFloat(el.getAttribute('lon') ?? '0')
+      const eleText = el.querySelector('ele')?.textContent?.trim()
+      const ele = eleText ? parseFloat(eleText) : null
+      const name = el.querySelector('name')?.textContent?.trim() || 'Waypoint'
+      const desc = el.querySelector('desc')?.textContent?.trim() || undefined
+      const sym = el.querySelector('sym')?.textContent?.trim() || undefined
+      const type = el.querySelector('type')?.textContent?.trim() || undefined
+
+      // Snap to nearest track point
+      const wptAsGpx: GpxPoint = { lat, lon, ele: ele ?? 0, time: null }
+      let nearestTrackIndex = 0
+      let minDistKm = haversineKm(wptAsGpx, points[0])
+      for (let i = 1; i < points.length; i++) {
+        const d = haversineKm(wptAsGpx, points[i])
+        if (d < minDistKm) { minDistKm = d; nearestTrackIndex = i }
+      }
+
+      return { lat, lon, ele, name, desc, sym, type, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
+    })
+
+  return { name, points, totalDistanceKm, namedWaypoints }
 }

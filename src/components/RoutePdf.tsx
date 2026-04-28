@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import { Document, Page, View, Text, Svg, G, Path, Circle, Rect, Line, StyleSheet } from '@react-pdf/renderer'
 import type { GpxTrack } from '../lib/gpx'
-import type { EnrichedWaypoint } from '../lib/places'
+import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { formatTime, formatDuration } from '../lib/timing'
 import { windImpact, windImpactStyle } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
@@ -51,6 +51,8 @@ const C = {
   wind: '#a78bfa',
   ele: '#cbd5e1',
   rowAlt: '#f8fafc',
+  wptRow: '#fffbeb',
+  wptAccent: '#b45309',
 }
 
 const styles = StyleSheet.create({
@@ -497,11 +499,26 @@ function ChartsSection({ waypoints }: { waypoints: EnrichedWaypoint[] }) {
 }
 
 // ─── Table section ────────────────────────────────────────────────────────────
+type PdfRow =
+  | { kind: 'computed'; wp: EnrichedWaypoint; idx: number }
+  | { kind: 'gpx-wpt'; wpt: EnrichedNamedWaypoint }
+
 function TableSection({
-  waypoints, startTime,
-}: { waypoints: EnrichedWaypoint[]; startTime: Date }) {
+  waypoints, namedWaypoints = [], startTime,
+}: { waypoints: EnrichedWaypoint[]; namedWaypoints?: EnrichedNamedWaypoint[]; startTime: Date }) {
   const hasWeather = waypoints.some((w) => w.weather !== null)
   const hasLocation = waypoints.some((w) => w.location !== null)
+
+  // Merge and sort by km
+  const rows: PdfRow[] = [
+    ...waypoints.map((wp, idx): PdfRow => ({ kind: 'computed', wp, idx })),
+    ...namedWaypoints.map((wpt): PdfRow => ({ kind: 'gpx-wpt', wpt })),
+  ].sort((a, b) => {
+    const aKm = a.kind === 'computed' ? a.wp.distanceKm : a.wpt.distanceKm
+    const bKm = b.kind === 'computed' ? b.wp.distanceKm : b.wpt.distanceKm
+    if (Math.abs(aKm - bKm) < 0.001) return a.kind === 'computed' ? -1 : 1
+    return aKm - bKm
+  })
 
   const BASE_W = 28 + 48 + 28 + 28 + 68   // 200
   const WEATHER_W = hasWeather ? 56 + 24 + 38 + 46 : 0  // 164
@@ -543,7 +560,7 @@ function TableSection({
   return (
     <View>
       <Text style={styles.sectionTitle}>
-        Waypoints ({waypoints.length})
+        Waypoints ({waypoints.length}{namedWaypoints.length > 0 ? ` + ${namedWaypoints.length} POI` : ''})
         {'   '}
         Tiempo total: {formatDuration(totalMs)}
         {'   '}
@@ -571,13 +588,81 @@ function TableSection({
         </View>
 
         {/* Rows */}
-        {waypoints.map((wp, i) => {
+        {rows.map((row, rowIdx) => {
+          // ── GPX named waypoint row ──────────────────────────────────────
+          if (row.kind === 'gpx-wpt') {
+            const { wpt } = row
+            const w = wpt.weather
+            const elapsed = wpt.estimatedTime ? wpt.estimatedTime.getTime() - startTime.getTime() : 0
+            const impact = w ? windImpact(w.windDirection, 0, w.windSpeedKmh) : null
+            const { color: impactColor } = impact ? windImpactStyle(impact) : { color: C.faint }
+            return (
+              <View key={`nwp-${rowIdx}`} style={[styles.tableRow, { backgroundColor: C.wptRow }]} wrap={false}>
+                <Text style={[styles.tdMono, { width: COL.km, textAlign: 'right', color: C.wptAccent }]}>
+                  {wpt.distanceKm.toFixed(1)}
+                </Text>
+                <Text style={[styles.tdFaint, { width: COL.dplus, textAlign: 'center' }]}>—</Text>
+                <Text style={[styles.tdMono, { width: COL.alt, textAlign: 'right' }]}>
+                  {wpt.ele != null ? `${Math.round(wpt.ele)}m` : '—'}
+                </Text>
+                <Text style={[styles.tdFaint, { width: COL.grade, textAlign: 'right' }]}>—</Text>
+                <View style={{ width: COL.hora, alignItems: 'center' }}>
+                  {wpt.estimatedTime ? (
+                    <>
+                      <Text style={{ fontSize: 7.5, fontFamily: 'Courier-Bold', color: C.accentDark }}>
+                        {formatTime(wpt.estimatedTime)}
+                      </Text>
+                      <Text style={{ fontSize: 6, color: C.faint }}>{formatDuration(elapsed)}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.tdFaint}>—</Text>
+                  )}
+                </View>
+                {hasWeather && (
+                  <>
+                    <Text style={[styles.td, { width: COL.wLabel, fontSize: 6.5 }]}>
+                      {w ? weatherCodeLabel(w.weatherCode) : '—'}
+                    </Text>
+                    <Text style={[styles.tdMono, { width: COL.temp, textAlign: 'right', color: w ? tempColor(w.temperatureC) : C.faint }]}>
+                      {w ? `${w.temperatureC.toFixed(1)}°` : '—'}
+                    </Text>
+                    <Text style={[styles.tdMono, { width: COL.lluvia, textAlign: 'right', color: w ? precipColor(w.precipProbability) : C.faint }]}>
+                      {w ? `${w.precipProbability}%` : '—'}
+                    </Text>
+                    <View style={{ width: COL.wind, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 4 }}>
+                      {w && (
+                        <>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: impactColor, marginRight: 2 }} />
+                          <Text style={{ fontSize: 6.5, fontFamily: 'Courier', color: C.text }}>
+                            {Math.round(w.windSpeedKmh)}km/h
+                          </Text>
+                        </>
+                      )}
+                      {!w && <Text style={styles.tdFaint}>—</Text>}
+                    </View>
+                  </>
+                )}
+                {/* Name in the location column (or appended if no location) */}
+                <View style={{ width: COL.loc > 0 ? COL.loc : 80, paddingHorizontal: 4 }}>
+                  <Text style={{ fontSize: 7, color: C.wptAccent, fontFamily: 'Helvetica-Bold' }}>
+                    {wpt.name}
+                  </Text>
+                  {wpt.desc && (
+                    <Text style={{ fontSize: 5.5, color: C.faint }}>{wpt.desc}</Text>
+                  )}
+                </View>
+              </View>
+            )
+          }
+
+          // ── Regular computed waypoint row ───────────────────────────────
+          const { wp, idx } = row
           const w = wp.weather
           const loc = wp.location
           const elapsed = wp.estimatedTime.getTime() - startTime.getTime()
           const impact = w ? windImpact(w.windDirection, wp.bearing, w.windSpeedKmh) : null
           const { color: impactColor } = impact ? windImpactStyle(impact) : { color: C.faint }
-          const rowStyle = i % 2 === 0 ? styles.tableRow : styles.tableRowAlt
+          const rowStyle = idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt
 
           return (
             <View key={wp.index} style={rowStyle} wrap={false}>
@@ -667,11 +752,12 @@ function TableSection({
 interface PdfProps {
   track: GpxTrack
   waypoints: EnrichedWaypoint[]
+  namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
   mapMode: MapMode
 }
 
-export function RoutePdfDocument({ track, waypoints, startTime, mapMode }: PdfProps) {
+export function RoutePdfDocument({ track, waypoints, namedWaypoints = [], startTime, mapMode }: PdfProps) {
   const last = waypoints[waypoints.length - 1]
   const totalMs = last ? last.estimatedTime.getTime() - startTime.getTime() : 0
   const totalGain = Math.round(last?.elevGainM ?? 0)
@@ -718,7 +804,7 @@ export function RoutePdfDocument({ track, waypoints, startTime, mapMode }: PdfPr
         <ChartsSection waypoints={waypoints} />
 
         {/* Table */}
-        <TableSection waypoints={waypoints} startTime={startTime} />
+        <TableSection waypoints={waypoints} namedWaypoints={namedWaypoints} startTime={startTime} />
 
       </Page>
     </Document>

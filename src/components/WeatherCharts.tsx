@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   ComposedChart,
   Area,
@@ -50,7 +51,7 @@ function WindDot(props: { cx?: number; cy?: number; payload?: { windImpactColor:
   )
 }
 
-export function WeatherCharts({ waypoints, range, onClearRange }: Props) {
+export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onClearRange }: Props) {
   const data = waypoints
     .filter((w) => w.weather !== null)
     .map((w) => {
@@ -232,4 +233,4 @@ export function WeatherCharts({ waypoints, range, onClearRange }: Props) {
       </div>
     </div>
   )
-}
+})

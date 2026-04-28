@@ -1,11 +1,17 @@
-import type { EnrichedWaypoint } from '../lib/places'
+import { useMemo } from 'react'
+import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { formatTime, formatDuration } from '../lib/timing'
 
 interface Props {
   waypoints: EnrichedWaypoint[]
+  namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
 }
+
+type TableRow =
+  | { kind: 'computed'; wp: EnrichedWaypoint; idx: number }
+  | { kind: 'gpx-wpt'; wpt: EnrichedNamedWaypoint }
 
 const PLACE_TYPE_LABEL: Record<string, string> = {
   city: 'Ciudad',
@@ -36,7 +42,7 @@ function tempColor(t: number) {
   return 'text-blue-400'
 }
 
-export function WaypointsTable({ waypoints, startTime }: Props) {
+export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Props) {
   if (waypoints.length === 0) return null
 
   const last = waypoints[waypoints.length - 1]
@@ -49,12 +55,27 @@ export function WaypointsTable({ waypoints, startTime }: Props) {
   const hasWeather = waypoints.some((w) => w.weather !== null)
   const hasLocation = waypoints.some((w) => w.location !== null)
 
+  // Merge computed waypoints + GPX named waypoints, sorted by km
+  const rows = useMemo<TableRow[]>(() => {
+    const computed: TableRow[] = waypoints.map((wp, idx) => ({ kind: 'computed', wp, idx }))
+    const named: TableRow[] = namedWaypoints.map((wpt) => ({ kind: 'gpx-wpt', wpt }))
+    return [...computed, ...named].sort((a, b) => {
+      const aKm = a.kind === 'computed' ? a.wp.distanceKm : a.wpt.distanceKm
+      const bKm = b.kind === 'computed' ? b.wp.distanceKm : b.wpt.distanceKm
+      if (Math.abs(aKm - bKm) < 0.001) return a.kind === 'computed' ? -1 : 1
+      return aKm - bKm
+    })
+  }, [waypoints, namedWaypoints])
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold text-slate-200">
           Waypoints estimados
           <span className="text-slate-500 font-normal text-sm ml-2">({waypoints.length})</span>
+          {namedWaypoints.length > 0 && (
+            <span className="text-amber-500 font-normal text-sm ml-2">· 🚩 {namedWaypoints.length}</span>
+          )}
         </h2>
         <div className="flex items-center gap-4 text-sm flex-wrap">
           <span className="text-slate-400">
@@ -94,7 +115,76 @@ export function WaypointsTable({ waypoints, startTime }: Props) {
             </tr>
           </thead>
           <tbody>
-            {waypoints.map((wp, i) => {
+            {rows.map((row, rowIdx) => {
+              // ── Named GPX waypoint row ──────────────────────────────────────
+              if (row.kind === 'gpx-wpt') {
+                const { wpt } = row
+                const w = wpt.weather
+                const { emoji, label } = w ? weatherLabel(w.weatherCode) : { emoji: '', label: '' }
+                const impact = w ? windImpact(w.windDirection, 0, w.windSpeedKmh) : null
+                const { color: impactColor } = impact ? windImpactStyle(impact) : { color: '#475569' }
+                return (
+                  <tr
+                    key={`nwp-${rowIdx}`}
+                    className="border-t border-amber-800/40 bg-amber-950/30"
+                    style={{ borderLeft: '3px solid #d97706' }}
+                  >
+                    <td className="px-3 py-2.5 text-right font-mono text-amber-300">
+                      {wpt.distanceKm.toFixed(1)}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                      {wpt.ele != null ? `${Math.round(wpt.ele)}m` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
+                    <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
+                      {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
+                      {wpt.estimatedTime && (
+                        <span className="text-slate-500 font-normal text-xs ml-1.5">
+                          {formatDuration(wpt.estimatedTime.getTime() - startTime.getTime())}
+                        </span>
+                      )}
+                    </td>
+                    {hasWeather && (
+                      <>
+                        <td className="px-3 py-2.5 text-center" title={label}>
+                          {w ? `${emoji} ${label}` : <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-mono ${w ? tempColor(w.temperatureC) : 'text-slate-600'}`}>
+                          {w ? `${w.temperatureC.toFixed(1)}°` : '—'}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-mono ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
+                          {w ? `${w.precipProbability}%` : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                          {w ? (
+                            <span className="inline-flex items-center gap-1.5 justify-end">
+                              <span
+                                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ background: impactColor }}
+                              />
+                              {Math.round(w.windSpeedKmh)} km/h
+                              <span className="text-slate-500">{windDirectionLabel(w.windDirection)}</span>
+                            </span>
+                          ) : '—'}
+                        </td>
+                      </>
+                    )}
+                    {/* Name + description occupy the location column (or append if no location col) */}
+                    <td className={`px-3 py-2.5 text-left ${!hasLocation ? '' : ''}`} colSpan={hasLocation ? 1 : undefined}>
+                      <div className="leading-tight">
+                        <span className="text-amber-400 font-semibold">🚩 {wpt.name}</span>
+                        {wpt.desc && (
+                          <div className="text-slate-500 text-xs mt-0.5">{wpt.desc}</div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              }
+
+              // ── Regular computed waypoint row ───────────────────────────────
+              const { wp, idx } = row
               const w = wp.weather
               const loc = wp.location
               const { emoji, label } = w ? weatherLabel(w.weatherCode) : { emoji: '', label: '' }
@@ -104,7 +194,7 @@ export function WaypointsTable({ waypoints, startTime }: Props) {
               return (
                 <tr
                   key={wp.index}
-                  className={`border-t border-slate-700/50 ${i % 2 === 0 ? 'bg-slate-900' : 'bg-slate-800/40'}`}
+                  className={`border-t border-slate-700/50 ${idx % 2 === 0 ? 'bg-slate-900' : 'bg-slate-800/40'}`}
                 >
                   <td className="px-3 py-2.5 text-right font-mono text-slate-200">
                     {wp.distanceKm.toFixed(1)}

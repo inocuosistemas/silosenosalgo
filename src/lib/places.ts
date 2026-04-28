@@ -1,6 +1,7 @@
+import type { GpxNamedWaypoint } from './gpx'
 import type { Waypoint } from './timing'
 import { haversineKm } from './timing'
-import type { WaypointWithWeather } from './weather'
+import type { WeatherData, WaypointWithWeather } from './weather'
 
 export interface PlaceInfo {
   name: string
@@ -14,6 +15,12 @@ export interface LocationInfo {
 }
 
 export type EnrichedWaypoint = WaypointWithWeather & { location: LocationInfo | null }
+
+/** A <wpt> POI enriched with interpolated estimated time and nearest-waypoint weather. */
+export interface EnrichedNamedWaypoint extends GpxNamedWaypoint {
+  estimatedTime: Date | null
+  weather: WeatherData | null
+}
 
 interface OsmPlace {
   lat: number
