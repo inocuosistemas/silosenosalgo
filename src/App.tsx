@@ -88,6 +88,9 @@ export default function App() {
   // ── App mode ───────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState<AppMode>('plan')
 
+  // ── Analyze range (null = play mode / full view) ───────────────────────────
+  const [analyzeRange, setAnalyzeRange] = useState<{ from: number; to: number } | null>(null)
+
   // ── GPS live position ──────────────────────────────────────────────────────
   const livePos = useLivePosition(track, appMode === 'live', ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
 
@@ -207,6 +210,7 @@ export default function App() {
     setTrack(t)
     setAppMode('plan')
     liveWeatherFetchedRef.current = false
+    setAnalyzeRange(null)  // new track → reset section view
     reset()
     if (t.points.some((p) => p.time)) {
       setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
@@ -665,7 +669,11 @@ export default function App() {
         {/* ── Weather summary (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <>
-            <WeatherSummary waypoints={enrichedWaypoints} />
+            <WeatherSummary
+              waypoints={enrichedWaypoints}
+              range={analyzeRange}
+              onClearRange={() => setAnalyzeRange(null)}
+            />
             <WeatherFreshnessChip
               fetchedAt={weatherFetchedAt}
               onRefresh={handleRefreshWeather}
@@ -687,12 +695,18 @@ export default function App() {
             liveTrackKm={livePos.trackKm}
             expectedKm={expectedKm}
             paceConfig={paceConfig}
+            analyzeRange={analyzeRange}
+            onAnalyzeRangeChange={setAnalyzeRange}
           />
         )}
 
         {/* ── Charts (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
-          <WeatherCharts waypoints={enrichedWaypoints} />
+          <WeatherCharts
+            waypoints={enrichedWaypoints}
+            range={analyzeRange}
+            onClearRange={() => setAnalyzeRange(null)}
+          />
         )}
 
         {/* ── Waypoints table ── */}
@@ -774,9 +788,24 @@ function WeatherFreshnessChip({
 }
 
 // ── WeatherSummary ──────────────────────────────────────────────────────────
-function WeatherSummary({ waypoints }: { waypoints: ReturnType<typeof useMemo> }) {
-  const wps = (waypoints as Array<{ weather: { temperatureC: number; precipProbability: number } | null }>)
-    .filter((w) => w.weather !== null)
+function WeatherSummary({
+  waypoints,
+  range,
+  onClearRange,
+}: {
+  waypoints: ReturnType<typeof useMemo>
+  range?: { from: number; to: number } | null
+  onClearRange?: () => void
+}) {
+  type Wp = { weather: { temperatureC: number; precipProbability: number } | null; distanceKm: number }
+  const allWps = waypoints as Wp[]
+
+  const wps = allWps.filter((w) => {
+    if (!w.weather) return false
+    if (!range) return true
+    return w.distanceKm >= range.from && w.distanceKm <= range.to
+  })
+
   if (wps.length === 0) return null
 
   const temps = wps.map((w) => w.weather!.temperatureC)
@@ -789,18 +818,37 @@ function WeatherSummary({ waypoints }: { waypoints: ReturnType<typeof useMemo> }
   const riskColor = maxProb >= 70 ? 'text-blue-400' : maxProb >= 40 ? 'text-yellow-400' : 'text-green-400'
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {[
-        { label: 'Riesgo lluvia', value: risk, color: riskColor },
-        { label: 'Prob. máx.', value: `${maxProb}%`, color: maxProb >= 70 ? 'text-blue-400' : 'text-slate-200' },
-        { label: 'Temperatura', value: `${minTemp.toFixed(0)}–${maxTemp.toFixed(0)}°C`, color: 'text-slate-200' },
-        { label: 'Tramos con lluvia', value: `${rainyCount} / ${wps.length}`, color: rainyCount > 0 ? 'text-sky-400' : 'text-green-400' },
-      ].map(({ label, value, color }) => (
-        <div key={label} className="bg-slate-800 rounded-xl px-4 py-4 text-center">
-          <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">{label}</p>
-          <p className={`text-xl font-bold ${color}`}>{value}</p>
+    <div className="space-y-2">
+      {/* Range chip */}
+      {range && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-2 bg-sky-900/30 border border-sky-700/50 text-sky-400 px-3 py-1 rounded-full">
+            🔍 Tramo {range.from.toFixed(1)}–{range.to.toFixed(1)} km
+            {onClearRange && (
+              <button
+                onClick={onClearRange}
+                className="text-sky-600 hover:text-sky-300 transition-colors ml-1 font-bold"
+                title="Ver todo el recorrido"
+              >
+                ×
+              </button>
+            )}
+          </span>
         </div>
-      ))}
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Riesgo lluvia', value: risk, color: riskColor },
+          { label: 'Prob. máx.', value: `${maxProb}%`, color: maxProb >= 70 ? 'text-blue-400' : 'text-slate-200' },
+          { label: 'Temperatura', value: `${minTemp.toFixed(0)}–${maxTemp.toFixed(0)}°C`, color: 'text-slate-200' },
+          { label: 'Tramos con lluvia', value: `${rainyCount} / ${wps.length}`, color: rainyCount > 0 ? 'text-sky-400' : 'text-green-400' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-slate-800 rounded-xl px-4 py-4 text-center">
+            <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">{label}</p>
+            <p className={`text-xl font-bold ${color}`}>{value}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

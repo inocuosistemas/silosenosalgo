@@ -14,8 +14,15 @@ import type { EnrichedWaypoint } from '../lib/places'
 import { formatTime } from '../lib/timing'
 import { windImpact, windImpactStyle } from '../lib/weather'
 
+export interface AnalyzeRange {
+  from: number
+  to: number
+}
+
 interface Props {
   waypoints: EnrichedWaypoint[]
+  range?: AnalyzeRange | null
+  onClearRange?: () => void
 }
 
 const GRID_COLOR = '#1e293b'
@@ -43,7 +50,7 @@ function WindDot(props: { cx?: number; cy?: number; payload?: { windImpactColor:
   )
 }
 
-export function WeatherCharts({ waypoints }: Props) {
+export function WeatherCharts({ waypoints, range, onClearRange }: Props) {
   const data = waypoints
     .filter((w) => w.weather !== null)
     .map((w) => {
@@ -64,15 +71,55 @@ export function WeatherCharts({ waypoints }: Props) {
 
   if (data.length === 0) return null
 
+  // ── Range filtering (include one adjacent point each side as boundary) ───────
+  const chartData = (() => {
+    if (!range || data.length < 2) return data
+
+    // Last index with km ≤ range.from (left boundary / adjacent point)
+    let startIdx = 0
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].km <= range.from) startIdx = i
+    }
+    // First index with km ≥ range.to (right boundary / adjacent point)
+    let endIdx = data.length - 1
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].km >= range.to) { endIdx = i; break }
+    }
+
+    if (startIdx > endIdx) return data
+    const slice = data.slice(startIdx, endIdx + 1)
+    return slice.length >= 2 ? slice : data
+  })()
+
+  const isFiltered = range != null && chartData !== data
+
   return (
     <div className="space-y-4">
+      {/* ── Range chip ── */}
+      {isFiltered && (
+        <div className="flex items-center gap-2 px-1">
+          <span className="inline-flex items-center gap-2 bg-sky-900/30 border border-sky-700/50 text-sky-400 text-xs px-3 py-1 rounded-full">
+            🔍 Tramo {range!.from.toFixed(1)}–{range!.to.toFixed(1)} km
+            {onClearRange && (
+              <button
+                onClick={onClearRange}
+                className="text-sky-600 hover:text-sky-300 transition-colors ml-1 font-bold"
+                title="Ver todo el recorrido"
+              >
+                ×
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* Temperatura + altitud */}
       <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
         <h3 className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-4">
           Temperatura y altitud
         </h3>
         <ResponsiveContainer width="100%" height={180}>
-          <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+          <ComposedChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
             <XAxis
               dataKey="kmLabel"
@@ -139,7 +186,7 @@ export function WeatherCharts({ waypoints }: Props) {
           })}
         </div>
         <ResponsiveContainer width="100%" height={180}>
-          <ComposedChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
+          <ComposedChart data={chartData} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
             <XAxis
               dataKey="kmLabel"
