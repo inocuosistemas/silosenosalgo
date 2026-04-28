@@ -20,6 +20,13 @@ export type EnrichedWaypoint = WaypointWithWeather & { location: LocationInfo | 
 export interface EnrichedNamedWaypoint extends GpxNamedWaypoint {
   estimatedTime: Date | null
   weather: WeatherData | null
+  /** User-defined absolute cut-off time for this checkpoint */
+  cutoffTime?: Date
+  /**
+   * Minutes between estimated arrival and cut-off.
+   * Positive = ahead of schedule, negative = past cut-off.
+   */
+  cutoffMarginMin?: number
 }
 
 interface OsmPlace {

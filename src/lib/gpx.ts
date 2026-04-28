@@ -29,6 +29,10 @@ export interface GpxTrack {
   name: string
   points: GpxPoint[]
   totalDistanceKm: number
+  /** Cumulative elevation gain (m), hysteresis-filtered (1 m threshold) */
+  elevGainM: number
+  /** Cumulative elevation loss (m), hysteresis-filtered (1 m threshold) */
+  elevLossM: number
   /** Named waypoints parsed from <wpt> elements — empty array if none */
   namedWaypoints: GpxNamedWaypoint[]
 }
@@ -65,13 +69,24 @@ export function parseGpx(xml: string): GpxTrack {
     return { lat, lon, ele, time }
   })
 
-  // Build cumulative km array (used for both totalDistanceKm and wpt snapping)
+  // Build cumulative km + total D+/D- in one pass.
+  // Uses the same 1 m hysteresis as computeWaypoints to filter GPS altitude noise.
+  const HYSTERESIS_M = 1
   let totalDistanceKm = 0
+  let elevGainM = 0
+  let elevLossM = 0
+  let pendingEle = 0
   const cumKm: number[] = [0]
   for (let i = 1; i < points.length; i++) {
     totalDistanceKm += haversineKm(points[i - 1], points[i])
     cumKm.push(totalDistanceKm)
+    pendingEle += points[i].ele - points[i - 1].ele
+    if (pendingEle >= HYSTERESIS_M) { elevGainM += pendingEle; pendingEle = 0 }
+    else if (pendingEle <= -HYSTERESIS_M) { elevLossM += Math.abs(pendingEle); pendingEle = 0 }
   }
+  // flush remainder
+  if (pendingEle > 0) elevGainM += pendingEle
+  else if (pendingEle < 0) elevLossM += Math.abs(pendingEle)
 
   // ── Parse <wpt> elements ─────────────────────────────────────────────────
   const namedWaypoints: GpxNamedWaypoint[] = Array.from(doc.querySelectorAll('wpt'))
@@ -97,5 +112,5 @@ export function parseGpx(xml: string): GpxTrack {
       return { lat, lon, ele, name, desc, sym, type, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
     })
 
-  return { name, points, totalDistanceKm, namedWaypoints }
+  return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints }
 }

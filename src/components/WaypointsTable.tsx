@@ -7,6 +7,7 @@ interface Props {
   waypoints: EnrichedWaypoint[]
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
+  onSetCutoff?: (lat: number, lon: number, time: Date | null) => void
 }
 
 type TableRow =
@@ -42,7 +43,44 @@ function tempColor(t: number) {
   return 'text-blue-400'
 }
 
-export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Props) {
+/** Format a Date as "HH:MM" for an <input type="time"> */
+function cutoffToTimeStr(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
+/** Parse "HH:MM" relative to startTime, adding a day if the result is before startTime (overnight). */
+function cutoffFromTimeStr(timeStr: string, startTime: Date): Date {
+  const [hStr, mStr] = timeStr.split(':')
+  const d = new Date(startTime)
+  d.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0)
+  if (d.getTime() <= startTime.getTime()) d.setDate(d.getDate() + 1)
+  return d
+}
+
+/** Default cut-off = estimated arrival + 1 h, rounded to nearest 5 min. */
+function defaultCutoff(estimatedTime: Date | null, startTime: Date): Date {
+  const base = new Date((estimatedTime ?? startTime).getTime() + 60 * 60 * 1000)
+  base.setMinutes(Math.round(base.getMinutes() / 5) * 5, 0, 0)
+  return base
+}
+
+function CutoffBadge({ min }: { min: number }) {
+  const abs = Math.abs(min)
+  const h = Math.floor(abs / 60)
+  const m = Math.round(abs % 60)
+  const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
+  const label = min >= 0 ? `+${t}` : `−${t}`
+  const cls = min >= 20 ? 'text-green-400' : min >= 0 ? 'text-amber-400' : 'text-red-400'
+  const dotCls = min >= 20 ? 'bg-green-400' : min >= 0 ? 'bg-amber-400' : 'bg-red-400'
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold font-mono ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full inline-block ${dotCls}`} />
+      {label}
+    </span>
+  )
+}
+
+export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff }: Props) {
   if (waypoints.length === 0) return null
 
   const last = waypoints[waypoints.length - 1]
@@ -52,8 +90,10 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
   const totalGain = Math.round(last.elevGainM)
   const totalLoss = Math.round(last.elevLossM)
 
-  const hasWeather = waypoints.some((w) => w.weather !== null)
+  const hasWeather  = waypoints.some((w) => w.weather !== null)
   const hasLocation = waypoints.some((w) => w.location !== null)
+  const hasCutoffCol = namedWaypoints.length > 0
+  const hasNameCol   = hasLocation || namedWaypoints.length > 0
 
   // Merge computed waypoints + GPX named waypoints, sorted by km
   const rows = useMemo<TableRow[]>(() => {
@@ -101,6 +141,9 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
               <th className="px-3 py-3 text-right">Alt</th>
               <th className="px-3 py-3 text-right">Pend.</th>
               <th className="px-3 py-3 text-center">Hora</th>
+              {hasCutoffCol && (
+                <th className="px-3 py-3 text-left">Corte</th>
+              )}
               {hasWeather && (
                 <>
                   <th className="px-3 py-3 text-center">Tiempo</th>
@@ -109,8 +152,10 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                   <th className="px-3 py-3 text-right">Viento</th>
                 </>
               )}
-              {hasLocation && (
-                <th className="px-3 py-3 text-left">Población / Comarca</th>
+              {hasNameCol && (
+                <th className="px-3 py-3 text-left">
+                  {hasLocation ? 'Población / Comarca' : 'Nombre'}
+                </th>
               )}
             </tr>
           </thead>
@@ -123,20 +168,27 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                 const { emoji, label } = w ? weatherLabel(w.weatherCode) : { emoji: '', label: '' }
                 const impact = w ? windImpact(w.windDirection, 0, w.windSpeedKmh) : null
                 const { color: impactColor } = impact ? windImpactStyle(impact) : { color: '#475569' }
+                // Stable key for the time input so it persists its DOM value across re-renders
+                const inputKey = `cutoff-${wpt.lat.toFixed(6)}-${wpt.lon.toFixed(6)}`
                 return (
                   <tr
                     key={`nwp-${rowIdx}`}
                     className="border-t border-amber-800/40 bg-amber-950/30"
                     style={{ borderLeft: '3px solid #d97706' }}
                   >
+                    {/* Km */}
                     <td className="px-3 py-2.5 text-right font-mono text-amber-300">
                       {wpt.distanceKm.toFixed(1)}
                     </td>
+                    {/* D+/D- */}
                     <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
+                    {/* Alt */}
                     <td className="px-3 py-2.5 text-right font-mono text-slate-300">
                       {wpt.ele != null ? `${Math.round(wpt.ele)}m` : '—'}
                     </td>
+                    {/* Pend. */}
                     <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
+                    {/* Hora */}
                     <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
                       {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
                       {wpt.estimatedTime && (
@@ -145,6 +197,59 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                         </span>
                       )}
                     </td>
+                    {/* Corte — editor or read-only */}
+                    {hasCutoffCol && (
+                      <td className="px-3 py-2.5 text-left">
+                        {onSetCutoff ? (
+                          wpt.cutoffTime ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <input
+                                key={inputKey}
+                                type="time"
+                                defaultValue={cutoffToTimeStr(wpt.cutoffTime)}
+                                className="bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-amber-500 w-20"
+                                onChange={(e) => {
+                                  if (!e.target.value) return
+                                  onSetCutoff(wpt.lat, wpt.lon, cutoffFromTimeStr(e.target.value, startTime))
+                                }}
+                              />
+                              <button
+                                onClick={() => onSetCutoff(wpt.lat, wpt.lon, null)}
+                                className="text-slate-500 hover:text-red-400 text-sm font-bold leading-none px-0.5"
+                                title="Eliminar corte"
+                              >
+                                ×
+                              </button>
+                              {wpt.cutoffMarginMin !== undefined && (
+                                <CutoffBadge min={wpt.cutoffMarginMin} />
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => onSetCutoff(wpt.lat, wpt.lon, defaultCutoff(wpt.estimatedTime, startTime))}
+                              className="text-amber-600 hover:text-amber-400 text-xs font-semibold"
+                            >
+                              + corte
+                            </button>
+                          )
+                        ) : (
+                          /* read-only (non-plan mode) */
+                          wpt.cutoffTime ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-amber-300 font-mono text-xs">
+                                {formatTime(wpt.cutoffTime)}
+                              </span>
+                              {wpt.cutoffMarginMin !== undefined && (
+                                <CutoffBadge min={wpt.cutoffMarginMin} />
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-600 text-xs">—</span>
+                          )
+                        )}
+                      </td>
+                    )}
+                    {/* Weather */}
                     {hasWeather && (
                       <>
                         <td className="px-3 py-2.5 text-center" title={label}>
@@ -170,15 +275,17 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                         </td>
                       </>
                     )}
-                    {/* Name + description occupy the location column (or append if no location col) */}
-                    <td className={`px-3 py-2.5 text-left ${!hasLocation ? '' : ''}`} colSpan={hasLocation ? 1 : undefined}>
-                      <div className="leading-tight">
-                        <span className="text-amber-400 font-semibold">🚩 {wpt.name}</span>
-                        {wpt.desc && (
-                          <div className="text-slate-500 text-xs mt-0.5">{wpt.desc}</div>
-                        )}
-                      </div>
-                    </td>
+                    {/* Name (occupies the location column) */}
+                    {hasNameCol && (
+                      <td className="px-3 py-2.5 text-left">
+                        <div className="leading-tight">
+                          <span className="text-amber-400 font-semibold">🚩 {wpt.name}</span>
+                          {wpt.desc && (
+                            <div className="text-slate-500 text-xs mt-0.5">{wpt.desc}</div>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 )
               }
@@ -216,7 +323,10 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                       {formatDuration(wp.estimatedTime.getTime() - startTime.getTime())}
                     </span>
                   </td>
-
+                  {/* Empty corte cell keeps column alignment */}
+                  {hasCutoffCol && (
+                    <td className="px-3 py-2.5 text-center text-slate-700 text-xs">—</td>
+                  )}
                   {hasWeather && (
                     <>
                       <td className="px-3 py-2.5 text-center" title={label}>
@@ -249,8 +359,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime }: Pr
                       </td>
                     </>
                   )}
-
-                  {hasLocation && (
+                  {hasNameCol && (
                     <td className="px-3 py-2.5 text-left">
                       {loc === null ? (
                         <span className="text-slate-600 text-xs">cargando…</span>
