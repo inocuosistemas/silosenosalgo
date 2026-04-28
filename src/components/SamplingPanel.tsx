@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { SamplingConfig } from '../lib/timing'
 import { SAMPLE_INTERVAL_KM } from '../lib/timing'
 
@@ -8,6 +9,32 @@ interface Props {
 }
 
 export function SamplingPanel({ config, totalKm, onChange }: Props) {
+  const [countText, setCountText] = useState(String(config.count))
+
+  useEffect(() => {
+    setCountText(String(config.count))
+  }, [config.count])
+
+  function handleCountChange(value: string) {
+    if (!/^\d*$/.test(value)) return
+    setCountText(value)
+
+    const count = Number.parseInt(value, 10)
+    if (Number.isNaN(count) || count < 3) return
+
+    onChange({
+      ...config,
+      count: Math.min(200, count),
+    })
+  }
+
+  function normalizeCount() {
+    const count = Number.parseInt(countText, 10)
+    const nextCount = Number.isNaN(count) ? config.count : Math.max(3, Math.min(200, count))
+    setCountText(String(nextCount))
+    if (nextCount !== config.count) onChange({ ...config, count: nextCount })
+  }
+
   const estimatedCount: number | null = (() => {
     if (config.mode === 'auto') return Math.ceil(totalKm / SAMPLE_INTERVAL_KM(totalKm)) + 1
     if (config.mode === 'km') return Math.ceil(totalKm / Math.max(0.05, config.intervalKm)) + 1
@@ -83,15 +110,12 @@ export function SamplingPanel({ config, totalKm, onChange }: Props) {
           <label className="flex flex-col gap-1">
             <span className="text-slate-400 text-xs uppercase tracking-wide">Número de waypoints</span>
             <input
-              type="number"
-              min={3} max={200} step={1}
-              value={config.count}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  count: Math.max(3, Math.min(200, parseInt(e.target.value) || 20)),
-                })
-              }
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={countText}
+              onChange={(e) => handleCountChange(e.target.value)}
+              onBlur={normalizeCount}
               className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 w-24 text-center font-mono focus:outline-none focus:border-sky-400"
             />
           </label>
