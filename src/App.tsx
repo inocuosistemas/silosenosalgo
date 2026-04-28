@@ -718,10 +718,32 @@ export default function App() {
                 · {enrichedWaypoints.length - liveWaypoints.length} ya pasados ocultos
               </p>
             )}
-            <WaypointsTable
-              waypoints={appMode === 'live' ? liveWaypoints : enrichedWaypoints}
-              startTime={startTime}
-            />
+            {(() => {
+              const baseList = appMode === 'live' ? liveWaypoints : enrichedWaypoints
+              const tableWaypoints = analyzeRange != null && appMode === 'plan'
+                ? baseList.filter(
+                    (wp) => wp.distanceKm >= analyzeRange.from && wp.distanceKm <= analyzeRange.to,
+                  )
+                : baseList
+              return (
+                <>
+                  {analyzeRange != null && appMode === 'plan' && (
+                    <p className="text-slate-500 text-xs text-center">
+                      Mostrando {tableWaypoints.length} waypoints del tramo{' '}
+                      {analyzeRange.from.toFixed(1)}–{analyzeRange.to.toFixed(1)} km
+                      {' · '}
+                      <button
+                        onClick={() => setAnalyzeRange(null)}
+                        className="text-sky-500 hover:text-sky-300 transition-colors"
+                      >
+                        ver todos
+                      </button>
+                    </p>
+                  )}
+                  <WaypointsTable waypoints={tableWaypoints} startTime={startTime} />
+                </>
+              )
+            })()}
           </>
         )}
 
