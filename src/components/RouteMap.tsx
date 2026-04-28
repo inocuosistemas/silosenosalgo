@@ -7,9 +7,10 @@ import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
+import type { AnalyzeRange } from './WeatherCharts'
 
 export type MapMode = 'rain' | 'wind'
-type InteractionMode = 'play' | 'analyze'
+export type { AnalyzeRange }
 
 interface Props {
   track: GpxTrack
@@ -28,6 +29,10 @@ interface Props {
   expectedKm?: number | null
   /** Pace config — used for section time estimates in analyze mode */
   paceConfig?: PaceConfig
+  /** Controlled analyze range — null means play mode */
+  analyzeRange?: AnalyzeRange | null
+  /** Called when the user changes the analyze range or toggles modes */
+  onAnalyzeRangeChange?: (range: AnalyzeRange | null) => void
 }
 
 const RAIN_LEGEND = [
@@ -81,6 +86,8 @@ export function RouteMap({
   liveTrackKm = 0,
   expectedKm = null,
   paceConfig,
+  analyzeRange = null,
+  onAnalyzeRangeChange,
 }: Props) {
   const { points } = track
 
@@ -89,8 +96,10 @@ export function RouteMap({
   const [isPlaying, setIsPlaying] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // ── Interaction mode (plan only) ──────────────────────────────────────────
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>('play')
+  // Derived from controlled prop: null = play mode, object = analyze mode
+  const interactionMode = analyzeRange != null ? 'analyze' : 'play'
+  const analyzeFrom = analyzeRange?.from ?? 0
+  const analyzeTo = analyzeRange?.to ?? track.totalDistanceKm
 
   // In live mode the progress is driven externally; in plan mode it's the slider
   const effectiveProgress = liveMode ? liveProgress : progress
@@ -106,17 +115,6 @@ export function RouteMap({
 
   const totalKm = track.totalDistanceKm
   const targetKm = effectiveProgress * totalKm
-
-  // ── Analyze range state (in km, plan mode only) ───────────────────────────
-  const [analyzeFrom, setAnalyzeFrom] = useState(0)
-  const [analyzeTo, setAnalyzeTo] = useState(totalKm)
-
-  // Reset range whenever the track changes
-  useEffect(() => {
-    setAnalyzeFrom(0)
-    setAnalyzeTo(totalKm)
-    setInteractionMode('play')
-  }, [totalKm])
 
   // ── Pre-compute colored segment metadata ──────────────────────────────────
   const allSegments = useMemo(() => {
@@ -169,7 +167,6 @@ export function RouteMap({
         after.push({ key: seg.key, positions: seg.pts, color: seg.color })
         continue
       }
-      // Straddles targetKm — split with linear interpolation at the boundary
       const beforePts: [number, number][] = []
       const afterPts: [number, number][] = []
       let crossed = false
@@ -207,16 +204,13 @@ export function RouteMap({
     const result: { key: string; positions: [number, number][]; color: string }[] = []
 
     for (const seg of allSegments) {
-      // Entirely outside the analyze range
       if (seg.endKm <= analyzeFrom || seg.startKm >= analyzeTo) continue
 
       if (seg.startKm >= analyzeFrom && seg.endKm <= analyzeTo) {
-        // Entirely inside
         result.push({ key: `an-${seg.key}`, positions: seg.pts, color: seg.color })
         continue
       }
 
-      // Straddles one or both boundaries — collect only the inside portion
       const iPts: [number, number][] = []
 
       for (let pi = seg.ptStart; pi <= seg.ptEnd; pi++) {
@@ -225,7 +219,6 @@ export function RouteMap({
         if (pi > seg.ptStart) {
           const prevKm = cumKm[pi - 1]
 
-          // Entering: cross analyzeFrom from below
           if (prevKm < analyzeFrom && km > analyzeFrom) {
             const t = (analyzeFrom - prevKm) / (km - prevKm)
             iPts.push([
@@ -234,7 +227,6 @@ export function RouteMap({
             ])
           }
 
-          // Exiting: cross analyzeTo from below
           if (prevKm < analyzeTo && km > analyzeTo) {
             const t = (analyzeTo - prevKm) / (km - prevKm)
             iPts.push([
@@ -244,7 +236,6 @@ export function RouteMap({
           }
         }
 
-        // Add this point only if within the range
         if (km >= analyzeFrom && km <= analyzeTo) {
           iPts.push([points[pi].lat, points[pi].lon])
         }
@@ -374,6 +365,21 @@ export function RouteMap({
   const sliderAtFull = progress >= 1
   const playIcon = isPlaying ? '⏸' : sliderAtFull ? '↺' : '▶'
 
+  // ── Handlers for analyze mode (delegated to parent) ───────────────────────
+  const enterAnalyze = () => onAnalyzeRangeChange?.({ from: 0, to: totalKm })
+  const exitAnalyze = () => onAnalyzeRangeChange?.(null)
+  const resetRange = () => onAnalyzeRangeChange?.({ from: 0, to: totalKm })
+
+  const handleFromSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
+    onAnalyzeRangeChange?.({ from: Math.min(km, analyzeTo - 0.05), to: analyzeTo })
+  }
+
+  const handleToSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
+    onAnalyzeRangeChange?.({ from: analyzeFrom, to: Math.max(km, analyzeFrom + 0.05) })
+  }
+
   return (
     <div className="space-y-2">
       {/* ── Header row ── */}
@@ -384,13 +390,13 @@ export function RouteMap({
           {!liveMode && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
               <button
-                onClick={() => setInteractionMode('play')}
+                onClick={exitAnalyze}
                 className={`px-3 py-1.5 transition-colors ${interactionMode === 'play' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
               >
                 🎬 Reproducir
               </button>
               <button
-                onClick={() => setInteractionMode('analyze')}
+                onClick={enterAnalyze}
                 className={`px-3 py-1.5 transition-colors ${interactionMode === 'analyze' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
               >
                 🔍 Analizar tramo
@@ -484,10 +490,7 @@ export function RouteMap({
               max={SLIDER_STEPS}
               step={1}
               value={Math.round((analyzeFrom / totalKm) * SLIDER_STEPS)}
-              onChange={(e) => {
-                const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
-                setAnalyzeFrom(Math.min(km, analyzeTo - 0.05))
-              }}
+              onChange={handleFromSlider}
               className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
               style={{
                 accentColor: '#0ea5e9',
@@ -508,10 +511,7 @@ export function RouteMap({
               max={SLIDER_STEPS}
               step={1}
               value={Math.round((analyzeTo / totalKm) * SLIDER_STEPS)}
-              onChange={(e) => {
-                const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
-                setAnalyzeTo(Math.max(km, analyzeFrom + 0.05))
-              }}
+              onChange={handleToSlider}
               className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
               style={{
                 accentColor: '#10b981',
@@ -529,7 +529,7 @@ export function RouteMap({
               Tramo: {(analyzeTo - analyzeFrom).toFixed(1)} km
             </span>
             <button
-              onClick={() => { setAnalyzeFrom(0); setAnalyzeTo(totalKm) }}
+              onClick={resetRange}
               className="text-xs text-slate-500 hover:text-slate-300 transition-colors pr-14"
             >
               ↺ Reset
@@ -583,16 +583,15 @@ export function RouteMap({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
 
-          {/* Auto-center on GPS position in live mode */}
           {liveMode && <MapCentering coords={liveCoords} />}
 
-          {/* Dark shadow for the full route */}
+          {/* Dark shadow */}
           <Polyline
             positions={fullRoute}
             pathOptions={{ color: '#0f172a', weight: 9, opacity: 0.5 }}
           />
 
-          {/* ── Plan mode: grey "pending" background ── */}
+          {/* Grey background (plan mode) */}
           {!liveMode && (
             <Polyline
               positions={fullRoute}
@@ -604,7 +603,7 @@ export function RouteMap({
             />
           )}
 
-          {/* ── Plan mode / play: weather-colored before segments ── */}
+          {/* Plan / play: weather-colored before segments */}
           {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => (
             <Polyline
               key={`before-${seg.key}`}
@@ -613,7 +612,7 @@ export function RouteMap({
             />
           ))}
 
-          {/* ── Plan mode / analyze: weather-colored inside-range segments ── */}
+          {/* Plan / analyze: weather-colored inside-range segments */}
           {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => (
             <Polyline
               key={seg.key}
@@ -622,7 +621,7 @@ export function RouteMap({
             />
           ))}
 
-          {/* ── Live mode: muted "already traveled" before segments ── */}
+          {/* Live: muted traveled */}
           {liveMode && beforeSegments.map((seg) => (
             <Polyline
               key={`before-${seg.key}`}
@@ -631,7 +630,7 @@ export function RouteMap({
             />
           ))}
 
-          {/* ── Live mode: weather-colored pending "after" segments ── */}
+          {/* Live: weather-colored pending */}
           {liveMode && afterSegments.map((seg) => (
             <Polyline
               key={`after-${seg.key}`}
@@ -640,18 +639,12 @@ export function RouteMap({
             />
           ))}
 
-          {/* Fallback plain routes when there are no weather segments */}
+          {/* Fallbacks */}
           {!liveMode && interactionMode === 'play' && effectiveProgress >= 1 && beforeSegments.length === 0 && (
-            <Polyline
-              positions={fullRoute}
-              pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
-            />
+            <Polyline positions={fullRoute} pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }} />
           )}
           {liveMode && allSegments.length === 0 && (
-            <Polyline
-              positions={fullRoute}
-              pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
-            />
+            <Polyline positions={fullRoute} pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }} />
           )}
 
           {/* Waypoint markers */}
@@ -718,7 +711,7 @@ export function RouteMap({
             )
           })}
 
-          {/* Expected position dot — magenta dashed ring (rendered first so GPS sits on top) */}
+          {/* Expected position dot */}
           {liveMode && expectedCoords && (
             <CircleMarker
               center={expectedCoords}
@@ -744,16 +737,14 @@ export function RouteMap({
             </CircleMarker>
           )}
 
-          {/* Live GPS position markers */}
+          {/* Live GPS */}
           {liveMode && liveCoords && (
             <>
-              {/* Outer glow */}
               <CircleMarker
                 center={[liveCoords.lat, liveCoords.lon]}
                 radius={14}
                 pathOptions={{ fillColor: '#38bdf8', color: 'transparent', fillOpacity: 0.25 }}
               />
-              {/* Inner solid dot */}
               <CircleMarker
                 center={[liveCoords.lat, liveCoords.lon]}
                 radius={7}
@@ -772,28 +763,11 @@ export function RouteMap({
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
             <StatPill label="Distancia" value={`${analyzeStats.distanceKm.toFixed(2)} km`} />
-            <StatPill
-              label="D+"
-              value={`+${Math.round(analyzeStats.elevGainM)} m`}
-              color="text-orange-400"
-            />
-            <StatPill
-              label="D−"
-              value={`−${Math.round(analyzeStats.elevLossM)} m`}
-              color="text-blue-400"
-            />
-            <StatPill
-              label="Tiempo est."
-              value={formatDuration(analyzeStats.estimatedMinutes * 60_000)}
-            />
-            <StatPill
-              label="Pendiente"
-              value={`${analyzeStats.avgGradePct.toFixed(1)} %`}
-            />
-            <StatPill
-              label="Velocidad"
-              value={`${analyzeStats.avgSpeedKmh.toFixed(1)} km/h`}
-            />
+            <StatPill label="D+" value={`+${Math.round(analyzeStats.elevGainM)} m`} color="text-orange-400" />
+            <StatPill label="D−" value={`−${Math.round(analyzeStats.elevLossM)} m`} color="text-blue-400" />
+            <StatPill label="Tiempo est." value={formatDuration(analyzeStats.estimatedMinutes * 60_000)} />
+            <StatPill label="Pendiente" value={`${analyzeStats.avgGradePct.toFixed(1)} %`} />
+            <StatPill label="Velocidad" value={`${analyzeStats.avgSpeedKmh.toFixed(1)} km/h`} />
           </div>
         </div>
       )}
