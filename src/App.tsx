@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, memo, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { SamplingPanel } from './components/SamplingPanel'
@@ -11,7 +11,7 @@ import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
-import type { LocationInfo } from './lib/places'
+import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
@@ -90,6 +90,9 @@ export default function App() {
 
   // ── Analyze range (null = play mode / full view) ───────────────────────────
   const [analyzeRange, setAnalyzeRange] = useState<{ from: number; to: number } | null>(null)
+  // Deferred: WeatherCharts, WeatherSummary and the waypoints table only re-render
+  // when React is idle, keeping slider drag at 60 fps.
+  const deferredAnalyzeRange = useDeferredValue(analyzeRange)
 
   // ── GPS live position ──────────────────────────────────────────────────────
   const livePos = useLivePosition(track, appMode === 'live', ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
@@ -130,6 +133,45 @@ export default function App() {
       })),
     [baseWaypoints, weatherArr, locationArr],
   )
+
+  // ── Enriched named waypoints (<wpt> POIs from GPX) ────────────────────────
+  // Estimated time: linearly interpolated between the two bounding enrichedWaypoints.
+  // Weather: taken from the nearest enrichedWaypoint by distanceKm.
+  const enrichedNamedWaypoints = useMemo<EnrichedNamedWaypoint[]>(() => {
+    if (!track || enrichedWaypoints.length === 0) return []
+    return track.namedWaypoints.map((wpt) => {
+      // ── Interpolate estimated time ──────────────────────────────────────
+      let estimatedTime: Date | null = null
+      const wps = enrichedWaypoints
+      if (wps.length >= 2) {
+        let prevIdx = 0
+        for (let i = 1; i < wps.length; i++) {
+          if (wps[i].distanceKm >= wpt.distanceKm) break
+          prevIdx = i
+        }
+        const nextIdx = Math.min(prevIdx + 1, wps.length - 1)
+        const prev = wps[prevIdx]
+        const next = wps[nextIdx]
+        const span = next.distanceKm - prev.distanceKm
+        const t = span > 0 ? Math.max(0, Math.min(1, (wpt.distanceKm - prev.distanceKm) / span)) : 0
+        estimatedTime = new Date(
+          prev.estimatedTime.getTime() + t * (next.estimatedTime.getTime() - prev.estimatedTime.getTime()),
+        )
+      } else {
+        estimatedTime = wps[0]?.estimatedTime ?? null
+      }
+
+      // ── Nearest waypoint weather ────────────────────────────────────────
+      let weather: WeatherData | null = null
+      let minDiff = Infinity
+      for (const wp of wps) {
+        const d = Math.abs(wp.distanceKm - wpt.distanceKm)
+        if (d < minDiff) { minDiff = d; weather = wp.weather }
+      }
+
+      return { ...wpt, estimatedTime, weather }
+    })
+  }, [track, enrichedWaypoints])
 
   // ── Live waypoints: remaining only, ETAs from now ─────────────────────────
   // Uses real average pace if available, else falls back to planned pace.
@@ -343,6 +385,7 @@ export default function App() {
       const doc = createElement(RoutePdfDocument, {
         track,
         waypoints: enrichedWaypoints,
+        namedWaypoints: enrichedNamedWaypoints,
         startTime,
         mapMode,
       })
@@ -671,7 +714,7 @@ export default function App() {
           <>
             <WeatherSummary
               waypoints={enrichedWaypoints}
-              range={analyzeRange}
+              range={deferredAnalyzeRange}
               onClearRange={() => setAnalyzeRange(null)}
             />
             <WeatherFreshnessChip
@@ -687,6 +730,7 @@ export default function App() {
           <RouteMap
             track={track}
             waypoints={enrichedWaypoints}
+            namedWaypoints={enrichedNamedWaypoints}
             mapMode={mapMode}
             onMapModeChange={setMapMode}
             liveMode={appMode === 'live'}
@@ -704,7 +748,7 @@ export default function App() {
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <WeatherCharts
             waypoints={enrichedWaypoints}
-            range={analyzeRange}
+            range={deferredAnalyzeRange}
             onClearRange={() => setAnalyzeRange(null)}
           />
         )}
@@ -720,17 +764,26 @@ export default function App() {
             )}
             {(() => {
               const baseList = appMode === 'live' ? liveWaypoints : enrichedWaypoints
-              const tableWaypoints = analyzeRange != null && appMode === 'plan'
+              const tableWaypoints = deferredAnalyzeRange != null && appMode === 'plan'
                 ? baseList.filter(
-                    (wp) => wp.distanceKm >= analyzeRange.from && wp.distanceKm <= analyzeRange.to,
+                    (wp) => wp.distanceKm >= deferredAnalyzeRange.from && wp.distanceKm <= deferredAnalyzeRange.to,
                   )
                 : baseList
+              // Named waypoints: filter by range (analyze) or by live position
+              const tableNamedWaypoints =
+                appMode === 'live'
+                  ? enrichedNamedWaypoints.filter((wpt) => wpt.distanceKm >= livePos.trackKm - 0.05)
+                  : deferredAnalyzeRange != null
+                  ? enrichedNamedWaypoints.filter(
+                      (wpt) => wpt.distanceKm >= deferredAnalyzeRange.from && wpt.distanceKm <= deferredAnalyzeRange.to,
+                    )
+                  : enrichedNamedWaypoints
               return (
                 <>
-                  {analyzeRange != null && appMode === 'plan' && (
+                  {deferredAnalyzeRange != null && appMode === 'plan' && (
                     <p className="text-slate-500 text-xs text-center">
                       Mostrando {tableWaypoints.length} waypoints del tramo{' '}
-                      {analyzeRange.from.toFixed(1)}–{analyzeRange.to.toFixed(1)} km
+                      {deferredAnalyzeRange.from.toFixed(1)}–{deferredAnalyzeRange.to.toFixed(1)} km
                       {' · '}
                       <button
                         onClick={() => setAnalyzeRange(null)}
@@ -740,7 +793,11 @@ export default function App() {
                       </button>
                     </p>
                   )}
-                  <WaypointsTable waypoints={tableWaypoints} startTime={startTime} />
+                  <WaypointsTable
+                    waypoints={tableWaypoints}
+                    namedWaypoints={tableNamedWaypoints}
+                    startTime={startTime}
+                  />
                 </>
               )
             })()}
@@ -810,7 +867,7 @@ function WeatherFreshnessChip({
 }
 
 // ── WeatherSummary ──────────────────────────────────────────────────────────
-function WeatherSummary({
+const WeatherSummary = memo(function WeatherSummary({
   waypoints,
   range,
   onClearRange,
@@ -873,4 +930,4 @@ function WeatherSummary({
       </div>
     </div>
   )
-}
+})

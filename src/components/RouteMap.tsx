@@ -1,8 +1,9 @@
 import 'leaflet/dist/leaflet.css'
-import { useState, useMemo, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet'
+import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
+import L from 'leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
-import type { EnrichedWaypoint } from '../lib/places'
+import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
@@ -33,6 +34,8 @@ interface Props {
   analyzeRange?: AnalyzeRange | null
   /** Called when the user changes the analyze range or toggles modes */
   onAnalyzeRangeChange?: (range: AnalyzeRange | null) => void
+  /** GPX <wpt> POIs enriched with estimated time + weather */
+  namedWaypoints?: EnrichedNamedWaypoint[]
 }
 
 const RAIN_LEGEND = [
@@ -53,6 +56,16 @@ const WIND_LEGEND = [
 const SLIDER_STEPS = 1000
 const PLAY_STEP = 0.003
 const PLAY_INTERVAL_MS = 30
+const PRECISION_STEP_KM = 0.1
+
+// Flag icon for GPX named waypoints — created once at module level (browser-only SPA)
+const FLAG_ICON = L.divIcon({
+  className: '',
+  html: '<div style="font-size:18px;line-height:1;user-select:none;pointer-events:none">🚩</div>',
+  iconSize: [20, 22],
+  iconAnchor: [3, 21],
+  popupAnchor: [0, -20],
+})
 
 // ── Sub-component: auto-centers the map on live GPS position ─────────────────
 function MapCentering({ coords }: { coords: { lat: number; lon: number } | null }) {
@@ -88,6 +101,7 @@ export function RouteMap({
   paceConfig,
   analyzeRange = null,
   onAnalyzeRangeChange,
+  namedWaypoints = [],
 }: Props) {
   const { points } = track
 
@@ -100,6 +114,12 @@ export function RouteMap({
   const interactionMode = analyzeRange != null ? 'analyze' : 'play'
   const analyzeFrom = analyzeRange?.from ?? 0
   const analyzeTo = analyzeRange?.to ?? track.totalDistanceKm
+
+  // Deferred range: slider thumb stays snappy; heavy segment/marker re-computes
+  // only when React is idle (useDeferredValue, React 19)
+  const deferredRange = useDeferredValue(analyzeRange)
+  const deferredFrom = deferredRange?.from ?? 0
+  const deferredTo = deferredRange?.to ?? track.totalDistanceKm
 
   // In live mode the progress is driven externally; in plan mode it's the slider
   const effectiveProgress = liveMode ? liveProgress : progress
@@ -198,15 +218,16 @@ export function RouteMap({
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
   // ── Analyze inside segments: only the weather-colored portion [from, to] ──
+  // Uses deferredFrom/deferredTo so slider drags don't block Leaflet repaints.
   const analyzeInsideSegments = useMemo<{ key: string; positions: [number, number][]; color: string }[]>(() => {
     if (liveMode || interactionMode !== 'analyze') return []
 
     const result: { key: string; positions: [number, number][]; color: string }[] = []
 
     for (const seg of allSegments) {
-      if (seg.endKm <= analyzeFrom || seg.startKm >= analyzeTo) continue
+      if (seg.endKm <= deferredFrom || seg.startKm >= deferredTo) continue
 
-      if (seg.startKm >= analyzeFrom && seg.endKm <= analyzeTo) {
+      if (seg.startKm >= deferredFrom && seg.endKm <= deferredTo) {
         result.push({ key: `an-${seg.key}`, positions: seg.pts, color: seg.color })
         continue
       }
@@ -219,16 +240,16 @@ export function RouteMap({
         if (pi > seg.ptStart) {
           const prevKm = cumKm[pi - 1]
 
-          if (prevKm < analyzeFrom && km > analyzeFrom) {
-            const t = (analyzeFrom - prevKm) / (km - prevKm)
+          if (prevKm < deferredFrom && km > deferredFrom) {
+            const t = (deferredFrom - prevKm) / (km - prevKm)
             iPts.push([
               points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
               points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
             ])
           }
 
-          if (prevKm < analyzeTo && km > analyzeTo) {
-            const t = (analyzeTo - prevKm) / (km - prevKm)
+          if (prevKm < deferredTo && km > deferredTo) {
+            const t = (deferredTo - prevKm) / (km - prevKm)
             iPts.push([
               points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
               points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
@@ -236,7 +257,7 @@ export function RouteMap({
           }
         }
 
-        if (km >= analyzeFrom && km <= analyzeTo) {
+        if (km >= deferredFrom && km <= deferredTo) {
           iPts.push([points[pi].lat, points[pi].lon])
         }
       }
@@ -247,25 +268,25 @@ export function RouteMap({
     }
 
     return result
-  }, [liveMode, interactionMode, analyzeFrom, analyzeTo, allSegments, cumKm, points])
+  }, [liveMode, interactionMode, deferredFrom, deferredTo, allSegments, cumKm, points])
 
   // ── Section stats (analyze mode) ──────────────────────────────────────────
   const analyzeStats = useMemo(() => {
     if (liveMode || interactionMode !== 'analyze' || !paceConfig) return null
-    return elevationStatsForSegment(track, analyzeFrom, analyzeTo, paceConfig)
-  }, [liveMode, interactionMode, track, analyzeFrom, analyzeTo, paceConfig])
+    return elevationStatsForSegment(track, deferredFrom, deferredTo, paceConfig)
+  }, [liveMode, interactionMode, track, deferredFrom, deferredTo, paceConfig])
 
   // ── Visible waypoint markers ──────────────────────────────────────────────
   const visibleWaypoints = useMemo(() => {
     if (liveMode) return waypoints.filter((wp) => wp.distanceKm >= liveTrackKm - 0.05)
     if (interactionMode === 'analyze') {
       return waypoints.filter(
-        (wp) => wp.distanceKm >= analyzeFrom - 0.05 && wp.distanceKm <= analyzeTo + 0.05,
+        (wp) => wp.distanceKm >= deferredFrom - 0.05 && wp.distanceKm <= deferredTo + 0.05,
       )
     }
     if (effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
-  }, [waypoints, liveMode, liveTrackKm, interactionMode, analyzeFrom, analyzeTo, effectiveProgress, targetKm])
+  }, [waypoints, liveMode, liveTrackKm, interactionMode, deferredFrom, deferredTo, effectiveProgress, targetKm])
 
   // ── Expected position dot (live mode) ─────────────────────────────────────
   const expectedCoords = useMemo<[number, number] | null>(() => {
@@ -380,6 +401,28 @@ export function RouteMap({
     onAnalyzeRangeChange?.({ from: analyzeFrom, to: Math.max(km, analyzeFrom + 0.05) })
   }
 
+  // ── Precision step handlers (±0.1 km) ────────────────────────────────────
+  const handleFromMinus = () =>
+    onAnalyzeRangeChange?.({
+      from: Math.max(0, Math.min(analyzeFrom - PRECISION_STEP_KM, analyzeTo - 0.05)),
+      to: analyzeTo,
+    })
+  const handleFromPlus = () =>
+    onAnalyzeRangeChange?.({
+      from: Math.min(analyzeFrom + PRECISION_STEP_KM, analyzeTo - 0.05),
+      to: analyzeTo,
+    })
+  const handleToMinus = () =>
+    onAnalyzeRangeChange?.({
+      from: analyzeFrom,
+      to: Math.max(analyzeTo - PRECISION_STEP_KM, analyzeFrom + 0.05),
+    })
+  const handleToPlus = () =>
+    onAnalyzeRangeChange?.({
+      from: analyzeFrom,
+      to: Math.min(analyzeTo + PRECISION_STEP_KM, totalKm),
+    })
+
   return (
     <div className="space-y-2">
       {/* ── Header row ── */}
@@ -482,7 +525,7 @@ export function RouteMap({
         /* ── Dual-handle analyze sliders ── */
         <div className="space-y-1.5 px-1">
           {/* From slider */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400 w-5 shrink-0">De</span>
             <input
               type="range"
@@ -497,13 +540,25 @@ export function RouteMap({
                 background: `linear-gradient(to right, #0ea5e9 ${(analyzeFrom / totalKm) * 100}%, #334155 ${(analyzeFrom / totalKm) * 100}%)`,
               }}
             />
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={handleFromMinus}
+                title="−0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+              >−</button>
+              <button
+                onClick={handleFromPlus}
+                title="+0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+              >+</button>
+            </div>
             <span className="text-xs font-mono text-sky-400 w-14 text-right shrink-0">
               {analyzeFrom.toFixed(1)} km
             </span>
           </div>
 
           {/* To slider */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400 w-5 shrink-0">A</span>
             <input
               type="range"
@@ -518,6 +573,18 @@ export function RouteMap({
                 background: `linear-gradient(to right, #10b981 ${(analyzeTo / totalKm) * 100}%, #334155 ${(analyzeTo / totalKm) * 100}%)`,
               }}
             />
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={handleToMinus}
+                title="−0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+              >−</button>
+              <button
+                onClick={handleToPlus}
+                title="+0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+              >+</button>
+            </div>
             <span className="text-xs font-mono text-emerald-400 w-14 text-right shrink-0">
               {analyzeTo.toFixed(1)} km
             </span>
@@ -711,6 +778,42 @@ export function RouteMap({
             )
           })}
 
+          {/* ── GPX named waypoints (🚩 flags) ── */}
+          {namedWaypoints
+            .filter((wpt) => {
+              if (liveMode) return wpt.distanceKm >= liveTrackKm - 0.05
+              if (interactionMode === 'analyze') {
+                return wpt.distanceKm >= deferredFrom - 0.1 && wpt.distanceKm <= deferredTo + 0.1
+              }
+              return true
+            })
+            .map((wpt, i) => (
+              <Marker key={`nwp-${i}`} position={[wpt.lat, wpt.lon]} icon={FLAG_ICON}>
+                <Popup>
+                  <div style={{ minWidth: 160, lineHeight: 1.6 }}>
+                    <p style={{ fontWeight: 700, marginBottom: 2 }}>🚩 {wpt.name}</p>
+                    {wpt.desc && (
+                      <p style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>{wpt.desc}</p>
+                    )}
+                    <p style={{ color: '#64748b', marginBottom: 4 }}>
+                      {wpt.distanceKm.toFixed(1)} km
+                      {wpt.ele != null && ` · ${Math.round(wpt.ele)} m`}
+                    </p>
+                    {wpt.estimatedTime && (
+                      <p>⏱️ {formatTime(wpt.estimatedTime)}</p>
+                    )}
+                    {wpt.weather && (
+                      <p>
+                        🌡️ {wpt.weather.temperatureC.toFixed(1)}°C
+                        {'  '}🌧️ {wpt.weather.precipProbability}%
+                        {'  '}💨 {Math.round(wpt.weather.windSpeedKmh)} km/h
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+
           {/* Expected position dot */}
           {liveMode && expectedCoords && (
             <CircleMarker
@@ -759,7 +862,7 @@ export function RouteMap({
       {!liveMode && interactionMode === 'analyze' && analyzeStats && (
         <div className="bg-slate-800/60 rounded-xl border border-slate-700 px-4 py-3">
           <h3 className="text-slate-400 text-[10px] uppercase tracking-widest font-semibold mb-3">
-            Análisis del tramo · km {analyzeFrom.toFixed(1)} → {analyzeTo.toFixed(1)}
+            Análisis del tramo · km {deferredFrom.toFixed(1)} → {deferredTo.toFixed(1)}
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
             <StatPill label="Distancia" value={`${analyzeStats.distanceKm.toFixed(2)} km`} />
