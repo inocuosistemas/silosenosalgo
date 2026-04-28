@@ -686,6 +686,7 @@ export default function App() {
             liveProgress={livePos.progress}
             liveTrackKm={livePos.trackKm}
             expectedKm={expectedKm}
+            paceConfig={paceConfig}
           />
         )}
 

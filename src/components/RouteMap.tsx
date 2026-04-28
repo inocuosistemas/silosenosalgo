@@ -3,12 +3,13 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint } from '../lib/places'
-import { formatTime } from '../lib/timing'
-import { haversineKm } from '../lib/timing'
+import type { PaceConfig } from '../lib/timing'
+import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
 
 export type MapMode = 'rain' | 'wind'
+type InteractionMode = 'play' | 'analyze'
 
 interface Props {
   track: GpxTrack
@@ -21,10 +22,12 @@ interface Props {
   liveCoords?: { lat: number; lon: number } | null
   /** 0..1 progress derived from GPS position */
   liveProgress?: number
-  /** Km along the track where the user currently is (live mode, used to hide passed waypoint markers) */
+  /** Km along the track where the user currently is (live mode) */
   liveTrackKm?: number
   /** Km on the track where the user "should be" per the plan (live mode) */
   expectedKm?: number | null
+  /** Pace config — used for section time estimates in analyze mode */
+  paceConfig?: PaceConfig
 }
 
 const RAIN_LEGEND = [
@@ -57,6 +60,16 @@ function MapCentering({ coords }: { coords: { lat: number; lon: number } | null 
   return null
 }
 
+// ── Small stat pill for the analyze panel ────────────────────────────────────
+function StatPill({ label, value, color = 'text-slate-200' }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="text-center">
+      <p className="text-slate-500 text-[10px] uppercase tracking-wide mb-0.5">{label}</p>
+      <p className={`text-sm font-bold ${color}`}>{value}</p>
+    </div>
+  )
+}
+
 export function RouteMap({
   track,
   waypoints,
@@ -67,12 +80,17 @@ export function RouteMap({
   liveProgress = 0,
   liveTrackKm = 0,
   expectedKm = null,
+  paceConfig,
 }: Props) {
   const { points } = track
 
+  // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
   const [isPlaying, setIsPlaying] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ── Interaction mode (plan only) ──────────────────────────────────────────
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('play')
 
   // In live mode the progress is driven externally; in plan mode it's the slider
   const effectiveProgress = liveMode ? liveProgress : progress
@@ -88,6 +106,17 @@ export function RouteMap({
 
   const totalKm = track.totalDistanceKm
   const targetKm = effectiveProgress * totalKm
+
+  // ── Analyze range state (in km, plan mode only) ───────────────────────────
+  const [analyzeFrom, setAnalyzeFrom] = useState(0)
+  const [analyzeTo, setAnalyzeTo] = useState(totalKm)
+
+  // Reset range whenever the track changes
+  useEffect(() => {
+    setAnalyzeFrom(0)
+    setAnalyzeTo(totalKm)
+    setInteractionMode('play')
+  }, [totalKm])
 
   // ── Pre-compute colored segment metadata ──────────────────────────────────
   const allSegments = useMemo(() => {
@@ -112,9 +141,7 @@ export function RouteMap({
     })
   }, [waypoints, points, mapMode, cumKm])
 
-  // ── Split allSegments at targetKm into "before" and "after" parts ─────────
-  // Before  = traveled (live) / shown by slider drag (plan)
-  // After   = pending (live) / hidden behind grey background (plan)
+  // ── Split allSegments at targetKm into "before" and "after" (play mode) ──
   const { beforeSegments, afterSegments } = useMemo(() => {
     type SegRender = { key: number; positions: [number, number][]; color: string }
     if (effectiveProgress >= 1) {
@@ -173,20 +200,86 @@ export function RouteMap({
     return { beforeSegments: before, afterSegments: after }
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
+  // ── Analyze inside segments: only the weather-colored portion [from, to] ──
+  const analyzeInsideSegments = useMemo<{ key: string; positions: [number, number][]; color: string }[]>(() => {
+    if (liveMode || interactionMode !== 'analyze') return []
+
+    const result: { key: string; positions: [number, number][]; color: string }[] = []
+
+    for (const seg of allSegments) {
+      // Entirely outside the analyze range
+      if (seg.endKm <= analyzeFrom || seg.startKm >= analyzeTo) continue
+
+      if (seg.startKm >= analyzeFrom && seg.endKm <= analyzeTo) {
+        // Entirely inside
+        result.push({ key: `an-${seg.key}`, positions: seg.pts, color: seg.color })
+        continue
+      }
+
+      // Straddles one or both boundaries — collect only the inside portion
+      const iPts: [number, number][] = []
+
+      for (let pi = seg.ptStart; pi <= seg.ptEnd; pi++) {
+        const km = cumKm[pi]
+
+        if (pi > seg.ptStart) {
+          const prevKm = cumKm[pi - 1]
+
+          // Entering: cross analyzeFrom from below
+          if (prevKm < analyzeFrom && km > analyzeFrom) {
+            const t = (analyzeFrom - prevKm) / (km - prevKm)
+            iPts.push([
+              points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
+              points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
+            ])
+          }
+
+          // Exiting: cross analyzeTo from below
+          if (prevKm < analyzeTo && km > analyzeTo) {
+            const t = (analyzeTo - prevKm) / (km - prevKm)
+            iPts.push([
+              points[pi - 1].lat + t * (points[pi].lat - points[pi - 1].lat),
+              points[pi - 1].lon + t * (points[pi].lon - points[pi - 1].lon),
+            ])
+          }
+        }
+
+        // Add this point only if within the range
+        if (km >= analyzeFrom && km <= analyzeTo) {
+          iPts.push([points[pi].lat, points[pi].lon])
+        }
+      }
+
+      if (iPts.length >= 2) {
+        result.push({ key: `an-${seg.key}`, positions: iPts, color: seg.color })
+      }
+    }
+
+    return result
+  }, [liveMode, interactionMode, analyzeFrom, analyzeTo, allSegments, cumKm, points])
+
+  // ── Section stats (analyze mode) ──────────────────────────────────────────
+  const analyzeStats = useMemo(() => {
+    if (liveMode || interactionMode !== 'analyze' || !paceConfig) return null
+    return elevationStatsForSegment(track, analyzeFrom, analyzeTo, paceConfig)
+  }, [liveMode, interactionMode, track, analyzeFrom, analyzeTo, paceConfig])
+
   // ── Visible waypoint markers ──────────────────────────────────────────────
-  // Live mode: show only pending waypoints (filter by current GPS km)
-  // Plan mode: slider progressively reveals waypoints as it's dragged
   const visibleWaypoints = useMemo(() => {
     if (liveMode) return waypoints.filter((wp) => wp.distanceKm >= liveTrackKm - 0.05)
+    if (interactionMode === 'analyze') {
+      return waypoints.filter(
+        (wp) => wp.distanceKm >= analyzeFrom - 0.05 && wp.distanceKm <= analyzeTo + 0.05,
+      )
+    }
     if (effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
-  }, [waypoints, liveMode, liveTrackKm, effectiveProgress, targetKm])
+  }, [waypoints, liveMode, liveTrackKm, interactionMode, analyzeFrom, analyzeTo, effectiveProgress, targetKm])
 
   // ── Expected position dot (live mode) ─────────────────────────────────────
   const expectedCoords = useMemo<[number, number] | null>(() => {
     if (expectedKm === null || points.length < 2) return null
     const km = Math.max(0, Math.min(totalKm, expectedKm))
-    // Find segment containing km
     let i = 0
     while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
     if (i >= cumKm.length - 1) return [points[points.length - 1].lat, points[points.length - 1].lon]
@@ -285,7 +378,27 @@ export function RouteMap({
     <div className="space-y-2">
       {/* ── Header row ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-lg font-semibold text-slate-200">Mapa de ruta</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="text-lg font-semibold text-slate-200">Mapa de ruta</h2>
+          {/* Interaction mode toggle — plan mode only */}
+          {!liveMode && (
+            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+              <button
+                onClick={() => setInteractionMode('play')}
+                className={`px-3 py-1.5 transition-colors ${interactionMode === 'play' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              >
+                🎬 Reproducir
+              </button>
+              <button
+                onClick={() => setInteractionMode('analyze')}
+                className={`px-3 py-1.5 transition-colors ${interactionMode === 'analyze' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+              >
+                🔍 Analizar tramo
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap">
           {hasWeather && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
@@ -334,7 +447,7 @@ export function RouteMap({
         </div>
       </div>
 
-      {/* ── Progress row: slider (plan) or GPS bar (live) ── */}
+      {/* ── Progress row: slider (play) or GPS bar (live) or analyze sliders ── */}
       {liveMode ? (
         <div className="flex items-center gap-3 px-1">
           <span className="flex items-center gap-2 text-xs text-sky-400 flex-shrink-0">
@@ -359,7 +472,72 @@ export function RouteMap({
             )}
           </span>
         </div>
+      ) : interactionMode === 'analyze' ? (
+        /* ── Dual-handle analyze sliders ── */
+        <div className="space-y-1.5 px-1">
+          {/* From slider */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 w-5 shrink-0">De</span>
+            <input
+              type="range"
+              min={0}
+              max={SLIDER_STEPS}
+              step={1}
+              value={Math.round((analyzeFrom / totalKm) * SLIDER_STEPS)}
+              onChange={(e) => {
+                const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
+                setAnalyzeFrom(Math.min(km, analyzeTo - 0.05))
+              }}
+              className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+              style={{
+                accentColor: '#0ea5e9',
+                background: `linear-gradient(to right, #0ea5e9 ${(analyzeFrom / totalKm) * 100}%, #334155 ${(analyzeFrom / totalKm) * 100}%)`,
+              }}
+            />
+            <span className="text-xs font-mono text-sky-400 w-14 text-right shrink-0">
+              {analyzeFrom.toFixed(1)} km
+            </span>
+          </div>
+
+          {/* To slider */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 w-5 shrink-0">A</span>
+            <input
+              type="range"
+              min={0}
+              max={SLIDER_STEPS}
+              step={1}
+              value={Math.round((analyzeTo / totalKm) * SLIDER_STEPS)}
+              onChange={(e) => {
+                const km = (parseInt(e.target.value) / SLIDER_STEPS) * totalKm
+                setAnalyzeTo(Math.max(km, analyzeFrom + 0.05))
+              }}
+              className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+              style={{
+                accentColor: '#10b981',
+                background: `linear-gradient(to right, #10b981 ${(analyzeTo / totalKm) * 100}%, #334155 ${(analyzeTo / totalKm) * 100}%)`,
+              }}
+            />
+            <span className="text-xs font-mono text-emerald-400 w-14 text-right shrink-0">
+              {analyzeTo.toFixed(1)} km
+            </span>
+          </div>
+
+          {/* Range info + reset */}
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-slate-500 pl-8">
+              Tramo: {(analyzeTo - analyzeFrom).toFixed(1)} km
+            </span>
+            <button
+              onClick={() => { setAnalyzeFrom(0); setAnalyzeTo(totalKm) }}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors pr-14"
+            >
+              ↺ Reset
+            </button>
+          </div>
+        </div>
       ) : (
+        /* ── Play slider ── */
         <div className="flex items-center gap-3 px-1">
           <button
             onClick={handlePlayPause}
@@ -414,30 +592,46 @@ export function RouteMap({
             pathOptions={{ color: '#0f172a', weight: 9, opacity: 0.5 }}
           />
 
-          {/* Grey "pending" background — only in plan mode (live shows real ahead) */}
+          {/* ── Plan mode: grey "pending" background ── */}
           {!liveMode && (
             <Polyline
               positions={fullRoute}
-              pathOptions={{ color: '#475569', weight: 5, opacity: effectiveProgress < 1 ? 0.55 : 0 }}
+              pathOptions={{
+                color: '#475569',
+                weight: 5,
+                opacity: interactionMode === 'analyze' ? 0.55 : (effectiveProgress < 1 ? 0.55 : 0),
+              }}
             />
           )}
 
-          {/* "Before" segments
-              Plan mode: weather-coloured (revealed by slider)
-              Live mode: muted grey-blue (already traveled) */}
-          {beforeSegments.map((seg) => (
+          {/* ── Plan mode / play: weather-colored before segments ── */}
+          {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => (
             <Polyline
               key={`before-${seg.key}`}
               positions={seg.positions}
-              pathOptions={
-                liveMode
-                  ? { color: '#64748b', weight: 4, opacity: 0.6 }
-                  : { color: seg.color, weight: 5, opacity: 1 }
-              }
+              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
             />
           ))}
 
-          {/* "After" segments — only rendered in live mode (weather-coloured pending route) */}
+          {/* ── Plan mode / analyze: weather-colored inside-range segments ── */}
+          {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => (
+            <Polyline
+              key={seg.key}
+              positions={seg.positions}
+              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
+            />
+          ))}
+
+          {/* ── Live mode: muted "already traveled" before segments ── */}
+          {liveMode && beforeSegments.map((seg) => (
+            <Polyline
+              key={`before-${seg.key}`}
+              positions={seg.positions}
+              pathOptions={{ color: '#64748b', weight: 4, opacity: 0.6 }}
+            />
+          ))}
+
+          {/* ── Live mode: weather-colored pending "after" segments ── */}
           {liveMode && afterSegments.map((seg) => (
             <Polyline
               key={`after-${seg.key}`}
@@ -446,8 +640,8 @@ export function RouteMap({
             />
           ))}
 
-          {/* Plain-grey fallback when there are no segments at all */}
-          {!liveMode && effectiveProgress >= 1 && beforeSegments.length === 0 && (
+          {/* Fallback plain routes when there are no weather segments */}
+          {!liveMode && interactionMode === 'play' && effectiveProgress >= 1 && beforeSegments.length === 0 && (
             <Polyline
               positions={fullRoute}
               pathOptions={{ color: '#94a3b8', weight: 5, opacity: 0.9 }}
@@ -569,6 +763,40 @@ export function RouteMap({
           )}
         </MapContainer>
       </div>
+
+      {/* ── Section stats panel (analyze mode only) ── */}
+      {!liveMode && interactionMode === 'analyze' && analyzeStats && (
+        <div className="bg-slate-800/60 rounded-xl border border-slate-700 px-4 py-3">
+          <h3 className="text-slate-400 text-[10px] uppercase tracking-widest font-semibold mb-3">
+            Análisis del tramo · km {analyzeFrom.toFixed(1)} → {analyzeTo.toFixed(1)}
+          </h3>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            <StatPill label="Distancia" value={`${analyzeStats.distanceKm.toFixed(2)} km`} />
+            <StatPill
+              label="D+"
+              value={`+${Math.round(analyzeStats.elevGainM)} m`}
+              color="text-orange-400"
+            />
+            <StatPill
+              label="D−"
+              value={`−${Math.round(analyzeStats.elevLossM)} m`}
+              color="text-blue-400"
+            />
+            <StatPill
+              label="Tiempo est."
+              value={formatDuration(analyzeStats.estimatedMinutes * 60_000)}
+            />
+            <StatPill
+              label="Pendiente"
+              value={`${analyzeStats.avgGradePct.toFixed(1)} %`}
+            />
+            <StatPill
+              label="Velocidad"
+              value={`${analyzeStats.avgSpeedKmh.toFixed(1)} km/h`}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

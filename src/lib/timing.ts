@@ -305,6 +305,84 @@ export function expectedKmAtElapsed(
   return Math.max(0, Math.min(track.totalDistanceKm, elapsedMin / paceConfig.paceMinPerKm))
 }
 
+// ── Section analyzer ──────────────────────────────────────────────────────────
+
+export interface SegmentStats {
+  distanceKm: number
+  elevGainM: number
+  elevLossM: number
+  estimatedMinutes: number
+  /** Weighted-average absolute grade (%) over the section */
+  avgGradePct: number
+  avgSpeedKmh: number
+}
+
+/**
+ * Elevation gain/loss, estimated time, and pace stats for a sub-section
+ * of the track defined by [fromKm, toKm].
+ */
+export function elevationStatsForSegment(
+  track: GpxTrack,
+  fromKm: number,
+  toKm: number,
+  paceConfig: PaceConfig,
+): SegmentStats {
+  const empty: SegmentStats = {
+    distanceKm: 0, elevGainM: 0, elevLossM: 0,
+    estimatedMinutes: 0, avgGradePct: 0, avgSpeedKmh: 0,
+  }
+  const pts = track.points
+  if (pts.length < 2 || fromKm >= toKm) return empty
+
+  const cum = new Float64Array(pts.length)
+  for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + haversineKm(pts[i - 1], pts[i])
+
+  const HYSTERESIS_M = 1
+  let gainM = 0, lossM = 0, pendingEle = 0
+  let weightedGrade = 0, totalDist = 0
+
+  for (let i = 1; i < pts.length; i++) {
+    const segStart = cum[i - 1]
+    const segEnd = cum[i]
+    if (segEnd <= fromKm) continue
+    if (segStart >= toKm) break
+
+    const segLen = segEnd - segStart
+    const clippedFrom = Math.max(segStart, fromKm)
+    const clippedTo = Math.min(segEnd, toKm)
+    const subLen = clippedTo - clippedFrom
+    if (subLen <= 0) continue
+
+    const frac1 = segLen > 0 ? (clippedFrom - segStart) / segLen : 0
+    const frac2 = segLen > 0 ? (clippedTo - segStart) / segLen : 1
+    const eleFrom = pts[i - 1].ele + frac1 * (pts[i].ele - pts[i - 1].ele)
+    const eleTo = pts[i - 1].ele + frac2 * (pts[i].ele - pts[i - 1].ele)
+    const eleChange = eleTo - eleFrom
+
+    pendingEle += eleChange
+    if (pendingEle >= HYSTERESIS_M) { gainM += pendingEle; pendingEle = 0 }
+    else if (pendingEle <= -HYSTERESIS_M) { lossM += Math.abs(pendingEle); pendingEle = 0 }
+
+    // weighted average |grade| = |Δele (m)| / dist (m) × 100%
+    const gradeAbs = subLen > 0 ? Math.abs(eleChange / (subLen * 1000)) * 100 : 0
+    weightedGrade += gradeAbs * subLen
+    totalDist += subLen
+  }
+
+  // Flush remaining pending elevation
+  if (pendingEle > 0) gainM += pendingEle
+  else if (pendingEle < 0) lossM += Math.abs(pendingEle)
+
+  const clampedFrom = Math.max(0, fromKm)
+  const clampedTo = Math.min(track.totalDistanceKm, toKm)
+  const distKm = Math.max(0, clampedTo - clampedFrom)
+  const estimatedMinutes = expectedMinutesForSegment(track, clampedFrom, clampedTo, paceConfig)
+  const avgGradePct = totalDist > 0 ? weightedGrade / totalDist : 0
+  const avgSpeedKmh = estimatedMinutes > 0 ? (distKm / estimatedMinutes) * 60 : 0
+
+  return { distanceKm: distKm, elevGainM: gainM, elevLossM: lossM, estimatedMinutes, avgGradePct, avgSpeedKmh }
+}
+
 /**
  * Format a time delta (minutes) for the pace-vs-plan chip.
  * Positive = slower than planned, negative = faster.
