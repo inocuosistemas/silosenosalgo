@@ -15,6 +15,16 @@ export interface LivePositionState {
   trackIndex: number
   /** 0..1 progress along the track */
   progress: number
+  /**
+   * Device compass/GPS heading in degrees [0, 360), clockwise from true north.
+   * null when unavailable (stationary device, desktop, or no compass sensor).
+   */
+  heading: number | null
+  /**
+   * Ground speed in m/s as reported by the GPS.
+   * null when unavailable.
+   */
+  speed: number | null
 }
 
 const INITIAL: LivePositionState = {
@@ -24,6 +34,8 @@ const INITIAL: LivePositionState = {
   trackKm: 0,
   trackIndex: 0,
   progress: 0,
+  heading: null,
+  speed: null,
 }
 
 export function useLivePosition(
@@ -67,7 +79,7 @@ export function useLivePosition(
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const { latitude: lat, longitude: lon } = pos.coords
+        const { latitude: lat, longitude: lon, heading: rawHeading, speed: rawSpeed } = pos.coords
         const cumKm = cumKmRef.current
         if (!cumKm) return
 
@@ -118,6 +130,8 @@ export function useLivePosition(
           progress: track.totalDistanceKm > 0
             ? Math.min(1, trackKm / track.totalDistanceKm)
             : 0,
+          heading: rawHeading !== null && !isNaN(rawHeading) ? rawHeading : null,
+          speed: rawSpeed !== null && !isNaN(rawSpeed) ? rawSpeed : null,
         })
       },
       (err) => {
