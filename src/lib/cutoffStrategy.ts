@@ -14,19 +14,30 @@ export interface SegmentStrategy {
   toLabel: string
   distanceKm: number
   elevGainM: number
-  /** Minutes available between anchor times (negative = cut-off is already past) */
+  /**
+   * Minutes available to cover this segment while respecting the margin.
+   * = (targetArrival[i] − targetDeparture[i−1])
+   * For the first segment this equals (cutoff1 − marginMin − startTime).
+   * For subsequent segments the margin cancels: equals (cutoff[i] − cutoff[i−1]).
+   * Negative means the target arrival is already in the past.
+   */
   availableMin: number
   /**
-   * Required base pace (min/km) to make this cut-off.
+   * Required base pace (min/km) to make this cut-off with the requested margin.
    * For Naismith mode this is the *flat-equivalent* pace P that satisfies:
    *   P × dist + (D+ / 100) × naismithMin100mUp = availableMin
    * null when the cut-off cannot be made regardless of speed.
    */
   requiredPaceMinPerKm: number | null
   severity: SegmentSeverity
-  /** Start of the time window (previous cut-off, or race startTime) */
+  /**
+   * Target departure time for this segment.
+   * = startTime for the first segment; cutoff[i−1] − marginMin for subsequent ones.
+   */
   fromTime: Date
-  /** End of the time window (this waypoint's cut-off) */
+  /**
+   * Target arrival time for this segment (= cutoff − marginMin).
+   */
   toTime: Date
 }
 
@@ -60,12 +71,16 @@ const EASY_SLACK     = +1.0  // can go >1 min/km slower   → 🟢
  * Compute the minimum required pace for each segment between consecutive
  * cut-off anchors (start → CP1 → CP2 → … → last cut-off).
  *
- * The conservative assumption is: you arrive at each anchor *exactly* on its
- * cut-off time and must make the next cut-off from there.
+ * With a non-zero margin the cut-off anchors are shifted earlier by marginMin:
+ *   targetArrival[i] = cutoff[i] − marginMin
+ *   targetDeparture[i] = targetArrival[i] = cutoff[i] − marginMin
  *
- * @param marginMin  Safety margin (minutes) to subtract from the available
- *   time in every segment. A value of 10 means the required pace is computed
- *   to arrive 10 min *before* each cut-off. Defaults to 0.
+ * This means:
+ *   • First segment: availableMin = (cutoff1 − marginMin) − startTime
+ *   • All other segments: availableMin = cutoff[i] − cutoff[i−1]
+ *     (margin cancels — you gain exactly marginMin at every checkpoint)
+ *
+ * @param marginMin  Minutes before each cut-off you want to arrive. Defaults to 0.
  */
 export function computeCutoffStrategy(
   track: GpxTrack,
@@ -86,12 +101,17 @@ export function computeCutoffStrategy(
   // Physical lower bound on pace for this activity (fastest possible)
   const physicalMinPaceMinPerKm = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
 
-  // Build anchor chain
+  // Build anchor chain.
+  // Cut-off anchors are shifted back by marginMin so that:
+  //   • the first segment's window is reduced by marginMin
+  //   • all subsequent segments' windows equal the gap between consecutive cut-offs
+  //     (margin added to the "from" and subtracted from the "to" cancels out)
+  const marginMs = marginMin * 60_000
   const anchors = [
     { km: 0, time: startTime, label: 'Salida' } as const,
     ...withCutoffs.map((w) => ({
       km: w.distanceKm,
-      time: w.cutoffTime!,
+      time: new Date(w.cutoffTime!.getTime() - marginMs),
       label: w.name,
     })),
   ]
@@ -102,8 +122,7 @@ export function computeCutoffStrategy(
     const from = anchors[i]
     const to   = anchors[i + 1]
     const distanceKm   = to.km - from.km
-    const rawAvailMin  = (to.time.getTime() - from.time.getTime()) / 60_000
-    const availableMin = rawAvailMin - marginMin   // shrink window by safety margin
+    const availableMin = (to.time.getTime() - from.time.getTime()) / 60_000
 
     // Elevation gain for this km range
     const stats    = elevationStatsForSegment(track, from.km, to.km, paceConfig)
