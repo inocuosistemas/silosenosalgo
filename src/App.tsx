@@ -14,6 +14,9 @@ import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
+import { CutoffStrategy } from './components/CutoffStrategy'
+import { computeCutoffStrategy } from './lib/cutoffStrategy'
+import type { SegmentPace } from './lib/timing'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
@@ -126,6 +129,10 @@ export default function App() {
 
   // ── Cut-off times for named waypoints (persisted per track name) ──────────
   const [cutoffTimes, setCutoffTimesState] = useState<Map<string, Date>>(new Map())
+
+  // ── Variable segment paces (set by the cut-off strategy panel) ────────────
+  // null = use paceConfig.paceMinPerKm uniformly (normal mode)
+  const [segmentPaces, setSegmentPaces] = useState<SegmentPace[] | null>(null)
 
   const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
     if (!track) return
@@ -321,6 +328,7 @@ export default function App() {
     setAppMode('plan')
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
+    setSegmentPaces(null)
     setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
     reset()
     if (t.points.some((p) => p.time)) {
@@ -332,15 +340,18 @@ export default function App() {
     }
   }
 
-  // Plan mode: full compute with configured start time + sampling
-  async function handleCompute() {
+  // ── Core compute helper (accepts explicit config + segmentPaces overrides) ──
+  async function doCompute(
+    computeConfig: typeof paceConfig,
+    computeSegPaces: SegmentPace[] | null,
+  ) {
     if (!track) return
     setStatus('loading')
     setErrorMsg(null)
     setLocationProgress({ done: 0, total: 0 })
 
     try {
-      const wps = computeWaypoints(track, startTime, paceConfig, sampling)
+      const wps = computeWaypoints(track, startTime, computeConfig, sampling, computeSegPaces ?? undefined)
       setBaseWaypoints(wps)
       setWeatherArr(wps.map(() => null))
       setLocationArr(wps.map(() => null))
@@ -370,6 +381,31 @@ export default function App() {
     }
   }
 
+  // Plan mode: full compute with configured start time + sampling
+  async function handleCompute() {
+    reset()
+    await doCompute(paceConfig, segmentPaces)
+  }
+
+  // ── Strategy-panel apply handlers ─────────────────────────────────────────
+
+  /** Button A: apply the tightest required pace as a single global fixed pace. */
+  async function handleApplySinglePace(pace: number) {
+    const newConfig: typeof paceConfig = { ...paceConfig, mode: 'fixed', paceMinPerKm: pace }
+    setPaceConfig(newConfig)
+    savePaceConfig(newConfig)
+    setSegmentPaces(null)
+    reset()
+    await doCompute(newConfig, null)
+  }
+
+  /** Button B: apply per-segment variable paces; waypoints recalculated accordingly. */
+  async function handleApplyVariablePaces(paces: SegmentPace[]) {
+    setSegmentPaces(paces)
+    reset()
+    await doCompute(paceConfig, paces)
+  }
+
   // Live shortcut: use now() + auto sampling, skip date/time and waypoint steps,
   // switch directly to live mode after fetching weather
   async function handleComputeLive() {
@@ -381,7 +417,7 @@ export default function App() {
     try {
       const now = new Date()
       setStartTime(now)  // record actual departure time as "now"
-      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING)
+      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined)
       setBaseWaypoints(wps)
       setLocationArr(wps.map(() => null))
       setWeatherArr(wps.map(() => null))
@@ -429,6 +465,15 @@ export default function App() {
   const isLoading = status === 'loading'
   const isLiveLoading = status === 'live-loading'
   const isDone = status === 'done' && baseWaypoints.length > 0
+
+  // ── Cut-off pace strategy ──────────────────────────────────────────────────
+  // Recomputes when cut-offs change, start time changes, or pace config changes.
+  const cutoffStrategy = useMemo(() => {
+    if (!track || !isDone) return null
+    const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
+    if (withCutoffs.length === 0) return null
+    return computeCutoffStrategy(track, withCutoffs, startTime, paceConfig)
+  }, [track, isDone, enrichedNamedWaypoints, startTime, paceConfig])
 
   // ── Visibility change: show banner after ≥ 30 min in background ───────────
   useEffect(() => {
@@ -585,8 +630,23 @@ export default function App() {
                   config={paceConfig}
                   hasGpxTimes={hasGpxTimes}
                   gpxValidity={gpxValidity}
-                  onChange={(c) => { setPaceConfig(c); reset() }}
+                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); reset() }}
                 />
+                {/* Variable-pace active indicator — shown when strategy panel has been applied */}
+                {segmentPaces && (
+                  <div className="flex items-center justify-between gap-3 text-xs bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-2">
+                    <span className="text-emerald-300 flex items-center gap-1.5">
+                      <span>🔀</span>
+                      <span>Ritmo variable por tramos activo</span>
+                    </span>
+                    <button
+                      onClick={() => { setSegmentPaces(null); reset() }}
+                      className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-400 transition-colors shrink-0"
+                    >
+                      Volver a ritmo único
+                    </button>
+                  </div>
+                )}
               </section>
             )}
 
@@ -831,7 +891,18 @@ export default function App() {
 
         {/* ── Cut-off summary (plan mode, when at least one cut-off is defined) ── */}
         {appMode === 'plan' && enrichedNamedWaypoints.some((w) => w.cutoffTime) && (
-          <CutoffSummary namedWaypoints={enrichedNamedWaypoints} />
+          <CutoffSummary namedWaypoints={enrichedNamedWaypoints} startTime={startTime} />
+        )}
+
+        {/* ── Cut-off pace strategy (plan mode, after computing, when cut-offs exist) ── */}
+        {appMode === 'plan' && cutoffStrategy && (
+          <CutoffStrategy
+            strategy={cutoffStrategy}
+            paceConfig={paceConfig}
+            onApplySinglePace={handleApplySinglePace}
+            onApplyVariablePaces={handleApplyVariablePaces}
+            variablePacesActive={segmentPaces !== null}
+          />
         )}
 
         {/* ── Charts (plan mode only) ── */}

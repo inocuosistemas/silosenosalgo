@@ -51,6 +51,16 @@ export interface Waypoint {
   elevLossM: number     // cumulative D- from start (m), threshold-filtered
 }
 
+/**
+ * A km-range with an explicit pace override.
+ * Used by the cut-off strategy panel to compute variable-pace plans.
+ */
+export interface SegmentPace {
+  fromKm: number
+  toKm: number
+  paceMinPerKm: number
+}
+
 function computeBearing(from: { lat: number; lon: number }, to: { lat: number; lon: number }): number {
   const φ1 = (from.lat * Math.PI) / 180
   const φ2 = (to.lat * Math.PI) / 180
@@ -70,7 +80,22 @@ export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; l
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
 }
 
-function segmentMinutes(a: GpxPoint, b: GpxPoint, config: PaceConfig): number {
+/** Returns the effective pace for a given km position given an optional override list. */
+function lookupSegmentPace(km: number, segmentPaces: SegmentPace[]): number | undefined {
+  for (const seg of segmentPaces) {
+    if (km >= seg.fromKm && km < seg.toKm) return seg.paceMinPerKm
+  }
+  // Past the last defined boundary: use the last segment's pace as a fallback
+  return segmentPaces.length > 0 ? segmentPaces[segmentPaces.length - 1].paceMinPerKm : undefined
+}
+
+function segmentMinutes(
+  a: GpxPoint,
+  b: GpxPoint,
+  config: PaceConfig,
+  /** Override the base pace (min/km) — Naismith elevation adjustment is still applied on top. */
+  overridePaceMinPerKm?: number,
+): number {
   const distKm = haversineKm(a, b)
   if (distKm === 0) return 0
 
@@ -79,7 +104,8 @@ function segmentMinutes(a: GpxPoint, b: GpxPoint, config: PaceConfig): number {
   }
 
   const eleGainM = Math.max(0, b.ele - a.ele)
-  const baseMin = distKm * config.paceMinPerKm
+  const pace = overridePaceMinPerKm ?? config.paceMinPerKm
+  const baseMin = distKm * pace
 
   if (config.mode === 'naismith') {
     return baseMin + (eleGainM / 100) * config.naismithMin100mUp
@@ -99,6 +125,13 @@ export function computeWaypoints(
   startTime: Date,
   paceConfig: PaceConfig,
   sampling: SamplingConfig = DEFAULT_SAMPLING,
+  /**
+   * Optional per-segment pace overrides (from the cut-off strategy panel).
+   * When provided, each track segment uses the pace for its km position
+   * instead of paceConfig.paceMinPerKm. Naismith elevation is still applied
+   * on top of the overridden pace when mode === 'naismith'.
+   */
+  segmentPaces?: SegmentPace[],
 ): Waypoint[] {
   const { points } = track
   if (points.length === 0) return []
@@ -146,7 +179,9 @@ export function computeWaypoints(
 
   for (let i = 1; i < points.length; i++) {
     const segDist = haversineKm(points[i - 1], points[i])
-    const segMin = segmentMinutes(points[i - 1], points[i], paceConfig)
+    // distAccum here = km position of points[i-1] (start of this segment)
+    const overridePace = segmentPaces ? lookupSegmentPace(distAccum, segmentPaces) : undefined
+    const segMin = segmentMinutes(points[i - 1], points[i], paceConfig, overridePace)
     distAccum += segDist
     elapsedMs += segMin * 60000
     pendingEle += points[i].ele - points[i - 1].ele
