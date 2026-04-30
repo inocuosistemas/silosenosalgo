@@ -17,6 +17,8 @@ import { CutoffSummary } from './components/CutoffSummary'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
+import { checkGpxTimes } from './lib/gpxValidity'
+import type { GpxTimesValidity } from './lib/gpxValidity'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -147,6 +149,19 @@ export default function App() {
   const [liveEditingStart, setLiveEditingStart] = useState(false)
 
   const hasGpxTimes = !!track?.points.some((p) => p.time)
+
+  // ── GPX times validity ────────────────────────────────────────────────────
+  const gpxValidity = useMemo<GpxTimesValidity | null>(
+    () => (track && hasGpxTimes ? checkGpxTimes(track, paceConfig.activity) : null),
+    [track, hasGpxTimes, paceConfig.activity],
+  )
+
+  // Fall back to 'fixed' automatically when activity changes and makes GPX invalid
+  useEffect(() => {
+    if (paceConfig.mode !== 'gpx') return
+    if (!gpxValidity || gpxValidity.issue === 'ok') return
+    setPaceConfig((c) => ({ ...c, mode: 'fixed' }))
+  }, [gpxValidity, paceConfig.mode])
 
   // ── Real average pace from startTime (min/km) ─────────────────────────────
   // Only valid when ≥ 0.3 km covered AND startTime is in the past
@@ -309,7 +324,11 @@ export default function App() {
     setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
     reset()
     if (t.points.some((p) => p.time)) {
-      setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
+      // Only auto-switch to 'gpx' when the times are actually valid for the current activity
+      const validity = checkGpxTimes(t, paceConfig.activity)
+      if (validity.issue === 'ok') {
+        setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
+      }
     }
   }
 
@@ -565,6 +584,7 @@ export default function App() {
                 <PaceConfigPanel
                   config={paceConfig}
                   hasGpxTimes={hasGpxTimes}
+                  gpxValidity={gpxValidity}
                   onChange={(c) => { setPaceConfig(c); reset() }}
                 />
               </section>
