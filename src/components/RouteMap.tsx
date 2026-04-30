@@ -36,6 +36,8 @@ interface Props {
   onAnalyzeRangeChange?: (range: AnalyzeRange | null) => void
   /** GPX <wpt> POIs enriched with estimated time + weather */
   namedWaypoints?: EnrichedNamedWaypoint[]
+  /** Buddy's projected km on the track (plan-mode buddy tracker). */
+  buddyKm?: number | null
 }
 
 const RAIN_LEGEND = [
@@ -111,6 +113,7 @@ export function RouteMap({
   analyzeRange = null,
   onAnalyzeRangeChange,
   namedWaypoints = [],
+  buddyKm = null,
 }: Props) {
   const { points } = track
 
@@ -311,6 +314,21 @@ export function RouteMap({
       points[i].lon + t * (points[i + 1].lon - points[i].lon),
     ]
   }, [expectedKm, cumKm, points, totalKm])
+
+  // ── Buddy projected position (plan mode buddy tracker) ────────────────────
+  const buddyCoords = useMemo<[number, number] | null>(() => {
+    if (buddyKm === null || points.length < 2) return null
+    const km = Math.max(0, Math.min(totalKm, buddyKm))
+    let i = 0
+    while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+    if (i >= cumKm.length - 1) return [points[points.length - 1].lat, points[points.length - 1].lon]
+    const span = cumKm[i + 1] - cumKm[i]
+    const t = span > 0 ? (km - cumKm[i]) / span : 0
+    return [
+      points[i].lat + t * (points[i + 1].lat - points[i].lat),
+      points[i].lon + t * (points[i + 1].lon - points[i].lon),
+    ]
+  }, [buddyKm, cumKm, points, totalKm])
 
   // ── Static helpers ────────────────────────────────────────────────────────
   const fullRoute = useMemo(
@@ -865,6 +883,33 @@ export function RouteMap({
                 </div>
               </Popup>
             </CircleMarker>
+          )}
+
+          {/* Buddy projected position dot (plan mode tracker) */}
+          {buddyCoords && (
+            <>
+              <CircleMarker
+                center={buddyCoords}
+                radius={13}
+                pathOptions={{ fillColor: '#a855f7', color: 'transparent', fillOpacity: 0.22 }}
+              />
+              <CircleMarker
+                center={buddyCoords}
+                radius={7}
+                pathOptions={{ fillColor: '#a855f7', color: 'white', weight: 2.5, fillOpacity: 1 }}
+              >
+                <Popup>
+                  <div style={{ minWidth: 140, fontSize: 12, lineHeight: 1.5 }}>
+                    <p style={{ fontWeight: 700, margin: 0, color: '#7e22ce' }}>🧑 Compañero</p>
+                    {buddyKm !== null && (
+                      <p style={{ color: '#64748b', margin: '4px 0 0' }}>
+                        Km {buddyKm.toFixed(1)} · proyectado al ritmo observado
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </CircleMarker>
+            </>
           )}
 
           {/* Live GPS position dot */}

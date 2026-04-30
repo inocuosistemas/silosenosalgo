@@ -15,6 +15,8 @@ import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
 import { CutoffStrategy } from './components/CutoffStrategy'
+import { BuddyTracker } from './components/BuddyTracker'
+import type { BuddyObservation } from './components/BuddyTracker'
 import { computeCutoffStrategy } from './lib/cutoffStrategy'
 import type { SegmentPace } from './lib/timing'
 import { useLivePosition } from './lib/useLivePosition'
@@ -137,6 +139,10 @@ export default function App() {
   // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
   const [strategyMargin, setStrategyMargin] = useState(0)
 
+  // ── Buddy tracking: a single observation { km, time } ─────────────────────
+  // null = no observation; when set, ETAs are projected from the observed pace.
+  const [buddyObs, setBuddyObs] = useState<BuddyObservation | null>(null)
+
   const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
     if (!track) return
     const key = wptKey(lat, lon)
@@ -172,6 +178,41 @@ export default function App() {
     if (!gpxValidity || gpxValidity.issue === 'ok') return
     setPaceConfig((c) => ({ ...c, mode: 'fixed' }))
   }, [gpxValidity, paceConfig.mode])
+
+  // ── Effective pace config (override with buddy's observed avg pace) ────────
+  // When a buddy observation is active we project ETAs at the observed flat
+  // average pace, ignoring naismith/gpx and any variable per-segment pace.
+  const buddyObservedPace = useMemo<number | null>(() => {
+    if (!buddyObs) return null
+    const elapsedMin = (buddyObs.time.getTime() - startTime.getTime()) / 60_000
+    if (elapsedMin <= 0 || buddyObs.km <= 0) return null
+    return elapsedMin / buddyObs.km
+  }, [buddyObs, startTime])
+
+  const effectivePaceConfig = useMemo<PaceConfig>(() => {
+    if (buddyObservedPace !== null) {
+      return { ...paceConfig, mode: 'fixed', paceMinPerKm: buddyObservedPace }
+    }
+    return paceConfig
+  }, [paceConfig, buddyObservedPace])
+
+  const effectiveSegmentPaces = buddyObs ? null : segmentPaces
+
+  // ── Buddy position projected to "now" (ticks every 30 s for the map) ──────
+  const buddyTick = useNowTick(30_000, buddyObs !== null)
+  const buddyKmNow = useMemo<number | null>(() => {
+    if (!buddyObs || buddyObservedPace === null || !track) return null
+    const elapsedSinceObsMin = (buddyTick - buddyObs.time.getTime()) / 60_000
+    const projected = buddyObs.km + elapsedSinceObsMin / buddyObservedPace
+    return Math.max(0, Math.min(track.totalDistanceKm, projected))
+  }, [buddyObs, buddyObservedPace, buddyTick, track])
+
+  // ── Buddy projected ETA at the finish (uses observed pace) ────────────────
+  const buddyEta = useMemo<Date | null>(() => {
+    if (!buddyObs || buddyObservedPace === null || !track) return null
+    const remainingKm = track.totalDistanceKm - buddyObs.km
+    return new Date(buddyObs.time.getTime() + remainingKm * buddyObservedPace * 60_000)
+  }, [buddyObs, buddyObservedPace, track])
 
   // ── Real average pace from startTime (min/km) ─────────────────────────────
   // Only valid when ≥ 0.3 km covered AND startTime is in the past
@@ -332,6 +373,7 @@ export default function App() {
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
     setSegmentPaces(null)
+    setBuddyObs(null)
     setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
     reset()
     if (t.points.some((p) => p.time)) {
@@ -384,10 +426,11 @@ export default function App() {
     }
   }
 
-  // Plan mode: full compute with configured start time + sampling
+  // Plan mode: full compute with configured start time + sampling.
+  // Uses the effective config (so a buddy observation, if active, drives ETAs).
   async function handleCompute() {
     reset()
-    await doCompute(paceConfig, segmentPaces)
+    await doCompute(effectivePaceConfig, effectiveSegmentPaces)
   }
 
   // ── Strategy-panel apply handlers ─────────────────────────────────────────
@@ -398,6 +441,7 @@ export default function App() {
     setPaceConfig(newConfig)
     savePaceConfig(newConfig)
     setSegmentPaces(null)
+    setBuddyObs(null)   // strategy paces override any buddy observation
     reset()
     await doCompute(newConfig, null)
   }
@@ -405,8 +449,32 @@ export default function App() {
   /** Button B: apply per-segment variable paces; waypoints recalculated accordingly. */
   async function handleApplyVariablePaces(paces: SegmentPace[]) {
     setSegmentPaces(paces)
+    setBuddyObs(null)   // strategy paces override any buddy observation
     reset()
     await doCompute(paceConfig, paces)
+  }
+
+  // ── Buddy-tracker handlers ────────────────────────────────────────────────
+
+  /** Apply (or replace) a buddy observation; rebuilds the plan with observed pace. */
+  async function handleApplyBuddy(obs: BuddyObservation) {
+    if (!track) return
+    const elapsedMin = (obs.time.getTime() - startTime.getTime()) / 60_000
+    const observedPace = elapsedMin / obs.km
+    const newConfig: PaceConfig = { ...paceConfig, mode: 'fixed', paceMinPerKm: observedPace }
+    setBuddyObs(obs)
+    setSegmentPaces(null)   // variable paces don't make sense alongside an observation
+    reset()
+    await doCompute(newConfig, null)
+  }
+
+  /** Clear the buddy observation; revert to the user's planned pace config. */
+  async function handleClearBuddy() {
+    setBuddyObs(null)
+    if (track && (status === 'done' || status === 'error')) {
+      reset()
+      await doCompute(paceConfig, segmentPaces)
+    }
   }
 
   // Live shortcut: use now() + auto sampling, skip date/time and waypoint steps,
@@ -475,8 +543,8 @@ export default function App() {
     if (!track || !isDone) return null
     const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
     if (withCutoffs.length === 0) return null
-    return computeCutoffStrategy(track, withCutoffs, startTime, paceConfig, strategyMargin)
-  }, [track, isDone, enrichedNamedWaypoints, startTime, paceConfig, strategyMargin])
+    return computeCutoffStrategy(track, withCutoffs, startTime, effectivePaceConfig, strategyMargin)
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin])
 
   // ── Visibility change: show banner after ≥ 30 min in background ───────────
   useEffect(() => {
@@ -620,7 +688,7 @@ export default function App() {
                 <input
                   type="datetime-local"
                   value={toLocalInputValue(startTime)}
-                  onChange={(e) => { setStartTime(new Date(e.target.value)); reset() }}
+                  onChange={(e) => { setStartTime(new Date(e.target.value)); setBuddyObs(null); reset() }}
                   className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
                 />
               </section>
@@ -633,7 +701,7 @@ export default function App() {
                   config={paceConfig}
                   hasGpxTimes={hasGpxTimes}
                   gpxValidity={gpxValidity}
-                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); reset() }}
+                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); setBuddyObs(null); reset() }}
                 />
                 {/* Variable-pace active indicator — shown when strategy panel has been applied */}
                 {segmentPaces && (
@@ -887,6 +955,21 @@ export default function App() {
             paceConfig={paceConfig}
             analyzeRange={analyzeRange}
             onAnalyzeRangeChange={setAnalyzeRange}
+            buddyKm={appMode === 'plan' ? buddyKmNow : null}
+          />
+        )}
+
+        {/* ── Buddy tracker (plan mode, after computing) ── */}
+        {appMode === 'plan' && isDone && track && (
+          <BuddyTracker
+            track={track}
+            startTime={startTime}
+            paceConfig={paceConfig}
+            observation={buddyObs}
+            onApply={handleApplyBuddy}
+            onClear={handleClearBuddy}
+            buddyKmNow={buddyKmNow}
+            buddyEta={buddyEta}
           />
         )}
 
