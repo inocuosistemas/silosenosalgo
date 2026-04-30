@@ -800,6 +800,8 @@ export default function App() {
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
             liveTrackKm={livePos.trackKm}
+            liveHeading={livePos.heading}
+            liveSpeed={livePos.speed}
             expectedKm={expectedKm}
             paceConfig={paceConfig}
             analyzeRange={analyzeRange}
