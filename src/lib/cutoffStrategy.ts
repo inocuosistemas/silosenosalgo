@@ -62,6 +62,10 @@ const EASY_SLACK     = +1.0  // can go >1 min/km slower   → 🟢
  *
  * The conservative assumption is: you arrive at each anchor *exactly* on its
  * cut-off time and must make the next cut-off from there.
+ *
+ * @param marginMin  Safety margin (minutes) to subtract from the available
+ *   time in every segment. A value of 10 means the required pace is computed
+ *   to arrive 10 min *before* each cut-off. Defaults to 0.
  */
 export function computeCutoffStrategy(
   track: GpxTrack,
@@ -69,6 +73,7 @@ export function computeCutoffStrategy(
   namedWaypoints: EnrichedNamedWaypoint[],
   startTime: Date,
   paceConfig: PaceConfig,
+  marginMin = 0,
 ): CutoffStrategyResult {
   const withCutoffs = [...namedWaypoints]
     .filter((w) => w.cutoffTime != null)
@@ -96,8 +101,9 @@ export function computeCutoffStrategy(
   for (let i = 0; i < anchors.length - 1; i++) {
     const from = anchors[i]
     const to   = anchors[i + 1]
-    const distanceKm  = to.km - from.km
-    const availableMin = (to.time.getTime() - from.time.getTime()) / 60_000
+    const distanceKm   = to.km - from.km
+    const rawAvailMin  = (to.time.getTime() - from.time.getTime()) / 60_000
+    const availableMin = rawAvailMin - marginMin   // shrink window by safety margin
 
     // Elevation gain for this km range
     const stats    = elevationStatsForSegment(track, from.km, to.km, paceConfig)

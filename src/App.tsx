@@ -134,6 +134,9 @@ export default function App() {
   // null = use paceConfig.paceMinPerKm uniformly (normal mode)
   const [segmentPaces, setSegmentPaces] = useState<SegmentPace[] | null>(null)
 
+  // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
+  const [strategyMargin, setStrategyMargin] = useState(0)
+
   const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
     if (!track) return
     const key = wptKey(lat, lon)
@@ -472,8 +475,8 @@ export default function App() {
     if (!track || !isDone) return null
     const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
     if (withCutoffs.length === 0) return null
-    return computeCutoffStrategy(track, withCutoffs, startTime, paceConfig)
-  }, [track, isDone, enrichedNamedWaypoints, startTime, paceConfig])
+    return computeCutoffStrategy(track, withCutoffs, startTime, paceConfig, strategyMargin)
+  }, [track, isDone, enrichedNamedWaypoints, startTime, paceConfig, strategyMargin])
 
   // ── Visibility change: show banner after ≥ 30 min in background ───────────
   useEffect(() => {
@@ -880,8 +883,6 @@ export default function App() {
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
             liveTrackKm={livePos.trackKm}
-            liveHeading={livePos.heading}
-            liveSpeed={livePos.speed}
             expectedKm={expectedKm}
             paceConfig={paceConfig}
             analyzeRange={analyzeRange}
@@ -902,6 +903,8 @@ export default function App() {
             onApplySinglePace={handleApplySinglePace}
             onApplyVariablePaces={handleApplyVariablePaces}
             variablePacesActive={segmentPaces !== null}
+            marginMin={strategyMargin}
+            onMarginChange={setStrategyMargin}
           />
         )}
 

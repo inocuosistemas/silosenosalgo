@@ -9,6 +9,8 @@ interface Props {
   onApplySinglePace: (pace: number) => void
   onApplyVariablePaces: (paces: SegmentPace[]) => void
   variablePacesActive: boolean
+  marginMin: number
+  onMarginChange: (minutes: number) => void
 }
 
 // ── Style config per severity ─────────────────────────────────────────────────
@@ -130,6 +132,8 @@ export function CutoffStrategy({
   onApplySinglePace,
   onApplyVariablePaces,
   variablePacesActive,
+  marginMin,
+  onMarginChange,
 }: Props) {
   const [open, setOpen] = useState(false)
   const { segments, tightestSegment, hasImpossible, singlePace, variablePaces } = strategy
@@ -176,6 +180,32 @@ export function CutoffStrategy({
 
       {open && (
         <div className="border-t border-slate-800">
+
+          {/* ── Margin control ── */}
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800/60 bg-slate-800/30">
+            <label htmlFor="strategy-margin" className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+              ⏱ Margen de seguridad
+            </label>
+            <input
+              id="strategy-margin"
+              type="number"
+              min={0}
+              max={120}
+              step={5}
+              value={marginMin}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                onMarginChange(Number.isFinite(v) ? Math.max(0, v) : 0)
+              }}
+              className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-slate-200 text-right focus:outline-none focus:border-sky-600"
+            />
+            <span className="text-xs text-slate-500">min por corte</span>
+            {marginMin > 0 && (
+              <span className="text-[10px] bg-sky-900/30 border border-sky-700/40 text-sky-400 px-2 py-0.5 rounded-full font-medium">
+                llegar {marginMin} min antes del corte
+              </span>
+            )}
+          </div>
 
           {/* ── Segment table ── */}
           <div className="overflow-x-auto">

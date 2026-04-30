@@ -48,13 +48,43 @@ function cutoffToTimeStr(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
-/** Parse "HH:MM" relative to startTime, adding a day if the result is before startTime (overnight). */
-function cutoffFromTimeStr(timeStr: string, startTime: Date): Date {
+/**
+ * Parse "HH:MM" anchored to `anchorTime` (the waypoint's estimated arrival).
+ * We snap HH:MM to the same calendar day as the anchor, then shift ±1 day
+ * if the result is more than 12 h away — this handles any day offset
+ * without an upper limit, making it safe for multi-day ultra routes.
+ */
+function cutoffFromTimeStr(timeStr: string, anchorTime: Date): Date {
   const [hStr, mStr] = timeStr.split(':')
-  const d = new Date(startTime)
+  const d = new Date(anchorTime)
   d.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0)
-  if (d.getTime() <= startTime.getTime()) d.setDate(d.getDate() + 1)
+  const diffMs = d.getTime() - anchorTime.getTime()
+  if (diffMs >  12 * 3_600_000) d.setDate(d.getDate() - 1)
+  if (diffMs < -12 * 3_600_000) d.setDate(d.getDate() + 1)
   return d
+}
+
+/**
+ * How many calendar days after `startTime` does `cutoff` fall?
+ * Day 0 = same day as start, Day 1 = next day, etc.
+ */
+function dayOffset(cutoff: Date, startTime: Date): number {
+  const startMidnight = new Date(startTime)
+  startMidnight.setHours(0, 0, 0, 0)
+  const cutoffMidnight = new Date(cutoff)
+  cutoffMidnight.setHours(0, 0, 0, 0)
+  return Math.round((cutoffMidnight.getTime() - startMidnight.getTime()) / 86_400_000)
+}
+
+/** Shows "+1d", "+2d" etc. next to a cut-off time when it falls on a later calendar day. */
+function DayBadge({ cutoff, startTime }: { cutoff: Date; startTime: Date }) {
+  const offset = dayOffset(cutoff, startTime)
+  if (offset <= 0) return null
+  return (
+    <span className="text-[10px] font-mono text-slate-400 leading-none select-none" title={`Día ${offset + 1} de ruta`}>
+      +{offset}d
+    </span>
+  )
 }
 
 /** Default cut-off = estimated arrival + 1 h, rounded to nearest 5 min. */
@@ -210,9 +240,13 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                                 className="bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-amber-500 w-20"
                                 onChange={(e) => {
                                   if (!e.target.value) return
-                                  onSetCutoff(wpt.lat, wpt.lon, cutoffFromTimeStr(e.target.value, startTime))
+                                  // Anchor to estimated arrival so multi-day routes land on the right day
+                                  const anchor = wpt.estimatedTime ?? startTime
+                                  onSetCutoff(wpt.lat, wpt.lon, cutoffFromTimeStr(e.target.value, anchor))
                                 }}
                               />
+                              {/* Day-offset badge — shows "+1d" etc. for post-midnight cut-offs */}
+                              <DayBadge cutoff={wpt.cutoffTime} startTime={startTime} />
                               <button
                                 onClick={() => onSetCutoff(wpt.lat, wpt.lon, null)}
                                 className="text-slate-500 hover:text-red-400 text-sm font-bold leading-none px-0.5"
@@ -239,6 +273,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                               <span className="text-amber-300 font-mono text-xs">
                                 {formatTime(wpt.cutoffTime)}
                               </span>
+                              <DayBadge cutoff={wpt.cutoffTime} startTime={startTime} />
                               {wpt.cutoffMarginMin !== undefined && (
                                 <CutoffBadge min={wpt.cutoffMarginMin} />
                               )}

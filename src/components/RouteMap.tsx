@@ -8,7 +8,6 @@ import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
-import { trackBearingAt } from '../lib/bearing'
 import type { AnalyzeRange } from './WeatherCharts'
 
 export type MapMode = 'rain' | 'wind'
@@ -31,10 +30,6 @@ interface Props {
   expectedKm?: number | null
   /** Pace config — used for section time estimates in analyze mode */
   paceConfig?: PaceConfig
-  /** GPS compass heading in degrees [0,360), null when unavailable */
-  liveHeading?: number | null
-  /** GPS ground speed in m/s, null when unavailable */
-  liveSpeed?: number | null
   /** Controlled analyze range — null means play mode */
   analyzeRange?: AnalyzeRange | null
   /** Called when the user changes the analyze range or toggles modes */
@@ -62,124 +57,6 @@ const SLIDER_STEPS = 1000
 const PLAY_STEP = 0.003
 const PLAY_INTERVAL_MS = 30
 const PRECISION_STEP_KM = 0.1
-
-// ── GPS direction marker helpers ──────────────────────────────────────────────
-
-/** Inject the @keyframes for the GPS pulse ring (idempotent). */
-function ensureGpsPulseCss() {
-  if (document.getElementById('sls-gps-pulse')) return
-  const s = document.createElement('style')
-  s.id = 'sls-gps-pulse'
-  s.textContent = `@keyframes sls-gps-pulse{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.12;transform:scale(1.55)}}`
-  document.head.appendChild(s)
-}
-
-/** Build a divIcon with a teardrop/chevron pointing in `bearing` degrees. */
-function buildGpsIcon(bearing: number): L.DivIcon {
-  return L.divIcon({
-    className: '',
-    iconSize:   [32, 32],
-    iconAnchor: [16, 16],
-    html: `<div style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;position:relative">
-  <div style="position:absolute;width:30px;height:30px;border-radius:50%;background:rgba(56,189,248,.18);animation:sls-gps-pulse 2s ease-in-out infinite"></div>
-  <svg width="24" height="24" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));transform:rotate(${bearing}deg)">
-    <polygon points="12,2 20,19 12,14 4,19" fill="#38bdf8" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-    <circle cx="12" cy="12" r="2.5" fill="white"/>
-  </svg>
-</div>`,
-  })
-}
-
-/** Angular distance between two bearings, always in [0, 180]. */
-function angularDiff(a: number, b: number): number {
-  return Math.abs(((a - b + 540) % 360) - 180)
-}
-
-// ── Imperative GPS arrow marker (avoids react-leaflet remount on icon change) ─
-function GpsArrowMarker({ lat, lon, bearing }: { lat: number; lon: number; bearing: number }) {
-  const map = useMap()
-  const markerRef      = useRef<L.Marker | null>(null)
-  const prevBearingRef = useRef<number | null>(null)
-
-  // Create the Leaflet marker once on mount
-  useEffect(() => {
-    ensureGpsPulseCss()
-    const m = L.marker([lat, lon], {
-      icon: buildGpsIcon(bearing),
-      zIndexOffset: 1000,
-      interactive: false,
-    }).addTo(map)
-    markerRef.current      = m
-    prevBearingRef.current = bearing
-    return () => { m.remove(); markerRef.current = null }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map])
-
-  // Update position on every GPS fix
-  useEffect(() => {
-    markerRef.current?.setLatLng([lat, lon])
-  }, [lat, lon])
-
-  // Update icon only when bearing changes by ≥ 5° (avoids needless DOM replacement)
-  useEffect(() => {
-    const m = markerRef.current
-    if (!m) return
-    const prev = prevBearingRef.current
-    if (prev === null || angularDiff(bearing, prev) >= 5) {
-      m.setIcon(buildGpsIcon(bearing))
-      prevBearingRef.current = bearing
-    }
-  }, [bearing])
-
-  return null
-}
-
-// ── Compass rose overlay (rendered outside the rotated layer, stays upright) ──
-function CompassRose({ bearing }: { bearing: number }) {
-  // The SVG rotates by -bearing so the N arrow always points to real north
-  // even when the map container is rotated by -bearing.
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        top: 54,
-        right: 8,
-        zIndex: 900,
-        width: 44,
-        height: 44,
-        borderRadius: '50%',
-        background: 'rgba(15,23,42,0.85)',
-        border: '1px solid rgba(148,163,184,0.25)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backdropFilter: 'blur(4px)',
-        boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-        pointerEvents: 'none',
-      }}
-    >
-      <svg
-        width="34"
-        height="34"
-        viewBox="0 0 34 34"
-        style={{
-          transform: `rotate(${-bearing}deg)`,
-          transition: 'transform 0.5s ease-out',
-        }}
-      >
-        {/* North tip — red */}
-        <polygon points="17,3 20.5,16 17,13.5 13.5,16" fill="#ef4444" />
-        {/* South tip — slate */}
-        <polygon points="17,31 13.5,18 17,20.5 20.5,18" fill="#475569" />
-        {/* Centre dot */}
-        <circle cx="17" cy="17" r="2.5" fill="#94a3b8" />
-        {/* N label */}
-        <text x="17" y="2.5" textAnchor="middle" fontSize="5.5"
-          fill="#ef4444" fontFamily="system-ui,sans-serif" fontWeight="bold">N</text>
-      </svg>
-    </div>
-  )
-}
 
 /** Format a cut-off margin (minutes) as "+2h 05m" or "−8 min" */
 function cutoffMarginText(min: number): string {
@@ -229,8 +106,6 @@ export function RouteMap({
   liveCoords = null,
   liveProgress = 0,
   liveTrackKm = 0,
-  liveHeading = null,
-  liveSpeed = null,
   expectedKm = null,
   paceConfig,
   analyzeRange = null,
@@ -249,15 +124,6 @@ export function RouteMap({
   const analyzeFrom = analyzeRange?.from ?? 0
   const analyzeTo = analyzeRange?.to ?? track.totalDistanceKm
 
-  // ── Heading-up mode ───────────────────────────────────────────────────────
-  /** When true, the map is rotated so the direction of travel points upward. */
-  const [headingUp, setHeadingUp] = useState(false)
-
-  // Reset heading-up when leaving live mode
-  useEffect(() => {
-    if (!liveMode) setHeadingUp(false)
-  }, [liveMode])
-
   // Deferred range: slider thumb stays snappy; heavy segment/marker re-computes
   // only when React is idle (useDeferredValue, React 19)
   const deferredRange = useDeferredValue(analyzeRange)
@@ -275,23 +141,6 @@ export function RouteMap({
     }
     return arr
   }, [points])
-
-  /**
-   * Effective bearing for map rotation and the GPS arrow:
-   * - GPS compass heading when the device is moving (> 0.3 m/s ≈ 1 km/h)
-   * - Route bearing computed from the current position otherwise
-   * - null when live mode is inactive
-   */
-  const effectiveBearing = useMemo<number | null>(() => {
-    if (!liveMode) return null
-    if (liveHeading !== null && liveSpeed !== null && liveSpeed > 0.3) {
-      return liveHeading
-    }
-    if (points.length >= 2) {
-      return trackBearingAt(track, cumKm, liveTrackKm)
-    }
-    return null
-  }, [liveMode, liveHeading, liveSpeed, track, cumKm, liveTrackKm, points.length])
 
   const totalKm = track.totalDistanceKm
   const targetKm = effectiveProgress * totalKm
@@ -609,20 +458,6 @@ export function RouteMap({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Heading-up toggle — only in live mode when bearing is available */}
-          {liveMode && effectiveBearing !== null && (
-            <button
-              onClick={() => setHeadingUp((h) => !h)}
-              title={headingUp ? 'Volver a Norte arriba' : 'Rotar mapa en dirección de marcha'}
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                headingUp
-                  ? 'bg-sky-600 border-sky-500 text-white'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {headingUp ? '🧭 Dirección ↑' : '⬆️ Norte ↑'}
-            </button>
-          )}
           {hasWeather && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
               <button
@@ -812,25 +647,7 @@ export function RouteMap({
       )}
 
       {/* ── Map ── */}
-      <div className="relative rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
-        {/*
-          Inner rotating layer.
-          scale(1.18) ensures the map corners never show the outer div's background
-          for headings up to ~35° from screen-up (sufficient for most routes).
-          Leaflet controls rotate with the map; use compass rose for orientation.
-        */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            transformOrigin: 'center',
-            transform: headingUp && effectiveBearing !== null
-              ? `rotate(${-effectiveBearing}deg) scale(1.18)`
-              : undefined,
-            transition: 'transform 0.5s ease-out',
-            willChange: headingUp ? 'transform' : undefined,
-          }}
-        >
+      <div className="rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
         <MapContainer
           key={track.name + track.points.length}
           bounds={bounds}
@@ -1050,31 +867,22 @@ export function RouteMap({
             </CircleMarker>
           )}
 
-          {/* Live GPS — directional arrow when bearing is available, plain dot otherwise */}
+          {/* Live GPS position dot */}
           {liveMode && liveCoords && (
-            effectiveBearing !== null
-              ? <GpsArrowMarker lat={liveCoords.lat} lon={liveCoords.lon} bearing={effectiveBearing} />
-              : <>
-                  <CircleMarker
-                    center={[liveCoords.lat, liveCoords.lon]}
-                    radius={14}
-                    pathOptions={{ fillColor: '#38bdf8', color: 'transparent', fillOpacity: 0.25 }}
-                  />
-                  <CircleMarker
-                    center={[liveCoords.lat, liveCoords.lon]}
-                    radius={7}
-                    pathOptions={{ fillColor: '#38bdf8', color: 'white', weight: 2.5, fillOpacity: 1 }}
-                  />
-                </>
+            <>
+              <CircleMarker
+                center={[liveCoords.lat, liveCoords.lon]}
+                radius={14}
+                pathOptions={{ fillColor: '#38bdf8', color: 'transparent', fillOpacity: 0.25 }}
+              />
+              <CircleMarker
+                center={[liveCoords.lat, liveCoords.lon]}
+                radius={7}
+                pathOptions={{ fillColor: '#38bdf8', color: 'white', weight: 2.5, fillOpacity: 1 }}
+              />
+            </>
           )}
         </MapContainer>
-        </div>{/* ── end rotating layer ── */}
-
-        {/* Compass rose: sits outside the rotating layer so it stays upright.
-            Shows where north is when the map is rotated to heading-up. */}
-        {liveMode && headingUp && effectiveBearing !== null && (
-          <CompassRose bearing={effectiveBearing} />
-        )}
       </div>
 
       {/* ── Section stats panel (analyze mode only) ── */}

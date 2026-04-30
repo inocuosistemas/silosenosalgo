@@ -3,6 +3,15 @@ import { formatTime } from '../lib/timing'
 
 interface Props {
   namedWaypoints: EnrichedNamedWaypoint[]
+  startTime: Date
+}
+
+function dayOffset(cutoff: Date, startTime: Date): number {
+  const startMidnight = new Date(startTime)
+  startMidnight.setHours(0, 0, 0, 0)
+  const cutoffMidnight = new Date(cutoff)
+  cutoffMidnight.setHours(0, 0, 0, 0)
+  return Math.round((cutoffMidnight.getTime() - startMidnight.getTime()) / 86_400_000)
 }
 
 function marginLabel(min: number): string {
@@ -19,7 +28,7 @@ function marginClasses(min: number) {
   return           { dot: 'bg-red-400',   text: 'text-red-400' }
 }
 
-export function CutoffSummary({ namedWaypoints }: Props) {
+export function CutoffSummary({ namedWaypoints, startTime }: Props) {
   const wpts = namedWaypoints.filter((w) => w.cutoffTime != null)
   if (wpts.length === 0) return null
 
@@ -62,17 +71,27 @@ export function CutoffSummary({ namedWaypoints }: Props) {
               </span>
 
               {/* Estimated arrival */}
-              <span className="text-slate-500 text-xs font-mono shrink-0">
+              <span className="text-slate-500 text-xs font-mono shrink-0 inline-flex items-center gap-1">
                 llegada{' '}
                 <span className="text-sky-300">
                   {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
                 </span>
+                {wpt.estimatedTime && dayOffset(wpt.estimatedTime, startTime) > 0 && (
+                  <span className="text-[10px] text-slate-500" title={`Día ${dayOffset(wpt.estimatedTime, startTime) + 1} de ruta`}>
+                    +{dayOffset(wpt.estimatedTime, startTime)}d
+                  </span>
+                )}
               </span>
 
               {/* Cut-off time */}
-              <span className="text-slate-500 text-xs font-mono shrink-0">
+              <span className="text-slate-500 text-xs font-mono shrink-0 inline-flex items-center gap-1">
                 corte{' '}
                 <span className="text-amber-300">{formatTime(wpt.cutoffTime!)}</span>
+                {dayOffset(wpt.cutoffTime!, startTime) > 0 && (
+                  <span className="text-[10px] text-slate-400" title={`Día ${dayOffset(wpt.cutoffTime!, startTime) + 1} de ruta`}>
+                    +{dayOffset(wpt.cutoffTime!, startTime)}d
+                  </span>
+                )}
               </span>
 
               {/* Margin badge */}
