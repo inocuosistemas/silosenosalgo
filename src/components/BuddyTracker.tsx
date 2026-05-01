@@ -334,17 +334,38 @@ export function BuddyTracker({
                     <span className="text-purple-200 font-medium">
                       {nextCutoff.name}
                     </span>
-                    <span className="text-slate-500 mx-1">·</span>
-                    <span className="text-purple-200 font-mono">
-                      {formatTime(nextCutoff.eta)}
-                    </span>
-                    <DayBadge t={nextCutoff.eta} startTime={startTime} />
-                    <span className={`font-mono ml-1.5 ${nextCutoff.marginMin >= 10 ? 'text-emerald-400' : nextCutoff.marginMin >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
-                      ({formatMargin(nextCutoff.marginMin)})
+                    <span className="text-slate-500 ml-1 font-mono">
+                      (km {nextCutoff.km.toFixed(1)})
                     </span>
                   </span>
                 )}
               </div>
+
+              {/* ETA + cutoff comparison line */}
+              {nextCutoff && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
+                  <span className="text-slate-400">
+                    🕘 Llegada estimada al corte:
+                    <span className="text-purple-200 font-mono ml-1 font-semibold">
+                      {formatTime(nextCutoff.eta)}
+                    </span>
+                    <DayBadge t={nextCutoff.eta} startTime={startTime} />
+                  </span>
+                  <span className="text-slate-400">
+                    ⏰ Hora de corte:
+                    <span className="text-slate-300 font-mono ml-1">
+                      {formatTime(nextCutoff.cutoff)}
+                    </span>
+                    <DayBadge t={nextCutoff.cutoff} startTime={startTime} />
+                  </span>
+                  <span className="text-slate-400">
+                    Margen:
+                    <span className={`font-mono font-semibold ml-1 ${nextCutoff.marginMin >= 10 ? 'text-emerald-400' : nextCutoff.marginMin >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {formatMargin(nextCutoff.marginMin)}
+                    </span>
+                  </span>
+                </div>
+              )}
 
               {/* Affordable pace to make the next cut-off (with strategy margin) */}
               {nextCutoff && (() => {
