@@ -65,9 +65,19 @@ export function CutoffSummary({ namedWaypoints, startTime }: Props) {
                 {wpt.distanceKm.toFixed(1)} km
               </span>
 
-              {/* Name */}
-              <span className="text-slate-200 flex-1 min-w-0 truncate font-medium">
-                🚩 {wpt.name}
+              {/* Name + optional description */}
+              <span className="flex-1 min-w-0 inline-flex flex-col">
+                <span className="text-slate-200 truncate font-medium">
+                  🚩 {wpt.name}
+                </span>
+                {wpt.desc && (
+                  <span
+                    className="text-slate-500 text-[11px] italic truncate"
+                    title={wpt.desc}
+                  >
+                    {wpt.desc}
+                  </span>
+                )}
               </span>
 
               {/* Estimated arrival */}
