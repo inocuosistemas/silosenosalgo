@@ -16,9 +16,11 @@ import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
 import { CutoffStrategy } from './components/CutoffStrategy'
 import { BuddyTracker } from './components/BuddyTracker'
-import type { BuddyObservation } from './components/BuddyTracker'
+import type { NextCutoffInfo } from './components/BuddyTracker'
 import { computeCutoffStrategy } from './lib/cutoffStrategy'
 import type { SegmentPace } from './lib/timing'
+import type { BuddyObservation } from './lib/buddyTracking'
+import { buildBuddyDerived, projectBuddyKmAt } from './lib/buddyTracking'
 import { useLivePosition } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
@@ -139,9 +141,10 @@ export default function App() {
   // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
   const [strategyMargin, setStrategyMargin] = useState(0)
 
-  // ── Buddy tracking: a single observation { km, time } ─────────────────────
-  // null = no observation; when set, ETAs are projected from the observed pace.
-  const [buddyObs, setBuddyObs] = useState<BuddyObservation | null>(null)
+  // ── Buddy tracking: list of observations { km, time } sorted by km ─────────
+  // [] = no observation; when populated, ETAs are projected from the observed
+  // per-segment paces (latest segment is used for the unknown future).
+  const [buddyObs, setBuddyObs] = useState<BuddyObservation[]>([])
 
   const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
     if (!track) return
@@ -179,40 +182,44 @@ export default function App() {
     setPaceConfig((c) => ({ ...c, mode: 'fixed' }))
   }, [gpxValidity, paceConfig.mode])
 
-  // ── Effective pace config (override with buddy's observed avg pace) ────────
-  // When a buddy observation is active we project ETAs at the observed flat
-  // average pace, ignoring naismith/gpx and any variable per-segment pace.
-  const buddyObservedPace = useMemo<number | null>(() => {
-    if (!buddyObs) return null
-    const elapsedMin = (buddyObs.time.getTime() - startTime.getTime()) / 60_000
-    if (elapsedMin <= 0 || buddyObs.km <= 0) return null
-    return elapsedMin / buddyObs.km
-  }, [buddyObs, startTime])
+  // ── Buddy-derived data: per-segment paces + metrics ───────────────────────
+  // When at least one observation exists we replace paceConfig + segmentPaces
+  // with values derived from the observations (mode forced to 'fixed' so the
+  // observed paces, which already integrate terrain reality, are used as-is
+  // without an additional Naismith elevation adjustment on top).
+  const buddyDerived = useMemo(() => {
+    if (!track || buddyObs.length === 0) return null
+    return buildBuddyDerived(buddyObs, startTime, track.totalDistanceKm)
+  }, [buddyObs, startTime, track])
 
   const effectivePaceConfig = useMemo<PaceConfig>(() => {
-    if (buddyObservedPace !== null) {
-      return { ...paceConfig, mode: 'fixed', paceMinPerKm: buddyObservedPace }
+    if (buddyDerived) {
+      return {
+        ...paceConfig,
+        mode: 'fixed',
+        paceMinPerKm: buddyDerived.metrics.projectionPaceMinPerKm,
+      }
     }
     return paceConfig
-  }, [paceConfig, buddyObservedPace])
+  }, [paceConfig, buddyDerived])
 
-  const effectiveSegmentPaces = buddyObs ? null : segmentPaces
+  const effectiveSegmentPaces: SegmentPace[] | null =
+    buddyDerived ? buddyDerived.segmentPaces : segmentPaces
 
   // ── Buddy position projected to "now" (ticks every 30 s for the map) ──────
-  const buddyTick = useNowTick(30_000, buddyObs !== null)
+  const buddyTick = useNowTick(30_000, buddyObs.length > 0)
   const buddyKmNow = useMemo<number | null>(() => {
-    if (!buddyObs || buddyObservedPace === null || !track) return null
-    const elapsedSinceObsMin = (buddyTick - buddyObs.time.getTime()) / 60_000
-    const projected = buddyObs.km + elapsedSinceObsMin / buddyObservedPace
-    return Math.max(0, Math.min(track.totalDistanceKm, projected))
-  }, [buddyObs, buddyObservedPace, buddyTick, track])
+    if (!buddyDerived || !track) return null
+    return projectBuddyKmAt(buddyDerived, buddyTick, track.totalDistanceKm)
+  }, [buddyDerived, buddyTick, track])
 
-  // ── Buddy projected ETA at the finish (uses observed pace) ────────────────
+  // ── Buddy projected ETA at the finish (uses projection pace) ──────────────
   const buddyEta = useMemo<Date | null>(() => {
-    if (!buddyObs || buddyObservedPace === null || !track) return null
-    const remainingKm = track.totalDistanceKm - buddyObs.km
-    return new Date(buddyObs.time.getTime() + remainingKm * buddyObservedPace * 60_000)
-  }, [buddyObs, buddyObservedPace, track])
+    if (!buddyDerived || !track) return null
+    const { lastObs, projectionPaceMinPerKm } = buddyDerived.metrics
+    const remainingKm = track.totalDistanceKm - lastObs.km
+    return new Date(lastObs.time.getTime() + remainingKm * projectionPaceMinPerKm * 60_000)
+  }, [buddyDerived, track])
 
   // ── Real average pace from startTime (min/km) ─────────────────────────────
   // Only valid when ≥ 0.3 km covered AND startTime is in the past
@@ -373,7 +380,7 @@ export default function App() {
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
     setSegmentPaces(null)
-    setBuddyObs(null)
+    setBuddyObs([])
     setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
     reset()
     if (t.points.some((p) => p.time)) {
@@ -441,7 +448,7 @@ export default function App() {
     setPaceConfig(newConfig)
     savePaceConfig(newConfig)
     setSegmentPaces(null)
-    setBuddyObs(null)   // strategy paces override any buddy observation
+    setBuddyObs([])   // strategy paces override any buddy observation
     reset()
     await doCompute(newConfig, null)
   }
@@ -449,28 +456,53 @@ export default function App() {
   /** Button B: apply per-segment variable paces; waypoints recalculated accordingly. */
   async function handleApplyVariablePaces(paces: SegmentPace[]) {
     setSegmentPaces(paces)
-    setBuddyObs(null)   // strategy paces override any buddy observation
+    setBuddyObs([])   // strategy paces override any buddy observation
     reset()
     await doCompute(paceConfig, paces)
   }
 
   // ── Buddy-tracker handlers ────────────────────────────────────────────────
 
-  /** Apply (or replace) a buddy observation; rebuilds the plan with observed pace. */
-  async function handleApplyBuddy(obs: BuddyObservation) {
+  /** Add a new observation to the list; rebuilds the plan with observed paces. */
+  async function handleAddBuddyObs(obs: BuddyObservation) {
     if (!track) return
-    const elapsedMin = (obs.time.getTime() - startTime.getTime()) / 60_000
-    const observedPace = elapsedMin / obs.km
-    const newConfig: PaceConfig = { ...paceConfig, mode: 'fixed', paceMinPerKm: observedPace }
-    setBuddyObs(obs)
-    setSegmentPaces(null)   // variable paces don't make sense alongside an observation
+    const nextList = [...buddyObs, obs].sort((a, b) => a.km - b.km)
+    setBuddyObs(nextList)
+    setSegmentPaces(null)   // variable paces don't make sense alongside observations
+    const derived = buildBuddyDerived(nextList, startTime, track.totalDistanceKm)
+    if (!derived) return
+    const newConfig: PaceConfig = {
+      ...paceConfig, mode: 'fixed',
+      paceMinPerKm: derived.metrics.projectionPaceMinPerKm,
+    }
     reset()
-    await doCompute(newConfig, null)
+    await doCompute(newConfig, derived.segmentPaces)
   }
 
-  /** Clear the buddy observation; revert to the user's planned pace config. */
+  /** Remove a single observation by km. Recomputes if any obs remain. */
+  async function handleRemoveBuddyObs(km: number) {
+    if (!track) return
+    const nextList = buddyObs.filter((o) => Math.abs(o.km - km) >= 0.05)
+    setBuddyObs(nextList)
+    if (nextList.length === 0) {
+      // Last one removed → revert to planned config
+      reset()
+      await doCompute(paceConfig, segmentPaces)
+      return
+    }
+    const derived = buildBuddyDerived(nextList, startTime, track.totalDistanceKm)
+    if (!derived) return
+    const newConfig: PaceConfig = {
+      ...paceConfig, mode: 'fixed',
+      paceMinPerKm: derived.metrics.projectionPaceMinPerKm,
+    }
+    reset()
+    await doCompute(newConfig, derived.segmentPaces)
+  }
+
+  /** Clear ALL buddy observations; revert to the user's planned pace config. */
   async function handleClearBuddy() {
-    setBuddyObs(null)
+    setBuddyObs([])
     if (track && (status === 'done' || status === 'error')) {
       reset()
       await doCompute(paceConfig, segmentPaces)
@@ -545,6 +577,27 @@ export default function App() {
     if (withCutoffs.length === 0) return null
     return computeCutoffStrategy(track, withCutoffs, startTime, effectivePaceConfig, strategyMargin)
   }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin])
+
+  // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
+  // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
+  // the buddy-derived segment paces).
+  const buddyNextCutoff = useMemo<NextCutoffInfo | null>(() => {
+    if (!buddyDerived) return null
+    const refKm = buddyKmNow ?? buddyDerived.metrics.lastObs.km
+    const upcoming = enrichedNamedWaypoints
+      .filter((w) => w.cutoffTime != null && w.distanceKm > refKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+    if (upcoming.length === 0) return null
+    const cp = upcoming[0]
+    if (!cp.cutoffTime || !cp.estimatedTime) return null
+    return {
+      name: cp.name,
+      km: cp.distanceKm,
+      cutoff: cp.cutoffTime,
+      eta: cp.estimatedTime,
+      marginMin: (cp.cutoffTime.getTime() - cp.estimatedTime.getTime()) / 60_000,
+    }
+  }, [buddyDerived, buddyKmNow, enrichedNamedWaypoints])
 
   // ── Visibility change: show banner after ≥ 30 min in background ───────────
   useEffect(() => {
@@ -688,7 +741,7 @@ export default function App() {
                 <input
                   type="datetime-local"
                   value={toLocalInputValue(startTime)}
-                  onChange={(e) => { setStartTime(new Date(e.target.value)); setBuddyObs(null); reset() }}
+                  onChange={(e) => { setStartTime(new Date(e.target.value)); setBuddyObs([]); reset() }}
                   className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
                 />
               </section>
@@ -701,7 +754,7 @@ export default function App() {
                   config={paceConfig}
                   hasGpxTimes={hasGpxTimes}
                   gpxValidity={gpxValidity}
-                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); setBuddyObs(null); reset() }}
+                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); setBuddyObs([]); reset() }}
                 />
                 {/* Variable-pace active indicator — shown when strategy panel has been applied */}
                 {segmentPaces && (
@@ -965,11 +1018,14 @@ export default function App() {
             track={track}
             startTime={startTime}
             paceConfig={paceConfig}
-            observation={buddyObs}
-            onApply={handleApplyBuddy}
+            observations={buddyObs}
+            derived={buddyDerived}
+            onAdd={handleAddBuddyObs}
+            onRemove={handleRemoveBuddyObs}
             onClear={handleClearBuddy}
             buddyKmNow={buddyKmNow}
             buddyEta={buddyEta}
+            nextCutoff={buddyNextCutoff}
           />
         )}
 
