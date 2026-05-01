@@ -8,6 +8,7 @@ import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
+import { useNowTick } from '../lib/useNowTick'
 import type { AnalyzeRange } from './WeatherCharts'
 
 export type MapMode = 'rain' | 'wind'
@@ -170,23 +171,30 @@ export function RouteMap({
         endKm: cumKm[curr.index],
         ptStart: prev.index,
         ptEnd: curr.index,
+        endTimeMs: curr.estimatedTime.getTime(),
       }
     })
   }, [waypoints, points, mapMode, cumKm])
 
+  // ── "Now" tick (60 s) used to mute weather-colored segments whose ETA is
+  //    already in the past — those colors come from forecast/reanalysis data
+  //    that may not reflect what actually happened when the buddy/runner
+  //    passed through.
+  const nowTick = useNowTick(60_000, !liveMode)
+
   // ── Split allSegments at targetKm into "before" and "after" (play mode) ──
   const { beforeSegments, afterSegments } = useMemo(() => {
-    type SegRender = { key: number; positions: [number, number][]; color: string }
+    type SegRender = { key: number; positions: [number, number][]; color: string; endTimeMs: number }
     if (effectiveProgress >= 1) {
       return {
-        beforeSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color })),
+        beforeSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color, endTimeMs: s.endTimeMs })),
         afterSegments: [] as SegRender[],
       }
     }
     if (effectiveProgress <= 0) {
       return {
         beforeSegments: [] as SegRender[],
-        afterSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color })),
+        afterSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color, endTimeMs: s.endTimeMs })),
       }
     }
 
@@ -195,11 +203,11 @@ export function RouteMap({
 
     for (const seg of allSegments) {
       if (seg.endKm <= targetKm) {
-        before.push({ key: seg.key, positions: seg.pts, color: seg.color })
+        before.push({ key: seg.key, positions: seg.pts, color: seg.color, endTimeMs: seg.endTimeMs })
         continue
       }
       if (seg.startKm >= targetKm) {
-        after.push({ key: seg.key, positions: seg.pts, color: seg.color })
+        after.push({ key: seg.key, positions: seg.pts, color: seg.color, endTimeMs: seg.endTimeMs })
         continue
       }
       const beforePts: [number, number][] = []
@@ -225,8 +233,8 @@ export function RouteMap({
           afterPts.push([points[pi].lat, points[pi].lon])
         }
       }
-      if (beforePts.length >= 2) before.push({ key: seg.key, positions: beforePts, color: seg.color })
-      if (afterPts.length >= 2) after.push({ key: seg.key, positions: afterPts, color: seg.color })
+      if (beforePts.length >= 2) before.push({ key: seg.key, positions: beforePts, color: seg.color, endTimeMs: seg.endTimeMs })
+      if (afterPts.length >= 2) after.push({ key: seg.key, positions: afterPts, color: seg.color, endTimeMs: seg.endTimeMs })
     }
 
     return { beforeSegments: before, afterSegments: after }
@@ -234,16 +242,16 @@ export function RouteMap({
 
   // ── Analyze inside segments: only the weather-colored portion [from, to] ──
   // Uses deferredFrom/deferredTo so slider drags don't block Leaflet repaints.
-  const analyzeInsideSegments = useMemo<{ key: string; positions: [number, number][]; color: string }[]>(() => {
+  const analyzeInsideSegments = useMemo<{ key: string; positions: [number, number][]; color: string; endTimeMs: number }[]>(() => {
     if (liveMode || interactionMode !== 'analyze') return []
 
-    const result: { key: string; positions: [number, number][]; color: string }[] = []
+    const result: { key: string; positions: [number, number][]; color: string; endTimeMs: number }[] = []
 
     for (const seg of allSegments) {
       if (seg.endKm <= deferredFrom || seg.startKm >= deferredTo) continue
 
       if (seg.startKm >= deferredFrom && seg.endKm <= deferredTo) {
-        result.push({ key: `an-${seg.key}`, positions: seg.pts, color: seg.color })
+        result.push({ key: `an-${seg.key}`, positions: seg.pts, color: seg.color, endTimeMs: seg.endTimeMs })
         continue
       }
 
@@ -278,7 +286,7 @@ export function RouteMap({
       }
 
       if (iPts.length >= 2) {
-        result.push({ key: `an-${seg.key}`, positions: iPts, color: seg.color })
+        result.push({ key: `an-${seg.key}`, positions: iPts, color: seg.color, endTimeMs: seg.endTimeMs })
       }
     }
 
@@ -747,22 +755,36 @@ export function RouteMap({
           )}
 
           {/* Plan / play: weather-colored before segments */}
-          {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => (
-            <Polyline
-              key={`before-${seg.key}`}
-              positions={seg.positions}
-              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
-            />
-          ))}
+          {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => {
+            const isPast = seg.endTimeMs < nowTick
+            return (
+              <Polyline
+                key={`before-${seg.key}`}
+                positions={seg.positions}
+                pathOptions={
+                  isPast
+                    ? { color: seg.color, weight: 4, opacity: 0.45, dashArray: '4 3' }
+                    : { color: seg.color, weight: 5, opacity: 1 }
+                }
+              />
+            )
+          })}
 
           {/* Plan / analyze: weather-colored inside-range segments */}
-          {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => (
-            <Polyline
-              key={seg.key}
-              positions={seg.positions}
-              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
-            />
-          ))}
+          {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => {
+            const isPast = seg.endTimeMs < nowTick
+            return (
+              <Polyline
+                key={seg.key}
+                positions={seg.positions}
+                pathOptions={
+                  isPast
+                    ? { color: seg.color, weight: 4, opacity: 0.45, dashArray: '4 3' }
+                    : { color: seg.color, weight: 5, opacity: 1 }
+                }
+              />
+            )
+          })}
 
           {/* Live: muted traveled */}
           {liveMode && beforeSegments.map((seg) => (
