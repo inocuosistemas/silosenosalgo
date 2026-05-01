@@ -614,6 +614,7 @@ export default function App() {
 
     return {
       name: cp.name,
+      desc: cp.desc,
       km: cp.distanceKm,
       cutoff: cp.cutoffTime,
       eta: cp.estimatedTime,
