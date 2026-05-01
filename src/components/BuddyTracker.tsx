@@ -5,7 +5,7 @@ import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime, splitHoursMinutes } fro
 import { dayOffset, fromTimeStrForward, toTimeStr } from '../lib/multiDayTime'
 import { useFreshnessLabel } from '../lib/useFreshnessLabel'
 import type { BuddyDerived, BuddyObservation } from '../lib/buddyTracking'
-import { validateNewObservation } from '../lib/buddyTracking'
+import { parseObservationsFromText, validateNewObservation } from '../lib/buddyTracking'
 
 export interface NextCutoffInfo {
   name: string
@@ -38,6 +38,8 @@ interface Props {
   onAdd: (obs: BuddyObservation) => void
   onRemove: (km: number) => void
   onClear: () => void
+  /** Replace ALL current observations with the provided list at once. */
+  onSetAll: (obs: BuddyObservation[]) => void
   /** Live projected km of the buddy at "now" (ticks every 30 s). */
   buddyKmNow: number | null
   /** Estimated finish time projected from the observed pace. */
@@ -106,6 +108,25 @@ function CheckIcon() {
       aria-hidden="true"
     >
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+/** Clipboard with an inward arrow — "paste" action. */
+function PasteIcon() {
+  return (
+    <svg
+      width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* clipboard body */}
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      {/* clip tab */}
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+      {/* down-arrow (paste) */}
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <polyline points="9 14 12 17 15 14" />
     </svg>
   )
 }
@@ -222,6 +243,7 @@ export function BuddyTracker({
   onAdd,
   onRemove,
   onClear,
+  onSetAll,
   buddyKmNow,
   buddyEta,
   nextCutoff,
@@ -231,15 +253,19 @@ export function BuddyTracker({
   const [timeStr, setTimeStr] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [pasted, setPasted] = useState(false)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pasteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Auto-open the panel when at least one obs is active
   useEffect(() => { if (observations.length > 0) setOpen(true) }, [observations.length])
 
-  // Clear the "copied ✓" timer on unmount so it can't fire on a dead component
+  // Clear clipboard timers on unmount so they can't fire on a dead component
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      if (pasteTimeoutRef.current) clearTimeout(pasteTimeoutRef.current)
     }
   }, [])
 
@@ -300,6 +326,43 @@ export function BuddyTracker({
       copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     } catch {
       setError('No se pudo copiar al portapapeles')
+    }
+  }
+
+  async function handlePaste() {
+    setError(null)
+    setImportMsg(null)
+    try {
+      const text = await navigator.clipboard.readText()
+      const { observations: parsed, skipped } = parseObservationsFromText(text, startTime)
+
+      if (parsed.length === 0) {
+        setError('No se encontraron observaciones válidas en el portapapeles')
+        return
+      }
+
+      // Ask for confirmation before overwriting existing observations
+      if (observations.length > 0) {
+        const ok = window.confirm(
+          `¿Reemplazar las ${observations.length} observación(es) actuales con las ${parsed.length} importadas del portapapeles?`,
+        )
+        if (!ok) return
+      }
+
+      onSetAll(parsed)
+
+      const msg = skipped > 0
+        ? `Importadas ${parsed.length} observaciones (${skipped} líneas omitidas)`
+        : `Importadas ${parsed.length} observaciones`
+      setImportMsg(msg)
+      setPasted(true)
+      if (pasteTimeoutRef.current) clearTimeout(pasteTimeoutRef.current)
+      pasteTimeoutRef.current = setTimeout(() => {
+        setPasted(false)
+        setImportMsg(null)
+      }, 3000)
+    } catch {
+      setError('No se pudo leer el portapapeles')
     }
   }
 
@@ -395,21 +458,47 @@ export function BuddyTracker({
               ⚠️ {error}
             </div>
           )}
+          {importMsg && (
+            <div className="text-xs bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 px-3 py-2 rounded-lg">
+              ✓ {importMsg}
+            </div>
+          )}
 
-          {/* ── Observations list ── */}
-          {derived && derived.sortedObs.length > 0 && (
-            <div className="bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden">
-              {/* Mini-header with copy-to-clipboard button */}
-              <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80 bg-slate-900/60">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
-                  Observaciones
-                </span>
+          {/* ── Observations list + clipboard controls ── */}
+          <div className="bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden">
+            {/* Mini-header: always visible so "Pegar" works from zero observations */}
+            <div className={`flex items-center justify-between px-3 py-1.5 bg-slate-900/60 ${derived && derived.sortedObs.length > 0 ? 'border-b border-slate-800/80' : ''}`}>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
+                Observaciones
+              </span>
+              <div className="flex items-center gap-1">
+                {/* Pegar — always enabled */}
+                <button
+                  onClick={handlePaste}
+                  type="button"
+                  title={pasted ? 'Importado ✓' : 'Pegar observaciones del portapapeles'}
+                  aria-label={pasted ? 'Importado' : 'Pegar del portapapeles'}
+                  className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors ${
+                    pasted
+                      ? 'text-emerald-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  {pasted ? <CheckIcon /> : <PasteIcon />}
+                  <span>{pasted ? 'Pegado' : 'Pegar'}</span>
+                </button>
+                {/* Copiar — disabled when no observations */}
                 <button
                   onClick={handleCopy}
                   type="button"
-                  title={copied ? 'Copiado ✓' : 'Copiar al portapapeles'}
+                  disabled={!derived || derived.sortedObs.length === 0}
+                  title={
+                    !derived || derived.sortedObs.length === 0
+                      ? 'Añade observaciones para poder copiarlas'
+                      : copied ? 'Copiado ✓' : 'Copiar al portapapeles'
+                  }
                   aria-label={copied ? 'Copiado' : 'Copiar al portapapeles'}
-                  className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors ${
+                  className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
                     copied
                       ? 'text-emerald-400'
                       : 'text-purple-400 hover:text-purple-300 hover:bg-slate-800/60'
@@ -419,6 +508,10 @@ export function BuddyTracker({
                   <span>{copied ? 'Copiado' : 'Copiar'}</span>
                 </button>
               </div>
+            </div>
+
+            {/* Table — only when there are observations */}
+            {derived && derived.sortedObs.length > 0 && (
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-800/60 text-slate-400 text-[10px] uppercase tracking-wide">
@@ -467,8 +560,8 @@ export function BuddyTracker({
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* ── Aggregated metrics ── */}
           {derived && (
