@@ -38,6 +38,8 @@ interface Props {
   namedWaypoints?: EnrichedNamedWaypoint[]
   /** Buddy's projected km on the track (plan-mode buddy tracker). */
   buddyKm?: number | null
+  /** Reported buddy observations — drawn as small dots with popups. */
+  buddyObservations?: { km: number; time: Date }[]
 }
 
 const RAIN_LEGEND = [
@@ -114,6 +116,7 @@ export function RouteMap({
   onAnalyzeRangeChange,
   namedWaypoints = [],
   buddyKm = null,
+  buddyObservations = [],
 }: Props) {
   const { points } = track
 
@@ -329,6 +332,52 @@ export function RouteMap({
       points[i].lon + t * (points[i + 1].lon - points[i].lon),
     ]
   }, [buddyKm, cumKm, points, totalKm])
+
+  // ── Buddy trail (already-done portion, from km 0 to buddyKm) ──────────────
+  const buddyTrail = useMemo<[number, number][] | null>(() => {
+    if (buddyKm === null || buddyKm <= 0 || points.length < 2) return null
+    const km = Math.min(totalKm, buddyKm)
+    const trail: [number, number][] = []
+    for (let i = 0; i < points.length; i++) {
+      if (cumKm[i] <= km) {
+        trail.push([points[i].lat, points[i].lon])
+      } else {
+        // interpolate the exact endpoint at km so the trail meets the marker
+        if (i > 0) {
+          const span = cumKm[i] - cumKm[i - 1]
+          const t = span > 0 ? (km - cumKm[i - 1]) / span : 0
+          trail.push([
+            points[i - 1].lat + t * (points[i].lat - points[i - 1].lat),
+            points[i - 1].lon + t * (points[i].lon - points[i - 1].lon),
+          ])
+        }
+        break
+      }
+    }
+    return trail.length >= 2 ? trail : null
+  }, [buddyKm, cumKm, points, totalKm])
+
+  // ── Coordinates for each reported observation (small dots on the trail) ───
+  const buddyObservationCoords = useMemo<{ km: number; time: Date; lat: number; lon: number }[]>(() => {
+    if (buddyObservations.length === 0 || points.length < 2) return []
+    return buddyObservations.map((obs) => {
+      const km = Math.max(0, Math.min(totalKm, obs.km))
+      let i = 0
+      while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+      if (i >= cumKm.length - 1) {
+        const last = points[points.length - 1]
+        return { km: obs.km, time: obs.time, lat: last.lat, lon: last.lon }
+      }
+      const span = cumKm[i + 1] - cumKm[i]
+      const t = span > 0 ? (km - cumKm[i]) / span : 0
+      return {
+        km: obs.km,
+        time: obs.time,
+        lat: points[i].lat + t * (points[i + 1].lat - points[i].lat),
+        lon: points[i].lon + t * (points[i + 1].lon - points[i].lon),
+      }
+    })
+  }, [buddyObservations, cumKm, points, totalKm])
 
   // ── Static helpers ────────────────────────────────────────────────────────
   const fullRoute = useMemo(
@@ -884,6 +933,48 @@ export function RouteMap({
               </Popup>
             </CircleMarker>
           )}
+
+          {/* Buddy already-done trail (halo + purple line) */}
+          {buddyTrail && (
+            <>
+              <Polyline
+                positions={buddyTrail}
+                pathOptions={{ color: 'white', weight: 5, opacity: 0.5 }}
+                interactive={false}
+              />
+              <Polyline
+                positions={buddyTrail}
+                pathOptions={{ color: '#a855f7', weight: 3, opacity: 1 }}
+                interactive={false}
+              />
+            </>
+          )}
+
+          {/* Reported buddy observation dots */}
+          {buddyObservationCoords.map((o, idx) => (
+            <CircleMarker
+              key={`buddy-obs-${idx}-${o.km}`}
+              center={[o.lat, o.lon]}
+              radius={4}
+              pathOptions={{
+                fillColor: '#a855f7',
+                color: 'white',
+                weight: 1.5,
+                fillOpacity: 1,
+              }}
+            >
+              <Popup>
+                <div style={{ minWidth: 140, fontSize: 12, lineHeight: 1.5 }}>
+                  <p style={{ fontWeight: 700, margin: 0, color: '#7e22ce' }}>
+                    🧑 Observación #{idx + 1}
+                  </p>
+                  <p style={{ color: '#475569', margin: '4px 0 0', fontFamily: 'monospace' }}>
+                    km {o.km.toFixed(1)} · {o.time.getHours().toString().padStart(2, '0')}:{o.time.getMinutes().toString().padStart(2, '0')}
+                  </p>
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
 
           {/* Buddy projected position dot (plan mode tracker) */}
           {buddyCoords && (
