@@ -4,23 +4,34 @@ import type { PaceConfig } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime } from '../lib/timing'
 import { dayOffset, fromTimeStr, toTimeStr } from '../lib/multiDayTime'
 import { useFreshnessLabel } from '../lib/useFreshnessLabel'
+import type { BuddyDerived, BuddyObservation } from '../lib/buddyTracking'
+import { validateNewObservation } from '../lib/buddyTracking'
 
-export interface BuddyObservation {
+export interface NextCutoffInfo {
+  name: string
   km: number
-  time: Date
+  cutoff: Date
+  /** ETA derived from the buddy-recomputed waypoints. */
+  eta: Date
+  /** cutoff − eta in minutes (positive = on time). */
+  marginMin: number
 }
 
 interface Props {
   track: GpxTrack
   startTime: Date
   paceConfig: PaceConfig
-  observation: BuddyObservation | null
-  onApply: (obs: BuddyObservation) => void
+  observations: BuddyObservation[]
+  derived: BuddyDerived | null
+  onAdd: (obs: BuddyObservation) => void
+  onRemove: (km: number) => void
   onClear: () => void
   /** Live projected km of the buddy at "now" (ticks every 30 s). */
   buddyKmNow: number | null
   /** Estimated finish time projected from the observed pace. */
   buddyEta: Date | null
+  /** Next cut-off ahead of the buddy's projected position. */
+  nextCutoff: NextCutoffInfo | null
 }
 
 function DayBadge({ t, startTime }: { t: Date; startTime: Date }) {
@@ -33,78 +44,73 @@ function DayBadge({ t, startTime }: { t: Date; startTime: Date }) {
   )
 }
 
+/** Format a Δ pace (min/km) with sign. Negative = faster (good), positive = slower. */
+function formatTrend(deltaMinPerKm: number): { label: string; cls: string; arrow: string } {
+  const abs = Math.abs(deltaMinPerKm)
+  const min = Math.floor(abs)
+  const sec = Math.round((abs - min) * 60)
+  const txt = `${min}:${sec.toString().padStart(2, '0')}`
+  if (deltaMinPerKm > 0.1)  return { label: `+${txt}/km`, cls: 'text-amber-400', arrow: '↗' }
+  if (deltaMinPerKm < -0.1) return { label: `−${txt}/km`, cls: 'text-emerald-400', arrow: '↘' }
+  return { label: 'estable', cls: 'text-slate-400', arrow: '→' }
+}
+
+/** Format a cut-off margin (minutes) as "+1h 12m" / "−8 min". */
+function formatMargin(min: number): string {
+  const abs = Math.abs(min)
+  const h   = Math.floor(abs / 60)
+  const m   = Math.round(abs % 60)
+  const t   = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
+  return min >= 0 ? `+${t}` : `−${t}`
+}
+
 export function BuddyTracker({
   track,
   startTime,
   paceConfig,
-  observation,
-  onApply,
+  observations,
+  derived,
+  onAdd,
+  onRemove,
   onClear,
   buddyKmNow,
   buddyEta,
+  nextCutoff,
 }: Props) {
   const [open, setOpen] = useState(false)
-  const [kmStr, setKmStr] = useState<string>(() =>
-    observation ? observation.km.toFixed(1) : '',
-  )
-  const [timeStr, setTimeStr] = useState<string>(() =>
-    observation ? toTimeStr(observation.time) : '',
-  )
+  const [kmStr, setKmStr] = useState<string>('')
+  const [timeStr, setTimeStr] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
-  // Auto-open when there's an active observation, so the user sees it
-  useEffect(() => { if (observation) setOpen(true) }, [observation])
-
-  // Sync local inputs when observation changes externally
-  useEffect(() => {
-    if (observation) {
-      setKmStr(observation.km.toFixed(1))
-      setTimeStr(toTimeStr(observation.time))
-    }
-  }, [observation])
+  // Auto-open the panel when at least one obs is active
+  useEffect(() => { if (observations.length > 0) setOpen(true) }, [observations.length])
 
   const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
 
   function handleNow() {
-    const now = new Date()
-    setTimeStr(toTimeStr(now))
+    setTimeStr(toTimeStr(new Date()))
   }
 
-  function handleApply() {
+  function handleAdd() {
     setError(null)
     const km = parseFloat(kmStr.replace(',', '.'))
-    if (!Number.isFinite(km) || km <= 0) {
-      setError('Indica un km válido (> 0)')
-      return
-    }
-    if (km > track.totalDistanceKm) {
-      setError(`El km debe ser ≤ ${track.totalDistanceKm.toFixed(1)} (longitud de la ruta)`)
+    if (!Number.isFinite(km)) {
+      setError('Indica un km válido')
       return
     }
     if (!/^\d{1,2}:\d{2}$/.test(timeStr.trim())) {
       setError('Indica una hora válida (HH:MM)')
       return
     }
-    // Anchor to startTime for day-offset detection (works for multi-day routes
-    // up to ~12h before/after start; later observations shift +1d, etc.)
     const time = fromTimeStr(timeStr, startTime)
-    const elapsedMin = (time.getTime() - startTime.getTime()) / 60_000
-    if (elapsedMin <= 0) {
-      setError('La hora reportada debe ser posterior a la salida')
-      return
-    }
-    const observedPace = elapsedMin / km
-    if (observedPace < physicalMinPace) {
-      setError(
-        `Ritmo observado imposible (${formatPace(observedPace)}) — supera el máximo físico de la actividad`,
-      )
-      return
-    }
-    if (observedPace > 60) {
-      setError(`Ritmo observado demasiado lento (${formatPace(observedPace)}) — revisa los datos`)
-      return
-    }
-    onApply({ km, time })
+    const candidate: BuddyObservation = { km, time }
+    const err = validateNewObservation(
+      candidate, observations, startTime, track.totalDistanceKm, physicalMinPace,
+    )
+    if (err) { setError(err); return }
+    onAdd(candidate)
+    setKmStr('')
+    setTimeStr('')
   }
 
   function handleClear() {
@@ -114,11 +120,10 @@ export function BuddyTracker({
     onClear()
   }
 
-  // ── Derived (only when observation active) ────────────────────────────────
-  const observedPaceMinPerKm = observation
-    ? (observation.time.getTime() - startTime.getTime()) / 60_000 / observation.km
+  const freshness = useFreshnessLabel(derived?.metrics.lastObs.time ?? null)
+  const trend = derived?.metrics.trendMinPerKm != null
+    ? formatTrend(derived.metrics.trendMinPerKm)
     : null
-  const freshness = useFreshnessLabel(observation?.time ?? null)
 
   return (
     <div className="bg-slate-900 rounded-xl border border-purple-900/50 overflow-hidden">
@@ -132,14 +137,13 @@ export function BuddyTracker({
           <span className="text-xs text-purple-300 uppercase tracking-widest font-semibold">
             🧑 Seguimiento de compañero
           </span>
-          {observation && (
+          {observations.length > 0 ? (
             <span className="text-[10px] bg-purple-900/40 border border-purple-700/50 text-purple-300 px-2 py-0.5 rounded-full font-medium">
-              activo · km {observation.km.toFixed(1)} a las {toTimeStr(observation.time)}
+              {observations.length} obs · última km {derived?.metrics.lastObs.km.toFixed(1)} a las {toTimeStr(derived!.metrics.lastObs.time)}
             </span>
-          )}
-          {!observation && (
+          ) : (
             <span className="text-xs text-slate-500">
-              Recalcula la previsión a partir de una observación puntual
+              Recalcula la previsión a partir de observaciones puntuales
             </span>
           )}
         </div>
@@ -149,7 +153,7 @@ export function BuddyTracker({
       {open && (
         <div className="border-t border-slate-800 p-4 space-y-4">
 
-          {/* ── Inputs ── */}
+          {/* ── Inputs (add a new observation) ── */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-slate-400">km reportado</label>
@@ -188,17 +192,17 @@ export function BuddyTracker({
             </div>
             <div className="flex items-end gap-2 ml-auto">
               <button
-                onClick={handleApply}
+                onClick={handleAdd}
                 className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
               >
-                Aplicar
+                Añadir obs.
               </button>
               <button
                 onClick={handleClear}
-                disabled={!observation}
+                disabled={observations.length === 0}
                 className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 text-sm font-medium py-2 px-3 rounded-lg border border-slate-600 transition-colors"
               >
-                Limpiar
+                Limpiar todo
               </button>
             </div>
           </div>
@@ -209,27 +213,94 @@ export function BuddyTracker({
             </div>
           )}
 
-          {/* ── Active status ── */}
-          {observation && observedPaceMinPerKm !== null && (
+          {/* ── Observations list ── */}
+          {derived && derived.sortedObs.length > 0 && (
+            <div className="bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-800/60 text-slate-400 text-[10px] uppercase tracking-wide">
+                    <th className="px-3 py-1.5 text-right">#</th>
+                    <th className="px-3 py-1.5 text-right">km</th>
+                    <th className="px-3 py-1.5 text-left">hora</th>
+                    <th className="px-3 py-1.5 text-right">tramo</th>
+                    <th className="px-3 py-1.5 text-right">ritmo tramo</th>
+                    <th className="px-3 py-1.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {derived.sortedObs.map((o, i) => {
+                    // Per-segment pace: first seg = avg from start; others = between obs
+                    const prev = i === 0
+                      ? { km: 0, time: startTime }
+                      : derived.sortedObs[i - 1]
+                    const dt  = (o.time.getTime() - prev.time.getTime()) / 60_000
+                    const dkm = o.km - prev.km
+                    const segPace = dkm > 0 ? dt / dkm : null
+                    return (
+                      <tr key={`${o.km}-${o.time.getTime()}`} className="border-t border-slate-800/60">
+                        <td className="px-3 py-1.5 text-right text-slate-500 font-mono">{i + 1}</td>
+                        <td className="px-3 py-1.5 text-right text-purple-200 font-mono">{o.km.toFixed(1)}</td>
+                        <td className="px-3 py-1.5 text-purple-200 font-mono">
+                          {toTimeStr(o.time)}
+                          <DayBadge t={o.time} startTime={startTime} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-400 font-mono">
+                          {dkm.toFixed(1)} km
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-300 font-mono">
+                          {segPace !== null ? formatPace(segPace) : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right">
+                          <button
+                            onClick={() => onRemove(o.km)}
+                            className="text-slate-500 hover:text-red-400 transition-colors"
+                            title="Quitar esta observación"
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Aggregated metrics ── */}
+          {derived && (
             <div className="bg-purple-950/30 border border-purple-800/50 rounded-lg px-4 py-3 space-y-1.5">
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span className="text-slate-400">
-                  Última obs.:
+                  Ritmo medio acumulado:
                   <span className="text-purple-200 font-mono ml-1">
-                    km {observation.km.toFixed(1)}
-                  </span>
-                  <span className="text-slate-500 mx-1">·</span>
-                  <span className="text-purple-200 font-mono">
-                    {toTimeStr(observation.time)}
-                  </span>
-                  <DayBadge t={observation.time} startTime={startTime} />
-                </span>
-                <span className="text-slate-400">
-                  Ritmo medio:
-                  <span className="text-purple-200 font-mono ml-1">
-                    {formatPace(observedPaceMinPerKm)}
+                    {formatPace(derived.metrics.avgPaceFromStart)}
                   </span>
                 </span>
+                {derived.metrics.recentPaceMinPerKm !== null && (
+                  <span className="text-slate-400">
+                    Ritmo último tramo:
+                    <span className="text-purple-200 font-mono ml-1">
+                      {formatPace(derived.metrics.recentPaceMinPerKm)}
+                    </span>
+                  </span>
+                )}
+                {trend && (
+                  <span className="text-slate-400">
+                    Tendencia:
+                    <span className={`font-mono ml-1 ${trend.cls}`}>
+                      {trend.arrow} {trend.label}
+                    </span>
+                  </span>
+                )}
+                {freshness && (
+                  <span className="text-slate-500 ml-auto">
+                    actualizado {freshness.label}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
                 {buddyKmNow !== null && (
                   <span className="text-slate-400">
                     Ahora ≈
@@ -238,18 +309,29 @@ export function BuddyTracker({
                     </span>
                   </span>
                 )}
-                {buddyEta && (
+                {nextCutoff && (
                   <span className="text-slate-400">
-                    Llegada estimada:
+                    Próximo corte:{' '}
+                    <span className="text-purple-200 font-medium">
+                      {nextCutoff.name}
+                    </span>
+                    <span className="text-slate-500 mx-1">·</span>
+                    <span className="text-purple-200 font-mono">
+                      {formatTime(nextCutoff.eta)}
+                    </span>
+                    <DayBadge t={nextCutoff.eta} startTime={startTime} />
+                    <span className={`font-mono ml-1.5 ${nextCutoff.marginMin >= 10 ? 'text-emerald-400' : nextCutoff.marginMin >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                      ({formatMargin(nextCutoff.marginMin)})
+                    </span>
+                  </span>
+                )}
+                {buddyEta && (
+                  <span className="text-slate-400 ml-auto">
+                    Llegada a meta:
                     <span className="text-purple-200 font-mono ml-1">
                       {formatTime(buddyEta)}
                     </span>
                     <DayBadge t={buddyEta} startTime={startTime} />
-                  </span>
-                )}
-                {freshness && (
-                  <span className="text-slate-500 ml-auto">
-                    actualizado {freshness.label}
                   </span>
                 )}
               </div>
