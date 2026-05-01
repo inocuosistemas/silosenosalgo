@@ -100,6 +100,7 @@ function findClosestHourIndex(times: string[], target: Date): number {
 }
 
 const MAX_FORECAST_DAYS = 15 // Open-Meteo free: 16 days inclusive (0…15)
+const MAX_PAST_DAYS     = 92 // Open-Meteo merges reanalysis into /forecast for ≤ 92 days
 
 export async function fetchWeatherForWaypoints(
   waypoints: Waypoint[],
@@ -107,8 +108,8 @@ export async function fetchWeatherForWaypoints(
   if (waypoints.length === 0) return []
 
   const now = Date.now()
-  const todayStr = toDateStr(new Date(now))
   const maxForecastStr = toDateStr(new Date(now + MAX_FORECAST_DAYS * 86_400_000))
+  const earliestPastStr = toDateStr(new Date(now - MAX_PAST_DAYS * 86_400_000))
 
   const times = waypoints.map((w) => w.estimatedTime.getTime())
   const rawStartDate = toDateStr(new Date(Math.min(...times)))
@@ -121,8 +122,10 @@ export async function fetchWeatherForWaypoints(
     )
   }
 
-  // Nunca pedir fechas pasadas al endpoint de forecast
-  const startDate = rawStartDate < todayStr ? todayStr : rawStartDate
+  // Open-Meteo /forecast acepta fechas pasadas (hasta 92 días) y devuelve los
+  // valores observados/reanalizados para esas horas, mezclados con el pronóstico
+  // futuro. Sólo clamp si el rango es excesivo, para evitar respuestas enormes.
+  const startDate = rawStartDate < earliestPastStr ? earliestPastStr : rawStartDate
 
   // Deduplicate cells
   const cellMap = new Map<string, { lat: number; lon: number }>()
