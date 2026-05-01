@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime } from '../lib/timing'
-import { dayOffset, fromTimeStr, toTimeStr } from '../lib/multiDayTime'
+import { dayOffset, fromTimeStrForward, toTimeStr } from '../lib/multiDayTime'
 import { useFreshnessLabel } from '../lib/useFreshnessLabel'
 import type { BuddyDerived, BuddyObservation } from '../lib/buddyTracking'
 import { validateNewObservation } from '../lib/buddyTracking'
@@ -108,6 +108,13 @@ export function BuddyTracker({
 
   const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
 
+  // Anchor for parsing the new HH:MM input. Each new observation is strictly
+  // after the previous one (or after startTime if it's the first), so we
+  // anchor at the latest existing time and force the parsed result forward.
+  const anchorTime: Date = observations.length > 0
+    ? observations.reduce((latest, o) => (o.time.getTime() > latest.getTime() ? o.time : latest), observations[0].time)
+    : startTime
+
   function handleNow() {
     setTimeStr(toTimeStr(new Date()))
   }
@@ -123,7 +130,7 @@ export function BuddyTracker({
       setError('Indica una hora válida (HH:MM)')
       return
     }
-    const time = fromTimeStr(timeStr, startTime)
+    const time = fromTimeStrForward(timeStr, anchorTime)
     const candidate: BuddyObservation = { km, time }
     const err = validateNewObservation(
       candidate, observations, startTime, track.totalDistanceKm, physicalMinPace,
@@ -199,7 +206,7 @@ export function BuddyTracker({
                   className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-slate-100 focus:outline-none focus:border-purple-500"
                 />
                 {timeStr && /^\d{1,2}:\d{2}$/.test(timeStr) && (
-                  <DayBadge t={fromTimeStr(timeStr, startTime)} startTime={startTime} />
+                  <DayBadge t={fromTimeStrForward(timeStr, anchorTime)} startTime={startTime} />
                 )}
                 <button
                   onClick={handleNow}
