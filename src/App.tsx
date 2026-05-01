@@ -1035,6 +1035,7 @@ export default function App() {
             analyzeRange={analyzeRange}
             onAnalyzeRangeChange={setAnalyzeRange}
             buddyKm={appMode === 'plan' ? buddyKmNow : null}
+            buddyObservations={appMode === 'plan' ? buddyObs : []}
           />
         )}
 
