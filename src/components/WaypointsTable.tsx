@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
-import { formatTime, formatDuration } from '../lib/timing'
+import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
 
 interface Props {
   waypoints: EnrichedWaypoint[]
@@ -95,9 +95,7 @@ function defaultCutoff(estimatedTime: Date | null, startTime: Date): Date {
 }
 
 function CutoffBadge({ min }: { min: number }) {
-  const abs = Math.abs(min)
-  const h = Math.floor(abs / 60)
-  const m = Math.round(abs % 60)
+  const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   const label = min >= 0 ? `+${t}` : `−${t}`
   const cls = min >= 20 ? 'text-green-400' : min >= 0 ? 'text-amber-400' : 'text-red-400'

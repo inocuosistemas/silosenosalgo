@@ -419,6 +419,16 @@ export function elevationStatsForSegment(
 }
 
 /**
+ * Split a non-negative number of minutes into integer { h, m }, rounding to
+ * whole minutes FIRST so that values like 179.7 give { h: 3, m: 0 } instead
+ * of { h: 2, m: 60 } (which would print "2h 60m").
+ */
+export function splitHoursMinutes(absMinutes: number): { h: number; m: number } {
+  const total = Math.round(absMinutes)
+  return { h: Math.floor(total / 60), m: total % 60 }
+}
+
+/**
  * Format a time delta (minutes) for the pace-vs-plan chip.
  * Positive = slower than planned, negative = faster.
  */
@@ -426,8 +436,7 @@ export function formatDelta(deltaMin: number): string {
   const abs = Math.abs(deltaMin)
   if (abs < 1) return 'en hora'
   const sign = deltaMin > 0 ? '+' : '−'
-  const h = Math.floor(abs / 60)
-  const m = Math.round(abs % 60)
+  const { h, m } = splitHoursMinutes(abs)
   if (h === 0) return `${sign}${m} min`
   return `${sign}${h}h ${m.toString().padStart(2, '0')} min`
 }

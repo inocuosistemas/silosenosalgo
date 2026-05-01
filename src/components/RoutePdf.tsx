@@ -2,7 +2,7 @@ import type { ComponentType } from 'react'
 import { Document, Page, View, Text, Svg, G, Path, Circle, Rect, Line, StyleSheet } from '@react-pdf/renderer'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
-import { formatTime, formatDuration } from '../lib/timing'
+import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
 import { windImpact, windImpactStyle } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
 import type { MapMode } from './RouteMap'
@@ -504,9 +504,7 @@ type PdfRow =
   | { kind: 'gpx-wpt'; wpt: EnrichedNamedWaypoint }
 
 function cutoffMarginLabel(min: number): string {
-  const abs = Math.abs(min)
-  const h = Math.floor(abs / 60)
-  const m = Math.round(abs % 60)
+  const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m}m`
   return min >= 0 ? `+${t}` : `-${t}`
 }

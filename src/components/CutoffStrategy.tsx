@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { CutoffStrategyResult, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
 import type { PaceConfig, SegmentPace } from '../lib/timing'
-import { formatPace } from '../lib/timing'
+import { formatPace, splitHoursMinutes } from '../lib/timing'
 
 interface Props {
   strategy: CutoffStrategyResult
@@ -37,10 +37,8 @@ function paceShort(pace: number): string {
 }
 
 function fmtMin(min: number): string {
-  const abs = Math.abs(min)
-  const h   = Math.floor(abs / 60)
-  const m   = Math.round(abs % 60)
-  const t   = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
+  const { h, m } = splitHoursMinutes(Math.abs(min))
+  const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min < 0 ? `−${t}` : t
 }
 
