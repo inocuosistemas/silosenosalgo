@@ -15,6 +15,16 @@ export interface NextCutoffInfo {
   eta: Date
   /** cutoff − eta in minutes (positive = on time). */
   marginMin: number
+  /**
+   * Pace (min/km) the buddy can afford from the projected "now" position to
+   * the next cut-off while still arriving `strategyMarginMin` minutes early.
+   * null when the cut-off cannot be met (would need an impossible pace).
+   */
+  affordablePaceMinPerKm: number | null
+  /** Pace currently being projected forward (= buddy's projection pace). */
+  currentPaceMinPerKm: number
+  /** Strategy safety margin currently in effect (informational). */
+  strategyMarginMin: number
 }
 
 interface Props {
@@ -62,6 +72,15 @@ function formatMargin(min: number): string {
   const m   = Math.round(abs % 60)
   const t   = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min >= 0 ? `+${t}` : `−${t}`
+}
+
+/** Format a Δ pace (min/km) as "+0:45/km" / "−0:20/km". */
+function formatPaceDelta(deltaMinPerKm: number): string {
+  const abs = Math.abs(deltaMinPerKm)
+  const min = Math.floor(abs)
+  const sec = Math.round((abs - min) * 60)
+  const txt = `${min}:${sec.toString().padStart(2, '0')}/km`
+  return deltaMinPerKm >= 0 ? `+${txt}` : `−${txt}`
 }
 
 export function BuddyTracker({
@@ -325,6 +344,50 @@ export function BuddyTracker({
                     </span>
                   </span>
                 )}
+              </div>
+
+              {/* Affordable pace to make the next cut-off (with strategy margin) */}
+              {nextCutoff && (() => {
+                const a = nextCutoff.affordablePaceMinPerKm
+                const c = nextCutoff.currentPaceMinPerKm
+                if (a === null) {
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-2 text-xs pt-1 border-t border-purple-900/40">
+                      <span className="text-slate-400">⏩ Ritmo permitido al próx. corte:</span>
+                      <span className="text-red-400 font-mono font-semibold">
+                        ⛔ imposible con margen {nextCutoff.strategyMarginMin} min
+                      </span>
+                    </div>
+                  )
+                }
+                const delta = a - c   // > 0: can ease up; < 0: must speed up
+                const deltaCls =
+                  Math.abs(delta) < 0.1 ? 'text-slate-400' :
+                  delta > 0            ? 'text-emerald-400' :
+                                          'text-red-400'
+                const deltaHint =
+                  Math.abs(delta) < 0.1 ? '· vas en línea con lo permitido' :
+                  delta > 0            ? `· puedes aflojar ${formatPaceDelta(Math.abs(delta))}` :
+                                          `· debes apretar ${formatPaceDelta(Math.abs(delta))}`
+                return (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
+                    <span className="text-slate-400">⏩ Ritmo permitido al próx. corte:</span>
+                    <span className="text-purple-200 font-mono font-semibold">
+                      {formatPace(a)}
+                    </span>
+                    {nextCutoff.strategyMarginMin > 0 && (
+                      <span className="text-[10px] text-slate-500">
+                        (con margen {nextCutoff.strategyMarginMin} min)
+                      </span>
+                    )}
+                    <span className={`font-mono text-[11px] ${deltaCls}`}>
+                      {deltaHint}
+                    </span>
+                  </div>
+                )
+              })()}
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
                 {buddyEta && (
                   <span className="text-slate-400 ml-auto">
                     Llegada a meta:

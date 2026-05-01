@@ -580,7 +580,8 @@ export default function App() {
 
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
   // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
-  // the buddy-derived segment paces).
+  // the buddy-derived segment paces). The "affordable pace" is recomputed each
+  // tick (via buddyTick) so it stays live as time passes.
   const buddyNextCutoff = useMemo<NextCutoffInfo | null>(() => {
     if (!buddyDerived) return null
     const refKm = buddyKmNow ?? buddyDerived.metrics.lastObs.km
@@ -590,14 +591,29 @@ export default function App() {
     if (upcoming.length === 0) return null
     const cp = upcoming[0]
     if (!cp.cutoffTime || !cp.estimatedTime) return null
+
+    // Affordable pace from projected "now" position to (cutoff − margin)
+    const remainingKm  = cp.distanceKm - refKm
+    const targetTimeMs = cp.cutoffTime.getTime() - strategyMargin * 60_000
+    const remainingMin = (targetTimeMs - buddyTick) / 60_000
+    const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
+    let affordablePaceMinPerKm: number | null = null
+    if (remainingKm > 0 && remainingMin > 0) {
+      const candidate = remainingMin / remainingKm
+      if (candidate >= physicalMinPace) affordablePaceMinPerKm = candidate
+    }
+
     return {
       name: cp.name,
       km: cp.distanceKm,
       cutoff: cp.cutoffTime,
       eta: cp.estimatedTime,
       marginMin: (cp.cutoffTime.getTime() - cp.estimatedTime.getTime()) / 60_000,
+      affordablePaceMinPerKm,
+      currentPaceMinPerKm: buddyDerived.metrics.projectionPaceMinPerKm,
+      strategyMarginMin: strategyMargin,
     }
-  }, [buddyDerived, buddyKmNow, enrichedNamedWaypoints])
+  }, [buddyDerived, buddyKmNow, enrichedNamedWaypoints, buddyTick, strategyMargin, paceConfig.activity])
 
   // ── Visibility change: show banner after ≥ 30 min in background ───────────
   useEffect(() => {
