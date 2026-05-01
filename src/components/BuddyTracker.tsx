@@ -9,6 +9,8 @@ import { validateNewObservation } from '../lib/buddyTracking'
 
 export interface NextCutoffInfo {
   name: string
+  /** Optional <desc> tag from the GPX waypoint. */
+  desc?: string
   km: number
   cutoff: Date
   /** ETA derived from the buddy-recomputed waypoints. */
@@ -337,6 +339,11 @@ export function BuddyTracker({
                     <span className="text-slate-500 ml-1 font-mono">
                       (km {nextCutoff.km.toFixed(1)})
                     </span>
+                    {nextCutoff.desc && (
+                      <span className="text-slate-400 ml-1.5 italic" title={nextCutoff.desc}>
+                        — {nextCutoff.desc}
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
