@@ -575,8 +575,17 @@ export default function App() {
     if (!track || !isDone) return null
     const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
     if (withCutoffs.length === 0) return null
+    // When the buddy is being tracked, re-anchor the strategy at their projected
+    // current position so segments / required paces describe what's left to do.
+    if (buddyDerived && buddyKmNow !== null) {
+      return computeCutoffStrategy(
+        track, withCutoffs, new Date(buddyTick),
+        effectivePaceConfig, strategyMargin,
+        buddyKmNow, 'Compañero',
+      )
+    }
     return computeCutoffStrategy(track, withCutoffs, startTime, effectivePaceConfig, strategyMargin)
-  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin])
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, buddyDerived, buddyKmNow, buddyTick])
 
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
   // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
@@ -1047,7 +1056,14 @@ export default function App() {
 
         {/* ── Cut-off summary (plan mode, when at least one cut-off is defined) ── */}
         {appMode === 'plan' && enrichedNamedWaypoints.some((w) => w.cutoffTime) && (
-          <CutoffSummary namedWaypoints={enrichedNamedWaypoints} startTime={startTime} />
+          <CutoffSummary
+            namedWaypoints={
+              buddyKmNow !== null
+                ? enrichedNamedWaypoints.filter((w) => w.distanceKm > buddyKmNow - 0.05)
+                : enrichedNamedWaypoints
+            }
+            startTime={startTime}
+          />
         )}
 
         {/* ── Cut-off pace strategy (plan mode, after computing, when cut-offs exist) ── */}
@@ -1083,22 +1099,45 @@ export default function App() {
             )}
             {(() => {
               const baseList = appMode === 'live' ? liveWaypoints : enrichedWaypoints
-              const tableWaypoints = deferredAnalyzeRange != null && appMode === 'plan'
-                ? baseList.filter(
-                    (wp) => wp.distanceKm >= deferredAnalyzeRange.from && wp.distanceKm <= deferredAnalyzeRange.to,
-                  )
+              // Combined effective lower km bound: analyze range OR buddy position (plan mode)
+              const buddyMinKm = (appMode === 'plan' && buddyKmNow !== null) ? buddyKmNow - 0.05 : null
+              const rangeMinKm = (appMode === 'plan' && deferredAnalyzeRange) ? deferredAnalyzeRange.from : null
+              const rangeMaxKm = (appMode === 'plan' && deferredAnalyzeRange) ? deferredAnalyzeRange.to   : null
+
+              const passesPlanFilters = (km: number) => {
+                if (buddyMinKm !== null && km < buddyMinKm) return false
+                if (rangeMinKm !== null && km < rangeMinKm) return false
+                if (rangeMaxKm !== null && km > rangeMaxKm) return false
+                return true
+              }
+              const tableWaypoints = appMode === 'plan'
+                ? baseList.filter((wp) => passesPlanFilters(wp.distanceKm))
                 : baseList
-              // Named waypoints: filter by range (analyze) or by live position
               const tableNamedWaypoints =
                 appMode === 'live'
                   ? enrichedNamedWaypoints.filter((wpt) => wpt.distanceKm >= livePos.trackKm - 0.05)
-                  : deferredAnalyzeRange != null
-                  ? enrichedNamedWaypoints.filter(
-                      (wpt) => wpt.distanceKm >= deferredAnalyzeRange.from && wpt.distanceKm <= deferredAnalyzeRange.to,
-                    )
-                  : enrichedNamedWaypoints
+                  : enrichedNamedWaypoints.filter((wpt) => passesPlanFilters(wpt.distanceKm))
+
+              const totalPlan = enrichedWaypoints.length
+              const hiddenByBuddy = appMode === 'plan' && buddyKmNow !== null
+                ? enrichedWaypoints.filter((wp) => wp.distanceKm < (buddyMinKm ?? 0)).length
+                : 0
               return (
                 <>
+                  {appMode === 'plan' && buddyKmNow !== null && hiddenByBuddy > 0 && (
+                    <p className="text-slate-500 text-xs text-center">
+                      🧑 Mostrando {tableWaypoints.length} de {totalPlan} waypoints
+                      {' · '}
+                      {hiddenByBuddy} ya pasados según la posición del compañero (km {buddyKmNow.toFixed(1)})
+                      {' · '}
+                      <button
+                        onClick={handleClearBuddy}
+                        className="text-purple-400 hover:text-purple-300 transition-colors"
+                      >
+                        ver todos
+                      </button>
+                    </p>
+                  )}
                   {deferredAnalyzeRange != null && appMode === 'plan' && (
                     <p className="text-slate-500 text-xs text-center">
                       Mostrando {tableWaypoints.length} waypoints del tramo{' '}

@@ -80,7 +80,11 @@ const EASY_SLACK     = +1.0  // can go >1 min/km slower   → 🟢
  *   • All other segments: availableMin = cutoff[i] − cutoff[i−1]
  *     (margin cancels — you gain exactly marginMin at every checkpoint)
  *
- * @param marginMin  Minutes before each cut-off you want to arrive. Defaults to 0.
+ * @param marginMin   Minutes before each cut-off you want to arrive. Defaults to 0.
+ * @param startKm     Km coordinate of the start anchor. Defaults to 0. When > 0
+ *   (e.g. anchored at the buddy's projected position), cut-offs at km ≤ startKm
+ *   are filtered out and the first segment runs from (startKm, startTime).
+ * @param startLabel  Label to display for the start anchor. Defaults to 'Salida'.
  */
 export function computeCutoffStrategy(
   track: GpxTrack,
@@ -89,9 +93,11 @@ export function computeCutoffStrategy(
   startTime: Date,
   paceConfig: PaceConfig,
   marginMin = 0,
+  startKm = 0,
+  startLabel = 'Salida',
 ): CutoffStrategyResult {
   const withCutoffs = [...namedWaypoints]
-    .filter((w) => w.cutoffTime != null)
+    .filter((w) => w.cutoffTime != null && w.distanceKm > startKm + 0.05)
     .sort((a, b) => a.distanceKm - b.distanceKm)
 
   if (withCutoffs.length === 0) {
@@ -108,7 +114,7 @@ export function computeCutoffStrategy(
   //     (margin added to the "from" and subtracted from the "to" cancels out)
   const marginMs = marginMin * 60_000
   const anchors = [
-    { km: 0, time: startTime, label: 'Salida' } as const,
+    { km: startKm, time: startTime, label: startLabel } as const,
     ...withCutoffs.map((w) => ({
       km: w.distanceKm,
       time: new Date(w.cutoffTime!.getTime() - marginMs),
