@@ -1,5 +1,5 @@
 import type { EnrichedNamedWaypoint } from '../lib/places'
-import { formatTime } from '../lib/timing'
+import { formatTime, splitHoursMinutes } from '../lib/timing'
 
 interface Props {
   namedWaypoints: EnrichedNamedWaypoint[]
@@ -15,9 +15,7 @@ function dayOffset(cutoff: Date, startTime: Date): number {
 }
 
 function marginLabel(min: number): string {
-  const abs = Math.abs(min)
-  const h = Math.floor(abs / 60)
-  const m = Math.round(abs % 60)
+  const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min >= 0 ? `+${t}` : `−${t}`
 }

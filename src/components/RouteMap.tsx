@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap 
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
-import { formatTime, formatDuration, haversineKm, elevationStatsForSegment } from '../lib/timing'
+import { formatTime, formatDuration, haversineKm, elevationStatsForSegment, splitHoursMinutes } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
 import { useNowTick } from '../lib/useNowTick'
@@ -65,9 +65,7 @@ const PRECISION_STEP_KM = 0.1
 
 /** Format a cut-off margin (minutes) as "+2h 05m" or "−8 min" */
 function cutoffMarginText(min: number): string {
-  const abs = Math.abs(min)
-  const h = Math.floor(abs / 60)
-  const m = Math.round(abs % 60)
+  const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min >= 0 ? `+${t}` : `−${t}`
 }

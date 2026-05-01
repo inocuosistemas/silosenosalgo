@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
-import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime } from '../lib/timing'
+import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime, splitHoursMinutes } from '../lib/timing'
 import { dayOffset, fromTimeStrForward, toTimeStr } from '../lib/multiDayTime'
 import { useFreshnessLabel } from '../lib/useFreshnessLabel'
 import type { BuddyDerived, BuddyObservation } from '../lib/buddyTracking'
@@ -69,10 +69,8 @@ function formatTrend(deltaMinPerKm: number): { label: string; cls: string; arrow
 
 /** Format a cut-off margin (minutes) as "+1h 12m" / "−8 min". */
 function formatMargin(min: number): string {
-  const abs = Math.abs(min)
-  const h   = Math.floor(abs / 60)
-  const m   = Math.round(abs % 60)
-  const t   = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
+  const { h, m } = splitHoursMinutes(Math.abs(min))
+  const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min >= 0 ? `+${t}` : `−${t}`
 }
 
