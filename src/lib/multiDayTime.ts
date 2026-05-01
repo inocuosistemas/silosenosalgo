@@ -23,6 +23,24 @@ export function fromTimeStr(timeStr: string, anchorTime: Date): Date {
 }
 
 /**
+ * Parse "HH:MM" *forward* from `anchorTime`: if the resulting time is at or
+ * before the anchor on the same calendar day, shift +1 day. Useful for
+ * monotonic-forward sequences (e.g. buddy observations) where each new
+ * timestamp is by definition strictly after the previous one.
+ *
+ * Limitations: a single HH:MM input can only represent times within the
+ * next ~24 h after the anchor. For longer gaps the caller must split the
+ * input into multiple steps.
+ */
+export function fromTimeStrForward(timeStr: string, anchorTime: Date): Date {
+  const [hStr, mStr] = timeStr.split(':')
+  const d = new Date(anchorTime)
+  d.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0)
+  if (d.getTime() <= anchorTime.getTime()) d.setDate(d.getDate() + 1)
+  return d
+}
+
+/**
  * How many calendar days after `startTime` does `t` fall?
  * Day 0 = same day as start, Day 1 = next day, etc.
  */
