@@ -122,6 +122,77 @@ export function projectBuddyKmAt(
 }
 
 /**
+ * Parse a plain-text snapshot produced by `formatObservationsAsText` back
+ * into a list of BuddyObservation objects.
+ *
+ * Expected format (produced by the copy feature):
+ *   🧑 Seguimiento — <track>
+ *   Salida: YYYY-MM-DD HH:MM
+ *
+ *   # | km   | hora [+Nd] | tramo | ritmo tramo
+ *   1 | 15.0 | 10:15      | …     | …
+ *
+ * Non-matching lines are silently skipped (lenient parsing).
+ * The "Salida:" line is used to reconstruct absolute timestamps; if absent,
+ * `currentStartTime` is used as the day-0 reference.
+ *
+ * Returns observations sorted by km ascending, the parsed start time (if
+ * found in the text), and how many lines were skipped due to parse failures.
+ */
+export function parseObservationsFromText(
+  text: string,
+  currentStartTime: Date,
+): { observations: BuddyObservation[]; parsedStartTime: Date | null; skipped: number } {
+  // 1 · Try to parse the "Salida: YYYY-MM-DD HH:MM" line
+  let parsedStartTime: Date | null = null
+  const salidaMatch = text.match(/Salida:\s*(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/)
+  if (salidaMatch) {
+    const [, dateStr, timeStr] = salidaMatch
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const [hour, minute]     = timeStr.split(':').map(Number)
+    const d = new Date()
+    d.setFullYear(year, month - 1, day)
+    d.setHours(hour, minute, 0, 0)
+    parsedStartTime = d
+  }
+
+  // Day-0 midnight: reference for turning "+Nd" offsets into absolute dates
+  const refDate = parsedStartTime ?? currentStartTime
+  const midnight = new Date(refDate)
+  midnight.setHours(0, 0, 0, 0)
+
+  // 2 · Match data rows: "# | km | HH:MM [+Nd] | …"
+  //   Group 1 = km, Group 2 = HH:MM, Group 3 = optional day offset
+  const rowRegex = /^\s*\d+\s*\|\s*([\d.]+)\s*\|\s*(\d{1,2}:\d{2})(?:\s*\+(\d+)d)?\s*\|/
+
+  const observations: BuddyObservation[] = []
+  let skipped = 0
+
+  for (const line of text.split('\n')) {
+    const m = line.match(rowRegex)
+    if (!m) continue
+
+    const km = parseFloat(m[1])
+    const [hh, mm] = m[2].split(':').map(Number)
+    const dayOff   = m[3] ? parseInt(m[3], 10) : 0
+
+    if (!Number.isFinite(km) || km <= 0)               { skipped++; continue }
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))  { skipped++; continue }
+
+    const obsDate = new Date(midnight)
+    obsDate.setDate(obsDate.getDate() + dayOff)
+    obsDate.setHours(hh, mm, 0, 0)
+
+    observations.push({ km, time: obsDate })
+  }
+
+  // Sort ascending by km (order in text should already be correct, but be safe)
+  observations.sort((a, b) => a.km - b.km)
+
+  return { observations, parsedStartTime, skipped }
+}
+
+/**
  * Validate a candidate new observation against the existing list.
  * Returns an error message in Spanish, or null when valid.
  */

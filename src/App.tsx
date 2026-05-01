@@ -500,6 +500,30 @@ export default function App() {
     await doCompute(newConfig, derived.segmentPaces)
   }
 
+  /**
+   * Replace ALL buddy observations at once (used by the paste/import feature).
+   * Behaves like clearing and then re-adding each observation in one step so
+   * only a single recompute is triggered.
+   */
+  async function handleSetAllBuddyObs(obs: BuddyObservation[]) {
+    if (!track) return
+    if (obs.length === 0) {
+      await handleClearBuddy()
+      return
+    }
+    const sorted = [...obs].sort((a, b) => a.km - b.km)
+    setBuddyObs(sorted)
+    setSegmentPaces(null)
+    const derived = buildBuddyDerived(sorted, startTime, track.totalDistanceKm)
+    if (!derived) return
+    const newConfig: PaceConfig = {
+      ...paceConfig, mode: 'fixed',
+      paceMinPerKm: derived.metrics.projectionPaceMinPerKm,
+    }
+    reset()
+    await doCompute(newConfig, derived.segmentPaces)
+  }
+
   /** Clear ALL buddy observations; revert to the user's planned pace config. */
   async function handleClearBuddy() {
     setBuddyObs([])
@@ -1050,6 +1074,7 @@ export default function App() {
             onAdd={handleAddBuddyObs}
             onRemove={handleRemoveBuddyObs}
             onClear={handleClearBuddy}
+            onSetAll={handleSetAllBuddyObs}
             buddyKmNow={buddyKmNow}
             buddyEta={buddyEta}
             nextCutoff={buddyNextCutoff}
