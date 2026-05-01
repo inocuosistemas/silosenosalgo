@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime } from '../lib/timing'
@@ -85,6 +85,136 @@ function formatPaceDelta(deltaMinPerKm: number): string {
   return deltaMinPerKm >= 0 ? `+${txt}` : `−${txt}`
 }
 
+/** Lucide-style "copy" icon (two overlapping squares), 14×14, currentColor. */
+function CopyIcon() {
+  return (
+    <svg
+      width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+/** Lucide-style "check" icon shown for 2 s after a successful copy. */
+function CheckIcon() {
+  return (
+    <svg
+      width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+/** Pretty-print a Date as "YYYY-MM-DD HH:MM" in local time. */
+function formatLocalDateTime(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm   = String(d.getMonth() + 1).padStart(2, '0')
+  const dd   = String(d.getDate()).padStart(2, '0')
+  const hh   = String(d.getHours()).padStart(2, '0')
+  const mi   = String(d.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
+/** Render HH:MM with a "+Nd" suffix when the date crosses to a later day. */
+function timeWithDayOffset(t: Date, startTime: Date): string {
+  const off = dayOffset(t, startTime)
+  return off > 0 ? `${toTimeStr(t)} +${off}d` : toTimeStr(t)
+}
+
+/**
+ * Build a plain-text snapshot of the buddy tracking state ready to be copied
+ * to the clipboard. Uses "|" separators and space padding so it stays
+ * readable in chat apps, terminals and plain editors.
+ */
+function formatObservationsAsText(args: {
+  derived: BuddyDerived
+  nextCutoff: NextCutoffInfo | null
+  buddyEta: Date | null
+  trackName: string
+  startTime: Date
+}): string {
+  const { derived, nextCutoff, buddyEta, trackName, startTime } = args
+  const lines: string[] = []
+
+  lines.push(`🧑 Seguimiento — ${trackName}`)
+  lines.push(`Salida: ${formatLocalDateTime(startTime)}`)
+  lines.push('')
+
+  // Build row strings, then compute column widths
+  type Row = { num: string; km: string; hora: string; tramo: string; ritmo: string }
+  const rows: Row[] = derived.sortedObs.map((o, i) => {
+    const prev = i === 0
+      ? { km: 0, time: startTime }
+      : derived.sortedObs[i - 1]
+    const dt  = (o.time.getTime() - prev.time.getTime()) / 60_000
+    const dkm = o.km - prev.km
+    const segPace = dkm > 0 ? dt / dkm : null
+    return {
+      num:   String(i + 1),
+      km:    o.km.toFixed(1),
+      hora:  timeWithDayOffset(o.time, startTime),
+      tramo: `${dkm.toFixed(1)} km`,
+      ritmo: segPace !== null ? `${formatPace(segPace)} min/km` : '—',
+    }
+  })
+
+  const headers: Row = {
+    num: '#', km: 'km', hora: 'hora', tramo: 'tramo', ritmo: 'ritmo tramo',
+  }
+  const widths = {
+    num:   Math.max(headers.num.length,   ...rows.map((r) => r.num.length)),
+    km:    Math.max(headers.km.length,    ...rows.map((r) => r.km.length)),
+    hora:  Math.max(headers.hora.length,  ...rows.map((r) => r.hora.length)),
+    tramo: Math.max(headers.tramo.length, ...rows.map((r) => r.tramo.length)),
+    ritmo: Math.max(headers.ritmo.length, ...rows.map((r) => r.ritmo.length)),
+  }
+  const formatRow = (r: Row): string =>
+    [
+      r.num.padEnd(widths.num),
+      r.km.padEnd(widths.km),
+      r.hora.padEnd(widths.hora),
+      r.tramo.padEnd(widths.tramo),
+      r.ritmo.padEnd(widths.ritmo),
+    ].join(' | ')
+
+  lines.push(formatRow(headers))
+  for (const r of rows) lines.push(formatRow(r))
+  lines.push('')
+
+  // ── Footer: aggregated metrics ─────────────────────────────────────────
+  const m = derived.metrics
+  const footer: string[] = [`Ritmo medio acumulado: ${formatPace(m.avgPaceFromStart)} min/km`]
+  if (m.recentPaceMinPerKm !== null) {
+    footer.push(`Último tramo: ${formatPace(m.recentPaceMinPerKm)} min/km`)
+  }
+  if (m.trendMinPerKm !== null) {
+    const t = formatTrend(m.trendMinPerKm)
+    footer.push(`Tendencia: ${t.label === 'estable' ? 'estable' : t.label}`)
+  }
+  lines.push(footer.join(' · '))
+
+  if (nextCutoff) {
+    const eta    = timeWithDayOffset(nextCutoff.eta, startTime)
+    const margin = formatMargin(nextCutoff.marginMin)
+    lines.push(
+      `Próximo corte: ${nextCutoff.name} (km ${nextCutoff.km.toFixed(1)}) — llegada ${eta} (margen ${margin})`,
+    )
+  }
+
+  if (buddyEta) {
+    lines.push(`Llegada a meta: ${timeWithDayOffset(buddyEta, startTime)}`)
+  }
+
+  return lines.join('\n')
+}
+
 export function BuddyTracker({
   track,
   startTime,
@@ -102,9 +232,18 @@ export function BuddyTracker({
   const [kmStr, setKmStr] = useState<string>('')
   const [timeStr, setTimeStr] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Auto-open the panel when at least one obs is active
   useEffect(() => { if (observations.length > 0) setOpen(true) }, [observations.length])
+
+  // Clear the "copied ✓" timer on unmount so it can't fire on a dead component
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
 
   const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
 
@@ -146,6 +285,24 @@ export function BuddyTracker({
     setKmStr('')
     setTimeStr('')
     onClear()
+  }
+
+  async function handleCopy() {
+    if (!derived || derived.sortedObs.length === 0) return
+    try {
+      const text = formatObservationsAsText({
+        derived, nextCutoff, buddyEta,
+        trackName: track.name,
+        startTime,
+      })
+      await navigator.clipboard.writeText(text)
+      setError(null)
+      setCopied(true)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('No se pudo copiar al portapapeles')
+    }
   }
 
   const freshness = useFreshnessLabel(derived?.metrics.lastObs.time ?? null)
@@ -244,6 +401,26 @@ export function BuddyTracker({
           {/* ── Observations list ── */}
           {derived && derived.sortedObs.length > 0 && (
             <div className="bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden">
+              {/* Mini-header with copy-to-clipboard button */}
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80 bg-slate-900/60">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
+                  Observaciones
+                </span>
+                <button
+                  onClick={handleCopy}
+                  type="button"
+                  title={copied ? 'Copiado ✓' : 'Copiar al portapapeles'}
+                  aria-label={copied ? 'Copiado' : 'Copiar al portapapeles'}
+                  className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors ${
+                    copied
+                      ? 'text-emerald-400'
+                      : 'text-purple-400 hover:text-purple-300 hover:bg-slate-800/60'
+                  }`}
+                >
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                  <span>{copied ? 'Copiado' : 'Copiar'}</span>
+                </button>
+              </div>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-800/60 text-slate-400 text-[10px] uppercase tracking-wide">
