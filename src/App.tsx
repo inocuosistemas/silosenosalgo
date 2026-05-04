@@ -8,7 +8,7 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack } from './lib/gpx'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
-import { ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
+import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
@@ -91,6 +91,26 @@ function toLocalInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Short Spanish date for the compact params bar: "lun 4 may". */
+function formatStartDate(d: Date): string {
+  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+/** Short pace summary: "tiempos GPX" or "ritmo 6:30/km". */
+function paceShortLabel(p: PaceConfig): string {
+  if (p.mode === 'gpx') return 'tiempos GPX'
+  return `${formatPace(p.paceMinPerKm)}/km`
+}
+
+/** Short sampling summary: "auto", "cada 2 km", "cada 15 min", "20 puntos". */
+function samplingShortLabel(s: SamplingConfig): string {
+  if (s.mode === 'auto')  return 'auto'
+  if (s.mode === 'km')    return `cada ${s.intervalKm} km`
+  if (s.mode === 'time')  return `cada ${s.intervalMinutes} min`
+  if (s.mode === 'count') return `${s.count} puntos`
+  return ''
+}
+
 type LoadStatus = 'idle' | 'loading' | 'live-loading' | 'done' | 'error'
 type AppMode = 'plan' | 'live'
 
@@ -114,6 +134,17 @@ export default function App() {
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
   const [status, setStatus] = useState<LoadStatus>('idle')
+
+  // Auto-collapse the params bar after a successful compute.
+  // Mirrors `isDone` so we don't collapse on a transient state.
+  useEffect(() => {
+    if (status === 'done' && baseWaypoints.length > 0) {
+      setParamsExpanded(false)
+      setParamsDirty(false)
+      setHasComputedOnce(true)
+    }
+  }, [status, baseWaypoints.length])
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
@@ -140,6 +171,13 @@ export default function App() {
 
   // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
   const [strategyMargin, setStrategyMargin] = useState(0)
+
+  // ── Plan-mode params bar: collapse / dirty tracking ───────────────────────
+  // Sections 2-4 (start time, pace, sampling) collapse into a compact bar
+  // after the first successful compute and re-expand via "Modificar".
+  const [paramsExpanded, setParamsExpanded]   = useState(true)
+  const [paramsDirty,    setParamsDirty]      = useState(false)
+  const [hasComputedOnce, setHasComputedOnce] = useState(false)
 
   // ── Buddy tracking: list of observations { km, time } sorted by km ─────────
   // [] = no observation; when populated, ETAs are projected from the observed
@@ -382,6 +420,10 @@ export default function App() {
     setSegmentPaces(null)
     setBuddyObs([])
     setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
+    // Reset the params bar to its initial expanded state for the new route
+    setParamsExpanded(true)
+    setParamsDirty(false)
+    setHasComputedOnce(false)
     reset()
     if (t.points.some((p) => p.time)) {
       // Only auto-switch to 'gpx' when the times are actually valid for the current activity
@@ -785,90 +827,146 @@ export default function App() {
         {/* ── Plan mode sections ── */}
         {appMode === 'plan' && (
           <>
-            {track && (
+            {/* ── Compact params bar (post-compute view) ── */}
+            {track && !paramsExpanded && (
               <section className="space-y-3">
-                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">2 · Fecha y hora de salida</h2>
-                <input
-                  type="datetime-local"
-                  value={toLocalInputValue(startTime)}
-                  onChange={(e) => { setStartTime(new Date(e.target.value)); setBuddyObs([]); reset() }}
-                  className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
-                />
+                <div className="bg-slate-800 rounded-xl px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm min-w-0">
+                    <span className="text-slate-400">
+                      📅 <span className="text-slate-200 font-medium">{formatStartDate(startTime)}</span>
+                    </span>
+                    <span className="text-slate-400">
+                      🕘 <span className="text-slate-200 font-mono">{formatTime(startTime)}</span>
+                    </span>
+                    <span className="text-slate-400">
+                      {ACTIVITY_LABEL[paceConfig.activity].emoji}{' '}
+                      <span className="text-slate-200">{paceShortLabel(paceConfig)}</span>
+                    </span>
+                    <span className="text-slate-400">
+                      📍 <span className="text-slate-200">{samplingShortLabel(sampling)}</span>
+                    </span>
+                    {segmentPaces && (
+                      <span className="text-[10px] bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 px-2 py-0.5 rounded-full font-medium">
+                        🔀 ritmo variable
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setParamsExpanded(true)}
+                    className="text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-1.5 px-3 rounded-lg border border-slate-600 transition-colors shrink-0"
+                  >
+                    ✎ Modificar
+                  </button>
+                </div>
               </section>
             )}
 
-            {track && (
-              <section className="space-y-3">
-                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">3 · Ritmo</h2>
-                <PaceConfigPanel
-                  config={paceConfig}
-                  hasGpxTimes={hasGpxTimes}
-                  gpxValidity={gpxValidity}
-                  onChange={(c) => { setPaceConfig(c); setSegmentPaces(null); setBuddyObs([]); reset() }}
-                />
-                {/* Variable-pace active indicator — shown when strategy panel has been applied */}
-                {segmentPaces && (
-                  <div className="flex items-center justify-between gap-3 text-xs bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-2">
-                    <span className="text-emerald-300 flex items-center gap-1.5">
-                      <span>🔀</span>
-                      <span>Ritmo variable por tramos activo</span>
-                    </span>
-                    <button
-                      onClick={() => { setSegmentPaces(null); reset() }}
-                      className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-400 transition-colors shrink-0"
-                    >
-                      Volver a ritmo único
-                    </button>
+            {/* ── Expanded params form (initial / "Modificar") ── */}
+            {track && paramsExpanded && (
+              <>
+                <section className="space-y-3">
+                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">2 · Fecha y hora de salida</h2>
+                  <input
+                    type="datetime-local"
+                    value={toLocalInputValue(startTime)}
+                    onChange={(e) => {
+                      setStartTime(new Date(e.target.value))
+                      setBuddyObs([])
+                      if (hasComputedOnce) setParamsDirty(true)
+                      reset()
+                    }}
+                    className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
+                  />
+                </section>
+
+                <section className="space-y-3">
+                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">3 · Ritmo</h2>
+                  <PaceConfigPanel
+                    config={paceConfig}
+                    hasGpxTimes={hasGpxTimes}
+                    gpxValidity={gpxValidity}
+                    onChange={(c) => {
+                      setPaceConfig(c)
+                      setSegmentPaces(null)
+                      setBuddyObs([])
+                      if (hasComputedOnce) setParamsDirty(true)
+                      reset()
+                    }}
+                  />
+                  {/* Variable-pace active indicator — shown when strategy panel has been applied */}
+                  {segmentPaces && (
+                    <div className="flex items-center justify-between gap-3 text-xs bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-2">
+                      <span className="text-emerald-300 flex items-center gap-1.5">
+                        <span>🔀</span>
+                        <span>Ritmo variable por tramos activo</span>
+                      </span>
+                      <button
+                        onClick={() => { setSegmentPaces(null); reset() }}
+                        className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-400 transition-colors shrink-0"
+                      >
+                        Volver a ritmo único
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3">
+                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">4 · Detalle de waypoints</h2>
+                  <SamplingPanel
+                    config={sampling}
+                    totalKm={track.totalDistanceKm}
+                    onChange={(c) => {
+                      setSampling(c)
+                      if (hasComputedOnce) setParamsDirty(true)
+                      reset()
+                    }}
+                  />
+                </section>
+
+                {/* Pending-changes chip: shown after a recompute is needed */}
+                {paramsDirty && hasComputedOnce && (
+                  <div className="flex items-center gap-2 text-xs bg-amber-900/30 border border-amber-700/50 text-amber-300 px-3 py-2 rounded-lg">
+                    <span>⏳</span>
+                    <span>Cambios pendientes — pulsa Calcular para aplicarlos.</span>
                   </div>
                 )}
-              </section>
-            )}
 
-            {track && (
-              <section className="space-y-3">
-                <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">4 · Detalle de waypoints</h2>
-                <SamplingPanel
-                  config={sampling}
-                  totalKm={track.totalDistanceKm}
-                  onChange={(c) => { setSampling(c); reset() }}
-                />
-              </section>
-            )}
+                <div className="space-y-3">
+                  {/* Primary: plan mode */}
+                  <button
+                    onClick={handleCompute}
+                    disabled={isLoading || isLiveLoading}
+                    className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
+                  >
+                    {isLoading ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        Consultando…
+                      </>
+                    ) : hasComputedOnce ? (
+                      'Recalcular previsión →'
+                    ) : (
+                      'Calcular y obtener previsión →'
+                    )}
+                  </button>
 
-            {track && (
-              <div className="space-y-3">
-                {/* Primary: plan mode */}
-                <button
-                  onClick={handleCompute}
-                  disabled={isLoading || isLiveLoading}
-                  className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      Consultando…
-                    </>
-                  ) : (
-                    'Calcular y obtener previsión →'
-                  )}
-                </button>
-
-                {/* Secondary: live shortcut */}
-                <button
-                  onClick={handleComputeLive}
-                  disabled={isLoading || isLiveLoading}
-                  className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-600 hover:border-sky-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
-                >
-                  {isLiveLoading ? (
-                    <>
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full" />
-                      Preparando modo en vivo…
-                    </>
-                  ) : (
-                    <>📍 Ya estoy en ruta — calcular ahora y abrir modo en vivo</>
-                  )}
-                </button>
-              </div>
+                  {/* Secondary: live shortcut */}
+                  <button
+                    onClick={handleComputeLive}
+                    disabled={isLoading || isLiveLoading}
+                    className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-600 hover:border-sky-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+                  >
+                    {isLiveLoading ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full" />
+                        Preparando modo en vivo…
+                      </>
+                    ) : (
+                      <>📍 Ya estoy en ruta — calcular ahora y abrir modo en vivo</>
+                    )}
+                  </button>
+                </div>
+              </>
             )}
 
             {isLoading && locationProgress.total > 0 && (
