@@ -793,7 +793,9 @@ export default function App() {
 
         {/* ── Paso 1: GPX ── */}
         <section className="space-y-3">
-          <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">1 · Carga tu ruta</h2>
+          {(!track || paramsExpanded) && (
+            <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">1 · Carga tu ruta</h2>
+          )}
           {track ? (
             <div className="bg-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
               <div>
