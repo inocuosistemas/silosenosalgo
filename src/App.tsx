@@ -178,6 +178,17 @@ export default function App() {
   const [paramsExpanded, setParamsExpanded]   = useState(true)
   const [paramsDirty,    setParamsDirty]      = useState(false)
   const [hasComputedOnce, setHasComputedOnce] = useState(false)
+  /**
+   * Snapshot of param values taken when the user opens "Modificar".
+   * Used to restore everything if they click "Cancelar" without recomputing.
+   */
+  const [paramsSnapshot, setParamsSnapshot] = useState<{
+    startTime:    Date
+    paceConfig:   PaceConfig
+    sampling:     SamplingConfig
+    segmentPaces: SegmentPace[] | null
+    buddyObs:     BuddyObservation[]
+  } | null>(null)
 
   // ── Buddy tracking: list of observations { km, time } sorted by km ─────────
   // [] = no observation; when populated, ETAs are projected from the observed
@@ -566,6 +577,25 @@ export default function App() {
     await doCompute(newConfig, derived.segmentPaces)
   }
 
+  /**
+   * Cancel an in-progress "Modificar" session: restore all param values to
+   * what they were when the user clicked "Modificar", then collapse without
+   * recomputing. The previous results stay visible — they were never cleared
+   * because onChange no longer calls reset() while the form is expanded.
+   */
+  function handleCancelModify() {
+    if (paramsSnapshot) {
+      setStartTime(paramsSnapshot.startTime)
+      setPaceConfig(paramsSnapshot.paceConfig)
+      setSampling(paramsSnapshot.sampling)
+      setSegmentPaces(paramsSnapshot.segmentPaces)
+      setBuddyObs(paramsSnapshot.buddyObs)
+    }
+    setParamsSnapshot(null)
+    setParamsDirty(false)
+    setParamsExpanded(false)
+  }
+
   /** Clear ALL buddy observations; revert to the user's planned pace config. */
   async function handleClearBuddy() {
     setBuddyObs([])
@@ -854,7 +884,10 @@ export default function App() {
                     )}
                   </div>
                   <button
-                    onClick={() => setParamsExpanded(true)}
+                    onClick={() => {
+                      setParamsSnapshot({ startTime, paceConfig, sampling, segmentPaces, buddyObs })
+                      setParamsExpanded(true)
+                    }}
                     className="text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-1.5 px-3 rounded-lg border border-slate-600 transition-colors shrink-0"
                   >
                     ✎ Modificar
@@ -875,7 +908,9 @@ export default function App() {
                       setStartTime(new Date(e.target.value))
                       setBuddyObs([])
                       if (hasComputedOnce) setParamsDirty(true)
-                      reset()
+                      // reset() is intentionally NOT called here so that previous
+                      // results stay visible while editing. reset() runs inside
+                      // handleCompute when the user explicitly asks to recompute.
                     }}
                     className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
                   />
@@ -892,7 +927,6 @@ export default function App() {
                       setSegmentPaces(null)
                       setBuddyObs([])
                       if (hasComputedOnce) setParamsDirty(true)
-                      reset()
                     }}
                   />
                   {/* Variable-pace active indicator — shown when strategy panel has been applied */}
@@ -903,7 +937,7 @@ export default function App() {
                         <span>Ritmo variable por tramos activo</span>
                       </span>
                       <button
-                        onClick={() => { setSegmentPaces(null); reset() }}
+                        onClick={() => { setSegmentPaces(null); if (hasComputedOnce) setParamsDirty(true) }}
                         className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-400 transition-colors shrink-0"
                       >
                         Volver a ritmo único
@@ -920,16 +954,15 @@ export default function App() {
                     onChange={(c) => {
                       setSampling(c)
                       if (hasComputedOnce) setParamsDirty(true)
-                      reset()
                     }}
                   />
                 </section>
 
-                {/* Pending-changes chip: shown after a recompute is needed */}
+                {/* Pending-changes chip: shown when params have changed since last compute */}
                 {paramsDirty && hasComputedOnce && (
                   <div className="flex items-center gap-2 text-xs bg-amber-900/30 border border-amber-700/50 text-amber-300 px-3 py-2 rounded-lg">
                     <span>⏳</span>
-                    <span>Cambios pendientes — pulsa Calcular para aplicarlos.</span>
+                    <span>Cambios pendientes — la previsión visible es del cálculo anterior.</span>
                   </div>
                 )}
 
@@ -951,6 +984,17 @@ export default function App() {
                       'Calcular y obtener previsión →'
                     )}
                   </button>
+
+                  {/* Cancel button: only shown when there is a previous compute to return to */}
+                  {hasComputedOnce && (
+                    <button
+                      onClick={handleCancelModify}
+                      disabled={isLoading || isLiveLoading}
+                      className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-600 text-slate-400 hover:text-slate-200 font-medium py-2.5 rounded-xl transition-colors text-sm"
+                    >
+                      Cancelar — volver sin recalcular
+                    </button>
+                  )}
 
                   {/* Secondary: live shortcut */}
                   <button
