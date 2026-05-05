@@ -8,10 +8,12 @@ import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment, splitHoursMinutes } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
+import type { PollenData, PollenType, PollenLevel } from '../lib/pollen'
+import { POLLEN_META, POLLEN_TYPES, pollenLevel, pollenLevelStyle, pollenLevelColor } from '../lib/pollen'
 import { useNowTick } from '../lib/useNowTick'
 import type { AnalyzeRange } from './WeatherCharts'
 
-export type MapMode = 'rain' | 'wind'
+export type MapMode = 'rain' | 'wind' | 'pollen'
 export type { AnalyzeRange }
 
 interface Props {
@@ -41,6 +43,12 @@ interface Props {
   buddyKm?: number | null
   /** Reported buddy observations — drawn as small dots with popups. */
   buddyObservations?: { km: number; time: Date }[]
+  /** Pollen data per waypoint (same order/length as waypoints). Only populated for European routes. */
+  pollenData?: (PollenData | null)[]
+  /** Currently selected pollen type for the pollen map mode. */
+  pollenType?: PollenType
+  /** Called when the user changes the selected pollen type. */
+  onPollenTypeChange?: (type: PollenType) => void
 }
 
 const RAIN_LEGEND = [
@@ -116,6 +124,9 @@ export function RouteMap({
   namedWaypoints = [],
   buddyKm = null,
   buddyObservations = [],
+  pollenData,
+  pollenType,
+  onPollenTypeChange,
 }: Props) {
   const { points } = track
 
@@ -150,6 +161,20 @@ export function RouteMap({
   const totalKm = track.totalDistanceKm
   const targetKm = effectiveProgress * totalKm
 
+  // ── Pollen-related derived values ──────────────────────────────────────────
+  const hasPollen = pollenData != null && pollenData.some((p) => p !== null)
+  const effectivePollenType: PollenType = pollenType ?? 'grass'
+
+  /**
+   * O(1) waypoint-index lookup: needed for per-marker pollen data.
+   * Built whenever the waypoints array reference changes.
+   */
+  const wpIndexMap = useMemo(() => {
+    const m = new WeakMap<(typeof waypoints)[0], number>()
+    waypoints.forEach((wp, i) => m.set(wp, i))
+    return m
+  }, [waypoints])
+
   // ── Pre-compute colored segment metadata ──────────────────────────────────
   const allSegments = useMemo(() => {
     return waypoints.slice(1).map((curr, i) => {
@@ -160,6 +185,8 @@ export function RouteMap({
       const color =
         mapMode === 'wind'
           ? impactToColor(curr)
+          : mapMode === 'pollen'
+          ? pollenLevelColor(effectivePollenType, pollenData?.[i + 1]?.[effectivePollenType] ?? null)
           : precipToColor(curr.weather?.precipProbability)
       return {
         key: i + 1,
@@ -172,7 +199,7 @@ export function RouteMap({
         endTimeMs: curr.estimatedTime.getTime(),
       }
     })
-  }, [waypoints, points, mapMode, cumKm])
+  }, [waypoints, points, mapMode, cumKm, pollenData, effectivePollenType])
 
   // ── "Now" tick (60 s) used to mute weather-colored segments whose ETA is
   //    already in the past — those colors come from forecast/reanalysis data
@@ -467,6 +494,7 @@ export function RouteMap({
   const legendTitle = mapMode === 'wind' ? 'Viento:' : 'Prob. lluvia:'
   const sliderAtFull = progress >= 1
   const playIcon = isPlaying ? '⏸' : sliderAtFull ? '↺' : '▶'
+  const POLLEN_LEGEND_LEVELS: PollenLevel[] = [1, 2, 3, 4]
 
   // ── Handlers for analyze mode (delegated to parent) ───────────────────────
   const enterAnalyze = () => onAnalyzeRangeChange?.({ from: 0, to: totalKm })
@@ -545,16 +573,53 @@ export function RouteMap({
               >
                 💨 Viento
               </button>
+              {hasPollen && (
+                <button
+                  onClick={() => onMapModeChange('pollen')}
+                  className={`px-3 py-1.5 transition-colors ${mapMode === 'pollen' ? 'bg-green-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  🌿 Polen
+                </button>
+              )}
             </div>
           )}
           <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
-            <span>{legendTitle}</span>
-            {legend.map((l) => (
-              <span key={l.label} className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full" style={{ background: l.color }} />
-                {l.label}
-              </span>
-            ))}
+            {mapMode === 'pollen' && hasPollen ? (
+              <>
+                {/* Pollen type selector */}
+                <select
+                  value={effectivePollenType}
+                  onChange={(e) => onPollenTypeChange?.(e.target.value as PollenType)}
+                  className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-green-600"
+                >
+                  {POLLEN_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {POLLEN_META[t].emoji} {POLLEN_META[t].name}
+                    </option>
+                  ))}
+                </select>
+                {/* Pollen level legend */}
+                {POLLEN_LEGEND_LEVELS.map((lvl) => {
+                  const { label, color } = pollenLevelStyle(lvl)
+                  return (
+                    <span key={lvl} className="flex items-center gap-1">
+                      <span className="inline-block w-3 h-3 rounded-full" style={{ background: color }} />
+                      {label}
+                    </span>
+                  )
+                })}
+              </>
+            ) : (
+              <>
+                <span>{legendTitle}</span>
+                {legend.map((l) => (
+                  <span key={l.label} className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-3 rounded-full" style={{ background: l.color }} />
+                    {l.label}
+                  </span>
+                ))}
+              </>
+            )}
             {liveMode && (
               <>
                 <span className="text-slate-600">·</span>
@@ -817,12 +882,32 @@ export function RouteMap({
             const isEndpoint = isStart || isEnd
             const w = wp.weather
             const { emoji, label } = w ? weatherLabel(w.weatherCode) : { emoji: '', label: '' }
-            const dotColor =
-              mapMode === 'wind' ? impactToColor(wp) : precipToColor(w?.precipProbability)
             const impact = w ? windImpact(w.windDirection, wp.bearing, w.windSpeedKmh) : null
             const { label: impactLabel, color: impactColor } = impact
               ? windImpactStyle(impact)
               : { label: '', color: '#94a3b8' }
+
+            // Pollen data for this specific waypoint
+            const wpPollenIdx = wpIndexMap.get(wp) ?? -1
+            const wpPollen = wpPollenIdx >= 0 ? (pollenData?.[wpPollenIdx] ?? null) : null
+
+            const dotColor =
+              mapMode === 'wind'
+                ? impactToColor(wp)
+                : mapMode === 'pollen' && wpPollen
+                ? pollenLevelColor(effectivePollenType, wpPollen[effectivePollenType])
+                : precipToColor(w?.precipProbability)
+
+            // Pollen types with non-zero levels (for popup)
+            const pollenRows = wpPollen
+              ? POLLEN_TYPES
+                  .map((type) => {
+                    const grains = wpPollen[type]
+                    const lvl = pollenLevel(type, grains)
+                    return { type, grains, lvl }
+                  })
+                  .filter((r) => r.lvl > 0)
+              : []
 
             return (
               <CircleMarker
@@ -837,7 +922,7 @@ export function RouteMap({
                 }}
               >
                 <Popup>
-                  <div style={{ minWidth: 160, lineHeight: 1.6 }}>
+                  <div style={{ minWidth: 170, lineHeight: 1.6 }}>
                     <p style={{ fontWeight: 700, marginBottom: 2 }}>
                       {formatTime(wp.estimatedTime)} · {wp.distanceKm.toFixed(1)} km
                     </p>
@@ -862,6 +947,29 @@ export function RouteMap({
                       </>
                     ) : (
                       <p style={{ color: '#94a3b8' }}>Sin datos meteo</p>
+                    )}
+                    {/* Pollen breakdown */}
+                    {pollenRows.length > 0 && (
+                      <div style={{ marginTop: 6, borderTop: '1px solid #334155', paddingTop: 6 }}>
+                        <p style={{ color: '#94a3b8', fontSize: 10, marginBottom: 4, fontWeight: 600 }}>
+                          🌿 Polen
+                        </p>
+                        {pollenRows.map(({ type, grains, lvl }) => {
+                          const { label: lvlLabel, color } = pollenLevelStyle(lvl as PollenLevel)
+                          return (
+                            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                              <span>{POLLEN_META[type].emoji}</span>
+                              <span style={{ fontSize: 11 }}>{POLLEN_META[type].name}</span>
+                              <span style={{ marginLeft: 'auto', color, fontSize: 11, fontWeight: 600 }}>{lvlLabel}</span>
+                              {grains !== null && (
+                                <span style={{ color: '#64748b', fontSize: 10, fontFamily: 'monospace' }}>
+                                  {grains.toFixed(0)} g
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
                     )}
                     {wp.location?.nearestPlace && (
                       <p style={{ color: '#94a3b8', marginTop: 4 }}>

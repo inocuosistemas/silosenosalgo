@@ -11,6 +11,8 @@ import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
 import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
+import type { PollenData, PollenType } from './lib/pollen'
+import { fetchPollenForWaypoints, isInEurope, defaultPollenType, POLLEN_TYPES } from './lib/pollen'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
@@ -54,6 +56,21 @@ function loadPaceConfig(): PaceConfig {
 
 function savePaceConfig(c: PaceConfig) {
   try { localStorage.setItem(PACE_LS_KEY, JSON.stringify(c)) } catch { /* ignore quota errors */ }
+}
+
+// ── Pollen type persistence ────────────────────────────────────────────────────
+const POLLEN_TYPE_LS_KEY = 'silosenosalgo-pollen-type-v1'
+
+function loadPollenType(): PollenType {
+  try {
+    const raw = localStorage.getItem(POLLEN_TYPE_LS_KEY)
+    if (raw && (POLLEN_TYPES as string[]).includes(raw)) return raw as PollenType
+  } catch { /* ignore */ }
+  return defaultPollenType(new Date().getMonth() + 1)
+}
+
+function savePollenType(t: PollenType) {
+  try { localStorage.setItem(POLLEN_TYPE_LS_KEY, t) } catch { /* ignore */ }
 }
 
 // ── Cut-off time helpers ───────────────────────────────────────────────────────
@@ -126,13 +143,28 @@ export default function App() {
 
   // Persist pace config across reloads
   useEffect(() => { savePaceConfig(paceConfig) }, [paceConfig])
+
   const [sampling, setSampling] = useState<SamplingConfig>(DEFAULT_SAMPLING)
 
   const [baseWaypoints, setBaseWaypoints] = useState<Waypoint[]>([])
   const [weatherArr, setWeatherArr] = useState<(WeatherData | null)[]>([])
   const [locationArr, setLocationArr] = useState<(LocationInfo | null)[]>([])
+  const [pollenArr, setPollenArr] = useState<(PollenData | null)[]>([])
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
+  const [selectedPollenType, setSelectedPollenType] = useState<PollenType>(loadPollenType)
+
+  // Persist pollen type selection across reloads
+  useEffect(() => { savePollenType(selectedPollenType) }, [selectedPollenType])
+
+  // Auto-switch away from pollen mode when the current route has no pollen data
+  // (e.g. non-European route loaded, or a new GPX was uploaded)
+  useEffect(() => {
+    if (mapMode === 'pollen' && pollenArr.length > 0 && pollenArr.every((p) => p === null)) {
+      setMapMode('rain')
+    }
+  }, [mapMode, pollenArr])
+
   const [status, setStatus] = useState<LoadStatus>('idle')
 
   // Auto-collapse the params bar after a successful compute.
@@ -415,6 +447,7 @@ export default function App() {
     setBaseWaypoints([])
     setWeatherArr([])
     setLocationArr([])
+    setPollenArr([])
     setStatus('idle')
     setErrorMsg(null)
     setLocationWarning(null)
@@ -478,7 +511,17 @@ export default function App() {
           )
         })
 
-      await Promise.all([weatherPromise, locationPromise])
+      // Pollen: only for European routes (CAMS coverage). Errors are swallowed —
+      // the feature degrades gracefully when the API is unavailable or the route
+      // is outside Europe. Initialise with nulls first so the array length is correct.
+      setPollenArr(wps.map(() => null))
+      const pollenPromise = isInEurope(wps)
+        ? fetchPollenForWaypoints(wps)
+            .then((results) => setPollenArr(results.map((r) => r.pollen)))
+            .catch(() => { /* silently ignore — route stays with null pollen */ })
+        : Promise.resolve()
+
+      await Promise.all([weatherPromise, locationPromise, pollenPromise])
       setStatus('done')
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')
@@ -1204,6 +1247,9 @@ export default function App() {
             onAnalyzeRangeChange={setAnalyzeRange}
             buddyKm={appMode === 'plan' ? buddyKmNow : null}
             buddyObservations={appMode === 'plan' ? buddyObs : []}
+            pollenData={pollenArr.length > 0 ? pollenArr : undefined}
+            pollenType={selectedPollenType}
+            onPollenTypeChange={setSelectedPollenType}
           />
         )}
 
