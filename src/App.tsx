@@ -6,7 +6,11 @@ import { RouteMap } from './components/RouteMap'
 import type { MapMode } from './components/RouteMap'
 import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
-import type { GpxTrack } from './lib/gpx'
+import type { GpxTrack, GpxNamedWaypoint } from './lib/gpx'
+import { downloadGpx } from './lib/gpxSerialize'
+import { PoisPanel, type MaterialisedPoi } from './components/PoisPanel'
+import type { CutoffWallClock } from './lib/cutoffInference'
+import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
 import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
@@ -80,26 +84,78 @@ function wptKey(lat: number, lon: number) {
 }
 
 const CUTOFF_LS_PREFIX = 'silosenosalgo-cutoffs-'
+const CUTOFF_LS_VERSION = 'v2'
 
-function loadCutoffTimes(trackName: string): Map<string, Date> {
+/**
+ * Load cut-off wall-clocks from localStorage. Tolerant of two formats:
+ *  - v2 (current): `{ version: "v2", data: { "lat,lon": { hour, minute }, ... } }`
+ *  - v1 (legacy):  `{ "lat,lon": "ISO timestamp", ... }` — we extract HH:MM in
+ *                  local time and discard the day (it gets re-inferred fresh).
+ *
+ * The migration is non-destructive: the day part of the legacy data was the
+ * buggy bit, and HH:MM (the user's actual intent) is preserved.
+ */
+function loadCutoffWallClocks(trackName: string): Map<string, CutoffWallClock> {
   try {
     const raw = localStorage.getItem(CUTOFF_LS_PREFIX + trackName)
     if (!raw) return new Map()
-    const obj = JSON.parse(raw) as Record<string, string>
-    const map = new Map<string, Date>()
-    for (const [key, val] of Object.entries(obj)) {
-      const d = new Date(val)
-      if (!isNaN(d.getTime())) map.set(key, d)
+    const parsed = JSON.parse(raw)
+
+    // v2: { version: "v2", data: { key: { hour, minute } } }
+    if (parsed && parsed.version === CUTOFF_LS_VERSION && parsed.data) {
+      const map = new Map<string, CutoffWallClock>()
+      for (const [k, v] of Object.entries(parsed.data as Record<string, { hour: number; minute: number }>)) {
+        if (typeof v?.hour === 'number' && typeof v?.minute === 'number') {
+          map.set(k, { hour: v.hour, minute: v.minute })
+        }
+      }
+      return map
     }
+
+    // v1 legacy: { key: ISO string }
+    const map = new Map<string, CutoffWallClock>()
+    for (const [k, val] of Object.entries(parsed as Record<string, string>)) {
+      const d = new Date(val)
+      if (!isNaN(d.getTime())) {
+        map.set(k, { hour: d.getHours(), minute: d.getMinutes() })
+      }
+    }
+    if (map.size > 0) saveCutoffWallClocks(trackName, map)  // upgrade in place
     return map
   } catch { return new Map() }
 }
 
-function saveCutoffTimes(trackName: string, times: Map<string, Date>) {
+function saveCutoffWallClocks(trackName: string, wcs: Map<string, CutoffWallClock>) {
   try {
-    const obj: Record<string, string> = {}
-    for (const [key, val] of times) obj[key] = val.toISOString()
-    localStorage.setItem(CUTOFF_LS_PREFIX + trackName, JSON.stringify(obj))
+    const data: Record<string, CutoffWallClock> = {}
+    for (const [k, v] of wcs) data[k] = v
+    localStorage.setItem(
+      CUTOFF_LS_PREFIX + trackName,
+      JSON.stringify({ version: CUTOFF_LS_VERSION, data }),
+    )
+  } catch { /* ignore quota errors */ }
+}
+
+// ── User-added POIs persistence (per track name) ──────────────────────────────
+const CUSTOM_POIS_LS_PREFIX = 'silosenosalgo-custom-pois-'
+
+function loadCustomPois(trackName: string): GpxNamedWaypoint[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_POIS_LS_PREFIX + trackName)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as GpxNamedWaypoint[]
+    // Mark them all as custom even if the JSON happens to omit it (defensive)
+    return arr.map((w) => ({ ...w, custom: true }))
+  } catch { return [] }
+}
+
+function saveCustomPois(trackName: string, customPois: GpxNamedWaypoint[]) {
+  try {
+    if (customPois.length === 0) {
+      localStorage.removeItem(CUSTOM_POIS_LS_PREFIX + trackName)
+    } else {
+      localStorage.setItem(CUSTOM_POIS_LS_PREFIX + trackName, JSON.stringify(customPois))
+    }
   } catch { /* ignore quota errors */ }
 }
 
@@ -194,8 +250,13 @@ export default function App() {
   // ── Analyze range (null = play mode / full view) ───────────────────────────
   const [analyzeRange, setAnalyzeRange] = useState<{ from: number; to: number } | null>(null)
 
-  // ── Cut-off times for named waypoints (persisted per track name) ──────────
-  const [cutoffTimes, setCutoffTimesState] = useState<Map<string, Date>>(new Map())
+  // ── Cut-off wall-clocks for named waypoints (persisted per track name) ────
+  // Stored as HH:MM only — the day is inferred at consumption time by
+  // `inferCutoffDatesFromWaypoints` based on monotonicity vs startTime and
+  // previous cut-offs. This means: cambiar startTime recalcula los días
+  // automáticamente, y un corte cuya hora no cabe el mismo día salta al
+  // siguiente sin intervención del usuario.
+  const [cutoffWallClocks, setCutoffWallClocksState] = useState<Map<string, CutoffWallClock>>(new Map())
 
   // ── Variable segment paces (set by the cut-off strategy panel) ────────────
   // null = use paceConfig.paceMinPerKm uniformly (normal mode)
@@ -227,16 +288,36 @@ export default function App() {
   // per-segment paces (latest segment is used for the unknown future).
   const [buddyObs, setBuddyObs] = useState<BuddyObservation[]>([])
 
+  /**
+   * Session-scoped "dirty" flag — true when the user has made a change in the
+   * current session that hasn't been written to a GPX file yet (POI added,
+   * removed, cut-off edited). Reset on track load and on GPX download.
+   * Drives the "cambios sin guardar" indicator in the POIs panel.
+   */
+  const [trackDirty, setTrackDirty] = useState(false)
+
+  /**
+   * Set or clear the cut-off for a checkpoint.
+   *
+   * `time` may come from a `<input type="datetime-local">` (which gives a
+   * full Date) or from any other source. We intentionally extract only the
+   * wall-clock HH:MM and discard the day — the day will be re-inferred from
+   * route order + startTime + previous cut-offs by `inferCutoffDates`.
+   */
   const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
     if (!track) return
     const key = wptKey(lat, lon)
-    setCutoffTimesState((prev) => {
+    setCutoffWallClocksState((prev) => {
       const next = new Map(prev)
-      if (time === null) next.delete(key)
-      else next.set(key, time)
-      saveCutoffTimes(track.name, next)
+      if (time === null) {
+        next.delete(key)
+      } else {
+        next.set(key, { hour: time.getHours(), minute: time.getMinutes() })
+      }
+      saveCutoffWallClocks(track.name, next)
       return next
     })
+    setTrackDirty(true)
   }, [track])
   // Deferred: WeatherCharts, WeatherSummary and the waypoints table only re-render
   // when React is idle, keeping slider drag at 60 fps.
@@ -333,6 +414,16 @@ export default function App() {
       })),
     [baseWaypoints, weatherArr, locationArr],
   )
+
+  // ── Derived cut-off Dates (wall-clock + inferred day) ─────────────────────
+  // Walk the named waypoints in km order, assigning each cut-off the smallest
+  // day such that the resulting absolute time is strictly after the previous
+  // cut-off (or startTime for the first). Re-runs whenever startTime, the
+  // wall-clocks, or the route's POIs change.
+  const cutoffTimes = useMemo<Map<string, Date>>(() => {
+    if (!track) return new Map()
+    return inferCutoffDatesFromWaypoints(track.namedWaypoints, cutoffWallClocks, startTime)
+  }, [track, cutoffWallClocks, startTime])
 
   // ── Enriched named waypoints (<wpt> POIs from GPX) ────────────────────────
   // Estimated time: linearly interpolated between the two bounding enrichedWaypoints.
@@ -457,13 +548,48 @@ export default function App() {
   }
 
   function handleTrack(t: GpxTrack) {
-    setTrack(t)
+    // Restore previously-added custom POIs (per-track localStorage) and merge
+    // them into the just-loaded track so the user sees their work continue
+    // across reloads. They sort by km alongside any GPX-original wpts.
+    //
+    // CRITICAL: dedupe by lat/lon. If the user previously downloaded the GPX
+    // with their custom POIs embedded and is now re-uploading that file, the
+    // POI lives in BOTH the file (as a regular <wpt>) and the cache (as a
+    // leftover entry). Without this dedup we'd show duplicates. After dedup
+    // we also persist the cleaned cache so the issue doesn't reappear.
+    const cachedCustom = loadCustomPois(t.name)
+    const fileLatLons = new Set(t.namedWaypoints.map((w) => wptKey(w.lat, w.lon)))
+    const dedupedCached = cachedCustom.filter((w) => !fileLatLons.has(wptKey(w.lat, w.lon)))
+    if (dedupedCached.length !== cachedCustom.length) {
+      saveCustomPois(t.name, dedupedCached)
+    }
+    const mergedNamedWpts = [...t.namedWaypoints, ...dedupedCached]
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+    const mergedTrack: GpxTrack = { ...t, namedWaypoints: mergedNamedWpts }
+
+    setTrack(mergedTrack)
     setAppMode('plan')
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
     setSegmentPaces(null)
     setBuddyObs([])
-    setCutoffTimesState(loadCutoffTimes(t.name))  // restore persisted cut-offs for this track
+
+    // Cut-offs: localStorage takes precedence (most recent edits); any
+    // <silosenosalgo:cutoffWallClock> extensions from the loaded file fill
+    // remaining gaps. Days are NOT stored — they're inferred at consumption
+    // time by the `cutoffTimes` derived useMemo.
+    const persisted = loadCutoffWallClocks(t.name)
+    const merged = new Map(persisted)
+    for (const wpt of mergedNamedWpts) {
+      const key = wptKey(wpt.lat, wpt.lon)
+      if (wpt.cutoffWallClock && !merged.has(key)) merged.set(key, wpt.cutoffWallClock)
+    }
+    setCutoffWallClocksState(merged)
+    saveCutoffWallClocks(t.name, merged)
+
+    // Fresh load → no pending session changes
+    setTrackDirty(false)
+
     // Reset the params bar to its initial expanded state for the new route
     setParamsExpanded(true)
     setParamsDirty(false)
@@ -476,6 +602,74 @@ export default function App() {
         setPaceConfig((c) => ({ ...c, mode: 'gpx' }))
       }
     }
+  }
+
+  // ── User-POI handlers ─────────────────────────────────────────────────────
+  function handleAddPois(materialised: MaterialisedPoi[]) {
+    if (!track) return
+    const newPois = materialised.map((m) => m.poi)
+    const mergedNamedWpts = [...track.namedWaypoints, ...newPois]
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+    const newTrack: GpxTrack = { ...track, namedWaypoints: mergedNamedWpts }
+    setTrack(newTrack)
+
+    // Persist all custom POIs (including pre-existing) to localStorage
+    saveCustomPois(track.name, mergedNamedWpts.filter((w) => w.custom))
+
+    // Apply wall-clock cut-offs from materialised rows. The day each one
+    // ends up on is decided automatically by the inference pass.
+    const newWcs = new Map(cutoffWallClocks)
+    for (const m of materialised) {
+      if (m.cutoff) newWcs.set(wptKey(m.poi.lat, m.poi.lon), m.cutoff)
+    }
+    setCutoffWallClocksState(newWcs)
+    saveCutoffWallClocks(track.name, newWcs)
+    setTrackDirty(true)
+  }
+
+  function handleRemovePoi(lat: number, lon: number) {
+    if (!track) return
+    const filtered = track.namedWaypoints.filter(
+      (w) => !(w.lat === lat && w.lon === lon && w.custom),
+    )
+    setTrack({ ...track, namedWaypoints: filtered })
+    saveCustomPois(track.name, filtered.filter((w) => w.custom))
+
+    // Drop any cut-off attached to this POI
+    setCutoffWallClocksState((prev) => {
+      const next = new Map(prev)
+      next.delete(wptKey(lat, lon))
+      saveCutoffWallClocks(track.name, next)
+      return next
+    })
+    setTrackDirty(true)
+  }
+
+  function handleClearCustomPois() {
+    if (!track) return
+    const customKeys = new Set(
+      track.namedWaypoints.filter((w) => w.custom).map((w) => wptKey(w.lat, w.lon)),
+    )
+    const filtered = track.namedWaypoints.filter((w) => !w.custom)
+    setTrack({ ...track, namedWaypoints: filtered })
+    saveCustomPois(track.name, [])
+
+    setCutoffWallClocksState((prev) => {
+      const next = new Map(prev)
+      for (const k of customKeys) next.delete(k)
+      saveCutoffWallClocks(track.name, next)
+      return next
+    })
+    setTrackDirty(true)
+  }
+
+  function handleDownloadGpx() {
+    if (!track) return
+    // Pass wall-clocks (not Dates) — the serializer writes them directly into
+    // <silosenosalgo:cutoffWallClock> without any day component, since the
+    // day is meant to be inferred at re-import time.
+    downloadGpx(track, cutoffWallClocks)
+    setTrackDirty(false)
   }
 
   // ── Core compute helper (accepts explicit config + segmentPaces overrides) ──
@@ -708,6 +902,21 @@ export default function App() {
   const isLiveLoading = status === 'live-loading'
   const isDone = status === 'done' && baseWaypoints.length > 0
 
+  /**
+   * Session-scoped "dirty" flag — true when the user has made a change in the
+   * CURRENT session that hasn't been written to a GPX file yet (POI added,
+   * removed, cut-off edited). Resets when:
+   *   - a track is freshly loaded (handleTrack)
+   *   - the user downloads the GPX (handleDownloadGpx)
+   *
+   * Drives the "cambios sin guardar" indicator in the POIs panel.
+   *
+   * Intentional design: localStorage divergence from the original file is NOT
+   * "dirty" — that's just normal app usage (cut-offs you edited last week
+   * shouldn't keep nagging forever). Only fresh edits in *this* session do.
+   */
+  const trackModified = trackDirty
+
   // ── Cut-off pace strategy ──────────────────────────────────────────────────
   // Recomputes when cut-offs change, start time changes, or pace config changes.
   const cutoffStrategy = useMemo(() => {
@@ -902,6 +1111,20 @@ export default function App() {
         {/* ── Plan mode sections ── */}
         {appMode === 'plan' && (
           <>
+            {/* ── POIs panel (always available once a track is loaded) ── */}
+            {track && (
+              <PoisPanel
+                track={track}
+                startTime={startTime}
+                cutoffTimes={cutoffTimes}
+                onAddPois={handleAddPois}
+                onRemovePoi={handleRemovePoi}
+                onClearCustom={handleClearCustomPois}
+                onDownload={handleDownloadGpx}
+                modified={trackModified}
+              />
+            )}
+
             {/* ── Compact params bar (post-compute view) ── */}
             {track && !paramsExpanded && (
               <section className="space-y-3">

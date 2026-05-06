@@ -1,0 +1,288 @@
+import type { GpxTrack, GpxNamedWaypoint, GpxPoint } from './gpx'
+import type { CutoffWallClock } from './cutoffInference'
+
+/**
+ * Lat/lon along the track at a given km, computed by linear interpolation
+ * between the two adjacent track points. Returns elevation too if available.
+ *
+ * Caller is responsible for clamping `km` to [0, totalDistanceKm] if desired —
+ * this function clamps internally to never read past the array.
+ */
+export function coordsAtKm(track: GpxTrack, km: number): { lat: number; lon: number; ele: number; nearestIndex: number } {
+  const { points } = track
+  if (points.length === 0) {
+    return { lat: 0, lon: 0, ele: 0, nearestIndex: 0 }
+  }
+
+  // Build cumulative km on the fly. (Cheap; ~few ms even for thousands of pts.)
+  // Could be cached on the track but it's recomputed elsewhere too — keep it
+  // local to avoid mutating the GpxTrack shape.
+  let cum = 0
+  const cumKm: number[] = [0]
+  for (let i = 1; i < points.length; i++) {
+    cum += haversineKm(points[i - 1], points[i])
+    cumKm.push(cum)
+  }
+
+  const total = cumKm[cumKm.length - 1]
+  const target = Math.max(0, Math.min(total, km))
+
+  if (target <= 0) {
+    return { lat: points[0].lat, lon: points[0].lon, ele: points[0].ele, nearestIndex: 0 }
+  }
+
+  let i = 0
+  while (i < cumKm.length - 1 && cumKm[i + 1] < target) i++
+
+  if (i >= cumKm.length - 1) {
+    const last = points[points.length - 1]
+    return { lat: last.lat, lon: last.lon, ele: last.ele, nearestIndex: points.length - 1 }
+  }
+
+  const span = cumKm[i + 1] - cumKm[i]
+  const t = span > 0 ? (target - cumKm[i]) / span : 0
+  const a = points[i]
+  const b = points[i + 1]
+  // Pick the closer of the two points as nearestIndex (used to set distanceKm
+  // consistently with how the GPX parser snaps wpts to track points)
+  const nearestIndex = t < 0.5 ? i : i + 1
+  return {
+    lat: a.lat + t * (b.lat - a.lat),
+    lon: a.lon + t * (b.lon - a.lon),
+    ele: a.ele + t * (b.ele - a.ele),
+    nearestIndex,
+  }
+}
+
+function haversineKm(a: GpxPoint, b: GpxPoint): number {
+  const R = 6371
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180
+  const dLon = ((b.lon - a.lon) * Math.PI) / 180
+  const lat1 = (a.lat * Math.PI) / 180
+  const lat2 = (b.lat * Math.PI) / 180
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
+// ── Paste parsing ──────────────────────────────────────────────────────────────
+
+export interface ParsedPoiRow {
+  km:    number
+  name:  string
+  desc?: string
+  /** Cut-off wall-clock parsed from the row, or null when absent. */
+  cutoff: CutoffWallClock | null
+  /** Original 1-based line number from the input — for error reporting. */
+  lineNo: number
+}
+
+export interface PasteResult {
+  rows:    ParsedPoiRow[]
+  errors:  { lineNo: number; line: string; reason: string }[]
+  /** Lines that were skipped silently (header, comments, blank). */
+  skipped: number
+}
+
+/**
+ * Parse a pasted multi-line POI text in the format described to the user.
+ *
+ * Each non-empty, non-comment, non-header line should look like:
+ *   `KM | NAME | DESC | CUTOFF`
+ *
+ * Where:
+ *  - KM:     decimal km (`15.5`, `22`, `30,5` — comma decimal accepted)
+ *  - NAME:   any non-empty string (required)
+ *  - DESC:   optional free text
+ *  - CUTOFF: `HH:MM` (optional). The day is auto-inferred — see
+ *            `inferCutoffDates`. A trailing `+Nd` from the legacy format is
+ *            accepted but silently ignored (the inference handles day jumps).
+ *
+ * Accepted column separators: `|`, `\t`, `;` (mixing within one line is
+ * fine — first occurrence wins per cell).
+ *
+ * Comments and the optional `km|nombre|...` header line are silently skipped.
+ * Validation errors are accumulated; lines without errors land in `rows`.
+ */
+export function parsePoiPaste(text: string): PasteResult {
+  const rows:    ParsedPoiRow[]                                     = []
+  const errors:  { lineNo: number; line: string; reason: string }[] = []
+  let   skipped = 0
+
+  const lines = text.split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const lineNo  = i + 1
+    const raw     = lines[i]
+    const trimmed = raw.trim()
+
+    if (trimmed.length === 0)            { skipped++; continue }
+    if (trimmed.startsWith('#'))         { skipped++; continue }
+    // Header line: starts with "km" (case-insensitive) followed by a separator
+    if (/^km\s*[|;\t]/i.test(trimmed))   { skipped++; continue }
+
+    // Split on the first kind of separator we find (in priority order)
+    const sep = /\t|\||;/g
+    const parts = trimmed.split(sep).map((s) => s.trim())
+
+    // Need at least km + name. Desc and cutoff are optional but the
+    // pipe slot may exist as an empty string.
+    if (parts.length < 2) {
+      errors.push({ lineNo, line: raw, reason: 'Faltan separadores — usa "|" o tab entre campos' })
+      continue
+    }
+
+    const kmStr   = parts[0]
+    const name    = parts[1] ?? ''
+    const descRaw = parts[2] ?? ''
+    const cutoffRaw = parts[3] ?? ''
+
+    // KM: accept comma decimals
+    const km = parseFloat(kmStr.replace(',', '.'))
+    if (!Number.isFinite(km) || km <= 0) {
+      errors.push({ lineNo, line: raw, reason: `km no válido: "${kmStr}"` })
+      continue
+    }
+
+    if (name.length === 0) {
+      errors.push({ lineNo, line: raw, reason: 'el nombre es obligatorio' })
+      continue
+    }
+
+    // Optional cutoff: "HH:MM" (the trailing "+Nd" of the legacy paste format
+    // is accepted for backward compat but silently dropped — the day is now
+    // inferred automatically by `inferCutoffDates`).
+    let cutoff: CutoffWallClock | null = null
+    if (cutoffRaw.length > 0) {
+      const m = cutoffRaw.match(/^(\d{1,2}):(\d{2})(?:\s*\+\s*\d+\s*d)?$/)
+      if (!m) {
+        errors.push({ lineNo, line: raw, reason: `corte no válido: "${cutoffRaw}" (usa HH:MM)` })
+        continue
+      }
+      const hour   = parseInt(m[1], 10)
+      const minute = parseInt(m[2], 10)
+      if (hour > 23 || minute > 59) {
+        errors.push({ lineNo, line: raw, reason: `hora fuera de rango: "${cutoffRaw}"` })
+        continue
+      }
+      cutoff = { hour, minute }
+    }
+
+    rows.push({ km, name, desc: descRaw || undefined, cutoff, lineNo })
+  }
+
+  // Sort by km — final output order matches GPX export order
+  rows.sort((a, b) => a.km - b.km)
+  return { rows, errors, skipped }
+}
+
+// ── Validation against an existing track ──────────────────────────────────────
+
+export interface ValidationContext {
+  totalKm:               number
+  /** Existing namedWaypoints to detect km collisions */
+  existingPois:          { lat: number; lon: number; distanceKm: number; name: string }[]
+  /** Tolerance in km for "same km" duplicate detection */
+  duplicateToleranceKm?: number
+}
+
+export interface ValidatedRow extends ParsedPoiRow {
+  /** True when an existing POI is within `duplicateToleranceKm` of `km` */
+  isDuplicate: boolean
+  /** The existing POI that triggered the duplicate flag, if any */
+  duplicateOf?: { name: string; distanceKm: number }
+}
+
+export function validateRows(rows: ParsedPoiRow[], ctx: ValidationContext): {
+  validated: ValidatedRow[]
+  outOfRange: ParsedPoiRow[]
+} {
+  const tolerance = ctx.duplicateToleranceKm ?? 0.05
+  const validated: ValidatedRow[] = []
+  const outOfRange: ParsedPoiRow[] = []
+
+  for (const r of rows) {
+    if (r.km > ctx.totalKm + 0.01) {
+      outOfRange.push(r)
+      continue
+    }
+    let dup: { name: string; distanceKm: number } | undefined
+    for (const existing of ctx.existingPois) {
+      if (Math.abs(existing.distanceKm - r.km) <= tolerance) {
+        dup = { name: existing.name, distanceKm: existing.distanceKm }
+        break
+      }
+    }
+    validated.push({ ...r, isDuplicate: dup != null, duplicateOf: dup })
+  }
+  return { validated, outOfRange }
+}
+
+// ── Materialise to GpxNamedWaypoint + wall-clock cutoff ───────────────────────
+
+export interface MaterialisedPoi {
+  poi:    GpxNamedWaypoint
+  /** Wall-clock HH:MM. The day is inferred at consumption time. */
+  cutoff: CutoffWallClock | null
+}
+
+/**
+ * Convert a list of parsed rows into actual `GpxNamedWaypoint` objects (with
+ * lat/lon interpolated from km along the track) plus matching wall-clock
+ * cut-offs.
+ *
+ * The resulting POIs are flagged with `custom: true` so the UI can offer a
+ * "remove" button for them and the "modified" indicator can detect them.
+ *
+ * `startTime` is no longer needed for cut-off conversion (wall-clocks are
+ * absolute HH:MM, not relative to start) — it's kept only because callers
+ * historically passed it; safe to ignore inside.
+ */
+export function materialisePois(
+  rows:        ParsedPoiRow[],
+  track:       GpxTrack,
+  _startTime?: Date,
+): MaterialisedPoi[] {
+  const out: MaterialisedPoi[] = []
+  for (const r of rows) {
+    const { lat, lon, ele, nearestIndex } = coordsAtKm(track, r.km)
+    const poi: GpxNamedWaypoint = {
+      lat,
+      lon,
+      ele,
+      name:              r.name,
+      desc:              r.desc,
+      distanceKm:        r.km,
+      nearestTrackIndex: nearestIndex,
+      custom:            true,
+    }
+    out.push({ poi, cutoff: r.cutoff })
+  }
+  return out
+}
+
+// ── Reverse: dump current POIs back to the paste format (for "Copiar") ────────
+
+/**
+ * Format a list of POIs (with optional wall-clock cut-offs) into the
+ * paste-compatible text format. Used by the "Copiar" button so the user can
+ * move POIs across devices, back them up, or paste into another track.
+ *
+ * The output writes only `HH:MM` (no day offset) — days are auto-inferred
+ * on import.
+ */
+export function formatPoisAsText(
+  pois:       { distanceKm: number; name: string; desc?: string }[],
+  cutoffByKm: Map<number, CutoffWallClock>,
+): string {
+  const lines: string[] = ['# km | nombre | descripción | corte (HH:MM, día auto)']
+  const sorted = [...pois].sort((a, b) => a.distanceKm - b.distanceKm)
+  for (const p of sorted) {
+    const wc = cutoffByKm.get(p.distanceKm)
+    const cutoffStr = wc
+      ? `${wc.hour.toString().padStart(2, '0')}:${wc.minute.toString().padStart(2, '0')}`
+      : ''
+    lines.push(`${p.distanceKm.toFixed(2)} | ${p.name} | ${p.desc ?? ''} | ${cutoffStr}`)
+  }
+  return lines.join('\n')
+}

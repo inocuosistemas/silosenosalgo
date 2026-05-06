@@ -23,6 +23,23 @@ export interface GpxNamedWaypoint {
   distanceKm: number
   /** Index into GpxTrack.points of the nearest track point */
   nearestTrackIndex: number
+  /**
+   * Wall-clock cut-off time (HH:MM) read from
+   *   <extensions><silosenosalgo:cutoffWallClock>HH:MM</...></extensions>
+   * The day is intentionally NOT stored — it's inferred at runtime by
+   * `inferCutoffDates` based on monotonicity vs startTime.
+   *
+   * Legacy: if the GPX uses the older `<silosenosalgo:cutoff>ISO</...>`
+   * absolute-timestamp form, the parser converts it (HH:MM extracted, day
+   * discarded) and exposes it in this same field.
+   */
+  cutoffWallClock?: { hour: number; minute: number }
+  /**
+   * True when this POI was added by the user via the "Añadir POIs" panel
+   * (vs originally present in the loaded GPX). Used for: showing the "remove"
+   * button only on user-added POIs, and the "track modified" indicator.
+   */
+  custom?: boolean
 }
 
 export interface GpxTrack {
@@ -99,6 +116,7 @@ export function parseGpx(xml: string): GpxTrack {
       const desc = el.querySelector('desc')?.textContent?.trim() || undefined
       const sym = el.querySelector('sym')?.textContent?.trim() || undefined
       const type = el.querySelector('type')?.textContent?.trim() || undefined
+      const cutoffWallClock = readCutoffWallClockFromExtensions(el) ?? undefined
 
       // Snap to nearest track point
       const wptAsGpx: GpxPoint = { lat, lon, ele: ele ?? 0, time: null }
@@ -109,8 +127,52 @@ export function parseGpx(xml: string): GpxTrack {
         if (d < minDistKm) { minDistKm = d; nearestTrackIndex = i }
       }
 
-      return { lat, lon, ele, name, desc, sym, type, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
+      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
     })
 
   return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints }
+}
+
+/**
+ * Reads the cut-off wall-clock from `<wpt><extensions>`.
+ *
+ * Supports two formats:
+ *   - New (preferred): `<silosenosalgo:cutoffWallClock>HH:MM</...>`
+ *   - Legacy:          `<silosenosalgo:cutoff>ISO-8601</...>` (absolute timestamp,
+ *     day part discarded — only HH:MM in local time is kept)
+ *
+ * Tolerant of namespace declaration variants — matches by localName so files
+ * where the namespace prefix differs (or is missing altogether after manual
+ * editing) still work.
+ */
+function readCutoffWallClockFromExtensions(el: Element): { hour: number; minute: number } | null {
+  const exts = el.getElementsByTagName('extensions')[0]
+  if (!exts) return null
+
+  // Pass 1: prefer the new wall-clock format
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'cutoffWallClock') {
+      const txt = child.textContent?.trim()
+      if (!txt) continue
+      const m = txt.match(/^(\d{1,2}):(\d{2})$/)
+      if (!m) continue
+      const hour   = parseInt(m[1], 10)
+      const minute = parseInt(m[2], 10)
+      if (hour > 23 || minute > 59) continue
+      return { hour, minute }
+    }
+  }
+
+  // Pass 2: fall back to legacy ISO timestamp (extract HH:MM in local time,
+  // discard the day — the inference will assign a fresh one)
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'cutoff') {
+      const txt = child.textContent?.trim()
+      if (!txt) continue
+      const d = new Date(txt)
+      if (isNaN(d.getTime())) continue
+      return { hour: d.getHours(), minute: d.getMinutes() }
+    }
+  }
+  return null
 }
