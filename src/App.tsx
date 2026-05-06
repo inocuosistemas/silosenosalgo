@@ -324,7 +324,18 @@ export default function App() {
   const deferredAnalyzeRange = useDeferredValue(analyzeRange)
 
   // ── GPS live position ──────────────────────────────────────────────────────
+  /** Distance threshold in km above which we consider the GPS fix off-route. */
+  const OFF_TRACK_KM = 0.5
+
   const livePos = useLivePosition(track, appMode === 'live', ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
+
+  /**
+   * True when we have a GPS fix but it's implausibly far from the loaded route
+   * (more than OFF_TRACK_KM from the nearest track point). This catches cases
+   * like wrong GPX loaded, GPS drift to another continent, or pre-departure
+   * situations where the user hasn't reached the start yet.
+   */
+  const isOffTrack = livePos.coords !== null && livePos.distanceFromTrackKm > OFF_TRACK_KM
 
   // ── Inline start-time editor in GPS bar ───────────────────────────────────
   const [liveEditingStart, setLiveEditingStart] = useState(false)
@@ -1351,6 +1362,16 @@ export default function App() {
                   <span className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full inline-block flex-shrink-0" />
                   <span>Localizando posición GPS…</span>
                 </>
+              ) : isOffTrack ? (
+                <>
+                  <span className="text-amber-400 flex-shrink-0">📡</span>
+                  <span className="text-amber-300 font-medium">
+                    GPS lejos del recorrido
+                  </span>
+                  <span className="text-amber-500 text-xs font-mono">
+                    ({livePos.distanceFromTrackKm.toFixed(1)} km del trayecto)
+                  </span>
+                </>
               ) : (
                 <>
                   <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
@@ -1418,8 +1439,8 @@ export default function App() {
                 {startTime.getTime() > Date.now() && (
                   <span className="text-xs text-amber-400">← ajusta si ya saliste</span>
                 )}
-                {/* Real average pace */}
-                {realPaceMinPerKm !== null && (
+                {/* Real average pace — hidden when GPS is off-route (pace would be meaningless) */}
+                {!isOffTrack && realPaceMinPerKm !== null && (
                   <span className="text-xs text-slate-400">
                     ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm, paceConfig.activity)}</span>
                   </span>
@@ -1464,6 +1485,7 @@ export default function App() {
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
             liveTrackKm={livePos.trackKm}
+            isOffTrack={isOffTrack}
             expectedKm={expectedKm}
             paceConfig={paceConfig}
             analyzeRange={analyzeRange}

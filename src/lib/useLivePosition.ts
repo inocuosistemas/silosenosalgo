@@ -25,6 +25,13 @@ export interface LivePositionState {
    * null when unavailable.
    */
   speed: number | null
+  /**
+   * Haversine distance (km) from the raw GPS fix to the nearest track point.
+   * 0 when no fix has been received yet.
+   * Use this to detect implausible "off-route" situations (e.g. GPS noise,
+   * wrong route loaded, or the user genuinely miles away from the track).
+   */
+  distanceFromTrackKm: number
 }
 
 const INITIAL: LivePositionState = {
@@ -36,6 +43,7 @@ const INITIAL: LivePositionState = {
   progress: 0,
   heading: null,
   speed: null,
+  distanceFromTrackKm: 0,
 }
 
 export function useLivePosition(
@@ -132,6 +140,7 @@ export function useLivePosition(
             : 0,
           heading: rawHeading !== null && !isNaN(rawHeading) ? rawHeading : null,
           speed: rawSpeed !== null && !isNaN(rawSpeed) ? rawSpeed : null,
+          distanceFromTrackKm: isFinite(minDist) ? minDist : 0,
         })
       },
       (err) => {

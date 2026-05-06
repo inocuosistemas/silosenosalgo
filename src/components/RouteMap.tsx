@@ -29,6 +29,12 @@ interface Props {
   liveProgress?: number
   /** Km along the track where the user currently is (live mode) */
   liveTrackKm?: number
+  /**
+   * True when the GPS fix is implausibly far from the route (>500 m).
+   * The GPS dot is drawn in amber to signal that snapped-km values are
+   * unreliable — the dot still shows the true device location.
+   */
+  isOffTrack?: boolean
   /** Km on the track where the user "should be" per the plan (live mode) */
   expectedKm?: number | null
   /** Pace config — used for section time estimates in analyze mode */
@@ -117,6 +123,7 @@ export function RouteMap({
   liveCoords = null,
   liveProgress = 0,
   liveTrackKm = 0,
+  isOffTrack = false,
   expectedKm = null,
   paceConfig,
   analyzeRange = null,
@@ -1131,18 +1138,27 @@ export function RouteMap({
             </>
           )}
 
-          {/* Live GPS position dot */}
+          {/* Live GPS position dot — amber when off-route, sky-blue when on-route */}
           {liveMode && liveCoords && (
             <>
               <CircleMarker
                 center={[liveCoords.lat, liveCoords.lon]}
                 radius={14}
-                pathOptions={{ fillColor: '#38bdf8', color: 'transparent', fillOpacity: 0.25 }}
+                pathOptions={{
+                  fillColor: isOffTrack ? '#f59e0b' : '#38bdf8',
+                  color: 'transparent',
+                  fillOpacity: 0.25,
+                }}
               />
               <CircleMarker
                 center={[liveCoords.lat, liveCoords.lon]}
                 radius={7}
-                pathOptions={{ fillColor: '#38bdf8', color: 'white', weight: 2.5, fillOpacity: 1 }}
+                pathOptions={{
+                  fillColor: isOffTrack ? '#f59e0b' : '#38bdf8',
+                  color: 'white',
+                  weight: 2.5,
+                  fillOpacity: 1,
+                }}
               />
             </>
           )}
