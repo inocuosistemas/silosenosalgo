@@ -441,10 +441,76 @@ export function formatDelta(deltaMin: number): string {
   return `${sign}${h}h ${m.toString().padStart(2, '0')} min`
 }
 
-export function formatPace(minPerKm: number): string {
+/**
+ * Format a pace value with the unit appropriate for the given activity.
+ *  - walk/run/undefined → `M:SS min/km`
+ *  - bike               → `XX.X km/h` (linear conversion: 60 / minPerKm)
+ *
+ * Internal storage everywhere is `minPerKm` — only the *display* changes.
+ */
+export function formatPace(minPerKm: number, activity?: ActivityType): string {
+  if (activity === 'bike') {
+    if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '— km/h'
+    return `${(60 / minPerKm).toFixed(1)} km/h`
+  }
   const min = Math.floor(minPerKm)
   const sec = Math.round((minPerKm - min) * 60)
   return `${min}:${sec.toString().padStart(2, '0')} min/km`
+}
+
+/**
+ * Like `formatPace` but returns ONLY the numeric portion (no unit suffix).
+ * Useful when the unit is rendered separately (e.g. styled differently in the
+ * surrounding JSX).
+ */
+export function formatPaceValue(minPerKm: number, activity?: ActivityType): string {
+  if (activity === 'bike') {
+    if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '—'
+    return (60 / minPerKm).toFixed(1)
+  }
+  const min = Math.floor(minPerKm)
+  const sec = Math.round((minPerKm - min) * 60)
+  return `${min}:${sec.toString().padStart(2, '0')}`
+}
+
+/** The unit string for the activity's pace display: `min/km` or `km/h`. */
+export function paceUnitLabel(activity?: ActivityType): string {
+  return activity === 'bike' ? 'km/h' : 'min/km'
+}
+
+/**
+ * Format the slack (current vs required pace) with sign, in the activity's
+ * native units.
+ *
+ * Convention (consistent across both units): positive = "easier than needed"
+ * (you can go slower / you have margin), negative = "must push harder".
+ *
+ * - walk/run: returns `+M:SS` / `−M:SS` — minutes per km of margin
+ * - bike:     returns `+X.X`  / `−X.X`  — km/h of margin
+ *
+ * Note: thresholds for color severity should be computed from the raw
+ * `min/km` slack at the call site — those are still the canonical units
+ * internally.
+ */
+export function formatPaceDelta(
+  currentMinPerKm:  number,
+  requiredMinPerKm: number,
+  activity?: ActivityType,
+): string {
+  if (activity === 'bike') {
+    const cur = 60 / currentMinPerKm
+    const req = 60 / requiredMinPerKm
+    const delta = cur - req  // positive = current is faster than needed → easier
+    const sign = delta >= 0 ? '+' : '−'
+    return `${sign}${Math.abs(delta).toFixed(1)}`
+  }
+  // walk/run: slack > 0 means current pace is faster than required → easier
+  const slack = requiredMinPerKm - currentMinPerKm
+  const sign  = slack >= 0 ? '+' : '−'
+  const abs   = Math.abs(slack)
+  const min   = Math.floor(abs)
+  const sec   = Math.round((abs - min) * 60)
+  return `${sign}${min}:${sec.toString().padStart(2, '0')}`
 }
 
 export function formatTime(date: Date): string {

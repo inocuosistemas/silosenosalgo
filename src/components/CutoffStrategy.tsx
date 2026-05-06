@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { CutoffStrategyResult, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
-import type { PaceConfig, SegmentPace } from '../lib/timing'
-import { formatPace, splitHoursMinutes } from '../lib/timing'
+import type { ActivityType, PaceConfig, SegmentPace } from '../lib/timing'
+import { formatPace, formatPaceDelta, splitHoursMinutes } from '../lib/timing'
 
 interface Props {
   strategy: CutoffStrategyResult
@@ -30,12 +30,6 @@ const SEV: Record<SegmentSeverity, {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function paceShort(pace: number): string {
-  const min = Math.floor(pace)
-  const sec = Math.round((pace - min) * 60)
-  return `${min}:${sec.toString().padStart(2, '0')}`
-}
-
 function fmtMin(min: number): string {
   const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
@@ -44,15 +38,14 @@ function fmtMin(min: number): string {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function PaceDelta({ required, current }: { required: number; current: number }) {
-  // slack > 0 → can go slower (easier); slack < 0 → must go faster (harder)
-  const slack   = required - current
-  const absSlack = Math.abs(slack)
+function PaceDelta({ required, current, activity }: { required: number; current: number; activity: ActivityType }) {
+  // slack > 0 → can go slower (easier); slack < 0 → must go faster (harder).
+  // Color thresholds use the canonical min/km slack (independent of display unit).
+  const slack = required - current
   const cls = slack >= 0 ? 'text-green-400' : slack > -0.5 ? 'text-slate-400' : 'text-red-400'
-  const sign = slack >= 0 ? '+' : '−'
   return (
     <span className={`text-xs font-mono ${cls}`}>
-      {sign}{paceShort(absSlack)}
+      {formatPaceDelta(current, required, activity)}
     </span>
   )
 }
@@ -61,10 +54,12 @@ function SegmentRow({
   seg,
   isTightest,
   currentPace,
+  activity,
 }: {
   seg: SegmentStrategy
   isTightest: boolean
   currentPace: number
+  activity: ActivityType
 }) {
   const cfg = SEV[seg.severity]
   return (
@@ -106,14 +101,14 @@ function SegmentRow({
         ) : (
           <span className={`inline-flex items-center gap-1 text-xs font-mono font-semibold ${cfg.textCls}`}>
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dotCls}`} />
-            {paceShort(seg.requiredPaceMinPerKm)}/km
+            {formatPace(seg.requiredPaceMinPerKm, activity)}
           </span>
         )}
       </td>
       {/* vs plan */}
       <td className="px-3 py-2.5 text-center">
         {seg.requiredPaceMinPerKm !== null ? (
-          <PaceDelta required={seg.requiredPaceMinPerKm} current={currentPace} />
+          <PaceDelta required={seg.requiredPaceMinPerKm} current={currentPace} activity={activity} />
         ) : (
           <span className="text-gray-600 text-xs">—</span>
         )}
@@ -225,6 +220,7 @@ export function CutoffStrategy({
                     seg={seg}
                     isTightest={seg === tightestSegment}
                     currentPace={paceConfig.paceMinPerKm}
+                    activity={paceConfig.activity}
                   />
                 ))}
               </tbody>
@@ -240,7 +236,7 @@ export function CutoffStrategy({
               </strong>
               {tightestSegment.requiredPaceMinPerKm !== null && (
                 <span className="font-mono ml-1">
-                  (necesitas ≤ {paceShort(tightestSegment.requiredPaceMinPerKm)} min/km)
+                  (necesitas ≤ {formatPace(tightestSegment.requiredPaceMinPerKm, paceConfig.activity)})
                 </span>
               )}
             </p>
@@ -255,14 +251,14 @@ export function CutoffStrategy({
               title={
                 singlePace === null
                   ? 'Hay tramos imposibles — ningún ritmo único alcanza todos los cortes'
-                  : `Aplicar ${formatPace(singlePace)} a todo el recorrido`
+                  : `Aplicar ${formatPace(singlePace, paceConfig.activity)} a todo el recorrido`
               }
               className="flex-1 min-w-[160px] flex flex-col items-center gap-0.5 px-4 py-3 rounded-xl bg-sky-900/30 border border-sky-700/50 hover:bg-sky-900/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <span className="text-sky-300 text-sm font-semibold">
                 A · Ritmo único
                 {singlePace !== null && (
-                  <span className="ml-1.5 font-mono">{paceShort(singlePace)} min/km</span>
+                  <span className="ml-1.5 font-mono">{formatPace(singlePace, paceConfig.activity)}</span>
                 )}
               </span>
               <span className="text-slate-400 text-xs text-center">

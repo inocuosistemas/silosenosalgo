@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
+import type { ActivityType } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime, splitHoursMinutes } from '../lib/timing'
 import { dayOffset, fromTimeStrForward, toTimeStr } from '../lib/multiDayTime'
 import { useFreshnessLabel } from '../lib/useFreshnessLabel'
@@ -58,14 +59,42 @@ function DayBadge({ t, startTime }: { t: Date; startTime: Date }) {
   )
 }
 
-/** Format a Δ pace (min/km) with sign. Negative = faster (good), positive = slower. */
-function formatTrend(deltaMinPerKm: number): { label: string; cls: string; arrow: string } {
-  const abs = Math.abs(deltaMinPerKm)
-  const min = Math.floor(abs)
-  const sec = Math.round((abs - min) * 60)
-  const txt = `${min}:${sec.toString().padStart(2, '0')}`
-  if (deltaMinPerKm > 0.1)  return { label: `+${txt}/km`, cls: 'text-amber-400', arrow: '↗' }
-  if (deltaMinPerKm < -0.1) return { label: `−${txt}/km`, cls: 'text-emerald-400', arrow: '↘' }
+/**
+ * Format a pace trend (recent vs average) with sign + colour cue + arrow.
+ * Activity-aware: bike → km/h delta; walk/run → min:ss/km delta.
+ *
+ * Sign convention is "is the buddy slowing down?" — positive label = slower
+ * than average (warning), negative label = faster than average (good).
+ *
+ * For walk/run: slower = larger min/km, so `recent − avg > 0`.
+ * For bike:     slower = lower km/h,    so `avgKmh − recentKmh > 0`.
+ *
+ * The 0.1 min/km dead-zone is preserved as the "stable" threshold (keeps
+ * the trend label from flickering on tiny noise). For bike we apply the
+ * same threshold to the equivalent km/h shift.
+ */
+function formatTrend(
+  recentMinPerKm: number,
+  avgMinPerKm:    number,
+  activity:       ActivityType,
+): { label: string; cls: string; arrow: string } {
+  if (activity === 'bike') {
+    const recentKmh = 60 / recentMinPerKm
+    const avgKmh    = 60 / avgMinPerKm
+    const deltaKmh  = avgKmh - recentKmh   // positive = slowing down
+    const abs       = Math.abs(deltaKmh)
+    const txt       = `${abs.toFixed(1)} km/h`
+    if (deltaKmh > 0.5) return { label: `+${txt}`, cls: 'text-amber-400',   arrow: '↗' }
+    if (deltaKmh < -0.5) return { label: `−${txt}`, cls: 'text-emerald-400', arrow: '↘' }
+    return { label: 'estable', cls: 'text-slate-400', arrow: '→' }
+  }
+  const delta = recentMinPerKm - avgMinPerKm   // positive = slowing down
+  const abs   = Math.abs(delta)
+  const min   = Math.floor(abs)
+  const sec   = Math.round((abs - min) * 60)
+  const txt   = `${min}:${sec.toString().padStart(2, '0')}/km`
+  if (delta > 0.1)  return { label: `+${txt}`, cls: 'text-amber-400',   arrow: '↗' }
+  if (delta < -0.1) return { label: `−${txt}`, cls: 'text-emerald-400', arrow: '↘' }
   return { label: 'estable', cls: 'text-slate-400', arrow: '→' }
 }
 
@@ -76,13 +105,19 @@ function formatMargin(min: number): string {
   return min >= 0 ? `+${t}` : `−${t}`
 }
 
-/** Format a Δ pace (min/km) as "+0:45/km" / "−0:20/km". */
-function formatPaceDelta(deltaMinPerKm: number): string {
-  const abs = Math.abs(deltaMinPerKm)
+/**
+ * Format the magnitude of a pace difference between two paces (no sign), in
+ * the activity's native units. Used for "puedes aflojar X" / "debes apretar X"
+ * messages where the surrounding sentence already conveys direction.
+ */
+function formatPaceGap(a: number, b: number, activity: ActivityType): string {
+  if (activity === 'bike') {
+    return `${Math.abs(60 / a - 60 / b).toFixed(1)} km/h`
+  }
+  const abs = Math.abs(a - b)
   const min = Math.floor(abs)
   const sec = Math.round((abs - min) * 60)
-  const txt = `${min}:${sec.toString().padStart(2, '0')}/km`
-  return deltaMinPerKm >= 0 ? `+${txt}` : `−${txt}`
+  return `${min}:${sec.toString().padStart(2, '0')}/km`
 }
 
 /** Lucide-style "copy" icon (two overlapping squares), 14×14, currentColor. */
@@ -158,8 +193,9 @@ function formatObservationsAsText(args: {
   buddyEta: Date | null
   trackName: string
   startTime: Date
+  activity: ActivityType
 }): string {
-  const { derived, nextCutoff, buddyEta, trackName, startTime } = args
+  const { derived, nextCutoff, buddyEta, trackName, startTime, activity } = args
   const lines: string[] = []
 
   lines.push(`🧑 Seguimiento — ${trackName}`)
@@ -180,7 +216,7 @@ function formatObservationsAsText(args: {
       km:    o.km.toFixed(1),
       hora:  timeWithDayOffset(o.time, startTime),
       tramo: `${dkm.toFixed(1)} km`,
-      ritmo: segPace !== null ? `${formatPace(segPace)} min/km` : '—',
+      ritmo: segPace !== null ? formatPace(segPace, activity) : '—',
     }
   })
 
@@ -209,12 +245,12 @@ function formatObservationsAsText(args: {
 
   // ── Footer: aggregated metrics ─────────────────────────────────────────
   const m = derived.metrics
-  const footer: string[] = [`Ritmo medio acumulado: ${formatPace(m.avgPaceFromStart)} min/km`]
+  const footer: string[] = [`Ritmo medio acumulado: ${formatPace(m.avgPaceFromStart, activity)}`]
   if (m.recentPaceMinPerKm !== null) {
-    footer.push(`Último tramo: ${formatPace(m.recentPaceMinPerKm)} min/km`)
+    footer.push(`Último tramo: ${formatPace(m.recentPaceMinPerKm, activity)}`)
   }
-  if (m.trendMinPerKm !== null) {
-    const t = formatTrend(m.trendMinPerKm)
+  if (m.recentPaceMinPerKm !== null && m.trendMinPerKm !== null) {
+    const t = formatTrend(m.recentPaceMinPerKm, m.avgPaceFromStart, activity)
     footer.push(`Tendencia: ${t.label === 'estable' ? 'estable' : t.label}`)
   }
   lines.push(footer.join(' · '))
@@ -318,6 +354,7 @@ export function BuddyTracker({
         derived, nextCutoff, buddyEta,
         trackName: track.name,
         startTime,
+        activity: paceConfig.activity,
       })
       await navigator.clipboard.writeText(text)
       setError(null)
@@ -367,9 +404,10 @@ export function BuddyTracker({
   }
 
   const freshness = useFreshnessLabel(derived?.metrics.lastObs.time ?? null)
-  const trend = derived?.metrics.trendMinPerKm != null
-    ? formatTrend(derived.metrics.trendMinPerKm)
-    : null
+  const trend =
+    derived?.metrics.trendMinPerKm != null && derived.metrics.recentPaceMinPerKm != null
+      ? formatTrend(derived.metrics.recentPaceMinPerKm, derived.metrics.avgPaceFromStart, paceConfig.activity)
+      : null
 
   return (
     <div className="bg-slate-900 rounded-xl border border-purple-900/50 overflow-hidden">
@@ -544,7 +582,7 @@ export function BuddyTracker({
                           {dkm.toFixed(1)} km
                         </td>
                         <td className="px-3 py-1.5 text-right text-slate-300 font-mono">
-                          {segPace !== null ? formatPace(segPace) : '—'}
+                          {segPace !== null ? formatPace(segPace, paceConfig.activity) : '—'}
                         </td>
                         <td className="px-3 py-1.5 text-right">
                           <button
@@ -570,14 +608,14 @@ export function BuddyTracker({
                 <span className="text-slate-400">
                   Ritmo medio acumulado:
                   <span className="text-purple-200 font-mono ml-1">
-                    {formatPace(derived.metrics.avgPaceFromStart)}
+                    {formatPace(derived.metrics.avgPaceFromStart, paceConfig.activity)}
                   </span>
                 </span>
                 {derived.metrics.recentPaceMinPerKm !== null && (
                   <span className="text-slate-400">
                     Ritmo último tramo:
                     <span className="text-purple-200 font-mono ml-1">
-                      {formatPace(derived.metrics.recentPaceMinPerKm)}
+                      {formatPace(derived.metrics.recentPaceMinPerKm, paceConfig.activity)}
                     </span>
                   </span>
                 )}
@@ -663,20 +701,20 @@ export function BuddyTracker({
                     </div>
                   )
                 }
-                const delta = a - c   // > 0: can ease up; < 0: must speed up
+                const delta = a - c   // > 0: can ease up; < 0: must speed up (canonical min/km slack)
                 const deltaCls =
                   Math.abs(delta) < 0.1 ? 'text-slate-400' :
                   delta > 0            ? 'text-emerald-400' :
                                           'text-red-400'
                 const deltaHint =
                   Math.abs(delta) < 0.1 ? '· vas en línea con lo permitido' :
-                  delta > 0            ? `· puedes aflojar ${formatPaceDelta(Math.abs(delta))}` :
-                                          `· debes apretar ${formatPaceDelta(Math.abs(delta))}`
+                  delta > 0            ? `· puedes aflojar ${formatPaceGap(a, c, paceConfig.activity)}` :
+                                          `· debes apretar ${formatPaceGap(a, c, paceConfig.activity)}`
                 return (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
                     <span className="text-slate-400">⏩ Ritmo permitido al próx. corte:</span>
                     <span className="text-purple-200 font-mono font-semibold">
-                      {formatPace(a)}
+                      {formatPace(a, paceConfig.activity)}
                     </span>
                     {nextCutoff.strategyMarginMin > 0 && (
                       <span className="text-[10px] text-slate-500">

@@ -169,10 +169,10 @@ function formatStartDate(d: Date): string {
   return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-/** Short pace summary: "tiempos GPX" or "ritmo 6:30/km". */
+/** Short pace summary: "tiempos GPX", "6:30 min/km" or "22.0 km/h" (bike). */
 function paceShortLabel(p: PaceConfig): string {
   if (p.mode === 'gpx') return 'tiempos GPX'
-  return `${formatPace(p.paceMinPerKm)}/km`
+  return formatPace(p.paceMinPerKm, p.activity)
 }
 
 /** Short sampling summary: "auto", "cada 2 km", "cada 15 min", "20 puntos". */
@@ -1421,7 +1421,7 @@ export default function App() {
                 {/* Real average pace */}
                 {realPaceMinPerKm !== null && (
                   <span className="text-xs text-slate-400">
-                    ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm)}</span>
+                    ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm, paceConfig.activity)}</span>
                   </span>
                 )}
                 {/* Weather freshness */}
