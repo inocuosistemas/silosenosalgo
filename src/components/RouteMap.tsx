@@ -10,10 +10,12 @@ import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '.
 import { precipToColor, impactToColor } from '../lib/mapColors'
 import type { PollenData, PollenType, PollenLevel } from '../lib/pollen'
 import { POLLEN_META, POLLEN_TYPES, pollenLevel, pollenLevelStyle, pollenLevelColor } from '../lib/pollen'
+import type { TerrainType } from '../lib/terrain'
+import { TERRAIN_META, TERRAIN_TYPES, terrainSummary } from '../lib/terrain'
 import { useNowTick } from '../lib/useNowTick'
 import type { AnalyzeRange } from './WeatherCharts'
 
-export type MapMode = 'rain' | 'wind' | 'pollen'
+export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain'
 export type { AnalyzeRange }
 
 interface Props {
@@ -55,6 +57,20 @@ interface Props {
   pollenType?: PollenType
   /** Called when the user changes the selected pollen type. */
   onPollenTypeChange?: (type: PollenType) => void
+  /**
+   * OSM terrain type per **track point** (same order/length as `track.points`).
+   * The map renderer groups consecutive same-terrain points into colored
+   * polyline runs, giving ~10 m visual granularity in terrain mode.
+   * Undefined while the Overpass fetch hasn't completed yet.
+   */
+  pointTerrains?: TerrainType[]
+  /**
+   * Lifecycle of the terrain fetch — drives the loading/retry UI inside
+   * the terrain mode button.
+   */
+  terrainStatus?: 'idle' | 'loading' | 'done' | 'error'
+  /** Called when the user clicks the retry button after a fetch failure. */
+  onTerrainRetry?: () => void
 }
 
 const RAIN_LEGEND = [
@@ -134,6 +150,9 @@ export function RouteMap({
   pollenData,
   pollenType,
   onPollenTypeChange,
+  pointTerrains,
+  terrainStatus = 'idle',
+  onTerrainRetry,
 }: Props) {
   const { points } = track
 
@@ -183,12 +202,96 @@ export function RouteMap({
   }, [waypoints])
 
   // ── Pre-compute colored segment metadata ──────────────────────────────────
+  // Two segmentation strategies share the same shape so the play-mode /
+  // analyze-range / "isPast" logic downstream works without branching:
+  //
+  //   • Weather modes (rain/wind/pollen): one segment per waypoint pair, colored
+  //     by the segment's destination waypoint. Coarse but matches forecast data
+  //     granularity (one weather sample per waypoint).
+  //
+  //   • Terrain mode: one segment per **run of consecutive same-terrain track
+  //     points**. Much finer (~10 m) — surface changes visible mid-leg. ETAs
+  //     are interpolated from the bracketing waypoints since runs don't align
+  //     with sampled waypoint positions.
   const allSegments = useMemo(() => {
+    type Seg = {
+      key: number
+      pts: [number, number][]
+      color: string
+      startKm: number
+      endKm: number
+      ptStart: number
+      ptEnd: number
+      endTimeMs: number
+    }
+
+    // ── Terrain runs (per-point granularity) ────────────────────────────
+    if (mapMode === 'terrain' && pointTerrains && pointTerrains.length === points.length && points.length >= 2) {
+      // Linear-time ETA lookup at any point index, interpolated between
+      // the two bracketing waypoints' estimatedTime values
+      const wpKm: number[] = waypoints.map((w) => w.distanceKm)
+      const wpMs: number[] = waypoints.map((w) => w.estimatedTime.getTime())
+      const pointEta = (idx: number): number => {
+        if (wpKm.length === 0) return 0
+        const km = cumKm[idx]
+        let lo = 0
+        let hi = wpKm.length - 1
+        // Binary search: find largest lo with wpKm[lo] <= km
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1
+          if (wpKm[mid] <= km) lo = mid
+          else hi = mid - 1
+        }
+        const next = Math.min(lo + 1, wpKm.length - 1)
+        const span = wpKm[next] - wpKm[lo]
+        if (span <= 0) return wpMs[lo]
+        const t = Math.max(0, Math.min(1, (km - wpKm[lo]) / span))
+        return wpMs[lo] + t * (wpMs[next] - wpMs[lo])
+      }
+
+      const out: Seg[] = []
+      let runStart = 0
+      let runTerrain = pointTerrains[0]
+      let key = 0
+
+      const flush = (endIdx: number) => {
+        if (endIdx <= runStart) return
+        const segPts: [number, number][] = []
+        for (let k = runStart; k <= endIdx; k++) {
+          segPts.push([points[k].lat, points[k].lon])
+        }
+        out.push({
+          key: key++,
+          pts: segPts,
+          color: TERRAIN_META[runTerrain].color,
+          startKm: cumKm[runStart],
+          endKm: cumKm[endIdx],
+          ptStart: runStart,
+          ptEnd: endIdx,
+          endTimeMs: pointEta(endIdx),
+        })
+      }
+
+      for (let i = 1; i < points.length; i++) {
+        if (pointTerrains[i] !== runTerrain) {
+          flush(i - 1)
+          // Overlap by one point so adjacent polylines meet visually
+          runStart = i - 1
+          runTerrain = pointTerrains[i]
+        }
+      }
+      flush(points.length - 1)
+      return out
+    }
+
+    // ── Default: waypoint-based segments (weather/pollen colored) ────────
     return waypoints.slice(1).map((curr, i) => {
       const prev = waypoints[i]
       const pts = points
         .slice(prev.index, curr.index + 1)
         .map((p): [number, number] => [p.lat, p.lon])
+      // When terrain mode is active but data isn't ready yet, fall through to
+      // rain coloring so the map stays informative instead of going all-grey.
       const color =
         mapMode === 'wind'
           ? impactToColor(curr)
@@ -206,7 +309,7 @@ export function RouteMap({
         endTimeMs: curr.estimatedTime.getTime(),
       }
     })
-  }, [waypoints, points, mapMode, cumKm, pollenData, effectivePollenType])
+  }, [waypoints, points, mapMode, cumKm, pollenData, effectivePollenType, pointTerrains])
 
   // ── "Now" tick (60 s) used to mute weather-colored segments whose ETA is
   //    already in the past — those colors come from forecast/reanalysis data
@@ -503,6 +606,22 @@ export function RouteMap({
   const playIcon = isPlaying ? '⏸' : sliderAtFull ? '↺' : '▶'
   const POLLEN_LEGEND_LEVELS: PollenLevel[] = [1, 2, 3, 4]
 
+  // Terrain: available once the async Overpass fetch + per-point matching completes
+  const hasTerrain = pointTerrains != null && pointTerrains.length > 0
+  // Terrain types actually present in this route (for legend); excludes 'unknown'
+  const activeTerrainTypes = useMemo<TerrainType[]>(() => {
+    if (!pointTerrains) return []
+    const seen = new Set<TerrainType>()
+    for (const t of pointTerrains) if (t !== 'unknown') seen.add(t)
+    return TERRAIN_TYPES.filter((t) => seen.has(t))
+  }, [pointTerrains])
+  // Summary: km + % per type — now precise to GPX-point granularity instead
+  // of per-waypoint approximation, so percentages reflect real surface mix
+  const terrainBreakdown = useMemo(
+    () => (hasTerrain ? terrainSummary(pointTerrains!, cumKm) : []),
+    [hasTerrain, pointTerrains, cumKm],
+  )
+
   // ── Handlers for analyze mode (delegated to parent) ───────────────────────
   const enterAnalyze = () => onAnalyzeRangeChange?.({ from: 0, to: totalKm })
   const exitAnalyze = () => onAnalyzeRangeChange?.(null)
@@ -566,20 +685,24 @@ export function RouteMap({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {hasWeather && (
+          {(hasWeather || hasTerrain || terrainStatus === 'loading' || terrainStatus === 'error') && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-              <button
-                onClick={() => onMapModeChange('rain')}
-                className={`px-3 py-1.5 transition-colors ${mapMode === 'rain' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-              >
-                🌧️ Lluvia
-              </button>
-              <button
-                onClick={() => onMapModeChange('wind')}
-                className={`px-3 py-1.5 transition-colors ${mapMode === 'wind' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-              >
-                💨 Viento
-              </button>
+              {hasWeather && (
+                <>
+                  <button
+                    onClick={() => onMapModeChange('rain')}
+                    className={`px-3 py-1.5 transition-colors ${mapMode === 'rain' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  >
+                    🌧️ Lluvia
+                  </button>
+                  <button
+                    onClick={() => onMapModeChange('wind')}
+                    className={`px-3 py-1.5 transition-colors ${mapMode === 'wind' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  >
+                    💨 Viento
+                  </button>
+                </>
+              )}
               {hasPollen && (
                 <button
                   onClick={() => onMapModeChange('pollen')}
@@ -588,10 +711,89 @@ export function RouteMap({
                   🌿 Polen
                 </button>
               )}
+              {/* ── Terrain button: state-aware (loading / error / done) ── */}
+              {terrainStatus === 'loading' ? (
+                <button
+                  disabled
+                  title="Cargando datos de terreno desde OpenStreetMap…"
+                  className="relative px-3 py-1.5 bg-slate-800 text-slate-400 cursor-wait flex items-center gap-1.5 overflow-hidden"
+                >
+                  <span className="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  🏔️ Terreno
+                  {/* Indeterminate progress bar at the bottom of the button */}
+                  <span
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500/40 overflow-hidden"
+                    aria-hidden="true"
+                  >
+                    <span
+                      className="absolute inset-y-0 w-1/3 bg-amber-400"
+                      style={{ animation: 'terrain-progress 1.4s ease-in-out infinite' }}
+                    />
+                  </span>
+                </button>
+              ) : terrainStatus === 'error' ? (
+                <button
+                  onClick={onTerrainRetry}
+                  title="No se pudo conectar con OpenStreetMap. Click para reintentar."
+                  className="px-3 py-1.5 bg-slate-800 text-red-400 hover:text-red-300 hover:bg-slate-700 transition-colors flex items-center gap-1.5"
+                >
+                  <span className="text-base leading-none">↻</span>
+                  🏔️ Terreno
+                </button>
+              ) : hasTerrain ? (
+                <button
+                  onClick={() => onMapModeChange('terrain')}
+                  className={`px-3 py-1.5 transition-colors ${mapMode === 'terrain' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  🏔️ Terreno
+                </button>
+              ) : null}
             </div>
           )}
           <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
-            {mapMode === 'pollen' && hasPollen ? (
+            {mapMode === 'terrain' && terrainStatus === 'loading' ? (
+              /* ── Loading: spinner + helper text instead of legend ── */
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <span className="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                Cargando terreno desde OpenStreetMap…
+              </span>
+            ) : mapMode === 'terrain' && terrainStatus === 'error' ? (
+              <span className="flex items-center gap-2 text-red-400">
+                <span>⚠️</span>
+                <span>Error al cargar terreno.</span>
+                <button
+                  onClick={onTerrainRetry}
+                  className="underline hover:text-red-300 transition-colors"
+                >
+                  Reintentar
+                </button>
+              </span>
+            ) : mapMode === 'terrain' && hasTerrain ? (
+              /* ── Terrain legend: one chip per type found in the route ── */
+              <>
+                {activeTerrainTypes.length === 0 ? (
+                  <span className="text-slate-500">Sin datos de terreno en esta zona</span>
+                ) : (
+                  activeTerrainTypes.map((t) => {
+                    const entry = terrainBreakdown.find((e) => e.type === t)
+                    return (
+                      <span key={t} className="flex items-center gap-1 font-medium">
+                        <span
+                          className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
+                          style={{ background: TERRAIN_META[t].color }}
+                        />
+                        <span className="text-slate-300">{TERRAIN_META[t].label}</span>
+                        {entry && (
+                          <span className="text-slate-500 font-normal">
+                            {entry.pct.toFixed(0)}%
+                          </span>
+                        )}
+                      </span>
+                    )
+                  })
+                )}
+              </>
+            ) : mapMode === 'pollen' && hasPollen ? (
               <>
                 {/* Pollen type selector */}
                 <select

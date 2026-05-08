@@ -8,3 +8,11 @@
     @apply bg-slate-950 text-slate-100 min-h-screen;
   }
 }
+
+/* Indeterminate progress bar for the terrain mode button while OSM data loads.
+   The 1/3-width bar travels left → right, pauses, then loops back. */
+@keyframes terrain-progress {
+  0%   { left: -34%; }
+  50%  { left: 100%; }
+  100% { left: 100%; }
+}

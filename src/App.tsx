@@ -17,6 +17,8 @@ import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { PollenData, PollenType } from './lib/pollen'
 import { fetchPollenForWaypoints, isInEurope, defaultPollenType, POLLEN_TYPES } from './lib/pollen'
+import type { TerrainType } from './lib/terrain'
+import { fetchTerrainForTrack } from './lib/terrain'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
@@ -206,6 +208,20 @@ export default function App() {
   const [weatherArr, setWeatherArr] = useState<(WeatherData | null)[]>([])
   const [locationArr, setLocationArr] = useState<(LocationInfo | null)[]>([])
   const [pollenArr, setPollenArr] = useState<(PollenData | null)[]>([])
+  /**
+   * Per-track-point terrain classification (length = `track.points.length`).
+   * Computed once per track via Overpass + localStorage cache; the map renderer
+   * groups consecutive same-terrain points into colored polyline runs.
+   */
+  const [terrainPoints, setTerrainPoints] = useState<TerrainType[]>([])
+  /**
+   * Independent status for the terrain (Overpass / OSM) fetch.
+   * - 'idle'    : not yet started (no compute done in this session, or after a track change)
+   * - 'loading' : Overpass request in flight; UI shows a spinner inside the terrain mode button
+   * - 'done'    : data received (terrainPoints populated; may still contain 'unknown' entries for unmapped sections)
+   * - 'error'   : Overpass failed; UI shows a retry button
+   */
+  const [terrainStatus, setTerrainStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
   const [selectedPollenType, setSelectedPollenType] = useState<PollenType>(loadPollenType)
@@ -550,6 +566,8 @@ export default function App() {
     setWeatherArr([])
     setLocationArr([])
     setPollenArr([])
+    setTerrainPoints([])
+    setTerrainStatus('idle')
     setStatus('idle')
     setErrorMsg(null)
     setLocationWarning(null)
@@ -674,6 +692,29 @@ export default function App() {
     setTrackDirty(true)
   }
 
+  /**
+   * Re-trigger the terrain fetch without recomputing the whole plan.
+   * Used by the "↻ Terreno" retry button in the map mode bar after a network
+   * or Overpass HTTP failure.
+   *
+   * Force-bypasses the localStorage cache: a retry implies the user wants
+   * fresh data (the cached entry, if any, would only be there from a previous
+   * successful fetch — which means we wouldn't be in the error state).
+   */
+  const retryTerrain = useCallback(() => {
+    if (!track) return
+    setTerrainStatus('loading')
+    fetchTerrainForTrack(track, { force: true })
+      .then((results) => {
+        setTerrainPoints(results)
+        setTerrainStatus('done')
+      })
+      .catch((err) => {
+        console.error('Terrain retry failed:', err)
+        setTerrainStatus('error')
+      })
+  }, [track])
+
   function handleDownloadGpx() {
     if (!track) return
     // Pass wall-clocks (not Dates) — the serializer writes them directly into
@@ -725,6 +766,23 @@ export default function App() {
             .then((results) => setPollenArr(results.map((r) => r.pollen)))
             .catch(() => { /* silently ignore — route stays with null pollen */ })
         : Promise.resolve()
+
+      // Terrain: Overpass API query for the route corridor + per-point matching.
+      // Hits a localStorage cache (14-day TTL) before going to the network, so
+      // re-computing the same route is instant. Runs independently of weather/
+      // location/pollen — the terrain mode button shows a spinner until data
+      // arrives, or a retry button on failure.
+      setTerrainPoints([])
+      setTerrainStatus('loading')
+      fetchTerrainForTrack(track)
+        .then((results) => {
+          setTerrainPoints(results)
+          setTerrainStatus('done')
+        })
+        .catch((err) => {
+          console.error('Terrain fetch failed:', err)
+          setTerrainStatus('error')
+        })
 
       await Promise.all([weatherPromise, locationPromise, pollenPromise])
       setStatus('done')
@@ -1495,6 +1553,9 @@ export default function App() {
             pollenData={pollenArr.length > 0 ? pollenArr : undefined}
             pollenType={selectedPollenType}
             onPollenTypeChange={setSelectedPollenType}
+            pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
+            terrainStatus={terrainStatus}
+            onTerrainRetry={retryTerrain}
           />
         )}
 
