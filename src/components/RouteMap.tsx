@@ -69,6 +69,14 @@ interface Props {
    * the terrain mode button.
    */
   terrainStatus?: 'idle' | 'loading' | 'done' | 'error'
+  /**
+   * Failure kind when terrainStatus === 'error'. The legend text adapts to
+   * give the user actionable feedback (rate limit → wait time, network → check
+   * connection, server → just retry).
+   */
+  terrainErrorKind?: 'rate-limit' | 'network' | 'server'
+  /** When errorKind === 'rate-limit', seconds until the next Overpass slot opens. */
+  terrainRetryAfterSec?: number
   /** Called when the user clicks the retry button after a fetch failure. */
   onTerrainRetry?: () => void
 }
@@ -152,6 +160,8 @@ export function RouteMap({
   onPollenTypeChange,
   pointTerrains,
   terrainStatus = 'idle',
+  terrainErrorKind = 'network',
+  terrainRetryAfterSec = 0,
   onTerrainRetry,
 }: Props) {
   const { points } = track
@@ -734,7 +744,13 @@ export function RouteMap({
               ) : terrainStatus === 'error' ? (
                 <button
                   onClick={onTerrainRetry}
-                  title="No se pudo conectar con OpenStreetMap. Click para reintentar."
+                  title={
+                    terrainErrorKind === 'rate-limit'
+                      ? `Servidor OpenStreetMap saturado — espera ~${Math.max(terrainRetryAfterSec, 5)}s antes de reintentar`
+                      : terrainErrorKind === 'network'
+                      ? 'Error de red — comprueba tu conexión y reintenta'
+                      : 'Error del servidor OpenStreetMap — click para reintentar'
+                  }
                   className="px-3 py-1.5 bg-slate-800 text-red-400 hover:text-red-300 hover:bg-slate-700 transition-colors flex items-center gap-1.5"
                 >
                   <span className="text-base leading-none">↻</span>
@@ -758,9 +774,15 @@ export function RouteMap({
                 Cargando terreno desde OpenStreetMap…
               </span>
             ) : mapMode === 'terrain' && terrainStatus === 'error' ? (
-              <span className="flex items-center gap-2 text-red-400">
+              <span className="flex items-center gap-2 text-red-400 flex-wrap">
                 <span>⚠️</span>
-                <span>Error al cargar terreno.</span>
+                <span>
+                  {terrainErrorKind === 'rate-limit'
+                    ? `Servidor OpenStreetMap saturado. Espera ${Math.max(terrainRetryAfterSec, 5)}s e intenta de nuevo.`
+                    : terrainErrorKind === 'network'
+                    ? 'Error de red al consultar OpenStreetMap.'
+                    : 'Error del servidor OpenStreetMap.'}
+                </span>
                 <button
                   onClick={onTerrainRetry}
                   className="underline hover:text-red-300 transition-colors"

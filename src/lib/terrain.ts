@@ -128,6 +128,8 @@ function wayToTerrain(tags: OsmTags): TerrainType {
 // ── Internal: spatial structures + matching ─────────────────────────────────
 
 interface OsmWay {
+  /** OSM way id — kept so chunked queries can deduplicate overlapping ways. */
+  id?: number
   tags: OsmTags
   geometry: { lat: number; lon: number }[]
   minLat: number; maxLat: number
@@ -225,23 +227,28 @@ function subsampleByDistance(
 }
 
 /**
- * Choose subsampling parameters dynamically based on route length:
- *  - Short (< 15 km): tight 50 m spacing (better accuracy on twisty trails)
- *  - Medium (15–80 km): 80 m baseline
- *  - Long (> 80 km): 120 m baseline + larger 800-pt cap to keep queries reasonable
+ * Choose subsampling parameters dynamically based on route length.
  *
- * Returns { spacingM, maxPoints, aroundM } where aroundM is the Overpass buffer
- * radius. The buffer is sized to comfortably cover the worst-case deviation of
- * the simplified polyline from the real track (≈ spacingM/2 for sharp U-turns).
+ * Buffers (`aroundM`) are kept conservative because Overpass query cost grows
+ * with the corridor area: every extra meter of buffer over a 100 km route adds
+ * 200 km² of OSM data to scan, which can trigger rate-limiting (HTTP 429) or
+ * server-side timeouts. The buffer just needs to cover the worst-case offset
+ * of the simplified polyline from the real track (≈ spacingM / 2 for a sharp
+ * U-turn), plus a small margin for GPS / OSM trace jitter.
+ *
+ * `chunkSize` is the max polyline points per Overpass call — long routes are
+ * split into sequential queries to keep each one cheap and avoid 429s.
  */
 function dynamicSamplingParams(totalKm: number): {
   spacingM: number
   maxPoints: number
   aroundM: number
+  chunkSize: number
 } {
-  if (totalKm < 15)  return { spacingM: 50,  maxPoints: 400, aroundM: 150 }
-  if (totalKm < 80)  return { spacingM: 80,  maxPoints: 600, aroundM: 200 }
-  return                   { spacingM: 120, maxPoints: 800, aroundM: 300 }
+  if (totalKm < 15)   return { spacingM: 50,  maxPoints: 400, aroundM: 100, chunkSize: 400 }
+  if (totalKm < 50)   return { spacingM: 80,  maxPoints: 600, aroundM: 120, chunkSize: 300 }
+  if (totalKm < 120)  return { spacingM: 100, maxPoints: 700, aroundM: 130, chunkSize: 250 }
+  return                    { spacingM: 130, maxPoints: 800, aroundM: 150, chunkSize: 200 }
 }
 
 // ── Internal: Overpass API ───────────────────────────────────────────────────
@@ -260,55 +267,159 @@ function round5(n: number): number {
   return Math.round(n * 100000) / 100000
 }
 
-async function queryOverpass(track: GpxTrack): Promise<OsmWay[]> {
-  const { spacingM, maxPoints, aroundM } = dynamicSamplingParams(track.totalDistanceKm)
-  const sample = subsampleByDistance(track.points, spacingM, maxPoints)
+/** Custom error thrown when Overpass rate-limits us; caller can show specific UI. */
+export class OverpassRateLimitError extends Error {
+  /** Seconds the user should wait before the next try, parsed from the status endpoint. */
+  retryAfterSec: number
+  constructor(retryAfterSec: number) {
+    super(`Overpass rate limit; next slot in ${retryAfterSec}s`)
+    this.name = 'OverpassRateLimitError'
+    this.retryAfterSec = retryAfterSec
+  }
+}
 
-  const polyCoords = sample
-    .map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`)
-    .join(',')
+/** Sleep helper. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
+/**
+ * Read Overpass's status endpoint and return the wait-time in seconds before
+ * the next slot opens. Returns 0 if a slot is available right now (or if the
+ * status endpoint is unreachable — caller should just retry).
+ */
+async function overpassWaitSeconds(): Promise<number> {
+  try {
+    const r = await fetch('https://overpass-api.de/api/status', { method: 'GET' })
+    if (!r.ok) return 0
+    const text = await r.text()
+    const m = text.match(/Slot available after:[^,]+,\s*in\s+(\d+)\s+seconds/)
+    return m ? parseInt(m[1], 10) : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Issue ONE Overpass query with retry-on-429/504. Returns parsed OsmWays.
+ *
+ * Retries up to `maxAttempts` times, waiting based on the Overpass status
+ * endpoint's reported slot availability (capped to keep total time bounded).
+ * Throws OverpassRateLimitError if all retries are exhausted by rate-limiting.
+ */
+async function queryOverpassChunk(
+  polyCoords: string,
+  aroundM: number,
+  maxAttempts = 3,
+): Promise<OsmWay[]> {
   const query =
-    '[out:json][timeout:60];\n' +
+    '[out:json][timeout:90];\n' +
     `way["highway"](around:${aroundM},${polyCoords});\n` +
     'out body geom qt;\n'
 
-  const resp = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(query),
-  })
-  if (!resp.ok) throw new Error(`Overpass HTTP ${resp.status}`)
+  let lastWaitSec = 0
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let resp: Response
+    try {
+      resp = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query),
+      })
+    } catch (err) {
+      // Network error (connection dropped, DNS, offline). Retry once with backoff.
+      if (attempt === maxAttempts) throw err
+      await delay(2000 * attempt)
+      continue
+    }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json = await resp.json() as { elements: any[] }
+    if (resp.ok) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = await resp.json() as { elements: any[] }
+      return json.elements
+        .filter(
+          (el) =>
+            el.type === 'way' &&
+            Array.isArray(el.geometry) &&
+            el.geometry.length >= 2,
+        )
+        .map((el) => {
+          const geom = (el.geometry as { lat: number; lon: number }[])
+            .map((g) => ({ lat: round5(g.lat), lon: round5(g.lon) }))
+          let minLat = Infinity, maxLat = -Infinity
+          let minLon = Infinity, maxLon = -Infinity
+          for (const g of geom) {
+            if (g.lat < minLat) minLat = g.lat
+            if (g.lat > maxLat) maxLat = g.lat
+            if (g.lon < minLon) minLon = g.lon
+            if (g.lon > maxLon) maxLon = g.lon
+          }
+          return {
+            id: typeof el.id === 'number' ? el.id : undefined,
+            tags: trimTags((el.tags ?? {}) as Record<string, string>),
+            geometry: geom,
+            minLat, maxLat, minLon, maxLon,
+          } as OsmWay
+        })
+    }
 
-  return json.elements
-    .filter(
-      (el) =>
-        el.type === 'way' &&
-        Array.isArray(el.geometry) &&
-        el.geometry.length >= 2,
-    )
-    .map((el) => {
-      // Trim coordinates AND tags so the cache footprint stays small
-      const geom = (el.geometry as { lat: number; lon: number }[])
-        .map((g) => ({ lat: round5(g.lat), lon: round5(g.lon) }))
-
-      let minLat = Infinity, maxLat = -Infinity
-      let minLon = Infinity, maxLon = -Infinity
-      for (const g of geom) {
-        if (g.lat < minLat) minLat = g.lat
-        if (g.lat > maxLat) maxLat = g.lat
-        if (g.lon < minLon) minLon = g.lon
-        if (g.lon > maxLon) maxLon = g.lon
+    // 429 = rate limited; 504 = gateway timeout (overloaded server)
+    if (resp.status === 429 || resp.status === 504) {
+      lastWaitSec = await overpassWaitSeconds()
+      // Cap individual waits so we don't hang the spinner for too long
+      const waitMs = Math.min(Math.max(lastWaitSec, 5), 30) * 1000
+      if (attempt < maxAttempts) {
+        await delay(waitMs)
+        continue
       }
-      return {
-        tags: trimTags((el.tags ?? {}) as Record<string, string>),
-        geometry: geom,
-        minLat, maxLat, minLon, maxLon,
-      } as OsmWay
-    })
+      throw new OverpassRateLimitError(lastWaitSec || 30)
+    }
+
+    // Other HTTP error (400, 500, etc.) — don't retry, surface immediately
+    throw new Error(`Overpass HTTP ${resp.status}`)
+  }
+
+  throw new OverpassRateLimitError(lastWaitSec || 30)
+}
+
+/**
+ * Fetch all OSM highway ways covering the route, splitting into chunks for
+ * long routes so each Overpass query stays cheap (avoids 429 + 504 errors
+ * from over-large corridor scans). Returns a deduplicated way list.
+ */
+async function queryOverpass(track: GpxTrack): Promise<OsmWay[]> {
+  const { spacingM, maxPoints, aroundM, chunkSize } = dynamicSamplingParams(track.totalDistanceKm)
+  const sample = subsampleByDistance(track.points, spacingM, maxPoints)
+
+  // Chunk the polyline. Each chunk shares its first point with the previous
+  // chunk's last point so the buffers overlap and we don't lose ways at seams.
+  const chunks: { lat: number; lon: number }[][] = []
+  for (let i = 0; i < sample.length; i += chunkSize - 1) {
+    const slice = sample.slice(i, i + chunkSize)
+    if (slice.length >= 2) chunks.push(slice)
+  }
+  // If subsample fits in one chunk, we still want at least one query
+  if (chunks.length === 0 && sample.length >= 2) chunks.push(sample)
+
+  const allWays: OsmWay[] = []
+  const seenIds = new Set<number>()
+
+  for (const chunk of chunks) {
+    const polyCoords = chunk
+      .map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`)
+      .join(',')
+    const ways = await queryOverpassChunk(polyCoords, aroundM)
+    // Dedup by way id (overlapping chunk seams + ways straddling chunk boundaries)
+    for (const w of ways) {
+      if (w.id != null) {
+        if (seenIds.has(w.id)) continue
+        seenIds.add(w.id)
+      }
+      allWays.push(w)
+    }
+  }
+
+  return allWays
 }
 
 // ── Internal: localStorage cache ─────────────────────────────────────────────

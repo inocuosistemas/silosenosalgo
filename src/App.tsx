@@ -18,7 +18,7 @@ import { fetchWeatherForWaypoints } from './lib/weather'
 import type { PollenData, PollenType } from './lib/pollen'
 import { fetchPollenForWaypoints, isInEurope, defaultPollenType, POLLEN_TYPES } from './lib/pollen'
 import type { TerrainType } from './lib/terrain'
-import { fetchTerrainForTrack } from './lib/terrain'
+import { fetchTerrainForTrack, OverpassRateLimitError } from './lib/terrain'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
@@ -222,6 +222,17 @@ export default function App() {
    * - 'error'   : Overpass failed; UI shows a retry button
    */
   const [terrainStatus, setTerrainStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  /**
+   * When `terrainStatus === 'error'`, distinguishes the failure kind so the UI
+   * can show a meaningful message:
+   *  - 'rate-limit' : Overpass returned 429 — too many recent queries; needs to wait
+   *  - 'network'    : connection dropped, DNS, or CORS — usually transient
+   *  - 'server'     : Overpass returned 5xx other than 504, or malformed response
+   *
+   * `terrainRetryAfterSec` is only meaningful with kind === 'rate-limit'.
+   */
+  const [terrainErrorKind, setTerrainErrorKind] = useState<'rate-limit' | 'network' | 'server'>('network')
+  const [terrainRetryAfterSec, setTerrainRetryAfterSec] = useState(0)
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
   const [selectedPollenType, setSelectedPollenType] = useState<PollenType>(loadPollenType)
@@ -711,6 +722,14 @@ export default function App() {
       })
       .catch((err) => {
         console.error('Terrain retry failed:', err)
+        if (err instanceof OverpassRateLimitError) {
+          setTerrainErrorKind('rate-limit')
+          setTerrainRetryAfterSec(err.retryAfterSec)
+        } else if (err instanceof TypeError) {
+          setTerrainErrorKind('network')
+        } else {
+          setTerrainErrorKind('server')
+        }
         setTerrainStatus('error')
       })
   }, [track])
@@ -781,6 +800,14 @@ export default function App() {
         })
         .catch((err) => {
           console.error('Terrain fetch failed:', err)
+          if (err instanceof OverpassRateLimitError) {
+            setTerrainErrorKind('rate-limit')
+            setTerrainRetryAfterSec(err.retryAfterSec)
+          } else if (err instanceof TypeError) {
+            setTerrainErrorKind('network')
+          } else {
+            setTerrainErrorKind('server')
+          }
           setTerrainStatus('error')
         })
 
@@ -1555,6 +1582,8 @@ export default function App() {
             onPollenTypeChange={setSelectedPollenType}
             pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
             terrainStatus={terrainStatus}
+            terrainErrorKind={terrainErrorKind}
+            terrainRetryAfterSec={terrainRetryAfterSec}
             onTerrainRetry={retryTerrain}
           />
         )}
