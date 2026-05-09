@@ -79,6 +79,17 @@ function savePollenType(t: PollenType) {
   try { localStorage.setItem(POLLEN_TYPE_LS_KEY, t) } catch { /* ignore */ }
 }
 
+// ── Rain-radar overlay persistence ────────────────────────────────────────────
+const RAIN_RADAR_LS_KEY = 'silosenosalgo-rain-radar-v1'
+
+function loadShowRainRadar(): boolean {
+  try { return localStorage.getItem(RAIN_RADAR_LS_KEY) === '1' } catch { return false }
+}
+
+function saveShowRainRadar(v: boolean) {
+  try { localStorage.setItem(RAIN_RADAR_LS_KEY, v ? '1' : '0') } catch { /* ignore */ }
+}
+
 // ── Cut-off time helpers ───────────────────────────────────────────────────────
 /** Stable key for a named waypoint based on its coordinates. */
 function wptKey(lat: number, lon: number) {
@@ -235,6 +246,11 @@ export default function App() {
   const [terrainRetryAfterSec, setTerrainRetryAfterSec] = useState(0)
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
+  const [showRainRadar, setShowRainRadarState] = useState<boolean>(loadShowRainRadar)
+  const setShowRainRadar = useCallback((v: boolean) => {
+    setShowRainRadarState(v)
+    saveShowRainRadar(v)
+  }, [])
   const [selectedPollenType, setSelectedPollenType] = useState<PollenType>(loadPollenType)
 
   // Persist pollen type selection across reloads
@@ -1585,6 +1601,9 @@ export default function App() {
             terrainErrorKind={terrainErrorKind}
             terrainRetryAfterSec={terrainRetryAfterSec}
             onTerrainRetry={retryTerrain}
+            showRainRadar={showRainRadar}
+            onShowRainRadarChange={setShowRainRadar}
+            rainRadarAvailable={appMode === 'live' || (appMode === 'plan' && buddyObs.length > 0)}
           />
         )}
 

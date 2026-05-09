@@ -14,6 +14,10 @@ import type { TerrainType } from '../lib/terrain'
 import { TERRAIN_META, TERRAIN_TYPES, terrainSummary } from '../lib/terrain'
 import { useNowTick } from '../lib/useNowTick'
 import type { AnalyzeRange } from './WeatherCharts'
+import type { RadarFrame } from '../lib/rainRadar'
+import { fetchRadarFrames, findNowFrameIndex } from '../lib/rainRadar'
+import { RainRadarLayer } from './RainRadarLayer'
+import { RainPlayer } from './RainPlayer'
 
 export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain'
 export type { AnalyzeRange }
@@ -79,6 +83,19 @@ interface Props {
   terrainRetryAfterSec?: number
   /** Called when the user clicks the retry button after a fetch failure. */
   onTerrainRetry?: () => void
+  /**
+   * Whether the animated rain-radar overlay is enabled. Only used when
+   * `mapMode === 'rain'` and `rainRadarAvailable` is true.
+   */
+  showRainRadar?: boolean
+  /** Toggle the rain-radar overlay on/off (persisted by the parent). */
+  onShowRainRadarChange?: (v: boolean) => void
+  /**
+   * Whether the rain-radar feature is available in the current context
+   * (live mode, or plan mode while the buddy tracker is active). Hides the
+   * toggle button when false.
+   */
+  rainRadarAvailable?: boolean
 }
 
 const RAIN_LEGEND = [
@@ -163,8 +180,45 @@ export function RouteMap({
   terrainErrorKind = 'network',
   terrainRetryAfterSec = 0,
   onTerrainRetry,
+  showRainRadar = false,
+  onShowRainRadarChange,
+  rainRadarAvailable = false,
 }: Props) {
   const { points } = track
+
+  // ── Rain-radar state (RainViewer animated overlay) ────────────────────────
+  const [radarFrames, setRadarFrames]   = useState<RadarFrame[]>([])
+  const [radarIndex, setRadarIndex]     = useState(0)
+  const [radarPlaying, setRadarPlaying] = useState(true)   // auto-play per spec
+  const radarActive = mapMode === 'rain' && rainRadarAvailable && showRainRadar
+
+  // Fetch frames when the radar becomes active. Refresh every 5 min while
+  // it stays active so the manifest doesn't go stale during long sessions.
+  useEffect(() => {
+    if (!radarActive) return
+    let cancelled = false
+    const load = () => {
+      fetchRadarFrames()
+        .then((frames) => {
+          if (cancelled || frames.length === 0) return
+          setRadarFrames((prev) => {
+            // Preserve current index if the new manifest still has the same frame
+            const nowIdx = findNowFrameIndex(frames)
+            setRadarIndex((curIdx) => {
+              if (prev.length === 0) return nowIdx
+              const curTime = prev[curIdx]?.timeMs
+              const match   = frames.findIndex((f) => f.timeMs === curTime)
+              return match >= 0 ? match : nowIdx
+            })
+            return frames
+          })
+        })
+        .catch(() => { /* silently ignore — radar is best-effort */ })
+    }
+    load()
+    const refresh = setInterval(load, 5 * 60_000)
+    return () => { cancelled = true; clearInterval(refresh) }
+  }, [radarActive])
 
   // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
@@ -849,6 +903,27 @@ export function RouteMap({
                     {l.label}
                   </span>
                 ))}
+                {mapMode === 'rain' && rainRadarAvailable && onShowRainRadarChange && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <button
+                      onClick={() => onShowRainRadarChange(!showRainRadar)}
+                      title={
+                        showRainRadar
+                          ? 'Ocultar capa de radar animado (RainViewer)'
+                          : 'Mostrar capa de radar animado (RainViewer)'
+                      }
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded border transition-colors ${
+                        showRainRadar
+                          ? 'bg-purple-600/30 border-purple-500/60 text-purple-200 hover:bg-purple-600/40'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                      }`}
+                    >
+                      <span>🛰️</span>
+                      <span className="font-medium">Radar</span>
+                    </button>
+                  </>
+                )}
               </>
             )}
             {liveMode && (
@@ -1016,7 +1091,7 @@ export function RouteMap({
       )}
 
       {/* ── Map ── */}
-      <div className="rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
+      <div className="relative rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
         <MapContainer
           key={track.name + track.points.length}
           bounds={bounds}
@@ -1027,6 +1102,10 @@ export function RouteMap({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
+
+          {radarActive && radarFrames.length > 0 && (
+            <RainRadarLayer frames={radarFrames} currentIndex={radarIndex} />
+          )}
 
           {liveMode && <MapCentering coords={liveCoords} />}
 
@@ -1387,6 +1466,17 @@ export function RouteMap({
             </>
           )}
         </MapContainer>
+
+        {/* ── Rain radar player (overlay, only when radar active) ── */}
+        {radarActive && radarFrames.length > 0 && (
+          <RainPlayer
+            frames={radarFrames}
+            currentIndex={radarIndex}
+            isPlaying={radarPlaying}
+            onIndexChange={setRadarIndex}
+            onTogglePlay={() => setRadarPlaying((p) => !p)}
+          />
+        )}
       </div>
 
       {/* ── Section stats panel (analyze mode only) ── */}
