@@ -1104,7 +1104,14 @@ export function RouteMap({
           />
 
           {radarActive && radarFrames.length > 0 && (
-            <RainRadarLayer frames={radarFrames} currentIndex={radarIndex} />
+            <RainRadarLayer
+              frames={radarFrames}
+              currentIndex={radarIndex}
+              /* Radar tiles are meaningful at regional scale; pull the user
+                 out to zoom 9 if they were tighter so weather patterns and
+                 their movement are actually perceivable on screen. */
+              clampZoom={9}
+            />
           )}
 
           {liveMode && <MapCentering coords={liveCoords} />}
