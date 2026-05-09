@@ -1,4 +1,5 @@
 import type { SegmentPace } from './timing'
+import { toTimeStr } from './multiDayTime'
 
 export interface BuddyObservation {
   km: number
@@ -217,7 +218,7 @@ export function validateNewObservation(
   if (before.length > 0) {
     const prev = before.reduce((a, b) => (a.km > b.km ? a : b))
     if (candidate.time.getTime() <= prev.time.getTime()) {
-      return 'La hora debe ser posterior a la observación anterior'
+      return `La hora debe ser posterior a ${toTimeStr(prev.time)} (obs en km ${prev.km.toFixed(1)})`
     }
     const dt  = (candidate.time.getTime() - prev.time.getTime()) / 60_000
     const dkm = candidate.km - prev.km
@@ -236,7 +237,13 @@ export function validateNewObservation(
   if (after.length > 0) {
     const next = after.reduce((a, b) => (a.km < b.km ? a : b))
     if (candidate.time.getTime() >= next.time.getTime()) {
-      return 'La hora debe ser anterior a la siguiente observación existente'
+      return `La hora debe ser anterior a ${toTimeStr(next.time)} (obs en km ${next.km.toFixed(1)})`
+    }
+    // Also enforce physical pace on the forward leg (candidate → next)
+    const dt  = (next.time.getTime() - candidate.time.getTime()) / 60_000
+    const dkm = next.km - candidate.km
+    if (dt / dkm < physicalMinPaceMinPerKm) {
+      return 'Ritmo entre observaciones supera el máximo físico de la actividad'
     }
   }
   return null

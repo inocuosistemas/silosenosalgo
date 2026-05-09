@@ -307,12 +307,25 @@ export function BuddyTracker({
 
   const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
 
-  // Anchor for parsing the new HH:MM input. Each new observation is strictly
-  // after the previous one (or after startTime if it's the first), so we
-  // anchor at the latest existing time and force the parsed result forward.
-  const anchorTime: Date = observations.length > 0
-    ? observations.reduce((latest, o) => (o.time.getTime() > latest.getTime() ? o.time : latest), observations[0].time)
-    : startTime
+  // Anchor for parsing the new HH:MM input. We anchor at the time of the
+  // observation immediately *before* the candidate km (or `startTime` if the
+  // candidate is before all existing obs). Combined with `fromTimeStrForward`,
+  // this means HH:MM is interpreted as the next occurrence after `prev`,
+  // which works both for appending at the end and for back-filling earlier
+  // observations into an out-of-order sequence (e.g. user reports km 28.6 at
+  // 10:33 *after* having already entered km 53.3 at 12:02).
+  const candidateKm = parseFloat(kmStr.replace(',', '.'))
+  const anchorTime: Date = (() => {
+    if (!Number.isFinite(candidateKm)) {
+      // No km typed yet: anchor at the latest obs for the day-badge preview.
+      return observations.length > 0
+        ? observations.reduce((latest, o) => (o.time.getTime() > latest.getTime() ? o.time : latest), observations[0].time)
+        : startTime
+    }
+    const before = observations.filter((o) => o.km < candidateKm)
+    if (before.length === 0) return startTime
+    return before.reduce((a, b) => (a.km > b.km ? a : b)).time
+  })()
 
   function handleNow() {
     setTimeStr(toTimeStr(new Date()))
