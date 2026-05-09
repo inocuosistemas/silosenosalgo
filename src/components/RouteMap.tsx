@@ -1107,11 +1107,13 @@ export function RouteMap({
             <RainRadarLayer
               frames={radarFrames}
               currentIndex={radarIndex}
-              /* RainViewer's hard limit is zoom 7 with size=256 — beyond
-                 that the server returns "Zoom Level Not Supported"
-                 placeholder PNGs. Pull the user out to z=7 on activation
-                 so the radar is actually visible; the layer itself caps
-                 maxNativeZoom so any further zoom-in just upscales. */
+              /* RainViewer's hard limit is z=7 with size=256. We snap the
+                 map down to z=7 on activation so the user lands on the
+                 regional view where weather is meaningful, but they keep
+                 full zoom freedom afterwards: the TileLayer's
+                 maxNativeZoom=7 makes Leaflet upscale the z=7 tile
+                 (browser bilinear) at higher zooms — blurrier but still
+                 useful as route-level context. */
               clampZoom={7}
             />
           )}

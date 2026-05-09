@@ -9,11 +9,15 @@ interface Props {
   /** Opacity of the visible frame (default 0.7). */
   opacity?: number
   /**
-   * Maximum zoom level at which the radar tiles exist. While this layer is
-   * mounted, the map's `maxZoom` is locked to this value so the user cannot
-   * zoom past where there's real data — and is snapped down to it on
-   * activation. The previous `maxZoom` is restored when the layer unmounts.
-   * Set to undefined to skip the lock.
+   * Native zoom level of the radar source — the highest zoom where real
+   * tiles exist. Two effects:
+   *   1. On activation, if the map is zoomed in tighter than this we snap
+   *      down to it so the user lands on the regional view where weather
+   *      patterns are actually visible.
+   *   2. The TileLayer's `maxNativeZoom` is set to this value, so Leaflet
+   *      upscales the z=N tile via browser bilinear interpolation when the
+   *      user zooms in further. No new information appears past this zoom,
+   *      but the radar stays visible (blurrier the further you zoom).
    */
   clampZoom?: number
 }
@@ -80,20 +84,16 @@ export function RainRadarLayer({
     })
   }, [currentIndex, opacity])
 
-  // ── Lock the map's zoom range to where radar tiles actually exist ──────
-  // While this effect is active the user cannot zoom past `clampZoom`, and
-  // is snapped down to it on activation. The original maxZoom is captured
-  // here and restored on cleanup, so toggling the radar off returns full
-  // zoom freedom.
+  // ── Snap zoom down to radar's native level on activation ───────────────
+  // We don't lock maxZoom: the TileLayer's `maxNativeZoom` already makes
+  // Leaflet upscale the z=N tile (browser bilinear) when the user zooms
+  // further, so they keep seeing radar — blurrier, but informative for
+  // route-level context. The snap on activation just gives them the
+  // regional view first, where weather patterns are clearest.
   useEffect(() => {
     if (clampZoom === undefined) return
-    const prevMaxZoom = map.getMaxZoom()
-    map.setMaxZoom(clampZoom)
     if (map.getZoom() > clampZoom) {
       map.setZoom(clampZoom, { animate: true })
-    }
-    return () => {
-      map.setMaxZoom(prevMaxZoom)
     }
   }, [clampZoom, map])
 
