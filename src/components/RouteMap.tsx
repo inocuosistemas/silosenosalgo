@@ -1107,10 +1107,12 @@ export function RouteMap({
             <RainRadarLayer
               frames={radarFrames}
               currentIndex={radarIndex}
-              /* Radar tiles are meaningful at regional scale; pull the user
-                 out to zoom 9 if they were tighter so weather patterns and
-                 their movement are actually perceivable on screen. */
-              clampZoom={9}
+              /* RainViewer's hard limit is zoom 7 with size=256 — beyond
+                 that the server returns "Zoom Level Not Supported"
+                 placeholder PNGs. Pull the user out to z=7 on activation
+                 so the radar is actually visible; the layer itself caps
+                 maxNativeZoom so any further zoom-in just upscales. */
+              clampZoom={7}
             />
           )}
 

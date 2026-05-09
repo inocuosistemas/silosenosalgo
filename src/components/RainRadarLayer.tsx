@@ -53,6 +53,12 @@ export function RainRadarLayer({
         // Leaflet recommends explicit tileSize for non-default servers
         tileSize: 256,
         crossOrigin: true,
+        // RainViewer only serves real radar tiles up to z=7 with size=256.
+        // Beyond that the server returns a "Zoom Level Not Supported"
+        // placeholder. Capping maxNativeZoom tells Leaflet to upscale the
+        // z=7 tiles instead of requesting inexistent ones.
+        maxNativeZoom: 7,
+        maxZoom: 19,
         attribution:
           'Radar &copy; <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>',
       }).addTo(map),
