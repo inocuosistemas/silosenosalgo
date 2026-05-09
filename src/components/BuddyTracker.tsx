@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
+import { remainingElevFromKm } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
 import type { ActivityType } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime, splitHoursMinutes } from '../lib/timing'
@@ -270,6 +271,9 @@ function formatObservationsAsText(args: {
   return lines.join('\n')
 }
 
+const BUDDY_NAME_KEY = 'buddy-name'
+const DEFAULT_BUDDY_NAME = 'COMPAÑERO'
+
 export function BuddyTracker({
   track,
   startTime,
@@ -293,6 +297,34 @@ export function BuddyTracker({
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pasteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── Buddy name (editable, persisted) ────────────────────────────────────
+  const [buddyName, setBuddyName] = useState<string>(
+    () => localStorage.getItem(BUDDY_NAME_KEY) ?? DEFAULT_BUDDY_NAME,
+  )
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const nameInputRef = useRef<HTMLInputElement>(null)
+
+  function startEditName(e: React.MouseEvent) {
+    e.stopPropagation()
+    setNameInput(buddyName)
+    setEditingName(true)
+    // Focus after render
+    setTimeout(() => nameInputRef.current?.select(), 0)
+  }
+
+  function commitName() {
+    const trimmed = nameInput.trim().toUpperCase() || DEFAULT_BUDDY_NAME
+    setBuddyName(trimmed)
+    localStorage.setItem(BUDDY_NAME_KEY, trimmed)
+    setEditingName(false)
+  }
+
+  function handleNameKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter')  { e.preventDefault(); commitName() }
+    if (e.key === 'Escape') { setEditingName(false) }
+  }
 
   // Auto-open the panel when at least one obs is active
   useEffect(() => { if (observations.length > 0) setOpen(true) }, [observations.length])
@@ -431,8 +463,28 @@ export function BuddyTracker({
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-800/50 transition-colors"
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-purple-300 uppercase tracking-widest font-semibold">
-            🧑 Seguimiento de compañero
+          <span className="text-xs text-purple-300 uppercase tracking-widest font-semibold flex items-center gap-1.5">
+            🧑 Seguimiento de&nbsp;
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value.toUpperCase())}
+                onKeyDown={handleNameKeyDown}
+                onBlur={commitName}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-slate-700 border border-purple-500 rounded px-1.5 py-0.5 text-purple-200 font-semibold uppercase tracking-widest text-xs w-32 focus:outline-none"
+                autoFocus
+              />
+            ) : (
+              <span
+                onClick={startEditName}
+                title="Haz clic para cambiar el nombre"
+                className="cursor-pointer border-b border-dashed border-purple-600/60 hover:border-purple-400 transition-colors"
+              >
+                {buddyName}
+              </span>
+            )}
           </span>
           {observations.length > 0 ? (
             <span className="text-[10px] bg-purple-900/40 border border-purple-700/50 text-purple-300 px-2 py-0.5 rounded-full font-medium">
@@ -736,6 +788,28 @@ export function BuddyTracker({
                     )}
                     <span className={`font-mono text-[11px] ${deltaCls}`}>
                       {deltaHint}
+                    </span>
+                  </div>
+                )
+              })()}
+
+              {/* ── Remaining km + elevation from last observation ── */}
+              {(() => {
+                const lastKm = derived.metrics.lastObs.km
+                const remainingKm = track.totalDistanceKm - lastKm
+                const { gainM, lossM } = remainingElevFromKm(track, lastKm)
+                return (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-purple-900/40">
+                    <span className="text-slate-400">
+                      Desde km <span className="text-purple-200 font-mono">{lastKm.toFixed(1)}</span> queda:
+                    </span>
+                    <span className="text-slate-400">
+                      📏 <span className="text-purple-200 font-mono font-semibold">{remainingKm.toFixed(1)} km</span>
+                    </span>
+                    <span className="text-slate-400">
+                      ⛰️ <span className="text-emerald-300 font-mono font-semibold">+{gainM} m</span>
+                      <span className="text-slate-500 mx-1">/</span>
+                      <span className="text-red-300 font-mono font-semibold">−{lossM} m</span>
                     </span>
                   </div>
                 )

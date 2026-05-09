@@ -52,6 +52,11 @@ export interface GpxTrack {
   elevLossM: number
   /** Named waypoints parsed from <wpt> elements — empty array if none */
   namedWaypoints: GpxNamedWaypoint[]
+  /**
+   * Cumulative distance (km) at each track point, parallel to `points`.
+   * cumKm[0] === 0, cumKm[points.length - 1] === totalDistanceKm.
+   */
+  cumKm: number[]
 }
 
 function haversineKm(a: GpxPoint, b: GpxPoint): number {
@@ -130,7 +135,7 @@ export function parseGpx(xml: string): GpxTrack {
       return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
     })
 
-  return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints }
+  return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints, cumKm }
 }
 
 /**
@@ -175,4 +180,39 @@ function readCutoffWallClockFromExtensions(el: Element): { hour: number; minute:
     }
   }
   return null
+}
+
+/**
+ * Compute remaining elevation gain and loss from a given km to the end of
+ * the track, using the same 1 m hysteresis filter as `parseGpx`.
+ *
+ * Finds the track point closest to `fromKm` in `track.cumKm`, then walks
+ * forward accumulating D+/D−.
+ */
+export function remainingElevFromKm(
+  track: GpxTrack,
+  fromKm: number,
+): { gainM: number; lossM: number } {
+  const { points, cumKm } = track
+
+  // Binary-search for the first index where cumKm >= fromKm
+  let lo = 0, hi = cumKm.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (cumKm[mid] < fromKm) lo = mid + 1
+    else hi = mid
+  }
+  const startIdx = lo
+
+  const HYSTERESIS_M = 1
+  let gainM = 0, lossM = 0, pending = 0
+  for (let i = startIdx + 1; i < points.length; i++) {
+    pending += points[i].ele - points[i - 1].ele
+    if (pending >= HYSTERESIS_M)        { gainM += pending; pending = 0 }
+    else if (pending <= -HYSTERESIS_M)  { lossM += Math.abs(pending); pending = 0 }
+  }
+  if (pending > 0)  gainM += pending
+  else if (pending < 0) lossM += Math.abs(pending)
+
+  return { gainM: Math.round(gainM), lossM: Math.round(lossM) }
 }
