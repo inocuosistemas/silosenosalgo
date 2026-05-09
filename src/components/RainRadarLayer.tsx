@@ -9,10 +9,11 @@ interface Props {
   /** Opacity of the visible frame (default 0.7). */
   opacity?: number
   /**
-   * Maximum zoom level at which radar is meaningful. When the layer mounts
-   * (or when `clampZoom` itself changes) the map is zoomed out to this level
-   * if it was tighter, so the user can actually see weather patterns moving.
-   * Set to undefined to disable.
+   * Maximum zoom level at which the radar tiles exist. While this layer is
+   * mounted, the map's `maxZoom` is locked to this value so the user cannot
+   * zoom past where there's real data — and is snapped down to it on
+   * activation. The previous `maxZoom` is restored when the layer unmounts.
+   * Set to undefined to skip the lock.
    */
   clampZoom?: number
 }
@@ -79,12 +80,20 @@ export function RainRadarLayer({
     })
   }, [currentIndex, opacity])
 
-  // ── Clamp zoom on activation so radar is visually meaningful ───────────
+  // ── Lock the map's zoom range to where radar tiles actually exist ──────
+  // While this effect is active the user cannot zoom past `clampZoom`, and
+  // is snapped down to it on activation. The original maxZoom is captured
+  // here and restored on cleanup, so toggling the radar off returns full
+  // zoom freedom.
   useEffect(() => {
     if (clampZoom === undefined) return
-    const current = map.getZoom()
-    if (current > clampZoom) {
+    const prevMaxZoom = map.getMaxZoom()
+    map.setMaxZoom(clampZoom)
+    if (map.getZoom() > clampZoom) {
       map.setZoom(clampZoom, { animate: true })
+    }
+    return () => {
+      map.setMaxZoom(prevMaxZoom)
     }
   }, [clampZoom, map])
 
