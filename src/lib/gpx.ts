@@ -182,37 +182,59 @@ function readCutoffWallClockFromExtensions(el: Element): { hour: number; minute:
   return null
 }
 
+/** Binary-search: first index in cumKm where cumKm[i] >= targetKm. */
+function firstIdxAtKm(cumKm: number[], targetKm: number): number {
+  let lo = 0, hi = cumKm.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (cumKm[mid] < targetKm) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** Accumulate D+/D− over points[startIdx..endIdx] with 1 m hysteresis. */
+function accumElev(
+  points: GpxPoint[],
+  startIdx: number,
+  endIdx: number,
+): { gainM: number; lossM: number } {
+  const HYSTERESIS_M = 1
+  let gainM = 0, lossM = 0, pending = 0
+  for (let i = startIdx + 1; i <= endIdx; i++) {
+    pending += points[i].ele - points[i - 1].ele
+    if (pending >= HYSTERESIS_M)       { gainM += pending; pending = 0 }
+    else if (pending <= -HYSTERESIS_M) { lossM += Math.abs(pending); pending = 0 }
+  }
+  if (pending > 0)  gainM += pending
+  else if (pending < 0) lossM += Math.abs(pending)
+  return { gainM: Math.round(gainM), lossM: Math.round(lossM) }
+}
+
 /**
- * Compute remaining elevation gain and loss from a given km to the end of
- * the track, using the same 1 m hysteresis filter as `parseGpx`.
- *
- * Finds the track point closest to `fromKm` in `track.cumKm`, then walks
- * forward accumulating D+/D−.
+ * Elevation gain and loss for a segment between two km values on the track.
+ * Uses the same 1 m hysteresis filter as `parseGpx`.
+ */
+export function segmentElevBetweenKm(
+  track: GpxTrack,
+  fromKm: number,
+  toKm: number,
+): { gainM: number; lossM: number } {
+  const { points, cumKm } = track
+  const startIdx = firstIdxAtKm(cumKm, fromKm)
+  const endIdx   = firstIdxAtKm(cumKm, toKm)
+  return accumElev(points, startIdx, endIdx)
+}
+
+/**
+ * Remaining elevation gain and loss from a given km to the end of the track.
+ * Uses the same 1 m hysteresis filter as `parseGpx`.
  */
 export function remainingElevFromKm(
   track: GpxTrack,
   fromKm: number,
 ): { gainM: number; lossM: number } {
   const { points, cumKm } = track
-
-  // Binary-search for the first index where cumKm >= fromKm
-  let lo = 0, hi = cumKm.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (cumKm[mid] < fromKm) lo = mid + 1
-    else hi = mid
-  }
-  const startIdx = lo
-
-  const HYSTERESIS_M = 1
-  let gainM = 0, lossM = 0, pending = 0
-  for (let i = startIdx + 1; i < points.length; i++) {
-    pending += points[i].ele - points[i - 1].ele
-    if (pending >= HYSTERESIS_M)        { gainM += pending; pending = 0 }
-    else if (pending <= -HYSTERESIS_M)  { lossM += Math.abs(pending); pending = 0 }
-  }
-  if (pending > 0)  gainM += pending
-  else if (pending < 0) lossM += Math.abs(pending)
-
-  return { gainM: Math.round(gainM), lossM: Math.round(lossM) }
+  const startIdx = firstIdxAtKm(cumKm, fromKm)
+  return accumElev(points, startIdx, points.length - 1)
 }

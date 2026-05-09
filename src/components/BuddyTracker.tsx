@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
-import { remainingElevFromKm } from '../lib/gpx'
+import { remainingElevFromKm, segmentElevBetweenKm } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
 import type { ActivityType } from '../lib/timing'
 import { ACTIVITY_MAX_SPEED_KMH, formatPace, formatTime, splitHoursMinutes } from '../lib/timing'
@@ -621,7 +621,8 @@ export function BuddyTracker({
                     <th className="px-3 py-1.5 text-right">#</th>
                     <th className="px-3 py-1.5 text-right">km</th>
                     <th className="px-3 py-1.5 text-left">hora</th>
-                    <th className="px-3 py-1.5 text-right">tramo</th>
+                    <th className="px-3 py-1.5 text-right">dist.</th>
+                    <th className="px-3 py-1.5 text-right">desnivel</th>
                     <th className="px-3 py-1.5 text-right">ritmo tramo</th>
                     <th className="px-3 py-1.5"></th>
                   </tr>
@@ -635,6 +636,7 @@ export function BuddyTracker({
                     const dt  = (o.time.getTime() - prev.time.getTime()) / 60_000
                     const dkm = o.km - prev.km
                     const segPace = dkm > 0 ? dt / dkm : null
+                    const { gainM, lossM } = segmentElevBetweenKm(track, prev.km, o.km)
                     return (
                       <tr key={`${o.km}-${o.time.getTime()}`} className="border-t border-slate-800/60">
                         <td className="px-3 py-1.5 text-right text-slate-500 font-mono">{i + 1}</td>
@@ -645,6 +647,12 @@ export function BuddyTracker({
                         </td>
                         <td className="px-3 py-1.5 text-right text-slate-400 font-mono">
                           {dkm.toFixed(1)} km
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono text-[11px] leading-tight">
+                          <span className="text-emerald-400">+{gainM}</span>
+                          <span className="text-slate-500 mx-0.5">/</span>
+                          <span className="text-red-400">−{lossM}</span>
+                          <span className="text-slate-500 ml-0.5">m</span>
                         </td>
                         <td className="px-3 py-1.5 text-right text-slate-300 font-mono">
                           {segPace !== null ? formatPace(segPace, paceConfig.activity) : '—'}
