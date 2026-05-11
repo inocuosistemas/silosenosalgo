@@ -90,6 +90,17 @@ function saveShowRainRadar(v: boolean) {
   try { localStorage.setItem(RAIN_RADAR_LS_KEY, v ? '1' : '0') } catch { /* ignore */ }
 }
 
+// ── Wind-animation overlay persistence ────────────────────────────────────────
+const WIND_ANIM_LS_KEY = 'silosenosalgo-wind-anim-v1'
+
+function loadShowWindAnimation(): boolean {
+  try { return localStorage.getItem(WIND_ANIM_LS_KEY) === '1' } catch { return false }
+}
+
+function saveShowWindAnimation(v: boolean) {
+  try { localStorage.setItem(WIND_ANIM_LS_KEY, v ? '1' : '0') } catch { /* ignore */ }
+}
+
 // ── Cut-off time helpers ───────────────────────────────────────────────────────
 /** Stable key for a named waypoint based on its coordinates. */
 function wptKey(lat: number, lon: number) {
@@ -250,6 +261,11 @@ export default function App() {
   const setShowRainRadar = useCallback((v: boolean) => {
     setShowRainRadarState(v)
     saveShowRainRadar(v)
+  }, [])
+  const [showWindAnimation, setShowWindAnimationState] = useState<boolean>(loadShowWindAnimation)
+  const setShowWindAnimation = useCallback((v: boolean) => {
+    setShowWindAnimationState(v)
+    saveShowWindAnimation(v)
   }, [])
   const [selectedPollenType, setSelectedPollenType] = useState<PollenType>(loadPollenType)
 
@@ -1604,6 +1620,9 @@ export default function App() {
             showRainRadar={showRainRadar}
             onShowRainRadarChange={setShowRainRadar}
             rainRadarAvailable={appMode === 'live' || (appMode === 'plan' && buddyObs.length > 0)}
+            showWindAnimation={showWindAnimation}
+            onShowWindAnimationChange={setShowWindAnimation}
+            windAnimationAvailable={weatherArr.some((w) => w !== null)}
           />
         )}
 

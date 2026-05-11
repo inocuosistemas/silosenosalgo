@@ -18,6 +18,10 @@ import type { RadarFrame } from '../lib/rainRadar'
 import { fetchRadarFrames, findNowFrameIndex } from '../lib/rainRadar'
 import { RainRadarLayer } from './RainRadarLayer'
 import { RainPlayer } from './RainPlayer'
+import type { WindFrame } from '../lib/windField'
+import { fetchWindField, trackBbox, findCurrentWindIndex } from '../lib/windField'
+import { WindLayer } from './WindLayer'
+import { WindPlayer } from './WindPlayer'
 
 export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain'
 export type { AnalyzeRange }
@@ -96,6 +100,18 @@ interface Props {
    * toggle button when false.
    */
   rainRadarAvailable?: boolean
+  /**
+   * Whether the animated wind layer is enabled. Only shown when
+   * `mapMode === 'wind'` and `windAnimationAvailable` is true.
+   */
+  showWindAnimation?: boolean
+  /** Toggle the wind animation on/off (persisted by the parent). */
+  onShowWindAnimationChange?: (v: boolean) => void
+  /**
+   * Whether the wind-animation feature is available (route loaded + weather
+   * data present). Hides the toggle button when false.
+   */
+  windAnimationAvailable?: boolean
 }
 
 const RAIN_LEGEND = [
@@ -183,6 +199,9 @@ export function RouteMap({
   showRainRadar = false,
   onShowRainRadarChange,
   rainRadarAvailable = false,
+  showWindAnimation = false,
+  onShowWindAnimationChange,
+  windAnimationAvailable = false,
 }: Props) {
   const { points } = track
 
@@ -219,6 +238,32 @@ export function RouteMap({
     const refresh = setInterval(load, 5 * 60_000)
     return () => { cancelled = true; clearInterval(refresh) }
   }, [radarActive])
+
+  // ── Wind-animation state (leaflet-velocity / Open-Meteo) ──────────────────
+  const [windFrames, setWindFrames]   = useState<WindFrame[]>([])
+  const [windIndex,  setWindIndex]    = useState(0)
+  const [windPlaying, setWindPlaying] = useState(true)
+  const windActive = mapMode === 'wind' && windAnimationAvailable && showWindAnimation
+
+  // Fetch wind grid when the animation becomes active.
+  // Re-fetches every 15 min (cached in windField.ts, so cheap after first call).
+  useEffect(() => {
+    if (!windActive) return
+    let cancelled = false
+    const bbox = trackBbox(points)
+    const load = () => {
+      fetchWindField(bbox)
+        .then((frames) => {
+          if (cancelled || frames.length === 0) return
+          setWindFrames(frames)
+          setWindIndex(findCurrentWindIndex(frames))
+        })
+        .catch(() => { /* silently ignore — wind overlay is best-effort */ })
+    }
+    load()
+    const refresh = setInterval(load, 15 * 60_000)
+    return () => { cancelled = true; clearInterval(refresh) }
+  }, [windActive, points])
 
   // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
@@ -924,6 +969,27 @@ export function RouteMap({
                     </button>
                   </>
                 )}
+                {mapMode === 'wind' && windAnimationAvailable && onShowWindAnimationChange && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <button
+                      onClick={() => onShowWindAnimationChange(!showWindAnimation)}
+                      title={
+                        showWindAnimation
+                          ? 'Ocultar animación de viento (Open-Meteo)'
+                          : 'Mostrar animación de partículas de viento (Open-Meteo)'
+                      }
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded border transition-colors ${
+                        showWindAnimation
+                          ? 'bg-cyan-600/30 border-cyan-500/60 text-cyan-200 hover:bg-cyan-600/40'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                      }`}
+                    >
+                      <span>🌬️</span>
+                      <span className="font-medium">Animación</span>
+                    </button>
+                  </>
+                )}
               </>
             )}
             {liveMode && (
@@ -1115,6 +1181,13 @@ export function RouteMap({
                  (browser bilinear) at higher zooms — blurrier but still
                  useful as route-level context. */
               clampZoom={7}
+            />
+          )}
+
+          {windActive && windFrames.length > 0 && (
+            <WindLayer
+              frames={windFrames}
+              currentIndex={windIndex}
             />
           )}
 
@@ -1486,6 +1559,17 @@ export function RouteMap({
             isPlaying={radarPlaying}
             onIndexChange={setRadarIndex}
             onTogglePlay={() => setRadarPlaying((p) => !p)}
+          />
+        )}
+
+        {/* ── Wind animation player (overlay, only when wind active) ── */}
+        {windActive && windFrames.length > 0 && (
+          <WindPlayer
+            frames={windFrames}
+            currentIndex={windIndex}
+            isPlaying={windPlaying}
+            onIndexChange={setWindIndex}
+            onTogglePlay={() => setWindPlaying((p) => !p)}
           />
         )}
       </div>
