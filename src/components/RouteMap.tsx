@@ -242,7 +242,7 @@ export function RouteMap({
   // ── Wind-animation state (leaflet-velocity / Open-Meteo) ──────────────────
   const [windFrames, setWindFrames]   = useState<WindFrame[]>([])
   const [windIndex,  setWindIndex]    = useState(0)
-  const [windPlaying, setWindPlaying] = useState(true)
+  const [windPlaying, setWindPlaying] = useState(false)  // paused by default; user advances manually
   const windActive = mapMode === 'wind' && windAnimationAvailable && showWindAnimation
 
   // Fetch wind grid when the animation becomes active.
