@@ -70,3 +70,7 @@ declare module 'leaflet' {
 declare module 'leaflet-velocity' {
   export = {}
 }
+
+declare module 'leaflet-velocity/dist/leaflet-velocity.js' {
+  export = {}
+}

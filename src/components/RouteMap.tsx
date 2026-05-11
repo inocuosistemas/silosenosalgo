@@ -1562,7 +1562,7 @@ export function RouteMap({
           />
         )}
 
-        {/* ── Wind animation player (overlay, only when wind active) ── */}
+        {/* ── Wind animation player (overlay, only when wind active + data ready) ── */}
         {windActive && windFrames.length > 0 && (
           <WindPlayer
             frames={windFrames}
@@ -1571,6 +1571,14 @@ export function RouteMap({
             onIndexChange={setWindIndex}
             onTogglePlay={() => setWindPlaying((p) => !p)}
           />
+        )}
+
+        {/* ── Wind loading badge (while the grid fetch is in flight) ── */}
+        {windActive && windFrames.length === 0 && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900/90 backdrop-blur-sm border border-cyan-700/50 rounded-lg px-3 py-2 flex items-center gap-2 text-xs text-cyan-300 shadow-lg pointer-events-none">
+            <span className="inline-block w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            Cargando datos de viento…
+          </div>
         )}
       </div>
 
