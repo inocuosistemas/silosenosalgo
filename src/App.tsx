@@ -22,6 +22,7 @@ import { fetchTerrainForTrack, OverpassRateLimitError } from './lib/terrain'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { CutoffSummary } from './components/CutoffSummary'
+import { ShareCard } from './components/ShareCard'
 import { CutoffStrategy } from './components/CutoffStrategy'
 import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
@@ -99,6 +100,41 @@ function loadShowWindAnimation(): boolean {
 
 function saveShowWindAnimation(v: boolean) {
   try { localStorage.setItem(WIND_ANIM_LS_KEY, v ? '1' : '0') } catch { /* ignore */ }
+}
+
+// ── Session restore ───────────────────────────────────────────────────────────
+// Persists track + planning inputs so the user can resume their last session.
+const SESSION_LS_KEY = 'silosenosalgo-session-v1'
+
+interface SavedSession {
+  track: GpxTrack
+  startTimeISO: string
+  paceConfig: PaceConfig
+  sampling: SamplingConfig
+  savedAt: string
+}
+
+function loadSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_LS_KEY)
+    if (!raw) return null
+    const obj = JSON.parse(raw)
+    if (!obj?.track?.points?.length || !obj?.startTimeISO) return null
+    return obj as SavedSession
+  } catch { return null }
+}
+
+function saveSession(s: Omit<SavedSession, 'savedAt'>) {
+  try {
+    localStorage.setItem(
+      SESSION_LS_KEY,
+      JSON.stringify({ ...s, savedAt: new Date().toISOString() }),
+    )
+  } catch { /* quota — silently skip */ }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_LS_KEY) } catch { /* ignore */ }
 }
 
 // ── Cut-off time helpers ───────────────────────────────────────────────────────
@@ -226,6 +262,15 @@ export default function App() {
 
   const [sampling, setSampling] = useState<SamplingConfig>(DEFAULT_SAMPLING)
 
+  // Saved session detected at mount — shown as a banner while no track is loaded.
+  const [savedSession, setSavedSession] = useState<SavedSession | null>(() => loadSession())
+
+  // Autosave current planning session whenever a track is loaded.
+  useEffect(() => {
+    if (!track) return
+    saveSession({ track, startTimeISO: startTime.toISOString(), paceConfig, sampling })
+  }, [track, startTime, paceConfig, sampling])
+
   const [baseWaypoints, setBaseWaypoints] = useState<Waypoint[]>([])
   const [weatherArr, setWeatherArr] = useState<(WeatherData | null)[]>([])
   const [locationArr, setLocationArr] = useState<(LocationInfo | null)[]>([])
@@ -296,6 +341,7 @@ export default function App() {
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [showShareCard, setShowShareCard] = useState(false)
 
   // ── Weather freshness ──────────────────────────────────────────────────────
   const [weatherFetchedAt, setWeatherFetchedAt] = useState<Date | null>(null)
@@ -641,6 +687,7 @@ export default function App() {
 
     setTrack(mergedTrack)
     setAppMode('plan')
+    setSavedSession(null) // banner dismissed once any track is loaded
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
     setSegmentPaces(null)
@@ -1181,19 +1228,27 @@ export default function App() {
             <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
           {isDone && (
-            <div className="ml-auto flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+            <div className="ml-auto flex items-center gap-2">
               <button
-                onClick={() => setAppMode('plan')}
-                className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                onClick={() => setShowShareCard(true)}
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
               >
-                🗺️ <span className="hidden sm:inline">Planificar</span>
+                📤 <span className="hidden sm:inline">Compartir</span>
               </button>
-              <button
-                onClick={() => { setAppMode('live') }}
-                className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-              >
-                📍 <span className="hidden sm:inline">En vivo</span>
-              </button>
+              <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+                <button
+                  onClick={() => setAppMode('plan')}
+                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  🗺️ <span className="hidden sm:inline">Planificar</span>
+                </button>
+                <button
+                  onClick={() => { setAppMode('live') }}
+                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  📍 <span className="hidden sm:inline">En vivo</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1232,7 +1287,52 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <GpxUploader onTrackLoaded={handleTrack} />
+            <>
+              {savedSession && (
+                <div className="bg-sky-950/40 border border-sky-700/40 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sky-300 text-[10px] uppercase tracking-widest font-semibold mb-1">
+                      Sesión anterior detectada
+                    </p>
+                    <p className="font-semibold text-slate-100 truncate">{savedSession.track.name}</p>
+                    <p className="text-slate-400 text-sm">
+                      {savedSession.track.totalDistanceKm.toFixed(1)} km
+                      {' · '}
+                      <span className="text-orange-400">+{Math.round(savedSession.track.elevGainM)} m</span>
+                      {' · salida '}
+                      {new Date(savedSession.startTimeISO).toLocaleString('es-ES', {
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                      {' · guardado '}
+                      {new Date(savedSession.savedAt).toLocaleString('es-ES', {
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        const s = savedSession
+                        handleTrack(s.track)
+                        setStartTime(new Date(s.startTimeISO))
+                        setPaceConfig(s.paceConfig)
+                        setSampling(s.sampling)
+                      }}
+                      className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-sm rounded-lg font-medium transition-colors"
+                    >
+                      Recuperar
+                    </button>
+                    <button
+                      onClick={() => { clearSession(); setSavedSession(null) }}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm rounded-lg transition-colors"
+                    >
+                      Descartar
+                    </button>
+                  </div>
+                </div>
+              )}
+              <GpxUploader onTrackLoaded={handleTrack} />
+            </>
           )}
         </section>
 
@@ -1773,6 +1873,17 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* ── Share card overlay ── */}
+      {showShareCard && track && (
+        <ShareCard
+          track={track}
+          waypoints={enrichedWaypoints}
+          startTime={startTime}
+          paceConfig={paceConfig}
+          onClose={() => setShowShareCard(false)}
+        />
+      )}
     </div>
   )
 }
