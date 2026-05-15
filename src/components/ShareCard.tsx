@@ -147,7 +147,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
 
   return (
     <div
-      className="fixed inset-0 z-2000 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-2000 flex items-start sm:items-center justify-center bg-black/85 backdrop-blur-sm px-2 pt-14 pb-4 sm:p-4 overflow-y-auto"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       {/* Action buttons — outside the card so they don't appear in screenshots */}
@@ -199,7 +199,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
         <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-sky-500/40 to-transparent" />
 
         {/* ── Inner padding ── */}
-        <div className="relative px-6 pt-6 pb-5">
+        <div className="relative px-4 pt-5 pb-4 sm:px-6 sm:pt-6 sm:pb-5">
 
           {/* Activity label */}
           <p className="text-sky-500 text-[10px] uppercase tracking-[0.2em] font-semibold mb-1">
@@ -216,7 +216,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
 
           {/* ── Convocatoria: fecha + hora de salida ── */}
           <div
-            className="mb-5 flex items-center gap-3 px-4 py-3 rounded-xl"
+            className="mb-3 sm:mb-5 flex items-center gap-3 px-3 py-2 sm:px-4 sm:py-3 rounded-xl"
             style={{
               background: 'linear-gradient(90deg, rgba(14,165,233,0.18) 0%, rgba(14,165,233,0.06) 100%)',
               border: '1px solid rgba(56,189,248,0.35)',
@@ -229,7 +229,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
               <span className="text-sky-400 text-[9px] uppercase tracking-[0.18em] font-bold leading-none">
                 {startTime.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}
               </span>
-              <span className="text-white font-extrabold tabular-nums leading-none mt-0.5" style={{ fontSize: '1.5rem' }}>
+              <span className="text-white font-extrabold tabular-nums leading-none mt-0.5" style={{ fontSize: 'clamp(1.25rem, 5vw, 1.5rem)' }}>
                 {startTime.getDate()}
               </span>
             </div>
@@ -237,10 +237,10 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
               <p className="text-sky-300 text-[10px] uppercase tracking-[0.18em] font-bold">
                 Salida
               </p>
-              <p className="text-white font-bold capitalize leading-tight" style={{ fontSize: '0.95rem' }}>
+              <p className="text-white font-bold capitalize leading-tight" style={{ fontSize: 'clamp(0.8rem, 3vw, 0.95rem)' }}>
                 {startTime.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
-              <p className="text-white font-extrabold tabular-nums leading-tight" style={{ fontSize: '1.35rem' }}>
+              <p className="text-white font-extrabold tabular-nums leading-tight" style={{ fontSize: 'clamp(1.05rem, 4.5vw, 1.35rem)' }}>
                 {formatTime(startTime)}
                 <span className="text-slate-400 font-medium ml-1" style={{ fontSize: '0.75rem' }}>h</span>
               </p>
@@ -248,20 +248,24 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
           </div>
 
           {/* ── Main body: map + info ── */}
-          <div className="flex gap-5 items-start">
+          <div className="flex flex-row gap-3 sm:gap-5 items-start">
 
             {/* Route map */}
             <div
-              className="shrink-0 rounded-xl overflow-hidden"
+              className="shrink-0 rounded-xl overflow-hidden w-28 h-28 sm:w-50 sm:h-50"
               style={{
-                width: MAP_W,
-                height: MAP_H,
                 background: 'rgba(15,23,42,0.9)',
                 border: '1px solid rgba(148,163,184,0.12)',
                 boxShadow: 'inset 0 0 40px rgba(14,165,233,0.04)',
               }}
             >
-              <svg width={MAP_W} height={MAP_H}>
+              <svg
+                viewBox={`0 0 ${MAP_W} ${MAP_H}`}
+                width="100%"
+                height="100%"
+                preserveAspectRatio="xMidYMid meet"
+                style={{ display: 'block' }}
+              >
                 <defs>
                   <filter id="routeGlow" x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
@@ -328,7 +332,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
             </div>
 
             {/* Right column: times + stats */}
-            <div className="flex-1 min-w-0 flex flex-col justify-between gap-4">
+            <div className="flex-1 min-w-0 flex flex-col justify-between gap-2 sm:gap-4">
 
               {/* Start / End times */}
               <div className="space-y-2">
@@ -419,7 +423,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
           {/* ── Weather strip ── */}
           {firstWeather && (
             <div
-              className="mt-5 flex items-center gap-5 px-4 py-2.5 rounded-xl"
+              className="mt-3 sm:mt-5 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 sm:py-2.5 rounded-xl sm:px-4"
               style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.08)' }}
             >
               <WeatherChip
@@ -463,7 +467,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
       </div>
 
       {/* Screenshot hint */}
-      <p className="absolute bottom-4 text-slate-600 text-xs">
+      <p className="hidden sm:block absolute bottom-4 text-slate-600 text-xs">
         📸 Haz una captura de pantalla para compartir
       </p>
     </div>
@@ -473,7 +477,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
 function StatBox({ value, unit, color }: { value: string; unit: string; color: string }) {
   return (
     <div
-      className="rounded-lg py-3 px-2 text-center"
+      className="rounded-lg py-2 px-2 text-center sm:py-3"
       style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(148,163,184,0.08)' }}
     >
       <div className="font-bold tabular-nums" style={{ color, fontSize: '1.15rem', lineHeight: 1.1 }}>

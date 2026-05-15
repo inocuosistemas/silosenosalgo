@@ -120,6 +120,11 @@ function loadSession(): SavedSession | null {
     if (!raw) return null
     const obj = JSON.parse(raw)
     if (!obj?.track?.points?.length || !obj?.startTimeISO) return null
+    // Revivir Dates: JSON.parse deja `time` como string; el resto del código
+    // espera Date | null y se rompe (pantalla negra) al llamar .getTime().
+    for (const p of obj.track.points) {
+      p.time = p.time ? new Date(p.time) : null
+    }
     return obj as SavedSession
   } catch { return null }
 }
