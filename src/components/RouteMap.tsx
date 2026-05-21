@@ -484,6 +484,12 @@ export function RouteMap({
     return { beforeSegments: before, afterSegments: after }
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
+  const tipPoint = useMemo<[number, number] | null>(() => {
+    if (beforeSegments.length === 0 || effectiveProgress >= 1 || effectiveProgress <= 0) return null
+    const last = beforeSegments[beforeSegments.length - 1]
+    return last.positions[last.positions.length - 1]
+  }, [beforeSegments, effectiveProgress])
+
   // ── Analyze inside segments: only the weather-colored portion [from, to] ──
   // Uses deferredFrom/deferredTo so slider drags don't block Leaflet repaints.
   const analyzeInsideSegments = useMemo<{ key: string; positions: [number, number][]; color: string; endTimeMs: number }[]>(() => {
@@ -1226,6 +1232,22 @@ export function RouteMap({
               />
             )
           })}
+
+          {/* Tip marker at the leading edge of the painted route */}
+          {!liveMode && interactionMode === 'play' && tipPoint && (
+            <>
+              <CircleMarker
+                center={tipPoint}
+                radius={7}
+                pathOptions={{ color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, weight: 0 }}
+              />
+              <CircleMarker
+                center={tipPoint}
+                radius={4}
+                pathOptions={{ color: '#0f172a', fillColor: '#0f172a', fillOpacity: 1, weight: 0 }}
+              />
+            </>
+          )}
 
           {/* Plan / analyze: weather-colored inside-range segments */}
           {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => {
