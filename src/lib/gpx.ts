@@ -122,17 +122,31 @@ export function parseGpx(xml: string): GpxTrack {
       const sym = el.querySelector('sym')?.textContent?.trim() || undefined
       const type = el.querySelector('type')?.textContent?.trim() || undefined
       const cutoffWallClock = readCutoffWallClockFromExtensions(el) ?? undefined
+      const persistedKm = readDistanceKmFromExtensions(el)
+      const custom = readCustomFlagFromExtensions(el)
 
-      // Snap to nearest track point
-      const wptAsGpx: GpxPoint = { lat, lon, ele: ele ?? 0, time: null }
-      let nearestTrackIndex = 0
-      let minDistKm = haversineKm(wptAsGpx, points[0])
-      for (let i = 1; i < points.length; i++) {
-        const d = haversineKm(wptAsGpx, points[i])
-        if (d < minDistKm) { minDistKm = d; nearestTrackIndex = i }
+      let distanceKm: number
+      let nearestTrackIndex: number
+
+      if (persistedKm !== null) {
+        // Trust the km the POI was created at — avoids the loop-route bug where
+        // a global lat/lon snap picks a track point on a different segment that
+        // happens to be closer in 2D than the original.
+        distanceKm = Math.max(0, Math.min(totalDistanceKm, persistedKm))
+        nearestTrackIndex = firstIdxAtKm(cumKm, distanceKm)
+      } else {
+        // Snap to nearest track point
+        const wptAsGpx: GpxPoint = { lat, lon, ele: ele ?? 0, time: null }
+        nearestTrackIndex = 0
+        let minDistKm = haversineKm(wptAsGpx, points[0])
+        for (let i = 1; i < points.length; i++) {
+          const d = haversineKm(wptAsGpx, points[i])
+          if (d < minDistKm) { minDistKm = d; nearestTrackIndex = i }
+        }
+        distanceKm = cumKm[nearestTrackIndex]
       }
 
-      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm: cumKm[nearestTrackIndex], nearestTrackIndex }
+      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined }
     })
 
   return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints, cumKm }
@@ -180,6 +194,36 @@ function readCutoffWallClockFromExtensions(el: Element): { hour: number; minute:
     }
   }
   return null
+}
+
+/**
+ * Reads the persisted distanceKm from `<wpt><extensions>`. When present, the
+ * parser uses this directly instead of snapping lat/lon to the closest track
+ * point — necessary for routes that loop or run parallel to themselves, where
+ * the 2D-nearest track point may be on a different segment than the original.
+ */
+function readDistanceKmFromExtensions(el: Element): number | null {
+  const exts = el.getElementsByTagName('extensions')[0]
+  if (!exts) return null
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'distanceKm') {
+      const v = parseFloat((child.textContent ?? '').trim())
+      return Number.isFinite(v) && v >= 0 ? v : null
+    }
+  }
+  return null
+}
+
+/** Reads the user-added flag from `<wpt><extensions>`. */
+function readCustomFlagFromExtensions(el: Element): boolean {
+  const exts = el.getElementsByTagName('extensions')[0]
+  if (!exts) return false
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'custom') {
+      return (child.textContent ?? '').trim().toLowerCase() === 'true'
+    }
+  }
+  return false
 }
 
 /** Binary-search: first index in cumKm where cumKm[i] >= targetKm. */

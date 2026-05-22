@@ -76,14 +76,24 @@ function serializeWpt(wpt: GpxNamedWaypoint, cutoff: CutoffWallClock | undefined
   if (wpt.sym)  parts.push(`${i2}<sym>${escapeXml(wpt.sym)}</sym>`)
   if (wpt.type) parts.push(`${i2}<type>${escapeXml(wpt.type)}</type>`)
 
+  // We always emit distanceKm; on routes that double back or loop near themselves
+  // the global lat/lon snap done on import can place a POI on the wrong segment.
+  // Persisting the km the POI was created at lets the importer trust it directly.
+  const extLines: string[] = [
+    `${i3}<${PREFIX}:distanceKm>${wpt.distanceKm.toFixed(3)}</${PREFIX}:distanceKm>`,
+  ]
   if (cutoff) {
     const wc = `${pad2(cutoff.hour)}:${pad2(cutoff.minute)}`
-    parts.push(
-      `${i2}<extensions>\n` +
-      `${i3}<${PREFIX}:cutoffWallClock>${wc}</${PREFIX}:cutoffWallClock>\n` +
-      `${i2}</extensions>`,
-    )
+    extLines.push(`${i3}<${PREFIX}:cutoffWallClock>${wc}</${PREFIX}:cutoffWallClock>`)
   }
+  if (wpt.custom) {
+    extLines.push(`${i3}<${PREFIX}:custom>true</${PREFIX}:custom>`)
+  }
+  parts.push(
+    `${i2}<extensions>\n` +
+    extLines.join('\n') + '\n' +
+    `${i2}</extensions>`,
+  )
 
   return `${i}<wpt lat="${wpt.lat}" lon="${wpt.lon}">\n${parts.join('\n')}\n${i}</wpt>`
 }
