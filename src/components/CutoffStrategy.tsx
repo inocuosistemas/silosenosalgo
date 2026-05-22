@@ -11,6 +11,10 @@ interface Props {
   variablePacesActive: boolean
   marginMin: number
   onMarginChange: (minutes: number) => void
+  /** Per-anchor target-time overrides keyed by cut-off waypoint km. */
+  segmentTargets: Map<number, Date>
+  /** Set or clear (null) an override for a given cut-off km. */
+  onSegmentTargetChange: (km: number, time: Date | null) => void
 }
 
 // ── Style config per severity ─────────────────────────────────────────────────
@@ -36,6 +40,28 @@ function fmtMin(min: number): string {
   return min < 0 ? `−${t}` : t
 }
 
+function fmtHHMM(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
+/**
+ * Combine an HH:MM string with the cut-off's calendar date. If the resulting
+ * timestamp lands after the cut-off, roll one day back — this handles
+ * cut-offs that fall shortly after midnight where the user wants to enter
+ * an earlier-evening target time on the previous day.
+ */
+function parseHHMM(value: string, cutoff: Date): Date | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  const d = new Date(cutoff)
+  d.setHours(h, min, 0, 0)
+  if (d.getTime() > cutoff.getTime()) d.setDate(d.getDate() - 1)
+  return d
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function PaceDelta({ required, current, activity }: { required: number; current: number; activity: ActivityType }) {
@@ -55,13 +81,24 @@ function SegmentRow({
   isTightest,
   currentPace,
   activity,
+  onTargetChange,
+  showPaceDelta,
 }: {
   seg: SegmentStrategy
   isTightest: boolean
   currentPace: number
   activity: ActivityType
+  onTargetChange: (km: number, time: Date | null) => void
+  showPaceDelta: boolean
 }) {
   const cfg = SEV[seg.severity]
+  const targetValue = fmtHHMM(seg.toTime)
+  const cutoffHHMM  = fmtHHMM(seg.cutoffTime)
+  const marginToCutoffMin = Math.round((seg.cutoffTime.getTime() - seg.toTime.getTime()) / 60_000)
+  const marginCls =
+    marginToCutoffMin < 0  ? 'text-red-400'
+    : marginToCutoffMin < 5  ? 'text-amber-400'
+    : 'text-slate-400'
   return (
     <tr className={`border-t border-slate-700/40 ${cfg.rowCls} ${isTightest ? 'outline outline-1 outline-orange-700/60 outline-offset-[-1px]' : ''}`}>
       {/* Tramo */}
@@ -94,23 +131,55 @@ function SegmentRow({
       <td className={`px-3 py-2.5 text-right font-mono text-xs ${seg.availableMin < 0 ? 'text-red-400' : 'text-slate-300'}`}>
         {fmtMin(seg.availableMin)}
       </td>
-      {/* Ritmo necesario */}
+      {/* Hora objetivo de paso */}
+      <td className="px-3 py-2.5 text-center">
+        <div className="flex flex-col items-center gap-0.5">
+          <input
+            type="time"
+            value={targetValue}
+            onChange={(e) => {
+              const v = e.target.value
+              if (!v) { onTargetChange(seg.toKm, null); return }
+              const parsed = parseHHMM(v, seg.cutoffTime)
+              if (parsed) onTargetChange(seg.toKm, parsed)
+            }}
+            title={`Corte: ${cutoffHHMM}${seg.hasTargetOverride ? ' · objetivo personalizado' : ''}`}
+            className={`bg-slate-900 border rounded-md px-1.5 py-0.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-sky-600 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:hover:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer ${
+              seg.hasTargetOverride ? 'border-sky-600/70' : 'border-slate-700'
+            }`}
+          />
+          <div className="flex items-center gap-1 text-[10px] leading-none">
+            <span className="text-slate-500">corte {cutoffHHMM}</span>
+            <span className={marginCls}>
+              {marginToCutoffMin >= 0 ? `+${marginToCutoffMin}` : marginToCutoffMin}′
+            </span>
+            {seg.hasTargetOverride && (
+              <button
+                type="button"
+                onClick={() => onTargetChange(seg.toKm, null)}
+                className="text-slate-500 hover:text-slate-300"
+                title="Quitar objetivo"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      </td>
+      {/* Ritmo necesario (+ delta vs. plan en subtexto) */}
       <td className="px-3 py-2.5 text-center">
         {seg.requiredPaceMinPerKm === null ? (
           <span className="text-gray-500 text-xs font-semibold">⛔ Imposible</span>
         ) : (
-          <span className={`inline-flex items-center gap-1 text-xs font-mono font-semibold ${cfg.textCls}`}>
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dotCls}`} />
-            {formatPace(seg.requiredPaceMinPerKm, activity)}
-          </span>
-        )}
-      </td>
-      {/* vs plan */}
-      <td className="px-3 py-2.5 text-center">
-        {seg.requiredPaceMinPerKm !== null ? (
-          <PaceDelta required={seg.requiredPaceMinPerKm} current={currentPace} activity={activity} />
-        ) : (
-          <span className="text-gray-600 text-xs">—</span>
+          <div className="flex flex-col items-center gap-0.5">
+            <span className={`inline-flex items-center gap-1 text-xs font-mono font-semibold ${cfg.textCls}`}>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dotCls}`} />
+              {formatPace(seg.requiredPaceMinPerKm, activity)}
+            </span>
+            {showPaceDelta && (
+              <PaceDelta required={seg.requiredPaceMinPerKm} current={currentPace} activity={activity} />
+            )}
+          </div>
         )}
       </td>
     </tr>
@@ -127,6 +196,7 @@ export function CutoffStrategy({
   variablePacesActive,
   marginMin,
   onMarginChange,
+  onSegmentTargetChange,
 }: Props) {
   const [open, setOpen] = useState(false)
   const { segments, tightestSegment, hasImpossible, singlePace, variablePaces } = strategy
@@ -208,9 +278,24 @@ export function CutoffStrategy({
                   <th className="px-4 py-2 text-left">Tramo</th>
                   <th className="px-3 py-2 text-right">km</th>
                   <th className="px-3 py-2 text-right">D+</th>
-                  <th className="px-3 py-2 text-right">Tiempo disp.</th>
-                  <th className="px-3 py-2 text-center">Ritmo nec.</th>
-                  <th className="px-3 py-2 text-center">vs. plan</th>
+                  <th
+                    className="px-3 py-2 text-right cursor-help"
+                    title="Tiempo del que dispones para cubrir este tramo respetando tu hora objetivo (o, si la dejas vacía, el corte menos el margen de seguridad global)."
+                  >
+                    Tiempo disp.
+                  </th>
+                  <th
+                    className="px-3 py-2 text-center cursor-help"
+                    title="Hora a la que quieres pasar por el final del tramo. Si la dejas vacía, se usa el corte menos el margen global. El número en verde/ámbar/rojo a la derecha del corte es el margen real resultante (minutos antes del corte)."
+                  >
+                    Hora objetivo
+                  </th>
+                  <th
+                    className="px-3 py-2 text-center cursor-help"
+                    title="Ritmo medio necesario en este tramo para llegar a la hora objetivo. El número pequeño debajo es la diferencia respecto a tu ritmo planificado: verde = puedes ir más cómodo que tu plan, rojo = tienes que apretar."
+                  >
+                    Ritmo nec.
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -221,6 +306,8 @@ export function CutoffStrategy({
                     isTightest={seg === tightestSegment}
                     currentPace={paceConfig.paceMinPerKm}
                     activity={paceConfig.activity}
+                    onTargetChange={onSegmentTargetChange}
+                    showPaceDelta={!variablePacesActive}
                   />
                 ))}
               </tbody>

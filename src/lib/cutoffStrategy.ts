@@ -36,9 +36,14 @@ export interface SegmentStrategy {
    */
   fromTime: Date
   /**
-   * Target arrival time for this segment (= cutoff − marginMin).
+   * Target arrival time for this segment (= cutoff − marginMin, or the user's
+   * per-segment override when set).
    */
   toTime: Date
+  /** Raw cut-off time at the "to" anchor (unshifted by margin or override). */
+  cutoffTime: Date
+  /** True when toTime comes from a per-segment user override (vs. cutoff − margin). */
+  hasTargetOverride: boolean
 }
 
 export interface CutoffStrategyResult {
@@ -85,6 +90,11 @@ const EASY_SLACK     = +1.0  // can go >1 min/km slower   → 🟢
  *   (e.g. anchored at the buddy's projected position), cut-offs at km ≤ startKm
  *   are filtered out and the first segment runs from (startKm, startTime).
  * @param startLabel  Label to display for the start anchor. Defaults to 'Salida'.
+ * @param targetTimes Optional per-anchor target-time overrides, keyed by the
+ *   cut-off waypoint's km. When present for a given km, that anchor's time is
+ *   set to the override instead of (cutoff − marginMin). This lets the user
+ *   pin a desired passing time for specific checkpoints, and margins for the
+ *   surrounding segments are recomputed accordingly.
  */
 export function computeCutoffStrategy(
   track: GpxTrack,
@@ -95,6 +105,7 @@ export function computeCutoffStrategy(
   marginMin = 0,
   startKm = 0,
   startLabel = 'Salida',
+  targetTimes?: Map<number, Date>,
 ): CutoffStrategyResult {
   const withCutoffs = [...namedWaypoints]
     .filter((w) => w.cutoffTime != null && w.distanceKm > startKm + 0.05)
@@ -114,12 +125,17 @@ export function computeCutoffStrategy(
   //     (margin added to the "from" and subtracted from the "to" cancels out)
   const marginMs = marginMin * 60_000
   const anchors = [
-    { km: startKm, time: startTime, label: startLabel } as const,
-    ...withCutoffs.map((w) => ({
-      km: w.distanceKm,
-      time: new Date(w.cutoffTime!.getTime() - marginMs),
-      label: w.name,
-    })),
+    { km: startKm, time: startTime, label: startLabel, cutoff: null as Date | null, override: false },
+    ...withCutoffs.map((w) => {
+      const override = targetTimes?.get(w.distanceKm) ?? null
+      return {
+        km: w.distanceKm,
+        time: override ?? new Date(w.cutoffTime!.getTime() - marginMs),
+        label: w.name,
+        cutoff: w.cutoffTime!,
+        override: override !== null,
+      }
+    }),
   ]
 
   const segments: SegmentStrategy[] = []
@@ -176,6 +192,8 @@ export function computeCutoffStrategy(
       severity,
       fromTime: from.time,
       toTime:   to.time,
+      cutoffTime: to.cutoff!,
+      hasTargetOverride: to.override,
     })
   }
 

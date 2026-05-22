@@ -375,6 +375,19 @@ export default function App() {
   // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
   const [strategyMargin, setStrategyMargin] = useState(0)
 
+  // ── Per-segment target times (override the global margin per anchor) ───────
+  // Keyed by the cut-off waypoint's km. When set, that anchor's time becomes
+  // the override instead of (cutoff − strategyMargin).
+  const [segmentTargets, setSegmentTargets] = useState<Map<number, Date>>(() => new Map())
+  const handleSegmentTargetChange = (km: number, time: Date | null) => {
+    setSegmentTargets((prev) => {
+      const next = new Map(prev)
+      if (time) next.set(km, time)
+      else      next.delete(km)
+      return next
+    })
+  }
+
   // ── Plan-mode params bar: collapse / dirty tracking ───────────────────────
   // Sections 2-4 (start time, pace, sampling) collapse into a compact bar
   // after the first successful compute and re-expand via "Modificar".
@@ -1110,10 +1123,14 @@ export default function App() {
         track, withCutoffs, new Date(buddyTick),
         effectivePaceConfig, strategyMargin,
         buddyKmNow, 'Compañero',
+        segmentTargets,
       )
     }
-    return computeCutoffStrategy(track, withCutoffs, startTime, effectivePaceConfig, strategyMargin)
-  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, buddyDerived, buddyKmNow, buddyTick])
+    return computeCutoffStrategy(
+      track, withCutoffs, startTime, effectivePaceConfig, strategyMargin,
+      0, 'Salida', segmentTargets,
+    )
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, buddyDerived, buddyKmNow, buddyTick])
 
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
   // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
@@ -1771,6 +1788,8 @@ export default function App() {
             variablePacesActive={segmentPaces !== null}
             marginMin={strategyMargin}
             onMarginChange={setStrategyMargin}
+            segmentTargets={segmentTargets}
+            onSegmentTargetChange={handleSegmentTargetChange}
           />
         )}
 
