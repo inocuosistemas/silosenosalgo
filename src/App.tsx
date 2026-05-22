@@ -688,14 +688,20 @@ export default function App() {
     // them into the just-loaded track so the user sees their work continue
     // across reloads. They sort by km alongside any GPX-original wpts.
     //
-    // CRITICAL: dedupe by lat/lon. If the user previously downloaded the GPX
-    // with their custom POIs embedded and is now re-uploading that file, the
-    // POI lives in BOTH the file (as a regular <wpt>) and the cache (as a
-    // leftover entry). Without this dedup we'd show duplicates. After dedup
-    // we also persist the cleaned cache so the issue doesn't reappear.
+    // CRITICAL: dedupe so the same custom POI doesn't appear twice when the
+    // user re-uploads a GPX they previously downloaded (the POI lives in both
+    // the file's <wpt>s and in the per-track localStorage cache).
+    //
+    // We match on name + km (≈50 m tolerance) instead of exact lat/lon: the
+    // exporter snaps each <wpt> to the nearest <trkpt> (so Garmin Connect
+    // associates them with the course), which means the file's coords no
+    // longer match the cache's interpolated ones byte-for-byte.
+    const DEDUPE_KM_TOLERANCE = 0.05
     const cachedCustom = loadCustomPois(t.name)
-    const fileLatLons = new Set(t.namedWaypoints.map((w) => wptKey(w.lat, w.lon)))
-    const dedupedCached = cachedCustom.filter((w) => !fileLatLons.has(wptKey(w.lat, w.lon)))
+    const fileFingerprints = t.namedWaypoints.map((w) => ({ name: w.name, km: w.distanceKm }))
+    const dedupedCached = cachedCustom.filter((cached) =>
+      !fileFingerprints.some((f) => f.name === cached.name && Math.abs(f.km - cached.distanceKm) <= DEDUPE_KM_TOLERANCE)
+    )
     if (dedupedCached.length !== cachedCustom.length) {
       saveCustomPois(t.name, dedupedCached)
     }

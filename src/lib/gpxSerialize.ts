@@ -63,14 +63,23 @@ function serializeTrkpt(p: GpxPoint, level: number): string {
   return `${i}<trkpt lat="${p.lat}" lon="${p.lon}">${elePart}${timePart}\n${i}</trkpt>`
 }
 
-function serializeWpt(wpt: GpxNamedWaypoint, cutoff: CutoffWallClock | undefined, level: number): string {
+function serializeWpt(
+  wpt: GpxNamedWaypoint,
+  snapPoint: GpxPoint,
+  cutoff: CutoffWallClock | undefined,
+  level: number,
+): string {
   const i  = indent(level)
   const i2 = indent(level + 1)
   const i3 = indent(level + 2)
 
   // GPX 1.1 child order inside <wpt>: ele, time, ..., name, cmt, desc, src, link, sym, type, ..., extensions
+  // We emit the snapped track-point coords (not the interpolated ones we use
+  // internally). Garmin Connect only associates a <wpt> with a course point
+  // when its lat/lon exactly matches a <trkpt>; without this it lists every
+  // POI at "0,00 km".
   const parts: string[] = []
-  if (wpt.ele != null) parts.push(`${i2}<ele>${wpt.ele}</ele>`)
+  if (wpt.ele != null) parts.push(`${i2}<ele>${snapPoint.ele}</ele>`)
   parts.push(`${i2}<name>${escapeXml(wpt.name)}</name>`)
   if (wpt.desc) parts.push(`${i2}<desc>${escapeXml(wpt.desc)}</desc>`)
   if (wpt.sym)  parts.push(`${i2}<sym>${escapeXml(wpt.sym)}</sym>`)
@@ -95,7 +104,7 @@ function serializeWpt(wpt: GpxNamedWaypoint, cutoff: CutoffWallClock | undefined
     `${i2}</extensions>`,
   )
 
-  return `${i}<wpt lat="${wpt.lat}" lon="${wpt.lon}">\n${parts.join('\n')}\n${i}</wpt>`
+  return `${i}<wpt lat="${snapPoint.lat}" lon="${snapPoint.lon}">\n${parts.join('\n')}\n${i}</wpt>`
 }
 
 /**
@@ -120,10 +129,17 @@ export function serializeGpx(track: GpxTrack, cutoffWallClocks: CutoffMap = new 
     `    <time>${new Date().toISOString()}</time>\n` +
     `  </metadata>\n`
 
-  // Sort wpts by km so saved files read sensibly in other tools
+  // Sort wpts by km so saved files read sensibly in other tools.
+  // Each wpt is emitted at the lat/lon of its nearest <trkpt> so Garmin
+  // Connect (and similar) can associate it with a position on the course.
+  const lastIdx = track.points.length - 1
   const wpts = [...track.namedWaypoints]
     .sort((a, b) => a.distanceKm - b.distanceKm)
-    .map((wpt) => serializeWpt(wpt, cutoffWallClocks.get(wptKey(wpt.lat, wpt.lon)), 1))
+    .map((wpt) => {
+      const idx = Math.max(0, Math.min(lastIdx, wpt.nearestTrackIndex))
+      const snap = track.points[idx]
+      return serializeWpt(wpt, snap, cutoffWallClocks.get(wptKey(wpt.lat, wpt.lon)), 1)
+    })
     .join('\n')
 
   const trkBlock =
