@@ -6,6 +6,34 @@ import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
 import { windImpact, windImpactStyle } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
 import type { MapMode } from './RouteMap'
+import type { DaylightBand, DaylightSummary } from '../lib/daylight'
+import { bandAt } from '../lib/daylight'
+
+// Daylight band colors (lighter palette to match the PDF's light theme)
+const DAYLIGHT_COLOR_PDF: Record<DaylightBand, string> = {
+  day:   '#fbbf24',  // amber-400
+  civil: '#fb923c',  // orange-400 (a bit lighter than the web tone for print contrast)
+  night: '#1e3a8a',  // blue-900
+}
+const DAYLIGHT_LABEL: Record<DaylightBand, string> = {
+  day:   'Día',
+  civil: 'Crepúsculo',
+  night: 'Noche',
+}
+
+function fmtClockPdf(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
+function fmtHMPdf(min: number): string {
+  const m = Math.round(min)
+  if (m < 1) return '0m'
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (h === 0) return `${r}m`
+  if (r === 0) return `${h}h`
+  return `${h}h ${r.toString().padStart(2, '0')}m`
+}
 
 // Text inside <Svg> uses SVG presentation attributes, but @react-pdf/renderer's
 // union type incorrectly rejects them. Cast to a simple type for axis labels.
@@ -192,10 +220,64 @@ function buildPath(
     .join(' ')
 }
 
+// ─── Daylight strip section ──────────────────────────────────────────────────
+function DaylightStripSection({ summary }: { summary: DaylightSummary }) {
+  const totalMin = (summary.to.getTime() - summary.from.getTime()) / 60_000
+  if (totalMin <= 0) return null
+  const BAR_W = CW
+  const BAR_H = 8
+  const darkRanges = summary.intervals.filter((iv) => iv.band === 'night')
+  const darkText = darkRanges.length === 0
+    ? 'sin tramos de noche cerrada'
+    : darkRanges.map((iv) => `${fmtClockPdf(iv.from)}–${fmtClockPdf(iv.to)}`).join(' · ')
+
+  // Build x-offsets for each interval so the bar renders as adjacent Rects
+  let xCursor = 0
+  const rects = summary.intervals.map((iv) => {
+    const w = (iv.minutes / totalMin) * BAR_W
+    const r = { x: xCursor, w, band: iv.band }
+    xCursor += w
+    return r
+  })
+
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>Luz a lo largo del trayecto</Text>
+      <View style={styles.mapBorder}>
+        <Svg width={BAR_W} height={BAR_H} viewBox={`0 0 ${BAR_W} ${BAR_H}`}>
+          {rects.map((r, i) => (
+            <Rect key={i} x={r.x} y={0} width={r.w} height={BAR_H} fill={DAYLIGHT_COLOR_PDF[r.band]} />
+          ))}
+        </Svg>
+      </View>
+      <View style={styles.legendRow}>
+        <Text style={[styles.legendText, { marginRight: 10, fontFamily: 'Courier' }]}>{fmtClockPdf(summary.from)}</Text>
+        {(['day', 'civil', 'night'] as DaylightBand[]).map((b) => (
+          <View key={b} style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: DAYLIGHT_COLOR_PDF[b] }]} />
+            <Text style={styles.legendText}>{DAYLIGHT_LABEL[b]}</Text>
+          </View>
+        ))}
+        <Text style={[styles.legendText, { marginRight: 10, fontFamily: 'Courier' }]}>{fmtClockPdf(summary.to)}</Text>
+      </View>
+      {darkRanges.length > 0 && (
+        <Text style={{ fontSize: 6.5, color: C.muted, marginTop: 2 }}>
+          Requiere luz: {darkText}
+        </Text>
+      )}
+    </View>
+  )
+}
+
 // ─── Map section ─────────────────────────────────────────────────────────────
 function MapSection({
-  track, waypoints, mapMode,
-}: { track: GpxTrack; waypoints: EnrichedWaypoint[]; mapMode: MapMode }) {
+  track, waypoints, mapMode, daylightAnchor,
+}: {
+  track: GpxTrack
+  waypoints: EnrichedWaypoint[]
+  mapMode: MapMode
+  daylightAnchor?: { lat: number; lon: number }
+}) {
   const MAP_W = CW
   const MAP_H = 155
   const { px, py } = makeProjector(track, MAP_W, MAP_H)
@@ -208,10 +290,29 @@ function MapSection({
   const startPt = track.points[0]
   const endPt = track.points[track.points.length - 1]
 
-  const modeLabel = mapMode === 'rain' ? 'Probabilidad de lluvia' : 'Impacto del viento'
-  const legendItems = mapMode === 'rain'
-    ? [['0–20%', '#22c55e'], ['20–40%', '#eab308'], ['40–60%', '#f97316'], ['60–80%', '#ef4444'], ['>80%', '#7c3aed']]
-    : [['A favor', '#22c55e'], ['Lateral', '#eab308'], ['En contra', '#ef4444'], ['Calmado', '#94a3b8']]
+  // Per-segment color resolver — keyed by current mapMode. Daylight projects
+  // each waypoint's estimatedTime to its sun-altitude band. Modes whose data
+  // isn't available in the PDF (pollen, terrain) fall back to rain coloring,
+  // which is the most generally useful map view.
+  const isDaylight = mapMode === 'daylight' && daylightAnchor
+  function segColor(wp: EnrichedWaypoint): string {
+    if (isDaylight) return DAYLIGHT_COLOR_PDF[bandAt(wp.estimatedTime, daylightAnchor!.lat, daylightAnchor!.lon)]
+    if (mapMode === 'wind') return impactToColor(wp)
+    return precipToColor(wp.weather?.precipProbability)
+  }
+
+  const modeLabel =
+    isDaylight              ? 'Luz a lo largo del trayecto'
+    : mapMode === 'rain'    ? 'Probabilidad de lluvia'
+    : mapMode === 'wind'    ? 'Impacto del viento'
+    : mapMode === 'pollen'  ? 'Probabilidad de lluvia (polen no disponible en PDF)'
+    : mapMode === 'terrain' ? 'Probabilidad de lluvia (terreno no disponible en PDF)'
+    : 'Probabilidad de lluvia'
+
+  const legendItems: [string, string][] =
+    isDaylight           ? [['Día', DAYLIGHT_COLOR_PDF.day], ['Crepúsculo', DAYLIGHT_COLOR_PDF.civil], ['Noche', DAYLIGHT_COLOR_PDF.night]]
+    : mapMode === 'wind' ? [['A favor', '#22c55e'], ['Lateral', '#eab308'], ['En contra', '#ef4444'], ['Calmado', '#94a3b8']]
+    : [['0–20%', '#22c55e'], ['20–40%', '#eab308'], ['40–60%', '#f97316'], ['60–80%', '#ef4444'], ['>80%', '#7c3aed']]
 
   return (
     <View>
@@ -228,12 +329,11 @@ function MapSection({
             const prev = waypoints[i]
             const segPts = track.points.slice(prev.index, wp.index + 1)
             if (segPts.length < 2) return null
-            const color = mapMode === 'wind' ? impactToColor(wp) : precipToColor(wp.weather?.precipProbability)
             return (
               <Path
                 key={i}
                 d={buildPath(segPts, px, py)}
-                stroke={color}
+                stroke={segColor(wp)}
                 strokeWidth={2.5}
                 fill="none"
               />
@@ -516,8 +616,13 @@ function cutoffMarginColor(min: number): string {
 }
 
 function TableSection({
-  waypoints, namedWaypoints = [], startTime,
-}: { waypoints: EnrichedWaypoint[]; namedWaypoints?: EnrichedNamedWaypoint[]; startTime: Date }) {
+  waypoints, namedWaypoints = [], startTime, daylightAnchor,
+}: {
+  waypoints: EnrichedWaypoint[]
+  namedWaypoints?: EnrichedNamedWaypoint[]
+  startTime: Date
+  daylightAnchor?: { lat: number; lon: number }
+}) {
   const hasWeather   = waypoints.some((w) => w.weather !== null)
   const hasLocation  = waypoints.some((w) => w.location !== null)
   const hasCutoffCol = namedWaypoints.length > 0
@@ -630,9 +735,14 @@ function TableSection({
                 <View style={{ width: COL.hora, alignItems: 'center' }}>
                   {wpt.estimatedTime ? (
                     <>
-                      <Text style={{ fontSize: 7.5, fontFamily: 'Courier-Bold', color: C.accentDark }}>
-                        {formatTime(wpt.estimatedTime)}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        {daylightAnchor && (
+                          <View style={{ width: 5, height: 5, borderRadius: 2.5, marginRight: 3, backgroundColor: DAYLIGHT_COLOR_PDF[bandAt(wpt.estimatedTime, daylightAnchor.lat, daylightAnchor.lon)] }} />
+                        )}
+                        <Text style={{ fontSize: 7.5, fontFamily: 'Courier-Bold', color: C.accentDark }}>
+                          {formatTime(wpt.estimatedTime)}
+                        </Text>
+                      </View>
                       <Text style={{ fontSize: 6, color: C.faint }}>{formatDuration(elapsed)}</Text>
                     </>
                   ) : (
@@ -732,9 +842,14 @@ function TableSection({
 
               {/* Hora + duración */}
               <View style={{ width: COL.hora, alignItems: 'center' }}>
-                <Text style={{ fontSize: 7.5, fontFamily: 'Courier-Bold', color: C.accentDark }}>
-                  {formatTime(wp.estimatedTime)}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {daylightAnchor && (
+                    <View style={{ width: 5, height: 5, borderRadius: 2.5, marginRight: 3, backgroundColor: DAYLIGHT_COLOR_PDF[bandAt(wp.estimatedTime, daylightAnchor.lat, daylightAnchor.lon)] }} />
+                  )}
+                  <Text style={{ fontSize: 7.5, fontFamily: 'Courier-Bold', color: C.accentDark }}>
+                    {formatTime(wp.estimatedTime)}
+                  </Text>
+                </View>
                 <Text style={{ fontSize: 6, color: C.faint }}>
                   {formatDuration(elapsed)}
                 </Text>
@@ -802,20 +917,28 @@ interface PdfProps {
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
   mapMode: MapMode
+  /** Daylight summary for the route window — when present, header gains Luz útil/Requiere luz chips and a 24h band strip. */
+  daylight?: DaylightSummary | null
+  /** Geographic anchor (track midpoint) used to compute the band at each waypoint's ETA. */
+  daylightAnchor?: { lat: number; lon: number }
 }
 
-export function RoutePdfDocument({ track, waypoints, namedWaypoints = [], startTime, mapMode }: PdfProps) {
+export function RoutePdfDocument({ track, waypoints, namedWaypoints = [], startTime, mapMode, daylight, daylightAnchor }: PdfProps) {
   const last = waypoints[waypoints.length - 1]
   const totalMs = last ? last.estimatedTime.getTime() - startTime.getTime() : 0
   const totalGain = Math.round(last?.elevGainM ?? 0)
   const totalLoss = Math.round(last?.elevLossM ?? 0)
 
   const statItems = [
-    { label: 'Distancia', value: `${track.totalDistanceKm.toFixed(1)} km` },
+    { label: 'Distancia',    value: `${track.totalDistanceKm.toFixed(1)} km` },
     { label: 'Tiempo total', value: formatDuration(totalMs) },
-    { label: 'D+', value: `+${totalGain} m` },
-    { label: 'D-', value: `-${totalLoss} m` },
-    { label: 'Waypoints', value: `${waypoints.length}` },
+    { label: 'D+',           value: `+${totalGain} m` },
+    { label: 'D-',           value: `-${totalLoss} m` },
+    { label: 'Waypoints',    value: `${waypoints.length}` },
+    ...(daylight ? [
+      { label: 'Luz útil',     value: fmtHMPdf(daylight.usefulMin) },
+      { label: 'Requiere luz', value: daylight.darknessMin > 0 ? fmtHMPdf(daylight.darknessMin) : 'no' },
+    ] : []),
   ]
 
   const startDateLabel = startTime.toLocaleDateString('es-ES', {
@@ -844,14 +967,27 @@ export function RoutePdfDocument({ track, waypoints, namedWaypoints = [], startT
           </View>
         </View>
 
+        {/* Daylight strip */}
+        {daylight && <DaylightStripSection summary={daylight} />}
+
         {/* Map */}
-        <MapSection track={track} waypoints={waypoints} mapMode={mapMode} />
+        <MapSection
+          track={track}
+          waypoints={waypoints}
+          mapMode={mapMode}
+          daylightAnchor={daylightAnchor}
+        />
 
         {/* Charts */}
         <ChartsSection waypoints={waypoints} />
 
         {/* Table */}
-        <TableSection waypoints={waypoints} namedWaypoints={namedWaypoints} startTime={startTime} />
+        <TableSection
+          waypoints={waypoints}
+          namedWaypoints={namedWaypoints}
+          startTime={startTime}
+          daylightAnchor={daylightAnchor}
+        />
 
       </Page>
     </Document>

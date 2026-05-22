@@ -20,10 +20,12 @@ import { RainRadarLayer } from './RainRadarLayer'
 import { RainPlayer } from './RainPlayer'
 import type { WindFrame } from '../lib/windField'
 import { fetchWindField, trackBbox, findCurrentWindIndex } from '../lib/windField'
+import type { DaylightBand } from '../lib/daylight'
+import { bandAt } from '../lib/daylight'
 import { WindLayer } from './WindLayer'
 import { WindPlayer } from './WindPlayer'
 
-export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain'
+export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain' | 'daylight'
 export type { AnalyzeRange }
 
 interface Props {
@@ -88,6 +90,12 @@ interface Props {
   /** Called when the user clicks the retry button after a fetch failure. */
   onTerrainRetry?: () => void
   /**
+   * Called when the user explicitly requests an initial terrain load. The
+   * terrain mode is opt-in (Overpass calls are expensive on long routes), so
+   * the idle-state chip needs an explicit trigger separate from the retry one.
+   */
+  onFetchTerrain?: () => void
+  /**
    * Whether the animated rain-radar overlay is enabled. Only used when
    * `mapMode === 'rain'` and `rainRadarAvailable` is true.
    */
@@ -112,6 +120,18 @@ interface Props {
    * data present). Hides the toggle button when false.
    */
   windAnimationAvailable?: boolean
+  /**
+   * Geographic anchor (lat/lon) for sun-position calculations in daylight mode.
+   * Typically the track's midpoint — sun-time differences across hundreds of km
+   * in temperate latitudes are only a few minutes, irrelevant at our scale.
+   */
+  daylightAnchor?: { lat: number; lon: number }
+}
+
+const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
+  day:   '#fbbf24',  // amber-400
+  civil: '#c2410c',  // orange-700
+  night: '#1e1b4b',  // indigo-950
 }
 
 const RAIN_LEGEND = [
@@ -196,12 +216,14 @@ export function RouteMap({
   terrainErrorKind = 'network',
   terrainRetryAfterSec = 0,
   onTerrainRetry,
+  onFetchTerrain,
   showRainRadar = false,
   onShowRainRadarChange,
   rainRadarAvailable = false,
   showWindAnimation = false,
   onShowWindAnimationChange,
   windAnimationAvailable = false,
+  daylightAnchor,
 }: Props) {
   const { points } = track
 
@@ -393,6 +415,64 @@ export function RouteMap({
       return out
     }
 
+    // ── Daylight runs (per-point granularity) ───────────────────────────
+    // Each point's "estimated time" is interpolated from the bracketing
+    // waypoints; its band (day / civil / night) drives the color. Bands
+    // change at most a handful of times per route so the runs coalesce.
+    if (mapMode === 'daylight' && daylightAnchor && waypoints.length >= 2) {
+      const wpKm: number[] = waypoints.map((w) => w.distanceKm)
+      const wpMs: number[] = waypoints.map((w) => w.estimatedTime.getTime())
+      const pointEta = (idx: number): number => {
+        const km = cumKm[idx]
+        let lo = 0
+        let hi = wpKm.length - 1
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1
+          if (wpKm[mid] <= km) lo = mid
+          else hi = mid - 1
+        }
+        const next = Math.min(lo + 1, wpKm.length - 1)
+        const span = wpKm[next] - wpKm[lo]
+        if (span <= 0) return wpMs[lo]
+        const t = Math.max(0, Math.min(1, (km - wpKm[lo]) / span))
+        return wpMs[lo] + t * (wpMs[next] - wpMs[lo])
+      }
+
+      const out: Seg[] = []
+      let runStart = 0
+      let runBand: DaylightBand = bandAt(new Date(pointEta(0)), daylightAnchor.lat, daylightAnchor.lon)
+      let key = 0
+
+      const flushDl = (endIdx: number) => {
+        if (endIdx <= runStart) return
+        const segPts: [number, number][] = []
+        for (let k = runStart; k <= endIdx; k++) {
+          segPts.push([points[k].lat, points[k].lon])
+        }
+        out.push({
+          key: key++,
+          pts: segPts,
+          color: DAYLIGHT_COLOR[runBand],
+          startKm: cumKm[runStart],
+          endKm: cumKm[endIdx],
+          ptStart: runStart,
+          ptEnd: endIdx,
+          endTimeMs: pointEta(endIdx),
+        })
+      }
+
+      for (let i = 1; i < points.length; i++) {
+        const b = bandAt(new Date(pointEta(i)), daylightAnchor.lat, daylightAnchor.lon)
+        if (b !== runBand) {
+          flushDl(i - 1)
+          runStart = i - 1
+          runBand = b
+        }
+      }
+      flushDl(points.length - 1)
+      return out
+    }
+
     // ── Default: waypoint-based segments (weather/pollen colored) ────────
     return waypoints.slice(1).map((curr, i) => {
       const prev = waypoints[i]
@@ -418,7 +498,7 @@ export function RouteMap({
         endTimeMs: curr.estimatedTime.getTime(),
       }
     })
-  }, [waypoints, points, mapMode, cumKm, pollenData, effectivePollenType, pointTerrains])
+  }, [waypoints, points, mapMode, cumKm, pollenData, effectivePollenType, pointTerrains, daylightAnchor])
 
   // ── "Now" tick (60 s) used to mute weather-colored segments whose ETA is
   //    already in the past — those colors come from forecast/reanalysis data
@@ -800,7 +880,7 @@ export function RouteMap({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {(hasWeather || hasTerrain || terrainStatus === 'loading' || terrainStatus === 'error') && (
+          {(hasWeather || hasTerrain || terrainStatus === 'loading' || terrainStatus === 'error' || daylightAnchor || onFetchTerrain) && (
             <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
               {hasWeather && (
                 <>
@@ -817,6 +897,14 @@ export function RouteMap({
                     💨 Viento
                   </button>
                 </>
+              )}
+              {daylightAnchor && (
+                <button
+                  onClick={() => onMapModeChange('daylight')}
+                  className={`px-3 py-1.5 transition-colors ${mapMode === 'daylight' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  ☀️ Luz
+                </button>
               )}
               {hasPollen && (
                 <button
@@ -866,6 +954,15 @@ export function RouteMap({
                   onClick={() => onMapModeChange('terrain')}
                   className={`px-3 py-1.5 transition-colors ${mapMode === 'terrain' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
                 >
+                  🏔️ Terreno
+                </button>
+              ) : onFetchTerrain ? (
+                <button
+                  onClick={onFetchTerrain}
+                  title="Cargar datos de terreno desde OpenStreetMap (consulta pesada en rutas largas — opt-in)"
+                  className="px-3 py-1.5 bg-slate-800 text-slate-400 hover:text-amber-300 hover:bg-slate-700 transition-colors flex items-center gap-1.5"
+                >
+                  <span className="text-amber-500 text-[10px] leading-none">▶</span>
                   🏔️ Terreno
                 </button>
               ) : null}
@@ -919,6 +1016,21 @@ export function RouteMap({
                     )
                   })
                 )}
+              </>
+            ) : mapMode === 'daylight' ? (
+              <>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: DAYLIGHT_COLOR.day }} />
+                  Día
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: DAYLIGHT_COLOR.civil }} />
+                  Crepúsculo civil
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: DAYLIGHT_COLOR.night }} />
+                  Noche
+                </span>
               </>
             ) : mapMode === 'pollen' && hasPollen ? (
               <>

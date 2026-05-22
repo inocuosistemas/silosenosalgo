@@ -35,6 +35,7 @@ import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
 import { checkGpxTimes } from './lib/gpxValidity'
 import type { GpxTimesValidity } from './lib/gpxValidity'
+import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -549,6 +550,22 @@ export default function App() {
     [baseWaypoints, weatherArr, locationArr],
   )
 
+  // ── Daylight summary for the route window ─────────────────────────────────
+  // Anchored at the geographic midpoint of the track (sun times shift by only
+  // 1-3 min across hundreds of km in temperate latitudes — irrelevant at our
+  // scale). Window = startTime → estimatedTime of the final waypoint.
+  const daylightAnchor = useMemo<{ lat: number; lon: number } | undefined>(() => {
+    if (!track || track.points.length === 0) return undefined
+    const m = track.points[Math.floor(track.points.length / 2)]
+    return { lat: m.lat, lon: m.lon }
+  }, [track])
+  const daylight = useMemo<DaylightSummary | null>(() => {
+    if (!daylightAnchor || enrichedWaypoints.length === 0) return null
+    const lastEta = enrichedWaypoints[enrichedWaypoints.length - 1].estimatedTime
+    if (!lastEta || lastEta.getTime() <= startTime.getTime()) return null
+    return summariseDaylight(startTime, lastEta, daylightAnchor.lat, daylightAnchor.lon)
+  }, [daylightAnchor, enrichedWaypoints, startTime])
+
   // ── Derived cut-off Dates (wall-clock + inferred day) ─────────────────────
   // Walk the named waypoints in km order, assigning each cut-off the smallest
   // day such that the resulting absolute time is strictly after the previous
@@ -811,20 +828,21 @@ export default function App() {
    * Used by the "↻ Terreno" retry button in the map mode bar after a network
    * or Overpass HTTP failure.
    *
-   * Force-bypasses the localStorage cache: a retry implies the user wants
-   * fresh data (the cached entry, if any, would only be there from a previous
-   * successful fetch — which means we wouldn't be in the error state).
+   * Trigger an on-demand terrain fetch. Used both for the initial load (the
+   * mode is opt-in to avoid hammering Overpass on every computed route) and
+   * for retrying after a failure. The localStorage cache (14-day TTL) is
+   * consulted first; failures retry with `force: true` to bypass it.
    */
-  const retryTerrain = useCallback(() => {
+  const fetchTerrain = useCallback((opts: { force?: boolean } = {}) => {
     if (!track) return
     setTerrainStatus('loading')
-    fetchTerrainForTrack(track, { force: true })
+    fetchTerrainForTrack(track, opts)
       .then((results) => {
         setTerrainPoints(results)
         setTerrainStatus('done')
       })
       .catch((err) => {
-        console.error('Terrain retry failed:', err)
+        console.error('Terrain fetch failed:', err)
         if (err instanceof OverpassRateLimitError) {
           setTerrainErrorKind('rate-limit')
           setTerrainRetryAfterSec(err.retryAfterSec)
@@ -836,6 +854,7 @@ export default function App() {
         setTerrainStatus('error')
       })
   }, [track])
+  const retryTerrain = useCallback(() => fetchTerrain({ force: true }), [fetchTerrain])
 
   function handleDownloadGpx() {
     if (!track) return
@@ -889,30 +908,12 @@ export default function App() {
             .catch(() => { /* silently ignore — route stays with null pollen */ })
         : Promise.resolve()
 
-      // Terrain: Overpass API query for the route corridor + per-point matching.
-      // Hits a localStorage cache (14-day TTL) before going to the network, so
-      // re-computing the same route is instant. Runs independently of weather/
-      // location/pollen — the terrain mode button shows a spinner until data
-      // arrives, or a retry button on failure.
+      // Terrain: opt-in. The Overpass API call is heavy on long routes, so we
+      // don't fire it on every compute. The user triggers it explicitly from
+      // the "Terreno" chip in the map (which calls fetchTerrain via the
+      // exposed onFetchTerrain prop). State stays at 'idle' until then.
       setTerrainPoints([])
-      setTerrainStatus('loading')
-      fetchTerrainForTrack(track)
-        .then((results) => {
-          setTerrainPoints(results)
-          setTerrainStatus('done')
-        })
-        .catch((err) => {
-          console.error('Terrain fetch failed:', err)
-          if (err instanceof OverpassRateLimitError) {
-            setTerrainErrorKind('rate-limit')
-            setTerrainRetryAfterSec(err.retryAfterSec)
-          } else if (err instanceof TypeError) {
-            setTerrainErrorKind('network')
-          } else {
-            setTerrainErrorKind('server')
-          }
-          setTerrainStatus('error')
-        })
+      setTerrainStatus('idle')
 
       await Promise.all([weatherPromise, locationPromise, pollenPromise])
       setStatus('done')
@@ -1207,6 +1208,8 @@ export default function App() {
         namedWaypoints: enrichedNamedWaypoints,
         startTime,
         mapMode,
+        daylight,
+        daylightAnchor,
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blob = await pdf(doc as any).toBlob()
@@ -1709,6 +1712,7 @@ export default function App() {
               waypoints={enrichedWaypoints}
               range={deferredAnalyzeRange}
               onClearRange={() => setAnalyzeRange(null)}
+              daylight={appMode === 'plan' ? daylight : null}
             />
             <WeatherFreshnessChip
               fetchedAt={weatherFetchedAt}
@@ -1744,6 +1748,7 @@ export default function App() {
             terrainStatus={terrainStatus}
             terrainErrorKind={terrainErrorKind}
             terrainRetryAfterSec={terrainRetryAfterSec}
+            onFetchTerrain={() => fetchTerrain()}
             onTerrainRetry={retryTerrain}
             showRainRadar={showRainRadar}
             onShowRainRadarChange={setShowRainRadar}
@@ -1751,6 +1756,7 @@ export default function App() {
             showWindAnimation={showWindAnimation}
             onShowWindAnimationChange={setShowWindAnimation}
             windAnimationAvailable={weatherArr.some((w) => w !== null)}
+            daylightAnchor={daylightAnchor}
           />
         )}
 
@@ -1876,6 +1882,7 @@ export default function App() {
                     namedWaypoints={tableNamedWaypoints}
                     startTime={startTime}
                     onSetCutoff={appMode === 'plan' ? setCutoff : undefined}
+                    daylightAnchor={daylightAnchor}
                   />
                 </>
               )
@@ -1957,14 +1964,19 @@ function WeatherFreshnessChip({
 }
 
 // ── WeatherSummary ──────────────────────────────────────────────────────────
+// Renders the route's general-info row: weather metrics + optional daylight
+// metrics + a thin daylight timeline strip below. When `daylight` is provided,
+// the card grid expands to 6 columns and the timeline appears underneath.
 const WeatherSummary = memo(function WeatherSummary({
   waypoints,
   range,
   onClearRange,
+  daylight,
 }: {
   waypoints: ReturnType<typeof useMemo>
   range?: { from: number; to: number } | null
   onClearRange?: () => void
+  daylight?: DaylightSummary | null
 }) {
   type Wp = { weather: { temperatureC: number; precipProbability: number } | null; distanceKm: number }
   const allWps = waypoints as Wp[]
@@ -1975,16 +1987,43 @@ const WeatherSummary = memo(function WeatherSummary({
     return w.distanceKm >= range.from && w.distanceKm <= range.to
   })
 
-  if (wps.length === 0) return null
+  if (wps.length === 0 && !daylight) return null
 
-  const temps = wps.map((w) => w.weather!.temperatureC)
-  const probs = wps.map((w) => w.weather!.precipProbability)
-  const maxProb = Math.max(...probs)
-  const minTemp = Math.min(...temps)
-  const maxTemp = Math.max(...temps)
-  const rainyCount = probs.filter((p) => p >= 50).length
+  const hasWeather = wps.length > 0
+  const temps = hasWeather ? wps.map((w) => w.weather!.temperatureC) : []
+  const probs = hasWeather ? wps.map((w) => w.weather!.precipProbability) : []
+  const maxProb = hasWeather ? Math.max(...probs) : 0
+  const minTemp = hasWeather ? Math.min(...temps) : 0
+  const maxTemp = hasWeather ? Math.max(...temps) : 0
+  const rainyCount = hasWeather ? probs.filter((p) => p >= 50).length : 0
   const risk = maxProb >= 70 ? 'alto' : maxProb >= 40 ? 'moderado' : 'bajo'
   const riskColor = maxProb >= 70 ? 'text-blue-400' : maxProb >= 40 ? 'text-yellow-400' : 'text-green-400'
+
+  type Card = { label: string; value: string; color: string; title?: string }
+  const weatherCards: Card[] = hasWeather ? [
+    { label: 'Riesgo lluvia',     value: risk,                                                        color: riskColor },
+    { label: 'Prob. máx.',        value: `${maxProb}%`,                                               color: maxProb >= 70 ? 'text-blue-400' : 'text-slate-200' },
+    { label: 'Temperatura',       value: `${minTemp.toFixed(0)}–${maxTemp.toFixed(0)}°C`,             color: 'text-slate-200' },
+    { label: 'Tramos con lluvia', value: `${rainyCount} / ${wps.length}`,                             color: rainyCount > 0 ? 'text-sky-400' : 'text-green-400' },
+  ] : []
+
+  const darkRanges = daylight ? daylight.intervals.filter((iv) => iv.band === 'night') : []
+  const darkRangesText = darkRanges.length === 0
+    ? 'sin tramos de noche cerrada'
+    : darkRanges.map((iv) => `${fmtClock(iv.from)}–${fmtClock(iv.to)}`).join(' · ')
+
+  const lightCards: Card[] = daylight ? [
+    { label: 'Luz útil',     value: fmtHM(daylight.usefulMin),                                       color: 'text-amber-300' },
+    { label: 'Requiere luz', value: daylight.darknessMin > 0 ? fmtHM(daylight.darknessMin) : 'no',   color: daylight.darknessMin > 0 ? 'text-indigo-300' : 'text-green-400', title: darkRanges.length > 0 ? `Tramos sin luz natural — ${darkRangesText}` : undefined },
+  ] : []
+
+  const allCards = [...weatherCards, ...lightCards]
+  const totalCols = allCards.length
+  const gridCls = totalCols === 6
+    ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3'
+    : totalCols === 4
+    ? 'grid grid-cols-2 sm:grid-cols-4 gap-3'
+    : 'grid grid-cols-2 gap-3'
 
   return (
     <div className="space-y-2">
@@ -2005,19 +2044,77 @@ const WeatherSummary = memo(function WeatherSummary({
           </span>
         </div>
       )}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Riesgo lluvia', value: risk, color: riskColor },
-          { label: 'Prob. máx.', value: `${maxProb}%`, color: maxProb >= 70 ? 'text-blue-400' : 'text-slate-200' },
-          { label: 'Temperatura', value: `${minTemp.toFixed(0)}–${maxTemp.toFixed(0)}°C`, color: 'text-slate-200' },
-          { label: 'Tramos con lluvia', value: `${rainyCount} / ${wps.length}`, color: rainyCount > 0 ? 'text-sky-400' : 'text-green-400' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-slate-800 rounded-xl px-4 py-4 text-center">
+      <div className={gridCls}>
+        {allCards.map(({ label, value, color, title }) => (
+          <div key={label} className="bg-slate-800 rounded-xl px-4 py-4 text-center" title={title}>
             <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">{label}</p>
             <p className={`text-xl font-bold ${color}`}>{value}</p>
           </div>
         ))}
       </div>
+
+      {/* Daylight timeline strip — slim, integrated below the card grid */}
+      {daylight && <DaylightStrip summary={daylight} darkRangesText={darkRangesText} darkRangesCount={darkRanges.length} />}
     </div>
   )
 })
+
+// Pre-declare for use above (defined after WeatherSummary)
+type DaylightStripProps = { summary: DaylightSummary; darkRangesText: string; darkRangesCount: number }
+function DaylightStrip({ summary, darkRangesText, darkRangesCount }: DaylightStripProps) {
+  const totalMin = (summary.to.getTime() - summary.from.getTime()) / 60_000
+  if (totalMin <= 0) return null
+  return (
+    <div className="bg-slate-800 rounded-xl px-4 py-2 flex flex-col gap-1.5">
+      <div className="flex h-2 rounded-sm overflow-hidden border border-slate-700/60">
+        {summary.intervals.map((iv, i) => (
+          <div
+            key={i}
+            className={BAND_CLS[iv.band]}
+            style={{ width: `${(iv.minutes / totalMin) * 100}%` }}
+            title={`${BAND_LABEL[iv.band]}: ${fmtClock(iv.from)} → ${fmtClock(iv.to)} (${fmtHM(iv.minutes)})`}
+          />
+        ))}
+      </div>
+      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono gap-3 flex-wrap">
+        <span>{fmtClock(summary.from)}</span>
+        <span className="flex items-center gap-2 normal-case">
+          <span className="flex items-center gap-1"><span className={`inline-block w-2 h-2 rounded-sm ${BAND_CLS.day}`} />Día</span>
+          <span className="flex items-center gap-1"><span className={`inline-block w-2 h-2 rounded-sm ${BAND_CLS.civil}`} />Crep.</span>
+          <span className="flex items-center gap-1"><span className={`inline-block w-2 h-2 rounded-sm ${BAND_CLS.night}`} />Noche</span>
+          {darkRangesCount > 0 && (
+            <span className="text-indigo-400 normal-case hidden md:inline">· 🌙 {darkRangesText}</span>
+          )}
+        </span>
+        <span>{fmtClock(summary.to)}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Daylight helpers used by WeatherSummary / DaylightStrip ────────────────
+const BAND_CLS: Record<DaylightBand, string> = {
+  day:   'bg-amber-400',
+  civil: 'bg-orange-700',
+  night: 'bg-indigo-950',
+}
+const BAND_LABEL: Record<DaylightBand, string> = {
+  day:   'Día',
+  civil: 'Crepúsculo civil',
+  night: 'Noche',
+}
+
+function fmtHM(min: number): string {
+  const m = Math.round(min)
+  if (m < 1) return '0m'
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (h === 0) return `${r}m`
+  if (r === 0) return `${h}h`
+  return `${h}h ${r.toString().padStart(2, '0')}m`
+}
+
+function fmtClock(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+

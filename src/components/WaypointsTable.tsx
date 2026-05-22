@@ -2,12 +2,37 @@ import { useMemo } from 'react'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
+import type { DaylightBand } from '../lib/daylight'
+import { bandAt } from '../lib/daylight'
 
 interface Props {
   waypoints: EnrichedWaypoint[]
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
   onSetCutoff?: (lat: number, lon: number, time: Date | null) => void
+  /** Geographic anchor for sun-position calculation (typically the route's midpoint). */
+  daylightAnchor?: { lat: number; lon: number }
+}
+
+const BAND_ICON: Record<DaylightBand, string> = {
+  day:   '☀️',
+  civil: '🌅',
+  night: '🌙',
+}
+const BAND_TITLE: Record<DaylightBand, string> = {
+  day:   'Día — luz natural plena',
+  civil: 'Crepúsculo civil — luz tenue',
+  night: 'Noche — luz artificial necesaria',
+}
+
+function DaylightIcon({ time, anchor }: { time: Date | null; anchor?: { lat: number; lon: number } }) {
+  if (!time || !anchor) return null
+  const b = bandAt(time, anchor.lat, anchor.lon)
+  return (
+    <span className="ml-1 text-xs" title={BAND_TITLE[b]} aria-label={BAND_TITLE[b]}>
+      {BAND_ICON[b]}
+    </span>
+  )
 }
 
 type TableRow =
@@ -108,7 +133,7 @@ function CutoffBadge({ min }: { min: number }) {
   )
 }
 
-export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff }: Props) {
+export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, daylightAnchor }: Props) {
   if (waypoints.length === 0) return null
 
   const last = waypoints[waypoints.length - 1]
@@ -219,6 +244,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     {/* Hora */}
                     <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
                       {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
+                      <DaylightIcon time={wpt.estimatedTime} anchor={daylightAnchor} />
                       {wpt.estimatedTime && (
                         <span className="text-slate-500 font-normal text-xs ml-1.5">
                           {formatDuration(wpt.estimatedTime.getTime() - startTime.getTime())}
@@ -352,6 +378,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                   </td>
                   <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
                     {formatTime(wp.estimatedTime)}
+                    <DaylightIcon time={wp.estimatedTime} anchor={daylightAnchor} />
                     <span className="text-slate-500 font-normal text-xs ml-1.5">
                       {formatDuration(wp.estimatedTime.getTime() - startTime.getTime())}
                     </span>
