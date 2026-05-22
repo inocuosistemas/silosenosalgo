@@ -1,5 +1,5 @@
 import type { GpxTrack } from './gpx'
-import type { PaceConfig, SegmentPace } from './timing'
+import type { PaceConfig, PausePoint, SegmentPace } from './timing'
 import { ACTIVITY_MAX_SPEED_KMH, elevationStatsForSegment } from './timing'
 import type { EnrichedNamedWaypoint } from './places'
 
@@ -44,6 +44,12 @@ export interface SegmentStrategy {
   cutoffTime: Date
   /** True when toTime comes from a per-segment user override (vs. cutoff − margin). */
   hasTargetOverride: boolean
+  /**
+   * Total planned pause minutes inside this segment (includes a pause anchored
+   * exactly at the "from" boundary, which delays departure). Moving time =
+   * availableMin − pauseMin.
+   */
+  pauseMin: number
 }
 
 export interface CutoffStrategyResult {
@@ -95,6 +101,11 @@ const EASY_SLACK     = +1.0  // can go >1 min/km slower   → 🟢
  *   set to the override instead of (cutoff − marginMin). This lets the user
  *   pin a desired passing time for specific checkpoints, and margins for the
  *   surrounding segments are recomputed accordingly.
+ * @param pauses     Optional planned pauses anywhere along the route. Pauses
+ *   inside a segment (km ∈ [from.km, to.km)) shrink the segment's moving time
+ *   without changing arrival anchors — required pace tightens accordingly.
+ *   A pause at an anchor's km counts toward the *next* segment (it delays the
+ *   departure from that anchor).
  */
 export function computeCutoffStrategy(
   track: GpxTrack,
@@ -106,6 +117,7 @@ export function computeCutoffStrategy(
   startKm = 0,
   startLabel = 'Salida',
   targetTimes?: Map<number, Date>,
+  pauses?: PausePoint[],
 ): CutoffStrategyResult {
   const withCutoffs = [...namedWaypoints]
     .filter((w) => w.cutoffTime != null && w.distanceKm > startKm + 0.05)
@@ -140,11 +152,22 @@ export function computeCutoffStrategy(
 
   const segments: SegmentStrategy[] = []
 
+  const sortedPauses = (pauses ?? []).filter((p) => p.minutes > 0).sort((a, b) => a.km - b.km)
+
   for (let i = 0; i < anchors.length - 1; i++) {
     const from = anchors[i]
     const to   = anchors[i + 1]
     const distanceKm   = to.km - from.km
     const availableMin = (to.time.getTime() - from.time.getTime()) / 60_000
+
+    // Pauses inside this segment (including one anchored exactly at `from.km`
+    // — they delay departure from this anchor and so eat into the segment's
+    // moving time). A pause at `to.km` is *not* counted: it happens after
+    // arrival at the next anchor and belongs to the following segment.
+    const segPauseMin = sortedPauses
+      .filter((p) => p.km >= from.km - 0.001 && p.km < to.km - 0.001)
+      .reduce((sum, p) => sum + p.minutes, 0)
+    const movingMin = availableMin - segPauseMin
 
     // Elevation gain for this km range
     const stats    = elevationStatsForSegment(track, from.km, to.km, paceConfig)
@@ -152,16 +175,16 @@ export function computeCutoffStrategy(
 
     let requiredPaceMinPerKm: number | null = null
 
-    if (availableMin <= 0 || distanceKm <= 0) {
-      requiredPaceMinPerKm = null   // cut-off already past or zero-length segment
+    if (movingMin <= 0 || distanceKm <= 0) {
+      requiredPaceMinPerKm = null   // cut-off already past, zero-length, or pauses consume all time
     } else if (paceConfig.mode === 'naismith') {
-      // Solve P: P × dist + (D+/100) × naismithMin100mUp = availableMin
+      // Solve P: P × dist + (D+/100) × naismithMin100mUp = movingMin
       const eleTime     = (elevGainM / 100) * paceConfig.naismithMin100mUp
-      const timeForFlat = availableMin - eleTime
+      const timeForFlat = movingMin - eleTime
       requiredPaceMinPerKm = timeForFlat > 0 ? timeForFlat / distanceKm : null
     } else {
       // Fixed or GPX (treat as fixed for required-pace purposes)
-      requiredPaceMinPerKm = availableMin / distanceKm
+      requiredPaceMinPerKm = movingMin / distanceKm
     }
 
     // Clip against physical activity limit
@@ -194,6 +217,7 @@ export function computeCutoffStrategy(
       toTime:   to.time,
       cutoffTime: to.cutoff!,
       hasTargetOverride: to.override,
+      pauseMin: segPauseMin,
     })
   }
 

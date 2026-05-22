@@ -744,6 +744,11 @@ function TableSection({
                         </Text>
                       </View>
                       <Text style={{ fontSize: 6, color: C.faint }}>{formatDuration(elapsed)}</Text>
+                      {wpt.pauseMin && wpt.pauseMin > 0 && (
+                        <Text style={{ fontSize: 6, color: '#be185d', fontFamily: 'Helvetica-Bold' }}>
+                          +{wpt.pauseMin}m pausa
+                        </Text>
+                      )}
                     </>
                   ) : (
                     <Text style={styles.tdFaint}>—</Text>

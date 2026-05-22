@@ -98,6 +98,9 @@ function serializeWpt(
   if (wpt.custom) {
     extLines.push(`${i3}<${PREFIX}:custom>true</${PREFIX}:custom>`)
   }
+  if (wpt.pauseMin && wpt.pauseMin > 0) {
+    extLines.push(`${i3}<${PREFIX}:pauseMin>${wpt.pauseMin}</${PREFIX}:pauseMin>`)
+  }
   parts.push(
     `${i2}<extensions>\n` +
     extLines.join('\n') + '\n' +

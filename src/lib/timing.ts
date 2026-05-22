@@ -61,6 +61,18 @@ export interface SegmentPace {
   paceMinPerKm: number
 }
 
+/**
+ * Planned dwell at a specific km — e.g. lunch / aid station / regroup.
+ * When the cursor crosses this km in computeWaypoints, `minutes` are added
+ * to the elapsed-time accumulator, so all downstream ETAs shift forward.
+ * Pauses are intentionally anchored to km (not waypoint identity) to make
+ * the timing path independent of any UI model.
+ */
+export interface PausePoint {
+  km: number
+  minutes: number
+}
+
 function computeBearing(from: { lat: number; lon: number }, to: { lat: number; lon: number }): number {
   const φ1 = (from.lat * Math.PI) / 180
   const φ2 = (to.lat * Math.PI) / 180
@@ -132,6 +144,12 @@ export function computeWaypoints(
    * on top of the overridden pace when mode === 'naismith'.
    */
   segmentPaces?: SegmentPace[],
+  /**
+   * Optional planned pauses anchored at specific km. When the cursor crosses
+   * a pause's km (transitioning from before to at-or-past), its minutes are
+   * added to the elapsed accumulator so all downstream ETAs shift forward.
+   */
+  pauses?: PausePoint[],
 ): Waypoint[] {
   const { points } = track
   if (points.length === 0) return []
@@ -150,6 +168,15 @@ export function computeWaypoints(
   }
 
   const intervalMs = sampling.intervalMinutes * 60000
+
+  // Pre-sort pauses by km and use a cursor so each is consumed at most once
+  // as the loop advances. Skips pauses at km 0 (already at start) and any
+  // pauses past the track end. Negative minutes are clamped to 0.
+  const sortedPauses = (pauses ?? [])
+    .filter((p) => p.km > 0 && p.km <= track.totalDistanceKm + 0.001 && p.minutes > 0)
+    .map((p) => ({ km: p.km, minutes: Math.max(0, p.minutes) }))
+    .sort((a, b) => a.km - b.km)
+  let pauseIdx = 0
 
   // Hysteresis accumulator: commit gain/loss only when pending buffer crosses ±1 m
   // Filters GPS noise (<1 m oscillations) without losing slow real climbs
@@ -184,6 +211,13 @@ export function computeWaypoints(
     const segMin = segmentMinutes(points[i - 1], points[i], paceConfig, overridePace)
     distAccum += segDist
     elapsedMs += segMin * 60000
+
+    // Apply any pauses whose km we've just crossed. Multiple pauses within
+    // the same segment are all consumed (rare, but harmless).
+    while (pauseIdx < sortedPauses.length && distAccum >= sortedPauses[pauseIdx].km) {
+      elapsedMs += sortedPauses[pauseIdx].minutes * 60_000
+      pauseIdx++
+    }
     pendingEle += points[i].ele - points[i - 1].ele
     if (pendingEle >= HYSTERESIS_M) {
       gainAccum += pendingEle

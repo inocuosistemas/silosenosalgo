@@ -74,6 +74,8 @@ export interface ParsedPoiRow {
   desc?: string
   /** Cut-off wall-clock parsed from the row, or null when absent. */
   cutoff: CutoffWallClock | null
+  /** Planned dwell time in minutes (e.g. lunch stop). Null when absent. */
+  pauseMin: number | null
   /** Original 1-based line number from the input — for error reporting. */
   lineNo: number
 }
@@ -89,7 +91,7 @@ export interface PasteResult {
  * Parse a pasted multi-line POI text in the format described to the user.
  *
  * Each non-empty, non-comment, non-header line should look like:
- *   `KM | NAME | DESC | CUTOFF`
+ *   `KM | NAME | DESC | CUTOFF | PAUSE`
  *
  * Where:
  *  - KM:     decimal km (`15.5`, `22`, `30,5` — comma decimal accepted)
@@ -98,6 +100,9 @@ export interface PasteResult {
  *  - CUTOFF: `HH:MM` (optional). The day is auto-inferred — see
  *            `inferCutoffDates`. A trailing `+Nd` from the legacy format is
  *            accepted but silently ignored (the inference handles day jumps).
+ *  - PAUSE:  optional planned dwell time in minutes (positive integer or
+ *            decimal). E.g. `30` for a 30-minute lunch stop at this POI.
+ *            Shifts all downstream ETAs forward by this amount.
  *
  * Accepted column separators: `|`, `\t`, `;` (mixing within one line is
  * fine — first occurrence wins per cell).
@@ -132,10 +137,11 @@ export function parsePoiPaste(text: string): PasteResult {
       continue
     }
 
-    const kmStr   = parts[0]
-    const name    = parts[1] ?? ''
-    const descRaw = parts[2] ?? ''
+    const kmStr     = parts[0]
+    const name      = parts[1] ?? ''
+    const descRaw   = parts[2] ?? ''
     const cutoffRaw = parts[3] ?? ''
+    const pauseRaw  = parts[4] ?? ''
 
     // KM: accept comma decimals
     const km = parseFloat(kmStr.replace(',', '.'))
@@ -168,7 +174,18 @@ export function parsePoiPaste(text: string): PasteResult {
       cutoff = { hour, minute }
     }
 
-    rows.push({ km, name, desc: descRaw || undefined, cutoff, lineNo })
+    // Optional pause: positive number of minutes
+    let pauseMin: number | null = null
+    if (pauseRaw.length > 0) {
+      const p = parseFloat(pauseRaw.replace(',', '.'))
+      if (!Number.isFinite(p) || p < 0) {
+        errors.push({ lineNo, line: raw, reason: `pausa no válida: "${pauseRaw}" (usa minutos, p. ej. 30)` })
+        continue
+      }
+      if (p > 0) pauseMin = p
+    }
+
+    rows.push({ km, name, desc: descRaw || undefined, cutoff, pauseMin, lineNo })
   }
 
   // Sort by km — final output order matches GPX export order
@@ -255,6 +272,7 @@ export function materialisePois(
       distanceKm:        r.km,
       nearestTrackIndex: nearestIndex,
       custom:            true,
+      pauseMin:          r.pauseMin ?? undefined,
     }
     out.push({ poi, cutoff: r.cutoff })
   }
@@ -272,17 +290,18 @@ export function materialisePois(
  * on import.
  */
 export function formatPoisAsText(
-  pois:       { distanceKm: number; name: string; desc?: string }[],
+  pois:       { distanceKm: number; name: string; desc?: string; pauseMin?: number }[],
   cutoffByKm: Map<number, CutoffWallClock>,
 ): string {
-  const lines: string[] = ['# km | nombre | descripción | corte (HH:MM, día auto)']
+  const lines: string[] = ['# km | nombre | descripción | corte (HH:MM, día auto) | pausa (min)']
   const sorted = [...pois].sort((a, b) => a.distanceKm - b.distanceKm)
   for (const p of sorted) {
     const wc = cutoffByKm.get(p.distanceKm)
     const cutoffStr = wc
       ? `${wc.hour.toString().padStart(2, '0')}:${wc.minute.toString().padStart(2, '0')}`
       : ''
-    lines.push(`${p.distanceKm.toFixed(2)} | ${p.name} | ${p.desc ?? ''} | ${cutoffStr}`)
+    const pauseStr = p.pauseMin && p.pauseMin > 0 ? String(p.pauseMin) : ''
+    lines.push(`${p.distanceKm.toFixed(2)} | ${p.name} | ${p.desc ?? ''} | ${cutoffStr} | ${pauseStr}`)
   }
   return lines.join('\n')
 }

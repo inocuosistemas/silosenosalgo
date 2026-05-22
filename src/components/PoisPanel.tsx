@@ -110,13 +110,14 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <section>
             <h4 className="text-slate-100 font-semibold mb-1.5">Formato por línea</h4>
             <pre className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-200 overflow-x-auto">
-{`km | nombre | descripción | corte`}
+{`km | nombre | descripción | corte | pausa`}
             </pre>
             <ul className="mt-2 space-y-1 text-xs text-slate-400 list-disc pl-5">
               <li><code className="text-slate-200">km</code> — punto kilométrico, decimal con punto o coma (<code className="text-slate-200">15.5</code> o <code className="text-slate-200">15,5</code>)</li>
               <li><code className="text-slate-200">nombre</code> — obligatorio, cualquier texto</li>
               <li><code className="text-slate-200">descripción</code> — opcional, deja vacío entre los pipes si no aplica</li>
               <li><code className="text-slate-200">corte</code> — opcional, formato <code className="text-slate-200">HH:MM</code> únicamente. <strong className="text-slate-200">El día se calcula automáticamente</strong> (ver siguiente sección)</li>
+              <li><code className="text-slate-200">pausa</code> — opcional, minutos de parada prevista en este punto (p. ej. <code className="text-slate-200">30</code> para una parada de 30 min). Desplaza las horas de paso posteriores y reduce el tiempo de movimiento disponible en su tramo.</li>
             </ul>
           </section>
 
@@ -124,10 +125,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <h4 className="text-slate-100 font-semibold mb-1.5">Ejemplo</h4>
             <pre className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-300 overflow-x-auto leading-relaxed">
 {`# Cabecera y comentarios opcionales
-km | nombre        | descripción            | corte
-15.5 | Refugio       | Avituallamiento        | 14:30
-22.0 | Cima del Pico | Vista panorámica       |
-30.5 | Meta          |                        | 03:00`}
+km | nombre        | descripción            | corte | pausa
+15.5 | Refugio       | Avituallamiento        | 14:30 | 30
+22.0 | Cima del Pico | Vista panorámica       |       |
+30.5 | Meta          |                        | 03:00 |`}
             </pre>
             <p className="text-xs text-slate-400 mt-2">
               Las líneas que empiezan con <code className="text-slate-200">#</code> y la cabecera <code className="text-slate-200">km | nombre…</code> se ignoran.
@@ -471,6 +472,7 @@ export function PoisPanel({
                         <th className="text-left py-1.5 pr-3">Nombre</th>
                         <th className="text-left py-1.5 pr-3">Descripción</th>
                         <th className="text-left py-1.5 pr-3">Corte</th>
+                        <th className="text-left py-1.5 pr-3">Pausa</th>
                         <th className="text-left py-1.5"></th>
                       </tr>
                     </thead>
@@ -484,6 +486,9 @@ export function PoisPanel({
                             {r.cutoff
                               ? `${r.cutoff.hour.toString().padStart(2, '0')}:${r.cutoff.minute.toString().padStart(2, '0')}`
                               : '—'}
+                          </td>
+                          <td className="py-1.5 pr-3 font-mono text-rose-300">
+                            {r.pauseMin ? `${r.pauseMin}m` : '—'}
                           </td>
                           <td className="py-1.5">
                             {r.isDuplicate && (
@@ -573,6 +578,9 @@ export function PoisPanel({
                             <td className="py-1.5 pr-2 text-slate-500 truncate max-w-[12rem]">{w.desc ?? ''}</td>
                             <td className="py-1.5 pr-2 font-mono text-amber-300">
                               {cutoff ? formatTime(cutoff) : ''}
+                            </td>
+                            <td className="py-1.5 pr-2 font-mono text-rose-300" title="Pausa prevista">
+                              {w.pauseMin && w.pauseMin > 0 ? `⏸ ${w.pauseMin}m` : ''}
                             </td>
                             <td className="py-1.5 text-right">
                               {w.custom && (

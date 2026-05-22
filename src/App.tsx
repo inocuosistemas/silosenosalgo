@@ -11,7 +11,7 @@ import { downloadGpx } from './lib/gpxSerialize'
 import { PoisPanel, type MaterialisedPoi } from './components/PoisPanel'
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
-import type { PaceConfig, SamplingConfig, Waypoint } from './lib/timing'
+import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
 import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
@@ -351,6 +351,14 @@ export default function App() {
 
   // ── Weather freshness ──────────────────────────────────────────────────────
   const [weatherFetchedAt, setWeatherFetchedAt] = useState<Date | null>(null)
+  /**
+   * ETAs (in ms) at the moment of the last successful weather fetch — parallel
+   * to baseWaypoints. We compare these against the current ETAs to detect
+   * "drift" caused by pause edits (or any other recompute that doesn't go
+   * through the network), so the freshness chip can flag stale forecasts
+   * even when the fetch timestamp is recent.
+   */
+  const [weatherEtaSnapshot, setWeatherEtaSnapshot] = useState<number[] | null>(null)
   const [refreshingWeather, setRefreshingWeather] = useState(false)
   /** true = show "has estado fuera X min" banner */
   const [returnBanner, setReturnBanner] = useState(false)
@@ -443,9 +451,38 @@ export default function App() {
     })
     setTrackDirty(true)
   }, [track])
+
   // Deferred: WeatherCharts, WeatherSummary and the waypoints table only re-render
   // when React is idle, keeping slider drag at 60 fps.
   const deferredAnalyzeRange = useDeferredValue(analyzeRange)
+
+  /**
+   * Capture the baseWaypoints' ETAs as the "fetched" snapshot every time a
+   * weather fetch completes (weatherFetchedAt changes). We intentionally
+   * exclude baseWaypoints from deps: later drift (caused by pause edits or
+   * other inline recomputes) should be visible — only a real fetch refreshes
+   * the snapshot.
+   */
+  useEffect(() => {
+    if (weatherFetchedAt === null) {
+      setWeatherEtaSnapshot(null)
+      return
+    }
+    if (baseWaypoints.length === 0) return
+    setWeatherEtaSnapshot(baseWaypoints.map((w) => w.estimatedTime.getTime()))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weatherFetchedAt])
+
+  /** Max ETA shift (minutes) between the current baseWaypoints and the snapshot at last fetch. */
+  const weatherEtaDriftMin = useMemo(() => {
+    if (!weatherEtaSnapshot || baseWaypoints.length !== weatherEtaSnapshot.length) return 0
+    let maxMs = 0
+    for (let i = 0; i < baseWaypoints.length; i++) {
+      const d = Math.abs(baseWaypoints[i].estimatedTime.getTime() - weatherEtaSnapshot[i])
+      if (d > maxMs) maxMs = d
+    }
+    return maxMs / 60_000
+  }, [baseWaypoints, weatherEtaSnapshot])
 
   // ── GPS live position ──────────────────────────────────────────────────────
   /** Distance threshold in km above which we consider the GPS fix off-route. */
@@ -549,6 +586,16 @@ export default function App() {
       })),
     [baseWaypoints, weatherArr, locationArr],
   )
+
+  // ── Planned pauses (derived from named waypoints with pauseMin) ───────────
+  // Anchored by km so the timing engine doesn't need to know about waypoint
+  // identity. Empty when no POI carries a pause.
+  const pauses = useMemo<PausePoint[]>(() => {
+    if (!track) return []
+    return track.namedWaypoints
+      .filter((w) => w.pauseMin != null && w.pauseMin > 0)
+      .map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! }))
+  }, [track])
 
   // ── Daylight summary for the route window ─────────────────────────────────
   // Anchored at the geographic midpoint of the track (sun times shift by only
@@ -876,7 +923,7 @@ export default function App() {
     setLocationProgress({ done: 0, total: 0 })
 
     try {
-      const wps = computeWaypoints(track, startTime, computeConfig, sampling, computeSegPaces ?? undefined)
+      const wps = computeWaypoints(track, startTime, computeConfig, sampling, computeSegPaces ?? undefined, pauses)
       setBaseWaypoints(wps)
       setWeatherArr(wps.map(() => null))
       setLocationArr(wps.map(() => null))
@@ -1053,7 +1100,7 @@ export default function App() {
     try {
       const now = new Date()
       setStartTime(now)  // record actual departure time as "now"
-      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined)
+      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined, pauses)
       setBaseWaypoints(wps)
       setLocationArr(wps.map(() => null))
       setWeatherArr(wps.map(() => null))
@@ -1103,6 +1150,39 @@ export default function App() {
   const isDone = status === 'done' && baseWaypoints.length > 0
 
   /**
+   * Set or clear the planned pause at a named POI (lat/lon-keyed match).
+   * Lives on track.namedWaypoints[i].pauseMin and is also persisted to the
+   * custom-POIs localStorage cache. We recompute baseWaypoints inline so
+   * the visible ETAs / strategy refresh immediately — no network calls,
+   * weather/location arrays keep their order (km-based sampling unchanged).
+   */
+  const setPause = useCallback((lat: number, lon: number, minutes: number | null) => {
+    if (!track) return
+    const key = wptKey(lat, lon)
+    const nextWaypoints = track.namedWaypoints.map((w) => {
+      if (wptKey(w.lat, w.lon) !== key) return w
+      const m = minutes != null && minutes > 0 ? minutes : undefined
+      if (m === w.pauseMin) return w
+      return { ...w, pauseMin: m }
+    })
+    const nextTrack: GpxTrack = { ...track, namedWaypoints: nextWaypoints }
+    setTrack(nextTrack)
+    saveCustomPois(track.name, nextWaypoints.filter((w) => w.custom))
+    setTrackDirty(true)
+
+    if (isDone && appMode === 'plan' && baseWaypoints.length > 0) {
+      const nextPauses: PausePoint[] = nextWaypoints
+        .filter((w) => w.pauseMin != null && w.pauseMin > 0)
+        .map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! }))
+      const wps = computeWaypoints(
+        nextTrack, startTime, effectivePaceConfig, sampling,
+        effectiveSegmentPaces ?? undefined, nextPauses,
+      )
+      setBaseWaypoints(wps)
+    }
+  }, [track, isDone, appMode, startTime, effectivePaceConfig, sampling, effectiveSegmentPaces, baseWaypoints.length])
+
+  /**
    * Session-scoped "dirty" flag — true when the user has made a change in the
    * CURRENT session that hasn't been written to a GPX file yet (POI added,
    * removed, cut-off edited). Resets when:
@@ -1131,13 +1211,15 @@ export default function App() {
         effectivePaceConfig, strategyMargin,
         buddyKmNow, 'Compañero',
         segmentTargets,
+        pauses,
       )
     }
     return computeCutoffStrategy(
       track, withCutoffs, startTime, effectivePaceConfig, strategyMargin,
       0, 'Salida', segmentTargets,
+      pauses,
     )
-  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, buddyDerived, buddyKmNow, buddyTick])
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, pauses, buddyDerived, buddyKmNow, buddyTick])
 
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
   // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
@@ -1698,6 +1780,7 @@ export default function App() {
                   fetchedAt={weatherFetchedAt}
                   onRefresh={handleRefreshWeather}
                   refreshing={refreshingWeather}
+                  etaDriftMin={weatherEtaDriftMin}
                   className="ml-auto"
                 />
               </div>
@@ -1718,6 +1801,7 @@ export default function App() {
               fetchedAt={weatherFetchedAt}
               onRefresh={handleRefreshWeather}
               refreshing={refreshingWeather}
+              etaDriftMin={weatherEtaDriftMin}
             />
           </>
         )}
@@ -1882,6 +1966,7 @@ export default function App() {
                     namedWaypoints={tableNamedWaypoints}
                     startTime={startTime}
                     onSetCutoff={appMode === 'plan' ? setCutoff : undefined}
+                    onSetPause={appMode === 'plan' ? setPause : undefined}
                     daylightAnchor={daylightAnchor}
                   />
                 </>
@@ -1926,28 +2011,52 @@ export default function App() {
 }
 
 // ── WeatherFreshnessChip ────────────────────────────────────────────────────
+const ETA_DRIFT_STALE_MIN = 15  // ≥ this many minutes of ETA shift → forecast considered out of step
+
 function WeatherFreshnessChip({
   fetchedAt,
   onRefresh,
   refreshing,
+  etaDriftMin = 0,
   className = '',
 }: {
   fetchedAt: Date | null
   onRefresh: () => void
   refreshing: boolean
+  /**
+   * Max minutes the current ETAs have shifted from those at last fetch — used
+   * to amplify staleness when pauses / pace changes have moved waypoints far
+   * enough that the cached forecast no longer matches their actual time.
+   */
+  etaDriftMin?: number
   className?: string
 }) {
   const freshness = useFreshnessLabel(fetchedAt)
   if (!freshness) return null
 
+  const driftLarge = etaDriftMin >= ETA_DRIFT_STALE_MIN
+  // ETA drift forces at least 'stale'; if the chip was already 'very-stale' we keep red.
+  const effectiveSeverity =
+    freshness.severity === 'very-stale' ? 'very-stale'
+    : driftLarge                        ? 'stale'
+    : freshness.severity
+
   const colorClass =
-    freshness.severity === 'fresh' ? 'text-green-400' :
-    freshness.severity === 'stale' ? 'text-amber-400' :
+    effectiveSeverity === 'fresh' ? 'text-green-400' :
+    effectiveSeverity === 'stale' ? 'text-amber-400' :
     'text-red-400'
 
   return (
-    <div className={`flex items-center gap-2 text-xs ${className}`}>
+    <div className={`flex items-center gap-2 text-xs flex-wrap ${className}`}>
       <span className={colorClass}>⏱ Meteo: {freshness.label}</span>
+      {driftLarge && (
+        <span
+          className="text-amber-400"
+          title="Las pausas/recálculos han desplazado las horas estimadas respecto al momento en que se descargó la previsión. Actualiza para refrescar el forecast a las horas reales de paso."
+        >
+          · ETAs desplazadas {Math.round(etaDriftMin)} min
+        </span>
+      )}
       <button
         onClick={onRefresh}
         disabled={refreshing}

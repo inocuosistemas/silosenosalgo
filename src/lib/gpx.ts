@@ -40,6 +40,14 @@ export interface GpxNamedWaypoint {
    * button only on user-added POIs, and the "track modified" indicator.
    */
   custom?: boolean
+  /**
+   * Planned dwell time at this POI (minutes), e.g. an aid-station / lunch
+   * stop. When set, the timing engine adds this to the elapsed time as the
+   * cursor passes through this km, shifting all downstream ETAs forward.
+   * The pause happens *after* arrival, so the POI's own cutoff (if any) is
+   * evaluated against the arrival time, not the departure.
+   */
+  pauseMin?: number
 }
 
 export interface GpxTrack {
@@ -124,6 +132,7 @@ export function parseGpx(xml: string): GpxTrack {
       const cutoffWallClock = readCutoffWallClockFromExtensions(el) ?? undefined
       const persistedKm = readDistanceKmFromExtensions(el)
       const custom = readCustomFlagFromExtensions(el)
+      const pauseMin = readPauseMinFromExtensions(el)
 
       let distanceKm: number
       let nearestTrackIndex: number
@@ -146,7 +155,7 @@ export function parseGpx(xml: string): GpxTrack {
         distanceKm = cumKm[nearestTrackIndex]
       }
 
-      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined }
+      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined, pauseMin: pauseMin ?? undefined }
     })
 
   return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints, cumKm }
@@ -209,6 +218,22 @@ function readDistanceKmFromExtensions(el: Element): number | null {
     if (child.localName === 'distanceKm') {
       const v = parseFloat((child.textContent ?? '').trim())
       return Number.isFinite(v) && v >= 0 ? v : null
+    }
+  }
+  return null
+}
+
+/**
+ * Reads the planned-pause duration (minutes) from `<wpt><extensions>`. Returns
+ * null when absent or invalid. Negative values are rejected.
+ */
+function readPauseMinFromExtensions(el: Element): number | null {
+  const exts = el.getElementsByTagName('extensions')[0]
+  if (!exts) return null
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'pauseMin') {
+      const v = parseFloat((child.textContent ?? '').trim())
+      return Number.isFinite(v) && v > 0 ? v : null
     }
   }
   return null

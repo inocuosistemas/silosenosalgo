@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
@@ -10,6 +10,12 @@ interface Props {
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
   onSetCutoff?: (lat: number, lon: number, time: Date | null) => void
+  /**
+   * Set or clear (null / 0) the planned pause minutes at a POI. When provided,
+   * a small ⏸ input appears in each named-POI row so the user can plan stops
+   * inline without re-pasting the POI list.
+   */
+  onSetPause?: (lat: number, lon: number, minutes: number | null) => void
   /** Geographic anchor for sun-position calculation (typically the route's midpoint). */
   daylightAnchor?: { lat: number; lon: number }
 }
@@ -23,6 +29,94 @@ const BAND_TITLE: Record<DaylightBand, string> = {
   day:   'Día — luz natural plena',
   civil: 'Crepúsculo civil — luz tenue',
   night: 'Noche — luz artificial necesaria',
+}
+
+/**
+ * Inline editor for planned pause at a POI. Collapsed by default to keep
+ * visual noise low; expands to a number input when the user clicks "+pausa".
+ * When a pause is already set, the chip shows the value with an ✕ to clear.
+ */
+function PauseEditor({
+  pauseMin,
+  onChange,
+}: {
+  pauseMin?: number
+  onChange: (minutes: number | null) => void
+}) {
+  const hasPause = pauseMin != null && pauseMin > 0
+  const [editing, setEditing] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  if (!editing && !hasPause) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-rose-300/50 hover:text-rose-300 text-[10px] mt-0.5 transition-colors"
+        title="Añadir pausa prevista en este POI"
+      >
+        + pausa
+      </button>
+    )
+  }
+
+  if (!editing && hasPause) {
+    return (
+      <div className="flex items-center justify-center gap-1 mt-0.5">
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-rose-300 hover:text-rose-200 text-[10px] font-medium transition-colors"
+          title="Editar pausa prevista"
+        >
+          ⏸ {pauseMin}m
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-rose-400/60 hover:text-red-400 text-[10px] leading-none px-0.5"
+          title="Quitar pausa"
+        >
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  // editing
+  return (
+    <div className="flex items-center justify-center gap-1 mt-0.5">
+      <span className="text-rose-300 text-[10px]">⏸</span>
+      <input
+        ref={inputRef}
+        type="number"
+        min={0}
+        step={5}
+        placeholder="min"
+        defaultValue={hasPause ? String(pauseMin) : ''}
+        onBlur={(e) => {
+          setEditing(false)
+          const v = e.target.value.trim()
+          if (v === '') { onChange(null); return }
+          const n = parseFloat(v)
+          onChange(Number.isFinite(n) && n > 0 ? n : null)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Escape') { (e.target as HTMLInputElement).value = hasPause ? String(pauseMin) : ''; setEditing(false) }
+        }}
+        className="w-14 bg-slate-700 border border-rose-600/60 rounded px-1 py-0.5 text-[10px] font-mono text-rose-200 text-right focus:outline-none focus:border-rose-400"
+      />
+      <span className="text-rose-300/70 text-[10px] font-normal">min</span>
+    </div>
+  )
 }
 
 function DaylightIcon({ time, anchor }: { time: Date | null; anchor?: { lat: number; lon: number } }) {
@@ -133,7 +227,7 @@ function CutoffBadge({ min }: { min: number }) {
   )
 }
 
-export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, daylightAnchor }: Props) {
+export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, onSetPause, daylightAnchor }: Props) {
   if (waypoints.length === 0) return null
 
   const last = waypoints[waypoints.length - 1]
@@ -241,7 +335,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     </td>
                     {/* Pend. */}
                     <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
-                    {/* Hora */}
+                    {/* Hora + editor de pausa */}
                     <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
                       {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
                       <DaylightIcon time={wpt.estimatedTime} anchor={daylightAnchor} />
@@ -249,6 +343,19 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                         <span className="text-slate-500 font-normal text-xs ml-1.5">
                           {formatDuration(wpt.estimatedTime.getTime() - startTime.getTime())}
                         </span>
+                      )}
+                      {onSetPause ? (
+                        <PauseEditor
+                          key={`pause-${wpt.lat.toFixed(6)}-${wpt.lon.toFixed(6)}`}
+                          pauseMin={wpt.pauseMin}
+                          onChange={(m) => onSetPause(wpt.lat, wpt.lon, m)}
+                        />
+                      ) : (
+                        wpt.pauseMin && wpt.pauseMin > 0 && (
+                          <div className="text-rose-300 font-normal text-[10px] mt-0.5" title="Parada prevista">
+                            ⏸ +{wpt.pauseMin}m pausa
+                          </div>
+                        )
                       )}
                     </td>
                     {/* Corte — editor or read-only */}
