@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css'
 import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
 import L from 'leaflet'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
@@ -37,6 +37,12 @@ interface Props {
   liveMode?: boolean
   /** Current GPS coordinates in live mode */
   liveCoords?: { lat: number; lon: number } | null
+  /**
+   * When false, the map does NOT auto-pan to follow the GPS dot.
+   * Use false in simulation mode so the dot moves visibly across a static map.
+   * Defaults to true (real GPS tracking behaviour).
+   */
+  followPosition?: boolean
   /** 0..1 progress derived from GPS position */
   liveProgress?: number
   /** Km along the track where the user currently is (live mode) */
@@ -47,6 +53,12 @@ interface Props {
    * unreliable — the dot still shows the true device location.
    */
   isOffTrack?: boolean
+  /**
+   * When set, the map captures clicks and reports the clicked lat/lon. Used by
+   * the dev GPS simulator to drop a fake fix at an arbitrary point. The cursor
+   * turns into a crosshair while active.
+   */
+  onPickPosition?: ((lat: number, lon: number) => void) | null
   /** Km on the track where the user "should be" per the plan (live mode) */
   expectedKm?: number | null
   /** Pace config — used for section time estimates in analyze mode */
@@ -181,6 +193,19 @@ function MapCentering({ coords }: { coords: { lat: number; lon: number } | null 
   return null
 }
 
+// ── Sub-component: reports map clicks (dev GPS simulator pick mode) ──────────
+function MapClickPicker({ onPick }: { onPick: (lat: number, lon: number) => void }) {
+  const map = useMapEvents({
+    click(e) { onPick(e.latlng.lat, e.latlng.lng) },
+  })
+  useEffect(() => {
+    const el = map.getContainer()
+    el.style.cursor = 'crosshair'
+    return () => { el.style.cursor = '' }
+  }, [map])
+  return null
+}
+
 // ── Small stat pill for the analyze panel ────────────────────────────────────
 function StatPill({ label, value, color = 'text-slate-200' }: { label: string; value: string; color?: string }) {
   return (
@@ -200,7 +225,9 @@ export function RouteMap({
   liveCoords = null,
   liveProgress = 0,
   liveTrackKm = 0,
+  followPosition = true,
   isOffTrack = false,
+  onPickPosition = null,
   expectedKm = null,
   paceConfig,
   analyzeRange = null,
@@ -640,6 +667,24 @@ export function RouteMap({
     if (effectiveProgress >= 1) return waypoints
     return waypoints.filter((wp, i) => i === 0 || wp.distanceKm <= targetKm)
   }, [waypoints, liveMode, liveTrackKm, interactionMode, deferredFrom, deferredTo, effectiveProgress, targetKm])
+
+  // ── Projected on-track position (live mode) ───────────────────────────────
+  // The point on the track at liveTrackKm — i.e. the nearest plausible location
+  // used for all position/progress calculations. When the GPS fix drifts off
+  // the route we draw a dashed leader from the raw fix to this point.
+  const liveTrackCoords = useMemo<[number, number] | null>(() => {
+    if (!liveMode || points.length < 2) return null
+    const km = Math.max(0, Math.min(totalKm, liveTrackKm))
+    let i = 0
+    while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+    if (i >= cumKm.length - 1) return [points[points.length - 1].lat, points[points.length - 1].lon]
+    const span = cumKm[i + 1] - cumKm[i]
+    const t = span > 0 ? (km - cumKm[i]) / span : 0
+    return [
+      points[i].lat + t * (points[i + 1].lat - points[i].lat),
+      points[i].lon + t * (points[i + 1].lon - points[i].lon),
+    ]
+  }, [liveMode, liveTrackKm, cumKm, points, totalKm])
 
   // ── Expected position dot (live mode) ─────────────────────────────────────
   const expectedCoords = useMemo<[number, number] | null>(() => {
@@ -1309,7 +1354,8 @@ export function RouteMap({
             />
           )}
 
-          {liveMode && <MapCentering coords={liveCoords} />}
+          {liveMode && followPosition && <MapCentering coords={liveCoords} />}
+          {onPickPosition && <MapClickPicker onPick={onPickPosition} />}
 
           {/* Dark shadow */}
           <Polyline
@@ -1656,6 +1702,22 @@ export function RouteMap({
                   </div>
                 </Popup>
               </CircleMarker>
+            </>
+          )}
+
+          {/* Off-route leader: dashed line from the raw GPS fix to the nearest
+              point on the track (the reference used for position calculations) */}
+          {liveMode && isOffTrack && liveCoords && liveTrackCoords && (
+            <>
+              <Polyline
+                positions={[[liveCoords.lat, liveCoords.lon], liveTrackCoords]}
+                pathOptions={{ color: '#f59e0b', weight: 2.5, opacity: 0.85, dashArray: '6 6' }}
+              />
+              <CircleMarker
+                center={liveTrackCoords}
+                radius={5}
+                pathOptions={{ color: '#f59e0b', weight: 2, fillColor: '#fde68a', fillOpacity: 0.95 }}
+              />
             </>
           )}
 

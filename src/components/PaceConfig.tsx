@@ -1,41 +1,117 @@
 import { useState } from 'react'
 import type { ActivityType, PaceConfig } from '../lib/timing'
-import { ACTIVITY_LABEL } from '../lib/timing'
+import { ACTIVITY_LABEL, formatPace } from '../lib/timing'
 import type { GpxTimesValidity } from '../lib/gpxValidity'
 import { gpxTimesIssueMessage } from '../lib/gpxValidity'
+
+/** Format a pace in decimal minutes as "m:ss" (rolling 60s up to the minute). */
+function fmtPaceMMSS(v: number): string {
+  let m = Math.floor(v)
+  let sec = Math.round((v - m) * 60)
+  if (sec >= 60) { m += 1; sec = 0 }
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+/**
+ * Text input that lets the user select-all and type freely: the typed string
+ * is held in local draft state and only parsed + reformatted when the field is
+ * "committed" (Enter or blur). `format` renders the committed value; `parse`
+ * turns the typed string into a value (or null to reject and revert). Escape
+ * cancels the edit. This avoids the jank of re-formatting on every keystroke.
+ */
+function DraftInput({
+  value,
+  format,
+  parse,
+  onCommit,
+  className,
+  placeholder,
+  inputMode = 'decimal',
+  'aria-label': ariaLabel,
+}: {
+  value: number
+  format: (v: number) => string
+  parse: (s: string) => number | null
+  onCommit: (v: number) => void
+  className?: string
+  placeholder?: string
+  inputMode?: 'decimal' | 'numeric' | 'text'
+  'aria-label'?: string
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft ?? format(value)
+
+  function commit() {
+    if (draft === null) return
+    const parsed = parse(draft)
+    if (parsed !== null) onCommit(parsed)
+    setDraft(null) // revert to the formatted committed value (new or unchanged)
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode={inputMode}
+      aria-label={ariaLabel}
+      value={shown}
+      placeholder={placeholder}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        else if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur() }
+      }}
+      className={className}
+    />
+  )
+}
 
 interface Props {
   config: PaceConfig
   hasGpxTimes: boolean
   gpxValidity?: GpxTimesValidity | null
+  /** Track distance — used to derive the "exact" mode's overall average pace. */
+  totalDistanceKm?: number
   onChange: (c: PaceConfig) => void
 }
 
-export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, onChange }: Props) {
+export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, totalDistanceKm = 0, onChange }: Props) {
   const [paceUnit, setPaceUnit] = useState<'pace' | 'speed'>('pace')
+
+  // GPX-derived paces for the two split buttons.
+  const gpxOk = !!(hasGpxTimes && gpxValidity && gpxValidity.issue === 'ok')
+  const movingPace  = gpxValidity?.movingAvgKmh ? 60 / gpxValidity.movingAvgKmh : null
+  const overallPace = gpxValidity && gpxValidity.spanSec > 0 && totalDistanceKm > 0
+    ? 60 / (totalDistanceKm / (gpxValidity.spanSec / 3600))
+    : null
+  const gpxDisabledTitle = !hasGpxTimes
+    ? 'El GPX no incluye marcas de tiempo'
+    : gpxValidity && gpxValidity.issue !== 'ok'
+    ? gpxTimesIssueMessage(gpxValidity, config.activity)
+    : undefined
 
   function setMode(mode: PaceConfig['mode']) {
     onChange({ ...config, mode })
   }
 
-  // min:sec → paceMinPerKm
-  function setPaceFromStr(value: string) {
-    const [minStr, secStr] = value.split(':')
-    const min = parseInt(minStr ?? '0', 10) || 0
-    const sec = parseInt(secStr ?? '0', 10) || 0
-    onChange({ ...config, paceMinPerKm: min + sec / 60 })
+  // "m:ss" (or plain minutes) → paceMinPerKm. null rejects the edit.
+  function parsePaceStr(value: string): number | null {
+    const t = value.trim()
+    if (!t) return null
+    const [minStr, secStr] = t.split(':')
+    const min = parseInt(minStr, 10)
+    if (isNaN(min)) return null
+    const sec = secStr !== undefined ? (parseInt(secStr, 10) || 0) : 0
+    const v = min + sec / 60
+    return v > 0 ? v : null
   }
 
-  // km/h → paceMinPerKm
-  function setPaceFromKmh(value: string) {
-    const kmh = parseFloat(value)
-    if (kmh > 0) onChange({ ...config, paceMinPerKm: 60 / kmh })
+  // km/h → paceMinPerKm. Accepts comma as decimal separator. null rejects.
+  function parseKmh(value: string): number | null {
+    const kmh = parseFloat(value.replace(',', '.'))
+    return kmh > 0 ? 60 / kmh : null
   }
-
-  const paceMin = Math.floor(config.paceMinPerKm)
-  const paceSec = Math.round((config.paceMinPerKm - paceMin) * 60)
-  const paceStr = `${paceMin}:${paceSec.toString().padStart(2, '0')}`
-  const speedKmh = (60 / config.paceMinPerKm).toFixed(1)
 
   function setActivity(activity: ActivityType) {
     onChange({ ...config, activity })
@@ -68,31 +144,51 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, onChange }: 
       {/* ── Pace-mode selector ── */}
       <div className="space-y-2">
         <div className="flex gap-2 flex-wrap">
-          {(['fixed', 'naismith', 'gpx'] as const).map((m) => {
-            const gpxInvalid = m === 'gpx' && (!hasGpxTimes || (gpxValidity && gpxValidity.issue !== 'ok'))
-            const gpxNoTimes = m === 'gpx' && !hasGpxTimes
-            const gpxBad     = m === 'gpx' && hasGpxTimes && gpxValidity && gpxValidity.issue !== 'ok'
-            const disabled   = gpxNoTimes || !!gpxBad
-            const issueMsg   = gpxBad ? gpxTimesIssueMessage(gpxValidity!, config.activity) : ''
-            return (
-              <button
-                key={m}
-                disabled={disabled}
-                onClick={() => !disabled && setMode(m)}
-                title={gpxInvalid ? (gpxNoTimes ? 'El GPX no incluye marcas de tiempo' : issueMsg) : undefined}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
-                  ${disabled
-                    ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-400'
-                    : config.mode === m
-                    ? 'bg-sky-500 text-white'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-              >
-                {m === 'fixed'    && 'Ritmo fijo'}
-                {m === 'naismith' && 'Ritmo + desnivel'}
-                {m === 'gpx'      && 'Tiempos del GPX'}
-              </button>
-            )
-          })}
+          {(['fixed', 'naismith'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                ${config.mode === m ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            >
+              {m === 'fixed' ? 'Ritmo fijo' : 'Ritmo + desnivel'}
+            </button>
+          ))}
+
+          {/* GPX times split into two: exact per-segment, and uniform moving pace */}
+          <button
+            disabled={!gpxOk}
+            onClick={() => gpxOk && setMode('gpx')}
+            title={gpxDisabledTitle}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex flex-col items-start leading-tight
+              ${!gpxOk
+                ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-400'
+                : config.mode === 'gpx'
+                ? 'bg-sky-500 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          >
+            <span>GPX exacto</span>
+            <span className={`text-[10px] ${config.mode === 'gpx' ? 'text-sky-100' : 'text-slate-400'}`}>
+              tramo a tramo{overallPace !== null ? ` · ~${formatPace(overallPace, config.activity)}` : ''}
+            </span>
+          </button>
+
+          <button
+            disabled={!gpxOk || movingPace === null}
+            onClick={() => { if (gpxOk && movingPace !== null) onChange({ ...config, mode: 'gpx-moving', paceMinPerKm: movingPace }) }}
+            title={gpxDisabledTitle}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex flex-col items-start leading-tight
+              ${!gpxOk || movingPace === null
+                ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-400'
+                : config.mode === 'gpx-moving'
+                ? 'bg-sky-500 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          >
+            <span>GPX en movimiento</span>
+            <span className={`text-[10px] ${config.mode === 'gpx-moving' ? 'text-sky-100' : 'text-slate-400'}`}>
+              sin paradas{movingPace !== null ? ` · ${formatPace(movingPace, config.activity)}` : ''}
+            </span>
+          </button>
         </div>
 
         {/* Contextual banner when GPX times are present but invalid */}
@@ -137,21 +233,24 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, onChange }: 
             </div>
 
             {paceUnit === 'pace' ? (
-              <input
-                type="text"
-                value={paceStr}
-                onChange={(e) => setPaceFromStr(e.target.value)}
+              <DraftInput
+                value={config.paceMinPerKm}
+                format={fmtPaceMMSS}
+                parse={parsePaceStr}
+                onCommit={(v) => onChange({ ...config, paceMinPerKm: v })}
                 placeholder="5:30"
+                inputMode="text"
+                aria-label="Ritmo base en minutos por kilómetro"
                 className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 w-28 text-center font-mono focus:outline-none focus:border-sky-400"
               />
             ) : (
-              <input
-                type="number"
-                min={1}
-                max={50}
-                step={0.5}
-                value={speedKmh}
-                onChange={(e) => setPaceFromKmh(e.target.value)}
+              <DraftInput
+                value={config.paceMinPerKm}
+                format={(v) => (60 / v).toFixed(1)}
+                parse={parseKmh}
+                onCommit={(v) => onChange({ ...config, paceMinPerKm: v })}
+                placeholder="10.5"
+                aria-label="Velocidad base en kilómetros por hora"
                 className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 w-28 text-center font-mono focus:outline-none focus:border-sky-400"
               />
             )}
@@ -160,15 +259,12 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, onChange }: 
           {config.mode === 'naismith' && (
             <label className="flex flex-col gap-1">
               <span className="text-slate-400 text-xs uppercase tracking-wide">Min extra / 100m desnivel+</span>
-              <input
-                type="number"
-                min={0}
-                max={30}
-                step={0.5}
+              <DraftInput
                 value={config.naismithMin100mUp}
-                onChange={(e) =>
-                  onChange({ ...config, naismithMin100mUp: parseFloat(e.target.value) || 0 })
-                }
+                format={(v) => String(v)}
+                parse={(s) => { const n = parseFloat(s.replace(',', '.')); return isNaN(n) || n < 0 ? null : n }}
+                onCommit={(v) => onChange({ ...config, naismithMin100mUp: v })}
+                aria-label="Minutos extra por cada 100 m de desnivel positivo"
                 className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 w-24 text-center font-mono focus:outline-none focus:border-sky-400"
               />
             </label>
@@ -178,12 +274,19 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, onChange }: 
 
       {config.mode === 'gpx' && gpxValidity?.issue === 'ok' && (
         <p className="text-slate-400 text-sm">
-          Se usarán los tiempos registrados en el GPX para calcular las horas de paso.
+          Se usarán los tiempos registrados en el GPX <strong>tramo a tramo</strong> (incluidas las paradas) para las horas de paso.
           {gpxValidity.movingAvgKmh !== null && (
             <span className="ml-1 text-slate-500 text-xs">
               (velocidad media en movimiento: {gpxValidity.movingAvgKmh.toFixed(1)} km/h)
             </span>
           )}
+        </p>
+      )}
+
+      {config.mode === 'gpx-moving' && (
+        <p className="text-slate-400 text-sm">
+          Ritmo uniforme = velocidad media <strong>en movimiento</strong> del GPX (sin paradas):{' '}
+          <span className="font-mono text-slate-300">{formatPace(config.paceMinPerKm, config.activity)}</span>.
         </p>
       )}
     </div>

@@ -357,6 +357,8 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
                     {formatDuration(durationMs)} previstos
                     <span className="text-slate-600"> · ⏱ {paceConfig.mode === 'gpx'
                       ? 'tiempos del GPX'
+                      : paceConfig.mode === 'gpx-moving'
+                      ? `GPX en mov · ${formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}`
                       : formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}</span>
                   </p>
                 )}

@@ -94,6 +94,30 @@ export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onC
 
   const isFiltered = range != null && chartData !== data
 
+  // ── Elevation axis domain ────────────────────────────────────────────────
+  // Auto-scaling to [min, max] makes a near-flat route look mountainous: a 30 m
+  // wiggle gets stretched to fill the whole panel. We enforce a minimum visible
+  // span so small relief occupies only its true proportion (flat looks flat),
+  // while routes with real relief still use their range (with padding).
+  const ELE_MIN_SPAN_M = 400
+  const eleDomain = (() => {
+    const eles = chartData.map((d) => d.ele)
+    const eMin = Math.min(...eles)
+    const eMax = Math.max(...eles)
+    const relief = eMax - eMin
+    const pad = Math.max(20, relief * 0.15)
+    let lo: number, hi: number
+    if (relief + 2 * pad >= ELE_MIN_SPAN_M) {
+      lo = eMin - pad; hi = eMax + pad
+    } else {
+      const extra = (ELE_MIN_SPAN_M - relief) / 2
+      lo = eMin - extra; hi = eMax + extra
+    }
+    lo = Math.max(0, Math.floor(lo / 50) * 50)
+    hi = Math.ceil(hi / 50) * 50
+    return [lo, hi] as [number, number]
+  })()
+
   return (
     <div className="space-y-4">
       {/* ── Range chip ── */}
@@ -128,7 +152,7 @@ export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onC
               tickFormatter={(v) => `${v} km`}
               interval="preserveStartEnd"
             />
-            <YAxis yAxisId="ele" orientation="right" tick={TICK_STYLE} tickFormatter={(v) => `${v}m`} width={45} />
+            <YAxis yAxisId="ele" orientation="right" domain={eleDomain} allowDecimals={false} tick={TICK_STYLE} tickFormatter={(v) => `${v}m`} width={45} />
             <YAxis yAxisId="temp" tick={TICK_STYLE} tickFormatter={(v) => `${v}°`} width={35} />
             <Tooltip
               contentStyle={TOOLTIP_STYLE}

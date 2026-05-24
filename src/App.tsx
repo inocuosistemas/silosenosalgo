@@ -1,6 +1,7 @@
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
+import { GpxTimesStats } from './components/GpxTimesStats'
 import { SamplingPanel } from './components/SamplingPanel'
 import { RouteMap } from './components/RouteMap'
 import type { MapMode } from './components/RouteMap'
@@ -8,11 +9,12 @@ import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack, GpxNamedWaypoint } from './lib/gpx'
 import { downloadGpx } from './lib/gpxSerialize'
+import { downloadFitCourse } from './lib/fitCourse'
 import { PoisPanel, type MaterialisedPoi } from './components/PoisPanel'
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
-import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime } from './lib/timing'
+import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import type { PollenData, PollenType } from './lib/pollen'
@@ -31,9 +33,10 @@ import type { SegmentPace } from './lib/timing'
 import type { BuddyObservation } from './lib/buddyTracking'
 import { buildBuddyDerived, projectBuddyKmAt } from './lib/buddyTracking'
 import { useLivePosition } from './lib/useLivePosition'
+import type { LivePositionState } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
-import { checkGpxTimes } from './lib/gpxValidity'
+import { checkGpxTimes, reclassifyForActivity } from './lib/gpxValidity'
 import type { GpxTimesValidity } from './lib/gpxValidity'
 import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
 
@@ -52,7 +55,7 @@ function loadPaceConfig(): PaceConfig {
     if (!raw) return DEFAULT_PACE
     const obj = JSON.parse(raw)
     return {
-      mode: obj.mode === 'naismith' || obj.mode === 'gpx' ? obj.mode : 'fixed',
+      mode: obj.mode === 'naismith' || obj.mode === 'gpx' || obj.mode === 'gpx-moving' ? obj.mode : 'fixed',
       paceMinPerKm: typeof obj.paceMinPerKm === 'number' && obj.paceMinPerKm > 0 ? obj.paceMinPerKm : DEFAULT_PACE.paceMinPerKm,
       naismithMin100mUp: typeof obj.naismithMin100mUp === 'number' ? obj.naismithMin100mUp : DEFAULT_PACE.naismithMin100mUp,
       activity: obj.activity === 'run' || obj.activity === 'bike' ? obj.activity : 'walk',
@@ -113,6 +116,33 @@ interface SavedSession {
   paceConfig: PaceConfig
   sampling: SamplingConfig
   savedAt: string
+  /** Full-resolution GPX time stats, captured before any subsampling. */
+  gpxStats?: GpxTimesValidity | null
+  /** Point count of the original track (track.points may be subsampled to fit). */
+  originalPointCount?: number
+  /** True when track.points was decimated to fit localStorage. */
+  subsampled?: boolean
+}
+
+/** Max track points persisted in a session (≈0.6 MB JSON — well under quota). */
+const MAX_PERSIST_POINTS = 8000
+
+/**
+ * Evenly decimate a track's points to at most `max`, always keeping the first
+ * and last point (so GPX-time telescoping stays exact). cumKm / totalDistanceKm
+ * are recomputed from the kept points; elevation aggregates and named waypoints
+ * are preserved as-is.
+ */
+function subsampleTrack(track: GpxTrack, max: number): GpxTrack {
+  const pts = track.points
+  if (pts.length <= max) return track
+  const step = (pts.length - 1) / (max - 1)
+  const kept: typeof pts = []
+  for (let i = 0; i < max; i++) kept.push(pts[Math.round(i * step)])
+  let total = 0
+  const cumKm = [0]
+  for (let i = 1; i < kept.length; i++) { total += haversineKm(kept[i - 1], kept[i]); cumKm.push(total) }
+  return { ...track, points: kept, cumKm, totalDistanceKm: total }
 }
 
 function loadSession(): SavedSession | null {
@@ -131,12 +161,28 @@ function loadSession(): SavedSession | null {
 }
 
 function saveSession(s: Omit<SavedSession, 'savedAt'>) {
+  const originalPointCount = s.originalPointCount ?? s.track.points.length
+  const persistTrack = subsampleTrack(s.track, MAX_PERSIST_POINTS)
+  const subsampled = persistTrack.points.length < originalPointCount
+  const record: SavedSession = {
+    ...s,
+    track: persistTrack,
+    originalPointCount,
+    subsampled,
+    savedAt: new Date().toISOString(),
+  }
   try {
-    localStorage.setItem(
-      SESSION_LS_KEY,
-      JSON.stringify({ ...s, savedAt: new Date().toISOString() }),
-    )
-  } catch { /* quota — silently skip */ }
+    localStorage.setItem(SESSION_LS_KEY, JSON.stringify(record))
+  } catch {
+    // Still over quota — decimate harder so a (lower-res) session is kept
+    // rather than leaving a stale, unrelated one behind.
+    try {
+      localStorage.setItem(
+        SESSION_LS_KEY,
+        JSON.stringify({ ...record, track: subsampleTrack(s.track, 2000), subsampled: true }),
+      )
+    } catch { /* give up silently */ }
+  }
 }
 
 function clearSession() {
@@ -237,7 +283,8 @@ function formatStartDate(d: Date): string {
 
 /** Short pace summary: "tiempos GPX", "6:30 min/km" or "22.0 km/h" (bike). */
 function paceShortLabel(p: PaceConfig): string {
-  if (p.mode === 'gpx') return 'tiempos GPX'
+  if (p.mode === 'gpx') return 'GPX exacto'
+  if (p.mode === 'gpx-moving') return `GPX en mov · ${formatPace(p.paceMinPerKm, p.activity)}`
   return formatPace(p.paceMinPerKm, p.activity)
 }
 
@@ -271,11 +318,13 @@ export default function App() {
   // Saved session detected at mount — shown as a banner while no track is loaded.
   const [savedSession, setSavedSession] = useState<SavedSession | null>(() => loadSession())
 
-  // Autosave current planning session whenever a track is loaded.
-  useEffect(() => {
-    if (!track) return
-    saveSession({ track, startTimeISO: startTime.toISOString(), paceConfig, sampling })
-  }, [track, startTime, paceConfig, sampling])
+  // ── Session restore bookkeeping ───────────────────────────────────────────
+  // When a session whose track was subsampled is restored, we keep the
+  // full-resolution GPX stats (so the times card stays exact) and remember the
+  // original point count (so re-saving preserves it and we can warn the user).
+  const [restoredGpxStats, setRestoredGpxStats] = useState<GpxTimesValidity | null>(null)
+  const [trackOriginalPoints, setTrackOriginalPoints] = useState(0)
+  const [subsampleNotice, setSubsampleNotice] = useState<{ original: number; current: number } | null>(null)
 
   const [baseWaypoints, setBaseWaypoints] = useState<Waypoint[]>([])
   const [weatherArr, setWeatherArr] = useState<(WeatherData | null)[]>([])
@@ -346,6 +395,13 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
   const [locationProgress, setLocationProgress] = useState({ done: 0, total: 0 })
+  // Background enrichment flags — weather/location/pollen fetch *after* the
+  // synchronous waypoint compute, so the UI is usable while they load.
+  const [weatherLoading, setWeatherLoading]   = useState(false)
+  const [locationLoading, setLocationLoading] = useState(false)
+  const [pollenLoading, setPollenLoading]     = useState(false)
+  /** Bumped on every compute; background fetches drop their results if stale. */
+  const computeTokenRef = useRef(0)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [showShareCard, setShowShareCard] = useState(false)
 
@@ -365,6 +421,19 @@ export default function App() {
 
   // ── App mode ───────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState<AppMode>('plan')
+
+  // ── GPS simulation (dev only) ─────────────────────────────────────────────
+  // simKm !== null means simulation is active: livePos is replaced by a fake
+  // position at that km, and realPaceMinPerKm is replaced by simPace.
+  const IS_DEV = import.meta.env.DEV
+  const [simKm, setSimKm] = useState<number | null>(null)
+  const [simTime, setSimTime] = useState<Date>(new Date())
+  /** Lateral offset (km) applied to the fake fix to test the off-route path. */
+  const [simOffsetKm, setSimOffsetKm] = useState(0)
+  /** Arbitrary simulated fix dropped by clicking the map. Overrides simKm/offset. */
+  const [simCoords, setSimCoords] = useState<{ lat: number; lon: number } | null>(null)
+  /** When true, the next map click sets simCoords (crosshair cursor). */
+  const [simPicking, setSimPicking] = useState(false)
 
   // ── Analyze range (null = play mode / full view) ───────────────────────────
   const [analyzeRange, setAnalyzeRange] = useState<{ from: number; to: number } | null>(null)
@@ -488,7 +557,81 @@ export default function App() {
   /** Distance threshold in km above which we consider the GPS fix off-route. */
   const OFF_TRACK_KM = 0.5
 
-  const livePos = useLivePosition(track, appMode === 'live', ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
+  // Build a fake LivePositionState from an arbitrary clicked point: project it
+  // onto the nearest track point (same resolution a real GPS fix gets) and
+  // report the gap as distanceFromTrackKm so the off-route leader/UI kick in.
+  const simCoordsLivePos = useMemo((): LivePositionState | null => {
+    if (simCoords === null || !track || track.points.length < 2) return null
+    const { points, cumKm, totalDistanceKm } = track
+    let minDist = Infinity
+    let nearestIdx = 0
+    for (let i = 0; i < points.length; i++) {
+      const d = haversineKm(simCoords, points[i])
+      if (d < minDist) { minDist = d; nearestIdx = i }
+    }
+    const trackKm = cumKm[nearestIdx]
+    return {
+      isLocating: false, error: null,
+      coords: simCoords,
+      trackKm, trackIndex: nearestIdx,
+      progress: totalDistanceKm > 0 ? Math.min(1, trackKm / totalDistanceKm) : 0,
+      heading: null, speed: null, distanceFromTrackKm: minDist,
+    }
+  }, [simCoords, track])
+
+  // Build a fake LivePositionState at simKm by interpolating along the *dense*
+  // track geometry (track.points / track.cumKm), NOT the sparse baseWaypoints.
+  // The map's "traveled" overlay is split along the dense track at the same km,
+  // so interpolating the dot on the chord between far-apart waypoints would make
+  // it lag the road and appear stuck while the faded segment advances.
+  const simLivePos = useMemo((): LivePositionState | null => {
+    if (simKm === null || !track || track.points.length < 2) return null
+    const { points, cumKm, totalDistanceKm } = track
+    const km = Math.max(0, Math.min(simKm, totalDistanceKm))
+    let i = 0
+    while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+    if (i >= cumKm.length - 1) {
+      const last = points[points.length - 1]
+      return {
+        isLocating: false, error: null,
+        coords: { lat: last.lat, lon: last.lon },
+        trackKm: km, trackIndex: points.length - 1, progress: 1,
+        heading: null, speed: null, distanceFromTrackKm: 0,
+      }
+    }
+    const span = cumKm[i + 1] - cumKm[i]
+    const t = span > 0 ? (km - cumKm[i]) / span : 0
+    let lat = points[i].lat + t * (points[i + 1].lat - points[i].lat)
+    let lon = points[i].lon + t * (points[i + 1].lon - points[i].lon)
+
+    // Optional lateral offset (dev): push the fake fix perpendicular to the
+    // track so we can exercise the off-route path. trackKm stays the on-track
+    // projection — exactly what a real off-route fix resolves to.
+    if (simOffsetKm !== 0) {
+      const mPerDegLat = 111_320
+      const mPerDegLon = 111_320 * Math.cos((lat * Math.PI) / 180)
+      const dN = (points[i + 1].lat - points[i].lat) * mPerDegLat
+      const dE = (points[i + 1].lon - points[i].lon) * mPerDegLon
+      const len = Math.hypot(dN, dE) || 1
+      // rotate the unit direction 90° to get the perpendicular
+      const perpN = dE / len
+      const perpE = -dN / len
+      const offM = simOffsetKm * 1000
+      lat += (perpN * offM) / mPerDegLat
+      lon += (perpE * offM) / mPerDegLon
+    }
+
+    return {
+      isLocating: false, error: null,
+      coords: { lat, lon },
+      trackKm: km, trackIndex: i, progress: totalDistanceKm > 0 ? km / totalDistanceKm : 0,
+      heading: null, speed: null, distanceFromTrackKm: Math.abs(simOffsetKm),
+    }
+  }, [simKm, simOffsetKm, track])
+
+  const simActive = simKm !== null || simCoords !== null
+  const rawLivePos = useLivePosition(track, appMode === 'live' && !simActive, ACTIVITY_MAX_SPEED_KMH[paceConfig.activity])
+  const livePos: LivePositionState = simCoordsLivePos ?? simLivePos ?? rawLivePos
 
   /**
    * True when we have a GPS fix but it's implausibly far from the loaded route
@@ -504,14 +647,35 @@ export default function App() {
   const hasGpxTimes = !!track?.points.some((p) => p.time)
 
   // ── GPX times validity ────────────────────────────────────────────────────
+  // For a restored (possibly subsampled) track we trust the full-resolution
+  // stats captured at save time, re-classified for the current activity.
+  // Otherwise we compute them live from the loaded track.
   const gpxValidity = useMemo<GpxTimesValidity | null>(
-    () => (track && hasGpxTimes ? checkGpxTimes(track, paceConfig.activity) : null),
-    [track, hasGpxTimes, paceConfig.activity],
+    () => {
+      if (!track || !hasGpxTimes) return null
+      if (restoredGpxStats) return reclassifyForActivity(restoredGpxStats, paceConfig.activity)
+      return checkGpxTimes(track, paceConfig.activity)
+    },
+    [track, hasGpxTimes, paceConfig.activity, restoredGpxStats],
   )
 
-  // Fall back to 'fixed' automatically when activity changes and makes GPX invalid
+  // Autosave the current planning session (subsampling large tracks to fit).
   useEffect(() => {
-    if (paceConfig.mode !== 'gpx') return
+    if (!track) return
+    saveSession({
+      track,
+      startTimeISO: startTime.toISOString(),
+      paceConfig,
+      sampling,
+      gpxStats: gpxValidity,
+      originalPointCount: trackOriginalPoints || track.points.length,
+    })
+  }, [track, startTime, paceConfig, sampling, gpxValidity, trackOriginalPoints])
+
+  // Fall back to 'fixed' automatically when activity changes and makes GPX
+  // invalid (applies to both GPX modes; 'gpx-moving' keeps its derived pace).
+  useEffect(() => {
+    if (paceConfig.mode !== 'gpx' && paceConfig.mode !== 'gpx-moving') return
     if (!gpxValidity || gpxValidity.issue === 'ok') return
     setPaceConfig((c) => ({ ...c, mode: 'fixed' }))
   }, [gpxValidity, paceConfig.mode])
@@ -556,25 +720,36 @@ export default function App() {
   }, [buddyDerived, track])
 
   // ── Real average pace from startTime (min/km) ─────────────────────────────
-  // Only valid when ≥ 0.3 km covered AND startTime is in the past
+  // Only valid when ≥ 0.3 km covered AND startTime is in the past.
+  // In sim mode, replaced by the user-configured simPace.
   const realPaceMinPerKm = useMemo(() => {
+    if (simKm !== null && simKm > 0) {
+      const elapsedMin = (simTime.getTime() - startTime.getTime()) / 60_000
+      return elapsedMin > 0 ? elapsedMin / simKm : null
+    }
     if (appMode !== 'live' || !livePos.coords || livePos.trackKm < 0.3) return null
     const elapsedMin = (Date.now() - startTime.getTime()) / 60_000
     if (elapsedMin <= 0) return null
     return elapsedMin / livePos.trackKm
-  }, [appMode, livePos.coords, livePos.trackKm, startTime])
+  }, [simKm, simTime, startTime, appMode, livePos.coords, livePos.trackKm])
 
   // ── Tick every 30s in live mode so the "expected position" dot moves ──────
   // even when GPS is silent (user standing still).
   const nowTick = useNowTick(30_000, appMode === 'live')
 
+  // In sim mode "now" is the user-chosen simTime, not the wall clock.
+  const effectiveNow = simKm !== null ? simTime.getTime() : nowTick
+
   // ── Expected km on the track at this point in time (per the plan) ─────────
+  // Use effectiveNow (= simTime in the simulator, wall clock otherwise) so the
+  // "Prevista" dot stays consistent with the pace-delta badge; using the real
+  // clock here made the expected dot race ahead during simulation.
   const expectedKm = useMemo<number | null>(() => {
     if (appMode !== 'live' || !track) return null
-    const elapsedMin = (nowTick - startTime.getTime()) / 60_000
+    const elapsedMin = (effectiveNow - startTime.getTime()) / 60_000
     if (elapsedMin <= 0) return null
     return expectedKmAtElapsed(track, elapsedMin, paceConfig)
-  }, [appMode, track, startTime, paceConfig, nowTick])
+  }, [appMode, track, startTime, paceConfig, effectiveNow])
 
   // ── Enriched waypoints (plan base) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
@@ -643,9 +818,17 @@ export default function App() {
         const next = wps[nextIdx]
         const span = next.distanceKm - prev.distanceKm
         const t = span > 0 ? Math.max(0, Math.min(1, (wpt.distanceKm - prev.distanceKm) / span)) : 0
-        estimatedTime = new Date(
-          prev.estimatedTime.getTime() + t * (next.estimatedTime.getTime() - prev.estimatedTime.getTime()),
-        )
+        let interpMs = prev.estimatedTime.getTime() + t * (next.estimatedTime.getTime() - prev.estimatedTime.getTime())
+        // The timing engine fires a pause when distAccum >= pauseKm, so every
+        // enrichedWaypoint at km >= wpt.distanceKm already has the full pause
+        // baked in. The interpolation at position t includes t×pauseMin of that
+        // offset, but the ETA should represent *arrival* (before the pause).
+        // Subtract the fraction that leaked in so the displayed time is the
+        // moment the runner reaches the POI, not their departure time.
+        if (wpt.pauseMin && wpt.pauseMin > 0 && prev.distanceKm < wpt.distanceKm) {
+          interpMs -= t * wpt.pauseMin * 60_000
+        }
+        estimatedTime = new Date(interpMs)
       } else {
         estimatedTime = wps[0]?.estimatedTime ?? null
       }
@@ -679,7 +862,7 @@ export default function App() {
         liveOriginalIndices: enrichedWaypoints.map((_, i) => i),
       }
     }
-    const now = Date.now()
+    const now = effectiveNow
     const lockedKm = livePos.trackKm
     // Real average pace preferred; fallback to configured pace when < 0.3 km covered
     const effectivePace = realPaceMinPerKm ?? paceConfig.paceMinPerKm
@@ -697,7 +880,7 @@ export default function App() {
       }
     })
     return { liveWaypoints: wps, liveOriginalIndices: idxs }
-  }, [appMode, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm, realPaceMinPerKm])
+  }, [appMode, effectiveNow, livePos.coords, livePos.trackKm, enrichedWaypoints, paceConfig.paceMinPerKm, realPaceMinPerKm])
 
   // Keep a ref to the latest live waypoints/indices so the effect below can
   // read them without re-firing on every GPS update
@@ -733,6 +916,11 @@ export default function App() {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function reset() {
+    // Invalidate any in-flight background enrichment so its results are dropped.
+    computeTokenRef.current++
+    setWeatherLoading(false)
+    setLocationLoading(false)
+    setPollenLoading(false)
     setBaseWaypoints([])
     setWeatherArr([])
     setLocationArr([])
@@ -775,6 +963,7 @@ export default function App() {
 
     setTrack(mergedTrack)
     setAppMode('plan')
+    setSimKm(null)
     setSavedSession(null) // banner dismissed once any track is loaded
     liveWeatherFetchedRef.current = false
     setAnalyzeRange(null)
@@ -796,6 +985,12 @@ export default function App() {
 
     // Fresh load → no pending session changes
     setTrackDirty(false)
+
+    // Fresh load → full resolution, no restore override or subsample notice.
+    // (A session restore re-sets these right after calling handleTrack.)
+    setRestoredGpxStats(null)
+    setTrackOriginalPoints(t.points.length)
+    setSubsampleNotice(null)
 
     // Reset the params bar to its initial expanded state for the new route
     setParamsExpanded(true)
@@ -912,61 +1107,97 @@ export default function App() {
     setTrackDirty(false)
   }
 
+  // Garmin-compatible export: a FIT course whose course_points carry an explicit
+  // `distance` field (meters). GPX cannot express per-POI course distance, so
+  // Garmin Connect's GPX importer lists every POI at "0,00 km" — a FIT course is
+  // the only format that makes the km stick. Diagnostic/secondary export, so it
+  // does not clear trackDirty (the GPX remains the canonical round-trip file).
+  function handleDownloadFit() {
+    if (!track) return
+    downloadFitCourse(track, paceConfig.activity)
+  }
+
+  // Loads localidades for the given waypoints in the background, updating
+  // progress and (on failure) the warning banner. Shared by doCompute and the
+  // retry button so both paths behave identically. The `fresh` guard drops
+  // results from a superseded compute.
+  function loadLocations(wps: Waypoint[], fresh: () => boolean) {
+    if (!track) return
+    setLocationWarning(null)
+    setLocationLoading(true)
+    setLocationProgress({ done: 0, total: 0 })
+    fetchLocationForWaypoints(
+      wps,
+      track.totalDistanceKm,
+      (done, total) => { if (fresh()) setLocationProgress({ done, total }) },
+    )
+      .then((results) => { if (fresh()) setLocationArr(results) })
+      .catch((err: unknown) => {
+        if (fresh()) setLocationWarning(err instanceof Error ? err.message : 'No se pudieron obtener localidades')
+      })
+      .finally(() => { if (fresh()) setLocationLoading(false) })
+  }
+
+  // Retry just the localidades fetch (e.g. after a timeout), reusing the
+  // already-computed route. Captures the current token so a later recompute
+  // supersedes the retry.
+  function handleRetryLocations() {
+    if (!track || baseWaypoints.length === 0 || locationLoading) return
+    const token = computeTokenRef.current
+    loadLocations(baseWaypoints, () => computeTokenRef.current === token)
+  }
+
   // ── Core compute helper (accepts explicit config + segmentPaces overrides) ──
   async function doCompute(
     computeConfig: typeof paceConfig,
     computeSegPaces: SegmentPace[] | null,
   ) {
     if (!track) return
-    setStatus('loading')
+    const token = ++computeTokenRef.current
     setErrorMsg(null)
     setLocationProgress({ done: 0, total: 0 })
 
+    // ── Synchronous part: the route, ETAs and cut-offs. Fast, no network. ──
+    let wps
     try {
-      const wps = computeWaypoints(track, startTime, computeConfig, sampling, computeSegPaces ?? undefined, pauses)
-      setBaseWaypoints(wps)
-      setWeatherArr(wps.map(() => null))
-      setLocationArr(wps.map(() => null))
-
-      const weatherPromise = fetchWeatherForWaypoints(wps).then((results) => {
-        setWeatherArr(results.map((r) => r.weather))
-        setWeatherFetchedAt(new Date())
-      })
-
-      const locationPromise = fetchLocationForWaypoints(
-        wps,
-        track.totalDistanceKm,
-        (done, total) => setLocationProgress({ done, total }),
-      )
-        .then((results) => setLocationArr(results))
-        .catch((err: unknown) => {
-          setLocationWarning(
-            err instanceof Error ? err.message : 'No se pudieron obtener localidades',
-          )
-        })
-
-      // Pollen: only for European routes (CAMS coverage). Errors are swallowed —
-      // the feature degrades gracefully when the API is unavailable or the route
-      // is outside Europe. Initialise with nulls first so the array length is correct.
-      setPollenArr(wps.map(() => null))
-      const pollenPromise = isInEurope(wps)
-        ? fetchPollenForWaypoints(wps)
-            .then((results) => setPollenArr(results.map((r) => r.pollen)))
-            .catch(() => { /* silently ignore — route stays with null pollen */ })
-        : Promise.resolve()
-
-      // Terrain: opt-in. The Overpass API call is heavy on long routes, so we
-      // don't fire it on every compute. The user triggers it explicitly from
-      // the "Terreno" chip in the map (which calls fetchTerrain via the
-      // exposed onFetchTerrain prop). State stays at 'idle' until then.
-      setTerrainPoints([])
-      setTerrainStatus('idle')
-
-      await Promise.all([weatherPromise, locationPromise, pollenPromise])
-      setStatus('done')
+      wps = computeWaypoints(track, startTime, computeConfig, sampling, computeSegPaces ?? undefined, pauses)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')
       setStatus('error')
+      return
+    }
+    setBaseWaypoints(wps)
+    setWeatherArr(wps.map(() => null))
+    setLocationArr(wps.map(() => null))
+    setPollenArr(wps.map(() => null))
+    // Terrain stays opt-in (heavy Overpass call); user triggers it from the map.
+    setTerrainPoints([])
+    setTerrainStatus('idle')
+
+    // Route is ready — unlock the UI now. Weather/location/pollen enrich in the
+    // background and fill their columns/markers as they resolve. A `token` guard
+    // drops results from a superseded compute (e.g. user recalculated meanwhile).
+    setStatus('done')
+
+    const fresh = () => computeTokenRef.current === token
+
+    // Weather (background)
+    setWeatherLoading(true)
+    fetchWeatherForWaypoints(wps)
+      .then((results) => { if (fresh()) { setWeatherArr(results.map((r) => r.weather)); setWeatherFetchedAt(new Date()) } })
+      .catch(() => { /* weather failure is non-fatal; cells stay empty */ })
+      .finally(() => { if (fresh()) setWeatherLoading(false) })
+
+    // Localidades / poblaciones (background, with per-waypoint progress)
+    loadLocations(wps, fresh)
+
+    // Pollen (background) — only for European routes (CAMS coverage).
+    if (isInEurope(wps)) {
+      setPollenLoading(true)
+      fetchPollenForWaypoints(wps)
+        .then((results) => { if (fresh()) setPollenArr(results.map((r) => r.pollen)) })
+        .catch(() => { /* silently ignore — route stays with null pollen */ })
+        .finally(() => { if (fresh()) setPollenLoading(false) })
     }
   }
 
@@ -1145,7 +1376,8 @@ export default function App() {
     }
   }
 
-  const isLoading = status === 'loading'
+  /** True while any background enrichment (weather/poblaciones/pollen) is in flight. */
+  const isEnriching = weatherLoading || locationLoading || pollenLoading
   const isLiveLoading = status === 'live-loading'
   const isDone = status === 'done' && baseWaypoints.length > 0
 
@@ -1323,12 +1555,11 @@ export default function App() {
   const paceDelta = useMemo<number | null>(() => {
     if (appMode !== 'live' || !livePos.coords || !track) return null
     if (livePos.trackKm < 0.2) return null
-    const now = Date.now()
-    if (startTime.getTime() >= now) return null  // startTime is in the future
-    const actualMin = (now - startTime.getTime()) / 60_000
+    if (startTime.getTime() >= effectiveNow) return null  // startTime is in the future
+    const actualMin = (effectiveNow - startTime.getTime()) / 60_000
     const expectedMin = expectedMinutesForSegment(track, 0, livePos.trackKm, paceConfig)
     return actualMin - expectedMin  // positive = slow, negative = fast
-  }, [appMode, livePos.coords, livePos.trackKm, startTime, track, paceConfig])
+  }, [appMode, effectiveNow, livePos.coords, livePos.trackKm, startTime, track, paceConfig])
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -1350,22 +1581,130 @@ export default function App() {
               </button>
               <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
                 <button
-                  onClick={() => setAppMode('plan')}
+                  onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('plan') }}
                   className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
                 >
                   🗺️ <span className="hidden sm:inline">Planificar</span>
                 </button>
                 <button
-                  onClick={() => { setAppMode('live') }}
-                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('live') }}
+                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' && simKm === null ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
                 >
                   📍 <span className="hidden sm:inline">En vivo</span>
                 </button>
+                {IS_DEV && isDone && (
+                  <button
+                    onClick={() => {
+                      if (simKm !== null) { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('plan') }
+                      else {
+                        const km = Math.round((track?.totalDistanceKm ?? 100) * 0.3 * 10) / 10
+                        setAppMode('live')
+                        setSimKm(km)
+                        // Initialise simTime from the planned ETA at that km
+                        const wps = baseWaypoints
+                        if (wps.length >= 2) {
+                          let prevIdx = 0
+                          for (let i = 1; i < wps.length; i++) {
+                            if (wps[i].distanceKm >= km) break
+                            prevIdx = i
+                          }
+                          const ni = Math.min(prevIdx + 1, wps.length - 1)
+                          const prev = wps[prevIdx], next = wps[ni]
+                          const span = next.distanceKm - prev.distanceKm
+                          const t = span > 0 ? Math.max(0, Math.min(1, (km - prev.distanceKm) / span)) : 0
+                          setSimTime(new Date(prev.estimatedTime.getTime() + t * (next.estimatedTime.getTime() - prev.estimatedTime.getTime())))
+                        }
+                      }
+                    }}
+                    className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${simKm !== null ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                    title="Simulación GPS (solo dev)"
+                  >
+                    🧪 <span className="hidden sm:inline">Sim</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
       </header>
+
+      {/* ── Sim control bar (dev only) ─────────────────────────────────────── */}
+      {IS_DEV && simKm !== null && track && (() => {
+        // Derive pace from km + time for the info badge
+        const elapsedMin = (simTime.getTime() - startTime.getTime()) / 60_000
+        const derivedPace = simKm > 0 && elapsedMin > 0 ? elapsedMin / simKm : null
+        // Format simTime as HH:MM for the time input
+        const simTimeStr = simTime.toTimeString().slice(0, 5)
+        return (
+          <div className="bg-violet-950/80 border-b border-violet-700/50 px-4 py-2 flex flex-wrap items-center gap-4 text-xs font-mono">
+            <span className="text-violet-300 font-semibold">🧪 GPS Sim</span>
+            <label className="flex items-center gap-2 flex-1 min-w-48">
+              <span className="text-violet-400 whitespace-nowrap" title="Tu posición real (GPS). Independiente del reloj.">
+                📍 Km {simKm.toFixed(1)} / {track.totalDistanceKm.toFixed(1)}
+              </span>
+              <input
+                type="range" min={0} max={track.totalDistanceKm} step={0.1}
+                value={simKm}
+                onChange={(e) => {
+                  // Position knob ONLY. The clock (simTime) stays independent so
+                  // moving ahead of / behind the plan reveals the delta vs the
+                  // initial forecast — instead of snapping you back "on plan".
+                  setSimCoords(null)  // back to km-driven mode
+                  setSimPicking(false)
+                  setSimKm(parseFloat(e.target.value))
+                }}
+                className="flex-1 accent-violet-500"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-violet-400" title="Reloj actual. Avánzalo para simular retraso (Prevista se adelanta) o atrásalo para adelanto.">🕒 Hora (reloj)</span>
+              <input
+                type="time"
+                value={simTimeStr}
+                onChange={(e) => {
+                  if (!e.target.value) return
+                  const [h, m] = e.target.value.split(':').map(Number)
+                  const d = new Date(simTime)
+                  d.setHours(h, m, 0, 0)
+                  setSimTime(d)
+                }}
+                className="bg-violet-900 border border-violet-600 rounded px-1.5 py-0.5 text-violet-100 focus:outline-none focus:border-violet-400"
+              />
+            </label>
+            {derivedPace !== null && (
+              <span className="text-violet-500">
+                → {derivedPace.toFixed(1)} min/km
+              </span>
+            )}
+            <label className="flex items-center gap-2">
+              <span className="text-violet-400 whitespace-nowrap">Desvío {simOffsetKm.toFixed(1)} km</span>
+              <input
+                type="range" min={0} max={2} step={0.1}
+                value={simOffsetKm}
+                onChange={(e) => { setSimCoords(null); setSimPicking(false); setSimOffsetKm(parseFloat(e.target.value)) }}
+                className="accent-violet-500 w-24"
+                title="Empuja el fix fuera del trazado (prueba off-route)"
+              />
+            </label>
+            <button
+              onClick={() => setSimPicking((p) => !p)}
+              className={`px-2 py-0.5 rounded border transition-colors ${
+                simPicking
+                  ? 'bg-amber-500 border-amber-400 text-amber-950 font-semibold'
+                  : 'bg-violet-900 border-violet-600 text-violet-200 hover:border-violet-400'
+              }`}
+              title="Haz clic en el mapa para fijar el GPS en cualquier punto"
+            >
+              📍 {simPicking ? 'Haz clic en el mapa…' : 'Fijar en mapa'}
+            </button>
+            {simCoords && (
+              <span className="text-amber-400">
+                pos. libre · {livePos.distanceFromTrackKm.toFixed(2)} km al trazado
+              </span>
+            )}
+          </div>
+        )
+      })()}
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
 
@@ -1375,6 +1714,7 @@ export default function App() {
             <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">1 · Carga tu ruta</h2>
           )}
           {track ? (
+            <>
             <div className="bg-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
               <div>
                 <p className="font-semibold text-slate-100">{track.name}</p>
@@ -1393,12 +1733,36 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={() => { setTrack(null); setAppMode('plan'); reset() }}
+                onClick={() => { setTrack(null); setAppMode('plan'); setSimKm(null); reset() }}
                 className="text-slate-500 hover:text-red-400 text-sm transition-colors shrink-0"
               >
                 Cambiar
               </button>
             </div>
+            {hasGpxTimes && gpxValidity && (
+              <GpxTimesStats
+                validity={gpxValidity}
+                totalDistanceKm={track.totalDistanceKm}
+                activity={paceConfig.activity}
+              />
+            )}
+            {subsampleNotice && (
+              <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-amber-900/25 border border-amber-700/50 text-amber-300 text-xs leading-relaxed">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <span className="flex-1">
+                  Sesión recuperada a <strong>menor resolución</strong>:{' '}
+                  {subsampleNotice.original.toLocaleString('es-ES')} → {subsampleNotice.current.toLocaleString('es-ES')} puntos
+                  {' '}(no cabía entera en el almacenamiento). Las estadísticas de tiempos son exactas; para máxima
+                  precisión del trazado, vuelve a cargar el GPX original.
+                </span>
+                <button
+                  onClick={() => setSubsampleNotice(null)}
+                  className="text-amber-500 hover:text-amber-300 transition-colors text-base leading-none px-1 shrink-0"
+                  aria-label="Cerrar"
+                >×</button>
+              </div>
+            )}
+            </>
           ) : (
             <>
               {savedSession && (
@@ -1430,6 +1794,12 @@ export default function App() {
                         setStartTime(new Date(s.startTimeISO))
                         setPaceConfig(s.paceConfig)
                         setSampling(s.sampling)
+                        // Restore the full-res stats + original resolution captured
+                        // at save time (handleTrack reset them to the subsampled track).
+                        setRestoredGpxStats(s.gpxStats ?? null)
+                        const orig = s.originalPointCount ?? s.track.points.length
+                        setTrackOriginalPoints(orig)
+                        if (s.subsampled) setSubsampleNotice({ original: orig, current: s.track.points.length })
                       }}
                       className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-sm rounded-lg font-medium transition-colors"
                     >
@@ -1462,6 +1832,7 @@ export default function App() {
                 onRemovePoi={handleRemovePoi}
                 onClearCustom={handleClearCustomPois}
                 onDownload={handleDownloadGpx}
+                onDownloadFit={handleDownloadFit}
                 modified={trackModified}
               />
             )}
@@ -1529,6 +1900,7 @@ export default function App() {
                     config={paceConfig}
                     hasGpxTimes={hasGpxTimes}
                     gpxValidity={gpxValidity}
+                    totalDistanceKm={track.totalDistanceKm}
                     onChange={(c) => {
                       setPaceConfig(c)
                       setSegmentPaces(null)
@@ -1577,26 +1949,17 @@ export default function App() {
                   {/* Primary: plan mode */}
                   <button
                     onClick={handleCompute}
-                    disabled={isLoading || isLiveLoading}
+                    disabled={isLiveLoading}
                     className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
                   >
-                    {isLoading ? (
-                      <>
-                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                        Consultando…
-                      </>
-                    ) : hasComputedOnce ? (
-                      'Recalcular previsión →'
-                    ) : (
-                      'Calcular y obtener previsión →'
-                    )}
+                    {hasComputedOnce ? 'Recalcular previsión →' : 'Calcular y obtener previsión →'}
                   </button>
 
                   {/* Cancel button: only shown when there is a previous compute to return to */}
                   {hasComputedOnce && (
                     <button
                       onClick={handleCancelModify}
-                      disabled={isLoading || isLiveLoading}
+                      disabled={isLiveLoading}
                       className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-600 text-slate-400 hover:text-slate-200 font-medium py-2.5 rounded-xl transition-colors text-sm"
                     >
                       Cancelar — volver sin recalcular
@@ -1606,7 +1969,7 @@ export default function App() {
                   {/* Secondary: live shortcut */}
                   <button
                     onClick={handleComputeLive}
-                    disabled={isLoading || isLiveLoading}
+                    disabled={isLiveLoading}
                     className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-600 hover:border-sky-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
                   >
                     {isLiveLoading ? (
@@ -1622,21 +1985,6 @@ export default function App() {
               </>
             )}
 
-            {isLoading && locationProgress.total > 0 && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>Obteniendo comarcas…</span>
-                  <span>{locationProgress.done}/{locationProgress.total}</span>
-                </div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-sky-500 transition-all duration-300"
-                    style={{ width: `${(locationProgress.done / locationProgress.total) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
             {errorMsg && (
               <div className="bg-red-900/30 border border-red-700 rounded-xl px-5 py-4 text-red-300 text-sm">
                 <strong>Error:</strong> {errorMsg}
@@ -1644,9 +1992,17 @@ export default function App() {
             )}
 
             {locationWarning && (
-              <div className="bg-amber-900/20 border border-amber-700/50 rounded-xl px-5 py-3 text-amber-400 text-sm flex items-center gap-2">
+              <div className="bg-amber-900/20 border border-amber-700/50 rounded-xl px-5 py-3 text-amber-400 text-sm flex items-center gap-2 flex-wrap">
                 <span>⚠️</span>
-                <span>Población/comarca no disponible ({locationWarning}). La previsión meteorológica sigue activa.</span>
+                <span className="flex-1 min-w-0">Población/comarca no disponible ({locationWarning}). La previsión meteorológica sigue activa.</span>
+                <button
+                  type="button"
+                  onClick={handleRetryLocations}
+                  disabled={locationLoading}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-600/60 bg-amber-800/30 text-amber-200 hover:bg-amber-700/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {locationLoading ? 'Reintentando…' : '↻ Reintentar'}
+                </button>
               </div>
             )}
           </>
@@ -1700,6 +2056,12 @@ export default function App() {
                   </span>
                   <span className="text-amber-500 text-xs font-mono">
                     ({livePos.distanceFromTrackKm.toFixed(1)} km del trayecto)
+                  </span>
+                  <span className="text-amber-300/80 text-xs font-mono">
+                    · punto más cercano: km{' '}
+                    <span className="font-semibold text-amber-200">{livePos.trackKm.toFixed(1)}</span>
+                    {' · '}
+                    quedan <span className="font-semibold text-amber-200">{liveRemainingKm.toFixed(1)} km</span>
                   </span>
                 </>
               ) : (
@@ -1788,6 +2150,22 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Background enrichment banner (non-blocking) ── */}
+        {isDone && isEnriching && (
+          <div className="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+            <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full flex-shrink-0" />
+            <span className="text-slate-300">Cargando datos en segundo plano — la ruta ya es usable.</span>
+            {weatherLoading && <span>🌦️ previsión…</span>}
+            {locationLoading && (
+              <span>
+                🏘️ poblaciones
+                {locationProgress.total > 0 ? ` ${locationProgress.done}/${locationProgress.total}` : '…'}
+              </span>
+            )}
+            {pollenLoading && <span>🌿 polen…</span>}
+          </div>
+        )}
+
         {/* ── Weather summary (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <>
@@ -1818,7 +2196,9 @@ export default function App() {
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
             liveTrackKm={livePos.trackKm}
+            followPosition={!simActive}
             isOffTrack={isOffTrack}
+            onPickPosition={simPicking ? (lat, lon) => { setSimCoords({ lat, lon }); setSimPicking(false) } : null}
             expectedKm={expectedKm}
             paceConfig={paceConfig}
             analyzeRange={analyzeRange}
@@ -1923,9 +2303,26 @@ export default function App() {
               const tableWaypoints = appMode === 'plan'
                 ? baseList.filter((wp) => passesPlanFilters(wp.distanceKm))
                 : baseList
+              const livePaceMinPerKm = realPaceMinPerKm ?? paceConfig.paceMinPerKm
               const tableNamedWaypoints =
                 appMode === 'live'
-                  ? enrichedNamedWaypoints.filter((wpt) => wpt.distanceKm >= livePos.trackKm - 0.05)
+                  ? enrichedNamedWaypoints
+                      .filter((wpt) => wpt.distanceKm >= livePos.trackKm - 0.05)
+                      .map((wpt) => {
+                        if (!livePos.coords) return wpt
+                        // Planned pauses strictly between current km and this POI.
+                        // Exclude the POI's own pause: liveEstimatedTime is arrival
+                        // (before pause), matching how estimatedTime is computed.
+                        const pausesAhead = pauses
+                          .filter((p) => p.km > livePos.trackKm && p.km < wpt.distanceKm)
+                          .reduce((sum, p) => sum + p.minutes, 0)
+                        const liveEstimatedTime = new Date(
+                          effectiveNow
+                          + Math.max(0, wpt.distanceKm - livePos.trackKm) * livePaceMinPerKm * 60_000
+                          + pausesAhead * 60_000,
+                        )
+                        return { ...wpt, liveEstimatedTime }
+                      })
                   : enrichedNamedWaypoints.filter((wpt) => passesPlanFilters(wpt.distanceKm))
 
               const totalPlan = enrichedWaypoints.length

@@ -25,6 +25,10 @@ export interface GpxTimesValidity {
    * null when there are not enough timed points to compute it.
    */
   movingAvgKmh: number | null
+  /** Seconds spent moving (segments above PAUSE_THRESHOLD_KMH). 0 when unavailable. */
+  movingTimeSec: number
+  /** Distance (km) covered while moving. 0 when unavailable. */
+  movingDistKm: number
   /** Activity type inferred from movingAvgKmh (null when speed is unavailable) */
   inferredActivity: ActivityType | null
 }
@@ -70,11 +74,11 @@ export function checkGpxTimes(
   const withTime = timedPts.length
 
   if (withTime === 0) {
-    return { issue: 'none', withTime, totalPoints, spanSec: 0, movingAvgKmh: null, inferredActivity: null }
+    return { issue: 'none', withTime, totalPoints, spanSec: 0, movingAvgKmh: null, movingTimeSec: 0, movingDistKm: 0, inferredActivity: null }
   }
 
   if (withTime / totalPoints < SPARSE_THRESHOLD) {
-    return { issue: 'sparse', withTime, totalPoints, spanSec: 0, movingAvgKmh: null, inferredActivity: null }
+    return { issue: 'sparse', withTime, totalPoints, spanSec: 0, movingAvgKmh: null, movingTimeSec: 0, movingDistKm: 0, inferredActivity: null }
   }
 
   // ── Time span ────────────────────────────────────────────────────────────────
@@ -84,11 +88,11 @@ export function checkGpxTimes(
   const spanSec   = (lastTime - firstTime) / 1000
 
   if (spanSec < 1) {
-    return { issue: 'all-same', withTime, totalPoints, spanSec, movingAvgKmh: null, inferredActivity: null }
+    return { issue: 'all-same', withTime, totalPoints, spanSec, movingAvgKmh: null, movingTimeSec: 0, movingDistKm: 0, inferredActivity: null }
   }
 
   if (spanSec < 60 && track.totalDistanceKm > 0.5) {
-    return { issue: 'too-short', withTime, totalPoints, spanSec, movingAvgKmh: null, inferredActivity: null }
+    return { issue: 'too-short', withTime, totalPoints, spanSec, movingAvgKmh: null, movingTimeSec: 0, movingDistKm: 0, inferredActivity: null }
   }
 
   // ── Moving-average speed (ignoring pauses) ───────────────────────────────────
@@ -124,14 +128,33 @@ export function checkGpxTimes(
   if (movingAvgKmh !== null) {
     const maxKmh = ACTIVITY_MAX_SPEED_KMH[activity] * 1.2
     if (movingAvgKmh > maxKmh) {
-      return { issue: 'too-fast', withTime, totalPoints, spanSec, movingAvgKmh, inferredActivity }
+      return { issue: 'too-fast', withTime, totalPoints, spanSec, movingAvgKmh, movingTimeSec, movingDistKm, inferredActivity }
     }
     if (movingAvgKmh < TOO_SLOW_KMH) {
-      return { issue: 'too-slow', withTime, totalPoints, spanSec, movingAvgKmh, inferredActivity }
+      return { issue: 'too-slow', withTime, totalPoints, spanSec, movingAvgKmh, movingTimeSec, movingDistKm, inferredActivity }
     }
   }
 
-  return { issue: 'ok', withTime, totalPoints, spanSec, movingAvgKmh, inferredActivity }
+  return { issue: 'ok', withTime, totalPoints, spanSec, movingAvgKmh, movingTimeSec, movingDistKm, inferredActivity }
+}
+
+/**
+ * Re-derive the activity-dependent verdict (issue + inferredActivity) from
+ * already-computed moving figures, without touching the track points.
+ *
+ * Used on session restore: the persisted track may be subsampled (so a fresh
+ * `checkGpxTimes` over it would give slightly different moving stats), but the
+ * full-resolution figures were stored alongside. Only the speed-plausibility
+ * classification depends on the chosen activity, so we recompute just that.
+ */
+export function reclassifyForActivity(v: GpxTimesValidity, activity: ActivityType): GpxTimesValidity {
+  // none / sparse / all-same / too-short don't depend on activity (no speed).
+  if (v.movingAvgKmh === null) return v
+  const maxKmh = ACTIVITY_MAX_SPEED_KMH[activity] * 1.2
+  const issue: GpxTimesIssue =
+    v.movingAvgKmh > maxKmh ? 'too-fast' :
+    v.movingAvgKmh < TOO_SLOW_KMH ? 'too-slow' : 'ok'
+  return { ...v, issue, inferredActivity: inferActivity(v.movingAvgKmh) }
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

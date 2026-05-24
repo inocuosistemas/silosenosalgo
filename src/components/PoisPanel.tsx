@@ -29,6 +29,12 @@ interface Props {
   onClearCustom: () => void
   /** Trigger the GPX download (App.tsx handles the actual blob/serialise call) */
   onDownload:   () => void
+  /**
+   * Download a FIT course for Garmin. Its course_points carry an explicit
+   * `distance` field, the only way to make Garmin show the per-POI km (GPX
+   * import lists every POI at "0,00 km").
+   */
+  onDownloadFit: () => void
   /** Whether there's any difference vs the originally-loaded GPX */
   modified:     boolean
 }
@@ -219,6 +225,7 @@ export function PoisPanel({
   onRemovePoi,
   onClearCustom,
   onDownload,
+  onDownloadFit,
   modified,
 }: Props) {
   const [open,        setOpen]        = useState(false)
@@ -384,9 +391,17 @@ export function PoisPanel({
                 onClick={onDownload}
                 disabled={totalPois === 0}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
-                title="Descargar GPX con todos los POIs y cortes incrustados"
+                title="Descargar GPX con todos los POIs y cortes incrustados (track)"
               >
                 <DownloadIcon /> Descargar GPX
+              </button>
+              <button
+                onClick={onDownloadFit}
+                disabled={totalPois === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                title="Descargar curso FIT para Garmin Connect: los POI conservan su km (a diferencia del GPX)"
+              >
+                <DownloadIcon /> Curso FIT (Garmin)
               </button>
             </div>
           </div>

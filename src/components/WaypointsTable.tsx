@@ -337,13 +337,39 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
                     {/* Hora + editor de pausa */}
                     <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
-                      {wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}
-                      <DaylightIcon time={wpt.estimatedTime} anchor={daylightAnchor} />
-                      {wpt.estimatedTime && (
-                        <span className="text-slate-500 font-normal text-xs ml-1.5">
-                          {formatDuration(wpt.estimatedTime.getTime() - startTime.getTime())}
-                        </span>
-                      )}
+                      {(() => {
+                        const displayTime = wpt.liveEstimatedTime ?? wpt.estimatedTime
+                        const deltaMs = wpt.liveEstimatedTime && wpt.estimatedTime
+                          ? wpt.liveEstimatedTime.getTime() - wpt.estimatedTime.getTime()
+                          : null
+                        const deltaMin = deltaMs !== null ? Math.round(deltaMs / 60_000) : null
+                        return (
+                          <>
+                            {displayTime ? formatTime(displayTime) : '—'}
+                            <DaylightIcon time={displayTime} anchor={daylightAnchor} />
+                            {displayTime && (
+                              <span className="text-slate-500 font-normal text-xs ml-1.5">
+                                {formatDuration(displayTime.getTime() - startTime.getTime())}
+                              </span>
+                            )}
+                            {deltaMin !== null && Math.abs(deltaMin) >= 1 && (() => {
+                              const abs = Math.abs(deltaMin)
+                              const sign = deltaMin > 0 ? '+' : '−'
+                              const label = abs >= 60
+                                ? `${sign}${Math.floor(abs / 60)}h${abs % 60 > 0 ? `${abs % 60}m` : ''}`
+                                : `${sign}${abs}m`
+                              return (
+                                <div
+                                  className={`font-normal text-[10px] mt-0.5 ${deltaMin > 0 ? 'text-red-400' : 'text-emerald-400'}`}
+                                  title={`Previsto: ${wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}`}
+                                >
+                                  {deltaMin > 0 ? '▲' : '▼'} {label} vs plan
+                                </div>
+                              )
+                            })()}
+                          </>
+                        )
+                      })()}
                       {onSetPause ? (
                         <PauseEditor
                           key={`pause-${wpt.lat.toFixed(6)}-${wpt.lon.toFixed(6)}`}

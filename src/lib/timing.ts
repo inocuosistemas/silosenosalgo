@@ -3,7 +3,10 @@ import type { GpxPoint, GpxTrack } from './gpx'
 export type ActivityType = 'walk' | 'run' | 'bike'
 
 export interface PaceConfig {
-  mode: 'fixed' | 'naismith' | 'gpx'
+  // 'gpx'        → exact recorded per-segment times.
+  // 'gpx-moving' → uniform pace derived from the GPX moving-average speed
+  //                (stops excluded); mechanically a fixed pace in paceMinPerKm.
+  mode: 'fixed' | 'naismith' | 'gpx' | 'gpx-moving'
   paceMinPerKm: number
   naismithMin100mUp: number
   activity: ActivityType
@@ -108,12 +111,17 @@ function segmentMinutes(
   /** Override the base pace (min/km) — Naismith elevation adjustment is still applied on top. */
   overridePaceMinPerKm?: number,
 ): number {
-  const distKm = haversineKm(a, b)
-  if (distKm === 0) return 0
-
+  // GPX mode: trust the recorded time delta even when the device didn't move.
+  // Aid-station stops and rests log near-identical coordinates while the clock
+  // keeps advancing; short-circuiting on zero displacement (as the pace modes
+  // do below) would silently drop that standing time and pull every downstream
+  // ETA earlier. This must run *before* the distKm === 0 check.
   if (config.mode === 'gpx' && a.time && b.time) {
     return (b.time.getTime() - a.time.getTime()) / 60000
   }
+
+  const distKm = haversineKm(a, b)
+  if (distKm === 0) return 0
 
   const eleGainM = Math.max(0, b.ele - a.ele)
   const pace = overridePaceMinPerKm ?? config.paceMinPerKm

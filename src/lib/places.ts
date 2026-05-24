@@ -27,6 +27,11 @@ export interface EnrichedNamedWaypoint extends GpxNamedWaypoint {
    * Positive = ahead of schedule, negative = past cut-off.
    */
   cutoffMarginMin?: number
+  /**
+   * Live-recalculated ETA based on current GPS position and real pace.
+   * Only present in live mode. Includes planned pauses between current km and this POI.
+   */
+  liveEstimatedTime?: Date
 }
 
 interface OsmPlace {
