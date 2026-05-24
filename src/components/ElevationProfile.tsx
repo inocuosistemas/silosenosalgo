@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import {
   ComposedChart,
   Area,
@@ -33,6 +33,8 @@ interface Props {
   namedWaypoints?: GpxNamedWaypoint[]
   /** Selected analyze range (km). Highlighted as a band, synced with the map. */
   analyzeRange?: { from: number; to: number } | null
+  /** Reports the km under the cursor so the map can show a matching marker. */
+  onHoverKm?: (km: number | null) => void
 }
 
 const GRID_COLOR = '#1e293b'
@@ -81,9 +83,20 @@ export const ElevationProfile = memo(function ElevationProfile({
   track,
   namedWaypoints = [],
   analyzeRange = null,
+  onHoverKm,
 }: Props) {
   const { points, cumKm } = track
   const total = track.totalDistanceKm
+
+  // De-dupe hover reports: recharts fires onMouseMove often, and each change
+  // re-renders the (heavy) map. Only report when the km changes by ≥ 0.1.
+  const lastHover = useRef<number | null>(null)
+  const reportHover = (km: number | null) => {
+    if (km != null) km = Math.round(km * 10) / 10
+    if (km === lastHover.current) return
+    lastHover.current = km
+    onHoverKm?.(km)
+  }
 
   // Downsample to ~MAX_SAMPLES evenly-spaced points. The coarser spacing also
   // smooths the per-segment gradient, damping GPS-altitude noise spikes.
@@ -137,7 +150,25 @@ export const ElevationProfile = memo(function ElevationProfile({
       </div>
 
       <ResponsiveContainer width="100%" height={170}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+        <ComposedChart
+          data={data}
+          margin={{ top: 4, right: 8, bottom: 0, left: -8 }}
+          onMouseMove={(s) => {
+            // recharts v3: the chart handler gets MouseHandlerDataParam (no
+            // activePayload, unlike v2). Resolve the hovered km from the active
+            // index (data lookup), falling back to the numeric x-axis value
+            // (activeLabel). Both can arrive as number or string, so coerce.
+            // When the cursor is off the data, recharts clears these → null.
+            const i = Number(s.activeTooltipIndex)
+            const lbl = Number(s.activeLabel)
+            const km =
+              Number.isInteger(i) && data[i] ? data[i].km
+              : Number.isFinite(lbl) ? lbl
+              : null
+            reportHover(km)
+          }}
+          onMouseLeave={() => reportHover(null)}
+        >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
               {data.map((d, i) => (

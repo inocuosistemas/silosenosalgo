@@ -147,6 +147,11 @@ interface Props {
    * for backward compatibility.
    */
   forecastReady?: boolean
+  /**
+   * Km position the user is hovering on the elevation profile. When set, a
+   * marker is shown at that point on the map so the two views stay in sync.
+   */
+  hoverKm?: number | null
 }
 
 const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
@@ -215,6 +220,30 @@ function MapClickPicker({ onPick }: { onPick: (lat: number, lon: number) => void
   return null
 }
 
+/** Interpolate [lat, lon] at a given km along the track. Shared by the play
+ *  pointer, the expected-position dot and the elevation-profile hover marker. */
+function coordsAtKm(
+  points: GpxTrack['points'],
+  cumKm: ArrayLike<number>,
+  totalKm: number,
+  kmRaw: number,
+): [number, number] | null {
+  if (points.length < 2) return null
+  const km = Math.max(0, Math.min(totalKm, kmRaw))
+  let i = 0
+  while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
+  if (i >= cumKm.length - 1) {
+    const last = points[points.length - 1]
+    return [last.lat, last.lon]
+  }
+  const span = cumKm[i + 1] - cumKm[i]
+  const t = span > 0 ? (km - cumKm[i]) / span : 0
+  return [
+    points[i].lat + t * (points[i + 1].lat - points[i].lat),
+    points[i].lon + t * (points[i + 1].lon - points[i].lon),
+  ]
+}
+
 // ── Small stat pill for the analyze panel ────────────────────────────────────
 function StatPill({ label, value, color = 'text-slate-200' }: { label: string; value: string; color?: string }) {
   return (
@@ -261,6 +290,7 @@ export function RouteMap({
   windAnimationAvailable = false,
   daylightAnchor,
   forecastReady = true,
+  hoverKm = null,
 }: Props) {
   const { points } = track
 
@@ -608,11 +638,31 @@ export function RouteMap({
     return { beforeSegments: before, afterSegments: after }
   }, [allSegments, effectiveProgress, targetKm, cumKm, points])
 
+  // Leading-edge pointer at the current play position. Geometry-based (not
+  // derived from the weather-coloured segments) so it shows even in Capa 1,
+  // where there are no segments yet.
   const tipPoint = useMemo<[number, number] | null>(() => {
-    if (beforeSegments.length === 0 || effectiveProgress >= 1 || effectiveProgress <= 0) return null
-    const last = beforeSegments[beforeSegments.length - 1]
-    return last.positions[last.positions.length - 1]
-  }, [beforeSegments, effectiveProgress])
+    if (liveMode || effectiveProgress >= 1 || effectiveProgress <= 0) return null
+    return coordsAtKm(points, cumKm, totalKm, targetKm)
+  }, [liveMode, effectiveProgress, targetKm, points, cumKm, totalKm])
+
+  // Track geometry from the start up to the current play position — the
+  // "travelled" trail, drawn under the weather-coloured segments so play mode
+  // is meaningful before any forecast exists.
+  const playedRoutePositions = useMemo<[number, number][]>(() => {
+    if (liveMode || interactionMode !== 'play' || effectiveProgress <= 0) return []
+    const out: [number, number][] = []
+    for (let i = 0; i < points.length; i++) {
+      if (cumKm[i] <= targetKm) {
+        out.push([points[i].lat, points[i].lon])
+      } else {
+        const tip = coordsAtKm(points, cumKm, totalKm, targetKm)
+        if (tip) out.push(tip)
+        break
+      }
+    }
+    return out
+  }, [liveMode, interactionMode, effectiveProgress, targetKm, points, cumKm, totalKm])
 
   // ── Analyze inside segments: only the weather-colored portion [from, to] ──
   // Uses deferredFrom/deferredTo so slider drags don't block Leaflet repaints.
@@ -740,19 +790,16 @@ export function RouteMap({
   }, [liveMode, liveTrackKm, cumKm, points, totalKm])
 
   // ── Expected position dot (live mode) ─────────────────────────────────────
-  const expectedCoords = useMemo<[number, number] | null>(() => {
-    if (expectedKm === null || points.length < 2) return null
-    const km = Math.max(0, Math.min(totalKm, expectedKm))
-    let i = 0
-    while (i < cumKm.length - 1 && cumKm[i + 1] < km) i++
-    if (i >= cumKm.length - 1) return [points[points.length - 1].lat, points[points.length - 1].lon]
-    const span = cumKm[i + 1] - cumKm[i]
-    const t = span > 0 ? (km - cumKm[i]) / span : 0
-    return [
-      points[i].lat + t * (points[i + 1].lat - points[i].lat),
-      points[i].lon + t * (points[i + 1].lon - points[i].lon),
-    ]
-  }, [expectedKm, cumKm, points, totalKm])
+  const expectedCoords = useMemo<[number, number] | null>(
+    () => (expectedKm === null ? null : coordsAtKm(points, cumKm, totalKm, expectedKm)),
+    [expectedKm, cumKm, points, totalKm],
+  )
+
+  // ── Elevation-profile hover marker ────────────────────────────────────────
+  const hoverCoords = useMemo<[number, number] | null>(
+    () => (hoverKm == null ? null : coordsAtKm(points, cumKm, totalKm, hoverKm)),
+    [hoverKm, cumKm, points, totalKm],
+  )
 
   // ── Buddy projected position (plan mode buddy tracker) ────────────────────
   const buddyCoords = useMemo<[number, number] | null>(() => {
@@ -1432,6 +1479,15 @@ export function RouteMap({
             />
           )}
 
+          {/* Plan / play: travelled trail (geometry). Shows progress even in
+              Capa 1; the weather-coloured segments draw on top when present. */}
+          {!liveMode && interactionMode === 'play' && playedRoutePositions.length >= 2 && (
+            <Polyline
+              positions={playedRoutePositions}
+              pathOptions={{ color: '#38bdf8', weight: 5, opacity: 0.95 }}
+            />
+          )}
+
           {/* Plan / play: weather-colored before segments */}
           {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => {
             const isPast = seg.endTimeMs < nowTick
@@ -1701,6 +1757,23 @@ export function RouteMap({
                 </div>
               </Popup>
             </CircleMarker>
+          )}
+
+          {/* Elevation-profile hover marker — follows the cursor on the profile
+              so the user can locate that km on the map. */}
+          {hoverCoords && (
+            <>
+              <CircleMarker
+                center={hoverCoords}
+                radius={9}
+                pathOptions={{ color: '#38bdf8', fillColor: '#38bdf8', fillOpacity: 0.18, weight: 2 }}
+              />
+              <CircleMarker
+                center={hoverCoords}
+                radius={4}
+                pathOptions={{ color: '#ffffff', fillColor: '#0ea5e9', fillOpacity: 1, weight: 2 }}
+              />
+            </>
           )}
 
           {/* Buddy already-done trail (halo + purple line) */}

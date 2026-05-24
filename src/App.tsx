@@ -358,6 +358,8 @@ export default function App() {
   const [terrainRetryAfterSec, setTerrainRetryAfterSec] = useState(0)
 
   const [mapMode, setMapMode] = useState<MapMode>('rain')
+  // Km hovered on the elevation profile → mirrored as a marker on the map.
+  const [hoverKm, setHoverKm] = useState<number | null>(null)
   const [showRainRadar, setShowRainRadarState] = useState<boolean>(loadShowRainRadar)
   const setShowRainRadar = useCallback((v: boolean) => {
     setShowRainRadarState(v)
@@ -803,7 +805,15 @@ export default function App() {
   // Estimated time: linearly interpolated between the two bounding enrichedWaypoints.
   // Weather: taken from the nearest enrichedWaypoint by distanceKm.
   const enrichedNamedWaypoints = useMemo<EnrichedNamedWaypoint[]>(() => {
-    if (!track || enrichedWaypoints.length === 0) return []
+    if (!track) return []
+    // Capa 1: before the forecast is computed there are no enrichedWaypoints to
+    // interpolate ETAs/weather from — but the POIs exist on the track, so surface
+    // them with position + identity only, so the map can mark them. ETA, weather
+    // and cut-off info fill in once the plan is computed. (cutoffTime is left
+    // unset on purpose: setting it would make the cut-off panels appear pre-plan.)
+    if (enrichedWaypoints.length === 0) {
+      return track.namedWaypoints.map((wpt) => ({ ...wpt, estimatedTime: null, weather: null }))
+    }
     return track.namedWaypoints.map((wpt) => {
       // ── Interpolate estimated time ──────────────────────────────────────
       let estimatedTime: Date | null = null
@@ -1824,6 +1834,17 @@ export default function App() {
             geometría + terreno). Las capas de previsión (lluvia/viento/polen/luz)
             quedan bloqueadas vía forecastReady hasta que se calcula el plan. ── */}
         {track && (
+          <div className="pt-1">
+            <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+              <span>🛤️</span> Recorrido
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Tu ruta sobre el mapa y el perfil — sin necesidad de planificar todavía.
+            </p>
+          </div>
+        )}
+
+        {track && (
           <RouteMap
             track={track}
             waypoints={enrichedWaypoints}
@@ -1860,6 +1881,7 @@ export default function App() {
             onShowWindAnimationChange={setShowWindAnimation}
             windAnimationAvailable={weatherArr.some((w) => w !== null)}
             daylightAnchor={daylightAnchor}
+            hoverKm={hoverKm}
           />
         )}
 
@@ -1870,6 +1892,7 @@ export default function App() {
             track={track}
             namedWaypoints={track.namedWaypoints}
             analyzeRange={analyzeRange}
+            onHoverKm={setHoverKm}
           />
         )}
 
@@ -1894,9 +1917,14 @@ export default function App() {
             {/* ── 📋 Planificación: a partir de aquí todo necesita ritmo + hora
                 de salida (ETAs, meteo, luz situada, cortes, estrategia). ── */}
             {track && (
-              <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold pt-3 border-t border-slate-800">
-                📋 Planificación
-              </h2>
+              <div className="pt-5 mt-2 border-t border-slate-700">
+                <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                  <span>📋</span> Planificación
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Indica ritmo y hora de salida para obtener la previsión de clima, luz y cortes.
+                </p>
+              </div>
             )}
 
             {/* ── Compact params bar (post-compute view) ── */}
