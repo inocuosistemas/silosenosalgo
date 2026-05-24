@@ -16,3 +16,43 @@
   50%  { left: 100%; }
   100% { left: 100%; }
 }
+
+/* ── Dual-thumb range slider (analyze-range selector) ──────────────────────
+   Two <input type="range"> are stacked over one shared track. The input itself
+   is transparent and ignores pointer events, so clicks fall through to whichever
+   thumb is under the cursor — only the thumbs are interactive. This is the
+   standard technique for a two-handle range with native inputs (no JS drag). */
+.range-dual {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;   /* track ignores clicks; only the thumb opts back in */
+  height: 1.25rem;        /* tall hit area, centered on the visual track */
+  margin: 0;
+}
+.range-dual::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 2px solid #f8fafc;       /* slate-50 ring for contrast on dark bg */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+.range-dual::-webkit-slider-thumb:active { cursor: grabbing; }
+.range-dual::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 2px solid #f8fafc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+.range-dual::-moz-range-track { background: transparent; }
+/* Per-handle colors so each thumb maps to its label (De = sky, A = emerald). */
+.range-dual-from::-webkit-slider-thumb { background: #0ea5e9; }
+.range-dual-from::-moz-range-thumb     { background: #0ea5e9; }
+.range-dual-to::-webkit-slider-thumb   { background: #10b981; }
+.range-dual-to::-moz-range-thumb       { background: #10b981; }

@@ -138,6 +138,15 @@ interface Props {
    * in temperate latitudes are only a few minutes, irrelevant at our scale.
    */
   daylightAnchor?: { lat: number; lon: number }
+  /**
+   * Whether the planning forecast has been computed (i.e. there are waypoints
+   * with ETAs / weather). When false the map still renders the route geometry
+   * and terrain (track-only data), but forecast-dependent modes (rain/wind/
+   * pollen/daylight) are suppressed: the effective mode is forced to 'terrain'
+   * and the daylight button is hidden until the user plans. Defaults to true
+   * for backward compatibility.
+   */
+  forecastReady?: boolean
 }
 
 const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
@@ -219,7 +228,7 @@ function StatPill({ label, value, color = 'text-slate-200' }: { label: string; v
 export function RouteMap({
   track,
   waypoints,
-  mapMode,
+  mapMode: mapModeProp,
   onMapModeChange,
   liveMode = false,
   liveCoords = null,
@@ -251,8 +260,16 @@ export function RouteMap({
   onShowWindAnimationChange,
   windAnimationAvailable = false,
   daylightAnchor,
+  forecastReady = true,
 }: Props) {
   const { points } = track
+
+  // Before the forecast is computed, the route map only has track-only data
+  // (geometry + terrain). Force the effective mode to 'terrain' so the rest of
+  // the component (memos, legend, overlays) renders coherently regardless of
+  // the parent's persisted mapMode. The mode-bar buttons still write the real
+  // mapMode via onMapModeChange; pre-plan only the terrain button is shown.
+  const mapMode: MapMode = forecastReady ? mapModeProp : 'terrain'
 
   // ── Rain-radar state (RainViewer animated overlay) ────────────────────────
   const [radarFrames, setRadarFrames]   = useState<RadarFrame[]>([])
@@ -650,6 +667,42 @@ export function RouteMap({
     return result
   }, [liveMode, interactionMode, deferredFrom, deferredTo, allSegments, cumKm, points])
 
+  // ── Analyze-range geometry highlight ──────────────────────────────────────
+  // A plain polyline of the track between [from, to], independent of weather
+  // colouring. This is what makes the selected segment visible *before* the
+  // forecast is computed (Capa 1): there are no weather-coloured segments yet,
+  // so analyzeInsideSegments is empty and nothing would otherwise be drawn.
+  // When the forecast exists, the coloured segments draw on top of this.
+  const analyzeRoutePositions = useMemo<[number, number][]>(() => {
+    if (liveMode || interactionMode !== 'analyze') return []
+    const out: [number, number][] = []
+    for (let i = 0; i < points.length; i++) {
+      const km = cumKm[i]
+      const prevKm = i > 0 ? cumKm[i - 1] : null
+      // entry boundary: interpolate the point where the route crosses `from`
+      if (prevKm != null && prevKm < deferredFrom && km >= deferredFrom) {
+        const t = (deferredFrom - prevKm) / (km - prevKm)
+        out.push([
+          points[i - 1].lat + (points[i].lat - points[i - 1].lat) * t,
+          points[i - 1].lon + (points[i].lon - points[i - 1].lon) * t,
+        ])
+      }
+      if (km >= deferredFrom && km <= deferredTo) {
+        out.push([points[i].lat, points[i].lon])
+      }
+      // exit boundary: interpolate the point where the route crosses `to`
+      if (prevKm != null && prevKm <= deferredTo && km > deferredTo) {
+        const t = (deferredTo - prevKm) / (km - prevKm)
+        out.push([
+          points[i - 1].lat + (points[i].lat - points[i - 1].lat) * t,
+          points[i - 1].lon + (points[i].lon - points[i - 1].lon) * t,
+        ])
+        break
+      }
+    }
+    return out
+  }, [liveMode, interactionMode, deferredFrom, deferredTo, points, cumKm])
+
   // ── Section stats (analyze mode) ──────────────────────────────────────────
   const analyzeStats = useMemo(() => {
     if (liveMode || interactionMode !== 'analyze' || !paceConfig) return null
@@ -943,7 +996,7 @@ export function RouteMap({
                   </button>
                 </>
               )}
-              {daylightAnchor && (
+              {daylightAnchor && forecastReady && (
                 <button
                   onClick={() => onMapModeChange('daylight')}
                   className={`px-3 py-1.5 transition-colors ${mapMode === 'daylight' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
@@ -1102,6 +1155,11 @@ export function RouteMap({
                   )
                 })}
               </>
+            ) : mapMode === 'terrain' ? (
+              /* Terrain mode but not loaded yet (idle) — the typical pre-plan /
+                 Capa 1 state. Without this branch the chain falls through to the
+                 rain legend below, which makes no sense before any forecast. */
+              <span className="text-slate-500">Pulsa «🏔️ Terreno» para ver el tipo de firme</span>
             ) : (
               <>
                 <span>{legendTitle}</span>
@@ -1204,11 +1262,22 @@ export function RouteMap({
           </span>
         </div>
       ) : interactionMode === 'analyze' ? (
-        /* ── Dual-handle analyze sliders ── */
-        <div className="space-y-1.5 px-1">
-          {/* From slider */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 w-5 shrink-0">De</span>
+        /* ── Single bar, two thumbs (start + end) ── */
+        <div className="space-y-2 px-1">
+          {/* Dual-thumb range: shared track + filled selection + two overlaid inputs */}
+          <div className="relative h-5 flex items-center mx-2">
+            {/* background track */}
+            <div className="absolute inset-x-0 h-1.5 rounded-full bg-slate-700" />
+            {/* filled selection between the two thumbs */}
+            <div
+              className="absolute h-1.5 rounded-full bg-sky-500/70"
+              style={{
+                left: `${(analyzeFrom / totalKm) * 100}%`,
+                right: `${100 - (analyzeTo / totalKm) * 100}%`,
+              }}
+            />
+            {/* start thumb — raised above the end thumb when in the upper half so
+                it stays grabbable even when both handles are near the maximum */}
             <input
               type="range"
               min={0}
@@ -1216,32 +1285,11 @@ export function RouteMap({
               step={1}
               value={Math.round((analyzeFrom / totalKm) * SLIDER_STEPS)}
               onChange={handleFromSlider}
-              className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-              style={{
-                accentColor: '#0ea5e9',
-                background: `linear-gradient(to right, #0ea5e9 ${(analyzeFrom / totalKm) * 100}%, #334155 ${(analyzeFrom / totalKm) * 100}%)`,
-              }}
+              aria-label="Inicio del tramo"
+              className="range-dual range-dual-from absolute inset-x-0 w-full"
+              style={{ zIndex: (analyzeFrom / totalKm) > 0.5 ? 6 : 4 }}
             />
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                onClick={handleFromMinus}
-                title="−0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
-              >−</button>
-              <button
-                onClick={handleFromPlus}
-                title="+0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
-              >+</button>
-            </div>
-            <span className="text-xs font-mono text-sky-400 w-14 text-right shrink-0">
-              {analyzeFrom.toFixed(1)} km
-            </span>
-          </div>
-
-          {/* To slider */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 w-5 shrink-0">A</span>
+            {/* end thumb */}
             <input
               type="range"
               min={0}
@@ -1249,37 +1297,46 @@ export function RouteMap({
               step={1}
               value={Math.round((analyzeTo / totalKm) * SLIDER_STEPS)}
               onChange={handleToSlider}
-              className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-              style={{
-                accentColor: '#10b981',
-                background: `linear-gradient(to right, #10b981 ${(analyzeTo / totalKm) * 100}%, #334155 ${(analyzeTo / totalKm) * 100}%)`,
-              }}
+              aria-label="Final del tramo"
+              className="range-dual range-dual-to absolute inset-x-0 w-full"
+              style={{ zIndex: 5 }}
             />
-            <div className="flex items-center gap-0.5 shrink-0">
+          </div>
+
+          {/* Values + fine controls + reset */}
+          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
+            <span className="flex items-center gap-1">
+              <span className="text-slate-400">De</span>
+              <span className="font-mono text-sky-400 w-14 text-right">{analyzeFrom.toFixed(1)} km</span>
+              <button
+                onClick={handleFromMinus}
+                title="−0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >−</button>
+              <button
+                onClick={handleFromPlus}
+                title="+0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >+</button>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-slate-400">A</span>
+              <span className="font-mono text-emerald-400 w-14 text-right">{analyzeTo.toFixed(1)} km</span>
               <button
                 onClick={handleToMinus}
                 title="−0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
               >−</button>
               <button
                 onClick={handleToPlus}
                 title="+0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white text-xs font-bold transition-colors leading-none"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
               >+</button>
-            </div>
-            <span className="text-xs font-mono text-emerald-400 w-14 text-right shrink-0">
-              {analyzeTo.toFixed(1)} km
             </span>
-          </div>
-
-          {/* Range info + reset */}
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-slate-500 pl-8">
-              Tramo: {(analyzeTo - analyzeFrom).toFixed(1)} km
-            </span>
+            <span className="text-slate-500">· Tramo {(analyzeTo - analyzeFrom).toFixed(1)} km</span>
             <button
               onClick={resetRange}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors pr-14"
+              className="ml-auto text-slate-500 hover:text-slate-300 transition-colors"
             >
               ↺ Reset
             </button>
@@ -1405,6 +1462,16 @@ export function RouteMap({
                 pathOptions={{ color: '#0f172a', fillColor: '#0f172a', fillOpacity: 1, weight: 0 }}
               />
             </>
+          )}
+
+          {/* Plan / analyze: geometry highlight of the selected range. Drawn
+              under the weather-colored segments so it shows on its own before
+              the forecast exists (Capa 1) and is covered by color afterwards. */}
+          {!liveMode && interactionMode === 'analyze' && analyzeRoutePositions.length >= 2 && (
+            <Polyline
+              positions={analyzeRoutePositions}
+              pathOptions={{ color: '#38bdf8', weight: 5, opacity: 0.95 }}
+            />
           )}
 
           {/* Plan / analyze: weather-colored inside-range segments */}

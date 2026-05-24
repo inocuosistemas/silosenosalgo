@@ -10,6 +10,7 @@ import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack, GpxNamedWaypoint } from './lib/gpx'
 import { downloadGpx } from './lib/gpxSerialize'
 import { downloadFitCourse } from './lib/fitCourse'
+import { ElevationProfile } from './components/ElevationProfile'
 import { PoisPanel, type MaterialisedPoi } from './components/PoisPanel'
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
@@ -1819,6 +1820,59 @@ export default function App() {
           )}
         </section>
 
+        {/* ── 🛤️ Recorrido: el mapa aparece en cuanto hay track (capa solo-track:
+            geometría + terreno). Las capas de previsión (lluvia/viento/polen/luz)
+            quedan bloqueadas vía forecastReady hasta que se calcula el plan. ── */}
+        {track && (
+          <RouteMap
+            track={track}
+            waypoints={enrichedWaypoints}
+            namedWaypoints={enrichedNamedWaypoints}
+            mapMode={mapMode}
+            onMapModeChange={setMapMode}
+            forecastReady={baseWaypoints.length > 0}
+            liveMode={appMode === 'live'}
+            liveCoords={livePos.coords}
+            liveProgress={livePos.progress}
+            liveTrackKm={livePos.trackKm}
+            followPosition={!simActive}
+            isOffTrack={isOffTrack}
+            onPickPosition={simPicking ? (lat, lon) => { setSimCoords({ lat, lon }); setSimPicking(false) } : null}
+            expectedKm={expectedKm}
+            paceConfig={paceConfig}
+            analyzeRange={analyzeRange}
+            onAnalyzeRangeChange={setAnalyzeRange}
+            buddyKm={appMode === 'plan' ? buddyKmNow : null}
+            buddyObservations={appMode === 'plan' ? buddyObs : []}
+            pollenData={pollenArr.length > 0 ? pollenArr : undefined}
+            pollenType={selectedPollenType}
+            onPollenTypeChange={setSelectedPollenType}
+            pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
+            terrainStatus={terrainStatus}
+            terrainErrorKind={terrainErrorKind}
+            terrainRetryAfterSec={terrainRetryAfterSec}
+            onFetchTerrain={() => fetchTerrain()}
+            onTerrainRetry={retryTerrain}
+            showRainRadar={showRainRadar}
+            onShowRainRadarChange={setShowRainRadar}
+            rainRadarAvailable={appMode === 'live' || (appMode === 'plan' && buddyObs.length > 0)}
+            showWindAnimation={showWindAnimation}
+            onShowWindAnimationChange={setShowWindAnimation}
+            windAnimationAvailable={weatherArr.some((w) => w !== null)}
+            daylightAnchor={daylightAnchor}
+          />
+        )}
+
+        {/* ── 🛤️ Perfil de altura: track-only, aparece junto al mapa al cargar.
+            Coloreado por pendiente + POIs/cortes + resaltado del tramo. ── */}
+        {track && (
+          <ElevationProfile
+            track={track}
+            namedWaypoints={track.namedWaypoints}
+            analyzeRange={analyzeRange}
+          />
+        )}
+
         {/* ── Plan mode sections ── */}
         {appMode === 'plan' && (
           <>
@@ -1835,6 +1889,14 @@ export default function App() {
                 onDownloadFit={handleDownloadFit}
                 modified={trackModified}
               />
+            )}
+
+            {/* ── 📋 Planificación: a partir de aquí todo necesita ritmo + hora
+                de salida (ETAs, meteo, luz situada, cortes, estrategia). ── */}
+            {track && (
+              <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold pt-3 border-t border-slate-800">
+                📋 Planificación
+              </h2>
             )}
 
             {/* ── Compact params bar (post-compute view) ── */}
@@ -2182,46 +2244,6 @@ export default function App() {
               etaDriftMin={weatherEtaDriftMin}
             />
           </>
-        )}
-
-        {/* ── Map ── */}
-        {track && baseWaypoints.length > 0 && (
-          <RouteMap
-            track={track}
-            waypoints={enrichedWaypoints}
-            namedWaypoints={enrichedNamedWaypoints}
-            mapMode={mapMode}
-            onMapModeChange={setMapMode}
-            liveMode={appMode === 'live'}
-            liveCoords={livePos.coords}
-            liveProgress={livePos.progress}
-            liveTrackKm={livePos.trackKm}
-            followPosition={!simActive}
-            isOffTrack={isOffTrack}
-            onPickPosition={simPicking ? (lat, lon) => { setSimCoords({ lat, lon }); setSimPicking(false) } : null}
-            expectedKm={expectedKm}
-            paceConfig={paceConfig}
-            analyzeRange={analyzeRange}
-            onAnalyzeRangeChange={setAnalyzeRange}
-            buddyKm={appMode === 'plan' ? buddyKmNow : null}
-            buddyObservations={appMode === 'plan' ? buddyObs : []}
-            pollenData={pollenArr.length > 0 ? pollenArr : undefined}
-            pollenType={selectedPollenType}
-            onPollenTypeChange={setSelectedPollenType}
-            pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
-            terrainStatus={terrainStatus}
-            terrainErrorKind={terrainErrorKind}
-            terrainRetryAfterSec={terrainRetryAfterSec}
-            onFetchTerrain={() => fetchTerrain()}
-            onTerrainRetry={retryTerrain}
-            showRainRadar={showRainRadar}
-            onShowRainRadarChange={setShowRainRadar}
-            rainRadarAvailable={appMode === 'live' || (appMode === 'plan' && buddyObs.length > 0)}
-            showWindAnimation={showWindAnimation}
-            onShowWindAnimationChange={setShowWindAnimation}
-            windAnimationAvailable={weatherArr.some((w) => w !== null)}
-            daylightAnchor={daylightAnchor}
-          />
         )}
 
         {/* ── Buddy tracker (plan mode, after computing) ── */}
