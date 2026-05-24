@@ -650,7 +650,10 @@ export function RouteMap({
   // "travelled" trail, drawn under the weather-coloured segments so play mode
   // is meaningful before any forecast exists.
   const playedRoutePositions = useMemo<[number, number][]>(() => {
-    if (liveMode || interactionMode !== 'play' || effectiveProgress <= 0) return []
+    // Only meaningful mid-playback. At progress ≥ 1 (the default full-route view)
+    // the whole route would be drawn as one sky line, bleeding through any faded
+    // past segments and muddying the mode colouring — so bail out.
+    if (liveMode || interactionMode !== 'play' || effectiveProgress <= 0 || effectiveProgress >= 1) return []
     const out: [number, number][] = []
     for (let i = 0; i < points.length; i++) {
       if (cumKm[i] <= targetKm) {
@@ -1490,7 +1493,11 @@ export function RouteMap({
 
           {/* Plan / play: weather-colored before segments */}
           {!liveMode && interactionMode === 'play' && beforeSegments.map((seg) => {
-            const isPast = seg.endTimeMs < nowTick
+            // Only fade "already passed" segments during active playback. In the
+            // static view this would dim the whole route when the plan's ETAs are
+            // in the past (e.g. a recorded GPX whose own timestamps drive timing),
+            // making the mode colouring look washed out.
+            const isPast = isPlaying && seg.endTimeMs < nowTick
             return (
               <Polyline
                 key={`before-${seg.key}`}
@@ -1532,7 +1539,11 @@ export function RouteMap({
 
           {/* Plan / analyze: weather-colored inside-range segments */}
           {!liveMode && interactionMode === 'analyze' && analyzeInsideSegments.map((seg) => {
-            const isPast = seg.endTimeMs < nowTick
+            // Only fade "already passed" segments during active playback. In the
+            // static view this would dim the whole route when the plan's ETAs are
+            // in the past (e.g. a recorded GPX whose own timestamps drive timing),
+            // making the mode colouring look washed out.
+            const isPast = isPlaying && seg.endTimeMs < nowTick
             return (
               <Polyline
                 key={seg.key}

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import {
   ComposedChart,
   Area,
@@ -11,21 +11,24 @@ import {
   ReferenceDot,
 } from 'recharts'
 import type { GpxTrack, GpxNamedWaypoint } from '../lib/gpx'
+import type { EnrichedWaypoint } from '../lib/places'
+import { precipToColor, impactToColor } from '../lib/mapColors'
+import { windImpactStyle } from '../lib/weather'
 
 /**
- * Elevation profile — a "Capa 1" (track-only) view that renders as soon as a
- * GPX is loaded, in parallel to the map. It needs no pace and no start time:
- * just the track geometry.
+ * Elevation profile — a route "canvas" parallel to the map.
  *
- * The silhouette is colour-coded by gradient (descents cool, climbs warm) via
- * an SVG linear gradient whose stops follow the route, mirroring how the map
- * colour-codes the route by a variable. POIs and cut-offs are marked at their
- * km, and the analyze-range selection is highlighted in sync with the map.
+ * Capa 1 (track-only, always): the silhouette coloured by gradient, POI/cut-off
+ * markers, analyze-range highlight, and hover→map sync.
  *
- * Weather overlays (temperature, precipitation, …) are intentionally NOT here:
- * those are Capa 2 and live in WeatherCharts. A later phase can fold them in as
- * selectable overlays on this same profile.
+ * Capa 2 (once the forecast exists): a mode selector — like the map's — recolours
+ * the same silhouette by temperature / rain / wind. One overlay at a time, using
+ * the same colour scales as the map (precipToColor, impactToColor) so both views
+ * share a visual language. The weather modes appear only when weather data is
+ * present; pre-plan only "Pendiente" is shown.
  */
+
+type ProfileMode = 'slope' | 'temp' | 'rain' | 'wind'
 
 interface Props {
   track: GpxTrack
@@ -35,6 +38,8 @@ interface Props {
   analyzeRange?: { from: number; to: number } | null
   /** Reports the km under the cursor so the map can show a matching marker. */
   onHoverKm?: (km: number | null) => void
+  /** Enriched waypoints (weather + bearing). Drives the Capa 2 colour overlays. */
+  waypoints?: EnrichedWaypoint[]
 }
 
 const GRID_COLOR = '#1e293b'
@@ -47,34 +52,72 @@ const TOOLTIP_STYLE = {
   padding: '6px 10px',
 }
 
-// Auto-scaling to [min,max] makes a near-flat route look mountainous. Enforce a
-// minimum visible span so flat looks flat (same rationale as WeatherCharts).
 const ELE_MIN_SPAN_M = 400
 const MAX_SAMPLES = 320
 
 /** Signed gradient (%) → colour. Descents cool, climbs warm. */
 function gradeColor(g: number): string {
-  if (g <= -9) return '#2563eb'    // steep descent
+  if (g <= -9) return '#2563eb'
   if (g <= -4) return '#60a5fa'
   if (g < -1.5) return '#93c5fd'
-  if (g <= 1.5) return '#64748b'   // flat — slate
-  if (g <= 4) return '#fbbf24'     // gentle climb
+  if (g <= 1.5) return '#64748b'
+  if (g <= 4) return '#fbbf24'
   if (g <= 8) return '#f97316'
   if (g <= 12) return '#ef4444'
-  return '#b91c1c'                 // very steep climb
+  return '#b91c1c'
 }
 
-interface Datum { km: number; ele: number; grade: number }
+/** Temperature (°C) → colour. Cold blue → hot red. */
+function tempColor(t: number): string {
+  if (t <= 0) return '#1d4ed8'
+  if (t <= 6) return '#3b82f6'
+  if (t <= 12) return '#22d3ee'
+  if (t <= 18) return '#22c55e'
+  if (t <= 24) return '#fbbf24'
+  if (t <= 30) return '#f97316'
+  if (t <= 35) return '#ef4444'
+  return '#b91c1c'
+}
 
-function ProfileTooltip({ active, payload }: { active?: boolean; payload?: { payload: Datum }[] }) {
+interface Datum {
+  km: number
+  ele: number
+  grade: number
+  temp: number | null
+  precip: number | null
+  windKmh: number | null
+  windColor: string | null
+}
+
+const MODE_LABEL: Record<ProfileMode, string> = {
+  slope: '⛰️ Pendiente',
+  temp: '🌡️ Temp',
+  rain: '🌧️ Lluvia',
+  wind: '💨 Viento',
+}
+
+function ProfileTooltip({
+  active,
+  payload,
+  mode,
+}: {
+  active?: boolean
+  payload?: { payload: Datum }[]
+  mode?: ProfileMode
+}) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload
+  let extra: string | null = null
+  if (mode === 'temp' && p.temp != null) extra = `🌡️ ${Math.round(p.temp)}°C`
+  else if (mode === 'rain' && p.precip != null) extra = `🌧️ ${Math.round(p.precip)}%`
+  else if (mode === 'wind' && p.windKmh != null) extra = `💨 ${Math.round(p.windKmh)} km/h`
   return (
     <div style={TOOLTIP_STYLE}>
       <div className="text-slate-200 font-mono">{p.km.toFixed(1)} km</div>
       <div className="text-slate-400">
         {p.ele} m · {p.grade >= 0 ? '+' : ''}{p.grade.toFixed(1)}%
       </div>
+      {extra && <div className="text-slate-300 mt-0.5">{extra}</div>}
     </div>
   )
 }
@@ -84,9 +127,15 @@ export const ElevationProfile = memo(function ElevationProfile({
   namedWaypoints = [],
   analyzeRange = null,
   onHoverKm,
+  waypoints = [],
 }: Props) {
   const { points, cumKm } = track
   const total = track.totalDistanceKm
+
+  const [mode, setMode] = useState<ProfileMode>('slope')
+  const weatherAvailable = waypoints.some((w) => w.weather != null)
+  // Fall back to the track-only mode whenever weather isn't (yet) available.
+  const activeMode: ProfileMode = weatherAvailable ? mode : 'slope'
 
   // De-dupe hover reports: recharts fires onMouseMove often, and each change
   // re-renders the (heavy) map. Only report when the km changes by ≥ 0.1.
@@ -98,21 +147,50 @@ export const ElevationProfile = memo(function ElevationProfile({
     onHoverKm?.(km)
   }
 
-  // Downsample to ~MAX_SAMPLES evenly-spaced points. The coarser spacing also
-  // smooths the per-segment gradient, damping GPS-altitude noise spikes.
+  // Weather sampled at waypoints (sorted by km), prepared once for interpolation.
+  const wx = useMemo(() => {
+    const ww = waypoints.filter((w) => w.weather != null)
+    return {
+      km: ww.map((w) => w.distanceKm),
+      temp: ww.map((w) => w.weather!.temperatureC),
+      precip: ww.map((w) => w.weather!.precipProbability),
+      windKmh: ww.map((w) => w.weather!.windSpeedKmh),
+      windColor: ww.map((w) => impactToColor(w)),
+    }
+  }, [waypoints])
+
+  // Downsample to ~MAX_SAMPLES evenly-spaced points (also smooths the gradient),
+  // then interpolate the weather variables at each sample's km.
   const data = useMemo<Datum[]>(() => {
     if (points.length < 2) return []
     const step = Math.max(1, Math.ceil(points.length / MAX_SAMPLES))
     const idx: number[] = []
     for (let i = 0; i < points.length; i += step) idx.push(i)
     if (idx[idx.length - 1] !== points.length - 1) idx.push(points.length - 1)
+    const n = wx.km.length
     return idx.map((i, k) => {
       const prev = k > 0 ? idx[k - 1] : i
       const dEle = points[i].ele - points[prev].ele
       const dM = Math.max(1, (cumKm[i] - cumKm[prev]) * 1000)
-      return { km: cumKm[i], ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0 }
+      const km = cumKm[i]
+      let temp: number | null = null
+      let precip: number | null = null
+      let windKmh: number | null = null
+      let windColor: string | null = null
+      if (n > 0) {
+        let j = 0
+        while (j < n - 1 && wx.km[j + 1] <= km) j++
+        const j1 = Math.min(j + 1, n - 1)
+        const span = wx.km[j1] - wx.km[j]
+        const t = span > 0 ? Math.max(0, Math.min(1, (km - wx.km[j]) / span)) : 0
+        temp = wx.temp[j] + t * (wx.temp[j1] - wx.temp[j])
+        precip = wx.precip[j] + t * (wx.precip[j1] - wx.precip[j])
+        windKmh = wx.windKmh[j] + t * (wx.windKmh[j1] - wx.windKmh[j])
+        windColor = t < 0.5 ? wx.windColor[j] : wx.windColor[j1]
+      }
+      return { km, ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0, temp, precip, windKmh, windColor }
     })
-  }, [points, cumKm])
+  }, [points, cumKm, wx])
 
   const eleDomain = useMemo<[number, number]>(() => {
     if (data.length === 0) return [0, ELE_MIN_SPAN_M]
@@ -133,9 +211,21 @@ export const ElevationProfile = memo(function ElevationProfile({
     return [lo, hi]
   }, [data])
 
+  // Per-sample fill colour for the active mode → SVG gradient stops along the route.
+  const stops = useMemo(() => {
+    return data.map((d) => {
+      let color: string
+      if (activeMode === 'temp' && d.temp != null) color = tempColor(d.temp)
+      else if (activeMode === 'rain' && d.precip != null) color = precipToColor(d.precip)
+      else if (activeMode === 'wind' && d.windColor) color = d.windColor
+      else color = gradeColor(d.grade)
+      return { offset: total > 0 ? (d.km / total) * 100 : 0, color }
+    })
+  }, [data, activeMode, total])
+
   if (data.length < 2) return null
 
-  const gradId = 'elev-grade-fill'
+  const gradId = 'elev-fill'
 
   return (
     <div className="bg-slate-900 rounded-xl p-4 border border-slate-800 space-y-3">
@@ -143,9 +233,27 @@ export const ElevationProfile = memo(function ElevationProfile({
         <h3 className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
           Perfil de altura
         </h3>
-        <div className="flex items-center gap-3 text-[11px] font-mono">
-          <span className="text-orange-400">+{Math.round(track.elevGainM)} m</span>
-          <span className="text-blue-400">−{Math.round(track.elevLossM)} m</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Mode selector (weather modes appear only when forecast data exists) */}
+          {weatherAvailable && (
+            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-[11px]">
+              {(['slope', 'temp', 'rain', 'wind'] as ProfileMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-2.5 py-1 transition-colors ${
+                    activeMode === m ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {MODE_LABEL[m]}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="flex items-center gap-2 text-[11px] font-mono">
+            <span className="text-orange-400">+{Math.round(track.elevGainM)} m</span>
+            <span className="text-blue-400">−{Math.round(track.elevLossM)} m</span>
+          </span>
         </div>
       </div>
 
@@ -155,10 +263,8 @@ export const ElevationProfile = memo(function ElevationProfile({
           margin={{ top: 4, right: 8, bottom: 0, left: -8 }}
           onMouseMove={(s) => {
             // recharts v3: the chart handler gets MouseHandlerDataParam (no
-            // activePayload, unlike v2). Resolve the hovered km from the active
-            // index (data lookup), falling back to the numeric x-axis value
-            // (activeLabel). Both can arrive as number or string, so coerce.
-            // When the cursor is off the data, recharts clears these → null.
+            // activePayload). Resolve the hovered km from the active index, with
+            // the numeric x-axis value (activeLabel) as fallback; both coerced.
             const i = Number(s.activeTooltipIndex)
             const lbl = Number(s.activeLabel)
             const km =
@@ -171,12 +277,8 @@ export const ElevationProfile = memo(function ElevationProfile({
         >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
-              {data.map((d, i) => (
-                <stop
-                  key={i}
-                  offset={`${total > 0 ? (d.km / total) * 100 : 0}%`}
-                  stopColor={gradeColor(d.grade)}
-                />
+              {stops.map((s, i) => (
+                <stop key={i} offset={`${s.offset}%`} stopColor={s.color} />
               ))}
             </linearGradient>
           </defs>
@@ -197,7 +299,7 @@ export const ElevationProfile = memo(function ElevationProfile({
             width={45}
             allowDecimals={false}
           />
-          <Tooltip content={<ProfileTooltip />} />
+          <Tooltip content={<ProfileTooltip mode={activeMode} />} />
           {analyzeRange && (
             <ReferenceArea
               x1={analyzeRange.from}
@@ -236,21 +338,74 @@ export const ElevationProfile = memo(function ElevationProfile({
         </ComposedChart>
       </ResponsiveContainer>
 
-      {/* Gradient + marker legend */}
+      {/* Legend — adapts to the active mode */}
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-slate-500">
-        <span>Pendiente:</span>
-        {([
-          ['#2563eb', 'bajada'],
-          ['#64748b', 'llano'],
-          ['#fbbf24', 'suave'],
-          ['#f97316', 'fuerte'],
-          ['#b91c1c', 'muy fuerte'],
-        ] as const).map(([color, label]) => (
-          <span key={label} className="flex items-center gap-1">
-            <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
-            {label}
-          </span>
-        ))}
+        {activeMode === 'slope' && (
+          <>
+            <span>Pendiente:</span>
+            {([
+              ['#2563eb', 'bajada'],
+              ['#64748b', 'llano'],
+              ['#fbbf24', 'suave'],
+              ['#f97316', 'fuerte'],
+              ['#b91c1c', 'muy fuerte'],
+            ] as const).map(([color, label]) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+          </>
+        )}
+        {activeMode === 'temp' && (
+          <>
+            <span>Temperatura:</span>
+            {([
+              ['#1d4ed8', '≤0°'],
+              ['#22d3ee', '~10°'],
+              ['#22c55e', '~16°'],
+              ['#fbbf24', '~22°'],
+              ['#f97316', '~28°'],
+              ['#b91c1c', '35°+'],
+            ] as const).map(([color, label]) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+          </>
+        )}
+        {activeMode === 'rain' && (
+          <>
+            <span>Prob. lluvia:</span>
+            {([
+              ['#22c55e', '0–20%'],
+              ['#eab308', '20–40%'],
+              ['#f97316', '40–60%'],
+              ['#ef4444', '60–80%'],
+              ['#7c3aed', '80%+'],
+            ] as const).map(([color, label]) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+          </>
+        )}
+        {activeMode === 'wind' && (
+          <>
+            <span>Viento:</span>
+            {(['tailwind', 'crosswind', 'headwind', 'calm'] as const).map((imp) => {
+              const { label, color } = windImpactStyle(imp)
+              return (
+                <span key={imp} className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
+                  {label}
+                </span>
+              )
+            })}
+          </>
+        )}
         {namedWaypoints.length > 0 && (
           <>
             <span className="ml-1 flex items-center gap-1">

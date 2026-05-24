@@ -1893,6 +1893,7 @@ export default function App() {
             namedWaypoints={track.namedWaypoints}
             analyzeRange={analyzeRange}
             onHoverKm={setHoverKm}
+            waypoints={enrichedWaypoints}
           />
         )}
 

@@ -1,7 +1,6 @@
 import { memo } from 'react'
 import {
   ComposedChart,
-  Area,
   Line,
   Bar,
   XAxis,
@@ -94,30 +93,6 @@ export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onC
 
   const isFiltered = range != null && chartData !== data
 
-  // ── Elevation axis domain ────────────────────────────────────────────────
-  // Auto-scaling to [min, max] makes a near-flat route look mountainous: a 30 m
-  // wiggle gets stretched to fill the whole panel. We enforce a minimum visible
-  // span so small relief occupies only its true proportion (flat looks flat),
-  // while routes with real relief still use their range (with padding).
-  const ELE_MIN_SPAN_M = 400
-  const eleDomain = (() => {
-    const eles = chartData.map((d) => d.ele)
-    const eMin = Math.min(...eles)
-    const eMax = Math.max(...eles)
-    const relief = eMax - eMin
-    const pad = Math.max(20, relief * 0.15)
-    let lo: number, hi: number
-    if (relief + 2 * pad >= ELE_MIN_SPAN_M) {
-      lo = eMin - pad; hi = eMax + pad
-    } else {
-      const extra = (ELE_MIN_SPAN_M - relief) / 2
-      lo = eMin - extra; hi = eMax + extra
-    }
-    lo = Math.max(0, Math.floor(lo / 50) * 50)
-    hi = Math.ceil(hi / 50) * 50
-    return [lo, hi] as [number, number]
-  })()
-
   return (
     <div className="space-y-4">
       {/* ── Range chip ── */}
@@ -138,59 +113,8 @@ export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onC
         </div>
       )}
 
-      {/* Temperatura + altitud */}
-      <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
-        <h3 className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-4">
-          Temperatura y altitud
-        </h3>
-        <ResponsiveContainer width="100%" height={180}>
-          <ComposedChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
-            <XAxis
-              dataKey="kmLabel"
-              tick={TICK_STYLE}
-              tickFormatter={(v) => `${v} km`}
-              interval="preserveStartEnd"
-            />
-            <YAxis yAxisId="ele" orientation="right" domain={eleDomain} allowDecimals={false} tick={TICK_STYLE} tickFormatter={(v) => `${v}m`} width={45} />
-            <YAxis yAxisId="temp" tick={TICK_STYLE} tickFormatter={(v) => `${v}°`} width={35} />
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              labelFormatter={(_, payload) => {
-                const p = payload?.[0]?.payload as typeof data[0] | undefined
-                return p ? `${p.kmLabel} km · ${p.hora}` : ''
-              }}
-              formatter={(value, name) => {
-                if (name === 'Altitud') return [`${value} m`, name as string]
-                if (name === 'Temperatura') return [`${value}°C`, name as string]
-                return [`${value}`, name as string]
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-            <Area
-              yAxisId="ele"
-              type="monotone"
-              dataKey="ele"
-              name="Altitud"
-              fill="#1e293b"
-              stroke="#334155"
-              strokeWidth={1}
-              dot={false}
-              fillOpacity={1}
-            />
-            <Line
-              yAxisId="temp"
-              type="monotone"
-              dataKey="temp"
-              name="Temperatura"
-              stroke="#f97316"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Temperatura: ahora vive como modo del perfil de altura (Recorrido),
+          que colorea la silueta por temperatura — no se duplica aquí. */}
 
       {/* Lluvia + viento */}
       <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
