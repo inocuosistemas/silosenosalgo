@@ -4,7 +4,8 @@ import { PaceConfigPanel } from './components/PaceConfig'
 import { GpxTimesStats } from './components/GpxTimesStats'
 import { SamplingPanel } from './components/SamplingPanel'
 import { RouteMap } from './components/RouteMap'
-import type { MapMode } from './components/RouteMap'
+import { ModeSelector } from './components/ModeSelector'
+import type { ViewMode } from './lib/viewMode'
 import { WeatherCharts } from './components/WeatherCharts'
 import { WaypointsTable } from './components/WaypointsTable'
 import type { GpxTrack, GpxNamedWaypoint } from './lib/gpx'
@@ -357,7 +358,8 @@ export default function App() {
   const [terrainErrorKind, setTerrainErrorKind] = useState<'rate-limit' | 'network' | 'server'>('network')
   const [terrainRetryAfterSec, setTerrainRetryAfterSec] = useState(0)
 
-  const [mapMode, setMapMode] = useState<MapMode>('rain')
+  // Single shared colouring mode for both the map and the elevation profile.
+  const [viewMode, setViewMode] = useState<ViewMode>('slope')
   // Km hovered on the elevation profile → mirrored as a marker on the map.
   const [hoverKm, setHoverKm] = useState<number | null>(null)
   const [showRainRadar, setShowRainRadarState] = useState<boolean>(loadShowRainRadar)
@@ -378,10 +380,10 @@ export default function App() {
   // Auto-switch away from pollen mode when the current route has no pollen data
   // (e.g. non-European route loaded, or a new GPX was uploaded)
   useEffect(() => {
-    if (mapMode === 'pollen' && pollenArr.length > 0 && pollenArr.every((p) => p === null)) {
-      setMapMode('rain')
+    if (viewMode === 'pollen' && pollenArr.length > 0 && pollenArr.every((p) => p === null)) {
+      setViewMode('slope')
     }
-  }, [mapMode, pollenArr])
+  }, [viewMode, pollenArr])
 
   const [status, setStatus] = useState<LoadStatus>('idle')
 
@@ -980,6 +982,7 @@ export default function App() {
     setAnalyzeRange(null)
     setSegmentPaces(null)
     setBuddyObs([])
+    setViewMode('slope') // back to the track-only default for the new route
 
     // Cut-offs: localStorage takes precedence (most recent edits); any
     // <silosenosalgo:cutoffWallClock> extensions from the loaded file fill
@@ -1532,7 +1535,7 @@ export default function App() {
         waypoints: enrichedWaypoints,
         namedWaypoints: enrichedNamedWaypoints,
         startTime,
-        mapMode,
+        mapMode: viewMode,
         daylight,
         daylightAnchor,
       })
@@ -1726,7 +1729,10 @@ export default function App() {
           )}
           {track ? (
             <>
-            <div className="bg-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+            {/* Track card (z-10) with the GPX-times card tucked behind it (z-0),
+                pulled up via -mt so it appears to slide out from the bottom. */}
+            <div className="relative">
+            <div className="relative z-10 bg-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
               <div>
                 <p className="font-semibold text-slate-100">{track.name}</p>
                 <p className="text-slate-400 text-sm">
@@ -1755,8 +1761,10 @@ export default function App() {
                 validity={gpxValidity}
                 totalDistanceKm={track.totalDistanceKm}
                 activity={paceConfig.activity}
+                className="-mt-4 mx-3"
               />
             )}
+            </div>
             {subsampleNotice && (
               <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-amber-900/25 border border-amber-700/50 text-amber-300 text-xs leading-relaxed">
                 <span className="mt-0.5 shrink-0">⚠️</span>
@@ -1830,9 +1838,9 @@ export default function App() {
           )}
         </section>
 
-        {/* ── 🛤️ Recorrido: el mapa aparece en cuanto hay track (capa solo-track:
-            geometría + terreno). Las capas de previsión (lluvia/viento/polen/luz)
-            quedan bloqueadas vía forecastReady hasta que se calcula el plan. ── */}
+        {/* ── 🛤️ Recorrido: mapa + perfil aparecen al cargar (capa solo-track).
+            Un único ModeSelector colorea ambas vistas con el mismo modo; las
+            capas de previsión aparecen en el selector cuando hay datos. ── */}
         {track && (
           <div className="pt-1">
             <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
@@ -1844,14 +1852,28 @@ export default function App() {
           </div>
         )}
 
+        {/* Single shared mode selector — drives both the map and the profile. */}
+        {track && (
+          <ModeSelector
+            mode={viewMode}
+            onModeChange={setViewMode}
+            weatherAvailable={weatherArr.some((w) => w !== null)}
+            pollenAvailable={pollenArr.some((p) => p !== null)}
+            daylightAvailable={baseWaypoints.length >= 2 && daylightAnchor != null}
+            terrainStatus={terrainStatus}
+            terrainErrorKind={terrainErrorKind}
+            terrainRetryAfterSec={terrainRetryAfterSec}
+            onFetchTerrain={() => fetchTerrain()}
+            onTerrainRetry={retryTerrain}
+          />
+        )}
+
         {track && (
           <RouteMap
             track={track}
             waypoints={enrichedWaypoints}
             namedWaypoints={enrichedNamedWaypoints}
-            mapMode={mapMode}
-            onMapModeChange={setMapMode}
-            forecastReady={baseWaypoints.length > 0}
+            mode={viewMode}
             liveMode={appMode === 'live'}
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
@@ -1872,7 +1894,6 @@ export default function App() {
             terrainStatus={terrainStatus}
             terrainErrorKind={terrainErrorKind}
             terrainRetryAfterSec={terrainRetryAfterSec}
-            onFetchTerrain={() => fetchTerrain()}
             onTerrainRetry={retryTerrain}
             showRainRadar={showRainRadar}
             onShowRainRadarChange={setShowRainRadar}
@@ -1890,10 +1911,15 @@ export default function App() {
         {track && (
           <ElevationProfile
             track={track}
+            mode={viewMode}
             namedWaypoints={track.namedWaypoints}
             analyzeRange={analyzeRange}
             onHoverKm={setHoverKm}
             waypoints={enrichedWaypoints}
+            pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
+            pollenData={pollenArr.length > 0 ? pollenArr : undefined}
+            pollenType={selectedPollenType}
+            daylightAnchor={daylightAnchor}
           />
         )}
 

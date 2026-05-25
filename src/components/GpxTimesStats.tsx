@@ -27,7 +27,10 @@ export function GpxTimesStats({ validity, totalDistanceKm, activity, className =
   const overallPace = overallKmh > 0 ? 60 / overallKmh : null
 
   return (
-    <div className={`bg-slate-800/40 rounded-lg border border-slate-700/60 px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${className}`}>
+    // Sits behind the track-info card (z-0) and is pulled up under it via a
+    // negative top margin from the caller, so it appears to slide out from the
+    // bottom of that card. Extra top padding clears the overlapped strip.
+    <div className={`relative z-0 bg-slate-800/40 rounded-xl border border-slate-700/60 px-4 pt-5 pb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${className}`}>
       <span className="text-slate-500 uppercase tracking-wide font-semibold">Tiempos GPX</span>
       <span className="text-slate-400">Total <span className="font-semibold text-slate-200">{formatDuration(totalSec * 1000)}</span></span>
       <span className="text-slate-400">Movimiento <span className="font-semibold text-green-400">{formatDuration(movingSec * 1000)}</span></span>

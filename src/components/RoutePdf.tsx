@@ -5,7 +5,7 @@ import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
 import { windImpact, windImpactStyle } from '../lib/weather'
 import { precipToColor, impactToColor } from '../lib/mapColors'
-import type { MapMode } from './RouteMap'
+import type { ViewMode } from '../lib/viewMode'
 import type { DaylightBand, DaylightSummary } from '../lib/daylight'
 import { bandAt } from '../lib/daylight'
 
@@ -275,7 +275,7 @@ function MapSection({
 }: {
   track: GpxTrack
   waypoints: EnrichedWaypoint[]
-  mapMode: MapMode
+  mapMode: ViewMode
   daylightAnchor?: { lat: number; lon: number }
 }) {
   const MAP_W = CW
@@ -921,7 +921,7 @@ interface PdfProps {
   waypoints: EnrichedWaypoint[]
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
-  mapMode: MapMode
+  mapMode: ViewMode
   /** Daylight summary for the route window — when present, header gains Luz útil/Requiere luz chips and a 24h band strip. */
   daylight?: DaylightSummary | null
   /** Geographic anchor (track midpoint) used to compute the band at each waypoint's ETA. */

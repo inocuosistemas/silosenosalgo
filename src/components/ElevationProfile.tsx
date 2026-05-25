@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import {
   ComposedChart,
   Area,
@@ -12,34 +12,48 @@ import {
 } from 'recharts'
 import type { GpxTrack, GpxNamedWaypoint } from '../lib/gpx'
 import type { EnrichedWaypoint } from '../lib/places'
-import { precipToColor, impactToColor } from '../lib/mapColors'
+import type { ViewMode } from '../lib/viewMode'
+import { precipToColor, impactToColor, gradeToColor, tempToColor } from '../lib/mapColors'
 import { windImpactStyle } from '../lib/weather'
+import type { TerrainType } from '../lib/terrain'
+import { TERRAIN_META } from '../lib/terrain'
+import type { PollenData, PollenType } from '../lib/pollen'
+import { pollenLevelColor, pollenLevelStyle, POLLEN_META } from '../lib/pollen'
+import type { DaylightBand } from '../lib/daylight'
+import { bandAt } from '../lib/daylight'
 
 /**
- * Elevation profile — a route "canvas" parallel to the map.
- *
- * Capa 1 (track-only, always): the silhouette coloured by gradient, POI/cut-off
- * markers, analyze-range highlight, and hover→map sync.
- *
- * Capa 2 (once the forecast exists): a mode selector — like the map's — recolours
- * the same silhouette by temperature / rain / wind. One overlay at a time, using
- * the same colour scales as the map (precipToColor, impactToColor) so both views
- * share a visual language. The weather modes appear only when weather data is
- * present; pre-plan only "Pendiente" is shown.
+ * Elevation profile — a route "canvas" parallel to the map. The silhouette is
+ * recoloured by the *shared* view mode (the same selector drives the map), so
+ * both views always show the same variable. Daylight is drawn as background
+ * bands behind the silhouette; everything else recolours the silhouette itself.
  */
 
-type ProfileMode = 'slope' | 'temp' | 'rain' | 'wind'
+const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
+  day: '#fbbf24',
+  civil: '#c2410c',
+  night: '#1e1b4b',
+}
 
 interface Props {
   track: GpxTrack
-  /** POIs to mark on the profile (amber dot; red when they carry a cut-off). */
+  mode: ViewMode
+  /** POIs to mark (amber dot; red when they carry a cut-off). */
   namedWaypoints?: GpxNamedWaypoint[]
   /** Selected analyze range (km). Highlighted as a band, synced with the map. */
   analyzeRange?: { from: number; to: number } | null
   /** Reports the km under the cursor so the map can show a matching marker. */
   onHoverKm?: (km: number | null) => void
-  /** Enriched waypoints (weather + bearing). Drives the Capa 2 colour overlays. */
+  /** Enriched waypoints (weather + ETA). Drives temp/rain/wind/pollen/daylight. */
   waypoints?: EnrichedWaypoint[]
+  /** Per-track-point terrain types (for the terrain mode). */
+  pointTerrains?: TerrainType[]
+  /** Per-waypoint pollen data (for the pollen mode). */
+  pollenData?: (PollenData | null)[]
+  /** Selected pollen species (chosen on the map; shared). */
+  pollenType?: PollenType
+  /** Sun-position anchor for the daylight bands. */
+  daylightAnchor?: { lat: number; lon: number }
 }
 
 const GRID_COLOR = '#1e293b'
@@ -55,45 +69,17 @@ const TOOLTIP_STYLE = {
 const ELE_MIN_SPAN_M = 400
 const MAX_SAMPLES = 320
 
-/** Signed gradient (%) → colour. Descents cool, climbs warm. */
-function gradeColor(g: number): string {
-  if (g <= -9) return '#2563eb'
-  if (g <= -4) return '#60a5fa'
-  if (g < -1.5) return '#93c5fd'
-  if (g <= 1.5) return '#64748b'
-  if (g <= 4) return '#fbbf24'
-  if (g <= 8) return '#f97316'
-  if (g <= 12) return '#ef4444'
-  return '#b91c1c'
-}
-
-/** Temperature (°C) → colour. Cold blue → hot red. */
-function tempColor(t: number): string {
-  if (t <= 0) return '#1d4ed8'
-  if (t <= 6) return '#3b82f6'
-  if (t <= 12) return '#22d3ee'
-  if (t <= 18) return '#22c55e'
-  if (t <= 24) return '#fbbf24'
-  if (t <= 30) return '#f97316'
-  if (t <= 35) return '#ef4444'
-  return '#b91c1c'
-}
-
 interface Datum {
   km: number
   ele: number
   grade: number
+  pointIdx: number
   temp: number | null
   precip: number | null
   windKmh: number | null
   windColor: string | null
-}
-
-const MODE_LABEL: Record<ProfileMode, string> = {
-  slope: '⛰️ Pendiente',
-  temp: '🌡️ Temp',
-  rain: '🌧️ Lluvia',
-  wind: '💨 Viento',
+  nearestWpIdx: number
+  etaMs: number | null
 }
 
 function ProfileTooltip({
@@ -103,7 +89,7 @@ function ProfileTooltip({
 }: {
   active?: boolean
   payload?: { payload: Datum }[]
-  mode?: ProfileMode
+  mode?: ViewMode
 }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload
@@ -111,6 +97,9 @@ function ProfileTooltip({
   if (mode === 'temp' && p.temp != null) extra = `🌡️ ${Math.round(p.temp)}°C`
   else if (mode === 'rain' && p.precip != null) extra = `🌧️ ${Math.round(p.precip)}%`
   else if (mode === 'wind' && p.windKmh != null) extra = `💨 ${Math.round(p.windKmh)} km/h`
+  else if (mode === 'daylight' && p.etaMs != null) {
+    extra = `🕘 ${new Date(p.etaMs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`
+  }
   return (
     <div style={TOOLTIP_STYLE}>
       <div className="text-slate-200 font-mono">{p.km.toFixed(1)} km</div>
@@ -124,18 +113,18 @@ function ProfileTooltip({
 
 export const ElevationProfile = memo(function ElevationProfile({
   track,
+  mode,
   namedWaypoints = [],
   analyzeRange = null,
   onHoverKm,
   waypoints = [],
+  pointTerrains,
+  pollenData,
+  pollenType = 'grass',
+  daylightAnchor,
 }: Props) {
   const { points, cumKm } = track
   const total = track.totalDistanceKm
-
-  const [mode, setMode] = useState<ProfileMode>('slope')
-  const weatherAvailable = waypoints.some((w) => w.weather != null)
-  // Fall back to the track-only mode whenever weather isn't (yet) available.
-  const activeMode: ProfileMode = weatherAvailable ? mode : 'slope'
 
   // De-dupe hover reports: recharts fires onMouseMove often, and each change
   // re-renders the (heavy) map. Only report when the km changes by ≥ 0.1.
@@ -147,7 +136,7 @@ export const ElevationProfile = memo(function ElevationProfile({
     onHoverKm?.(km)
   }
 
-  // Weather sampled at waypoints (sorted by km), prepared once for interpolation.
+  // Weather waypoints (sorted by km), prepared for interpolation.
   const wx = useMemo(() => {
     const ww = waypoints.filter((w) => w.weather != null)
     return {
@@ -159,28 +148,38 @@ export const ElevationProfile = memo(function ElevationProfile({
     }
   }, [waypoints])
 
+  // All waypoints' km + ETA (for pollen nearest-lookup and daylight bands).
+  const wpAll = useMemo(
+    () => ({
+      km: waypoints.map((w) => w.distanceKm),
+      eta: waypoints.map((w) => w.estimatedTime?.getTime() ?? NaN),
+    }),
+    [waypoints],
+  )
+
   // Downsample to ~MAX_SAMPLES evenly-spaced points (also smooths the gradient),
-  // then interpolate the weather variables at each sample's km.
+  // and attach the interpolated weather / ETA + nearest-waypoint index per sample.
   const data = useMemo<Datum[]>(() => {
     if (points.length < 2) return []
     const step = Math.max(1, Math.ceil(points.length / MAX_SAMPLES))
     const idx: number[] = []
     for (let i = 0; i < points.length; i += step) idx.push(i)
     if (idx[idx.length - 1] !== points.length - 1) idx.push(points.length - 1)
-    const n = wx.km.length
+    const nW = wx.km.length
+    const nA = wpAll.km.length
     return idx.map((i, k) => {
       const prev = k > 0 ? idx[k - 1] : i
       const dEle = points[i].ele - points[prev].ele
       const dM = Math.max(1, (cumKm[i] - cumKm[prev]) * 1000)
       const km = cumKm[i]
-      let temp: number | null = null
-      let precip: number | null = null
-      let windKmh: number | null = null
-      let windColor: string | null = null
-      if (n > 0) {
+
+      // Weather interpolation (over weather-bearing waypoints)
+      let temp: number | null = null, precip: number | null = null
+      let windKmh: number | null = null, windColor: string | null = null
+      if (nW > 0) {
         let j = 0
-        while (j < n - 1 && wx.km[j + 1] <= km) j++
-        const j1 = Math.min(j + 1, n - 1)
+        while (j < nW - 1 && wx.km[j + 1] <= km) j++
+        const j1 = Math.min(j + 1, nW - 1)
         const span = wx.km[j1] - wx.km[j]
         const t = span > 0 ? Math.max(0, Math.min(1, (km - wx.km[j]) / span)) : 0
         temp = wx.temp[j] + t * (wx.temp[j1] - wx.temp[j])
@@ -188,9 +187,25 @@ export const ElevationProfile = memo(function ElevationProfile({
         windKmh = wx.windKmh[j] + t * (wx.windKmh[j1] - wx.windKmh[j])
         windColor = t < 0.5 ? wx.windColor[j] : wx.windColor[j1]
       }
-      return { km, ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0, temp, precip, windKmh, windColor }
+
+      // Nearest waypoint (for pollen) + ETA interpolation (for daylight)
+      let nearestWpIdx = 0
+      let etaMs: number | null = null
+      if (nA > 0) {
+        let j = 0
+        while (j < nA - 1 && wpAll.km[j + 1] <= km) j++
+        const j1 = Math.min(j + 1, nA - 1)
+        const span = wpAll.km[j1] - wpAll.km[j]
+        const t = span > 0 ? Math.max(0, Math.min(1, (km - wpAll.km[j]) / span)) : 0
+        nearestWpIdx = t < 0.5 ? j : j1
+        if (!Number.isNaN(wpAll.eta[j]) && !Number.isNaN(wpAll.eta[j1])) {
+          etaMs = wpAll.eta[j] + t * (wpAll.eta[j1] - wpAll.eta[j])
+        }
+      }
+
+      return { km, ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0, pointIdx: i, temp, precip, windKmh, windColor, nearestWpIdx, etaMs }
     })
-  }, [points, cumKm, wx])
+  }, [points, cumKm, wx, wpAll])
 
   const eleDomain = useMemo<[number, number]>(() => {
     if (data.length === 0) return [0, ELE_MIN_SPAN_M]
@@ -212,16 +227,41 @@ export const ElevationProfile = memo(function ElevationProfile({
   }, [data])
 
   // Per-sample fill colour for the active mode → SVG gradient stops along the route.
+  // Daylight keeps the slope silhouette (it shows as background bands instead).
   const stops = useMemo(() => {
     return data.map((d) => {
       let color: string
-      if (activeMode === 'temp' && d.temp != null) color = tempColor(d.temp)
-      else if (activeMode === 'rain' && d.precip != null) color = precipToColor(d.precip)
-      else if (activeMode === 'wind' && d.windColor) color = d.windColor
-      else color = gradeColor(d.grade)
+      if (mode === 'temp' && d.temp != null) color = tempToColor(d.temp)
+      else if (mode === 'rain' && d.precip != null) color = precipToColor(d.precip)
+      else if (mode === 'wind' && d.windColor) color = d.windColor
+      else if (mode === 'terrain' && pointTerrains && pointTerrains[d.pointIdx]) {
+        color = TERRAIN_META[pointTerrains[d.pointIdx]].color
+      } else if (mode === 'pollen' && pollenData) {
+        color = pollenLevelColor(pollenType, pollenData[d.nearestWpIdx]?.[pollenType] ?? null)
+      } else color = gradeToColor(d.grade)
       return { offset: total > 0 ? (d.km / total) * 100 : 0, color }
     })
-  }, [data, activeMode, total])
+  }, [data, mode, total, pointTerrains, pollenData, pollenType])
+
+  // Daylight background bands: runs of constant band along the route.
+  const daylightBands = useMemo(() => {
+    if (mode !== 'daylight' || !daylightAnchor || data.length < 2) return []
+    const bandFor = (etaMs: number | null): DaylightBand | null =>
+      etaMs == null ? null : bandAt(new Date(etaMs), daylightAnchor.lat, daylightAnchor.lon)
+    const out: { from: number; to: number; band: DaylightBand }[] = []
+    let runStart = data[0].km
+    let runBand = bandFor(data[0].etaMs)
+    for (let i = 1; i < data.length; i++) {
+      const b = bandFor(data[i].etaMs)
+      if (b !== runBand) {
+        if (runBand) out.push({ from: runStart, to: data[i].km, band: runBand })
+        runStart = data[i].km
+        runBand = b
+      }
+    }
+    if (runBand) out.push({ from: runStart, to: data[data.length - 1].km, band: runBand })
+    return out
+  }, [mode, data, daylightAnchor])
 
   if (data.length < 2) return null
 
@@ -233,28 +273,10 @@ export const ElevationProfile = memo(function ElevationProfile({
         <h3 className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
           Perfil de altura
         </h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Mode selector (weather modes appear only when forecast data exists) */}
-          {weatherAvailable && (
-            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-[11px]">
-              {(['slope', 'temp', 'rain', 'wind'] as ProfileMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-2.5 py-1 transition-colors ${
-                    activeMode === m ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {MODE_LABEL[m]}
-                </button>
-              ))}
-            </div>
-          )}
-          <span className="flex items-center gap-2 text-[11px] font-mono">
-            <span className="text-orange-400">+{Math.round(track.elevGainM)} m</span>
-            <span className="text-blue-400">−{Math.round(track.elevLossM)} m</span>
-          </span>
-        </div>
+        <span className="flex items-center gap-2 text-[11px] font-mono">
+          <span className="text-orange-400">+{Math.round(track.elevGainM)} m</span>
+          <span className="text-blue-400">−{Math.round(track.elevLossM)} m</span>
+        </span>
       </div>
 
       <ResponsiveContainer width="100%" height={170}>
@@ -262,9 +284,7 @@ export const ElevationProfile = memo(function ElevationProfile({
           data={data}
           margin={{ top: 4, right: 8, bottom: 0, left: -8 }}
           onMouseMove={(s) => {
-            // recharts v3: the chart handler gets MouseHandlerDataParam (no
-            // activePayload). Resolve the hovered km from the active index, with
-            // the numeric x-axis value (activeLabel) as fallback; both coerced.
+            // recharts v3: handler gets MouseHandlerDataParam (no activePayload).
             const i = Number(s.activeTooltipIndex)
             const lbl = Number(s.activeLabel)
             const km =
@@ -299,7 +319,18 @@ export const ElevationProfile = memo(function ElevationProfile({
             width={45}
             allowDecimals={false}
           />
-          <Tooltip content={<ProfileTooltip mode={activeMode} />} />
+          <Tooltip content={<ProfileTooltip mode={mode} />} />
+          {/* Daylight background bands (behind the silhouette) */}
+          {daylightBands.map((b, i) => (
+            <ReferenceArea
+              key={`dl-${i}`}
+              x1={b.from}
+              x2={b.to}
+              fill={DAYLIGHT_COLOR[b.band]}
+              fillOpacity={b.band === 'day' ? 0.1 : b.band === 'civil' ? 0.18 : 0.28}
+              stroke="none"
+            />
+          ))}
           {analyzeRange && (
             <ReferenceArea
               x1={analyzeRange.from}
@@ -338,84 +369,70 @@ export const ElevationProfile = memo(function ElevationProfile({
         </ComposedChart>
       </ResponsiveContainer>
 
-      {/* Legend — adapts to the active mode */}
+      {/* Legend — follows the active mode */}
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-slate-500">
-        {activeMode === 'slope' && (
+        {mode === 'slope' && (
           <>
             <span>Pendiente:</span>
-            {([
-              ['#2563eb', 'bajada'],
-              ['#64748b', 'llano'],
-              ['#fbbf24', 'suave'],
-              ['#f97316', 'fuerte'],
-              ['#b91c1c', 'muy fuerte'],
-            ] as const).map(([color, label]) => (
-              <span key={label} className="flex items-center gap-1">
-                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
-                {label}
-              </span>
+            {([['#2563eb', 'bajada'], ['#64748b', 'llano'], ['#fbbf24', 'suave'], ['#f97316', 'fuerte'], ['#b91c1c', 'muy fuerte']] as const).map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} />{l}</span>
             ))}
           </>
         )}
-        {activeMode === 'temp' && (
+        {mode === 'temp' && (
           <>
             <span>Temperatura:</span>
-            {([
-              ['#1d4ed8', '≤0°'],
-              ['#22d3ee', '~10°'],
-              ['#22c55e', '~16°'],
-              ['#fbbf24', '~22°'],
-              ['#f97316', '~28°'],
-              ['#b91c1c', '35°+'],
-            ] as const).map(([color, label]) => (
-              <span key={label} className="flex items-center gap-1">
-                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
-                {label}
-              </span>
+            {([['#1d4ed8', '≤0°'], ['#22d3ee', '~10°'], ['#22c55e', '~16°'], ['#fbbf24', '~22°'], ['#f97316', '~28°'], ['#b91c1c', '35°+']] as const).map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} />{l}</span>
             ))}
           </>
         )}
-        {activeMode === 'rain' && (
+        {mode === 'rain' && (
           <>
             <span>Prob. lluvia:</span>
-            {([
-              ['#22c55e', '0–20%'],
-              ['#eab308', '20–40%'],
-              ['#f97316', '40–60%'],
-              ['#ef4444', '60–80%'],
-              ['#7c3aed', '80%+'],
-            ] as const).map(([color, label]) => (
-              <span key={label} className="flex items-center gap-1">
-                <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
-                {label}
-              </span>
+            {([['#22c55e', '0–20%'], ['#eab308', '20–40%'], ['#f97316', '40–60%'], ['#ef4444', '60–80%'], ['#7c3aed', '80%+']] as const).map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} />{l}</span>
             ))}
           </>
         )}
-        {activeMode === 'wind' && (
+        {mode === 'wind' && (
           <>
             <span>Viento:</span>
             {(['tailwind', 'crosswind', 'headwind', 'calm'] as const).map((imp) => {
               const { label, color } = windImpactStyle(imp)
-              return (
-                <span key={imp} className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />
-                  {label}
-                </span>
-              )
+              return <span key={imp} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />{label}</span>
             })}
+          </>
+        )}
+        {mode === 'terrain' && pointTerrains && (
+          <>
+            <span>Firme:</span>
+            {Array.from(new Set(pointTerrains.filter((t) => t !== 'unknown'))).map((t) => (
+              <span key={t} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: TERRAIN_META[t].color }} />{TERRAIN_META[t].label}</span>
+            ))}
+          </>
+        )}
+        {mode === 'pollen' && (
+          <>
+            <span>{POLLEN_META[pollenType].emoji} {POLLEN_META[pollenType].name}:</span>
+            {([1, 2, 3, 4] as const).map((lvl) => {
+              const { label, color } = pollenLevelStyle(lvl)
+              return <span key={lvl} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: color }} />{label}</span>
+            })}
+          </>
+        )}
+        {mode === 'daylight' && (
+          <>
+            <span>Luz:</span>
+            {([['day', 'Día'], ['civil', 'Crepúsculo'], ['night', 'Noche']] as const).map(([b, l]) => (
+              <span key={b} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: DAYLIGHT_COLOR[b] }} />{l}</span>
+            ))}
           </>
         )}
         {namedWaypoints.length > 0 && (
           <>
-            <span className="ml-1 flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#f59e0b' }} />
-              POI
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#ef4444' }} />
-              corte
-            </span>
+            <span className="ml-1 flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: '#f59e0b' }} />POI</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: '#ef4444' }} />corte</span>
           </>
         )}
       </div>

@@ -7,7 +7,8 @@ import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment, splitHoursMinutes } from '../lib/timing'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
-import { precipToColor, impactToColor } from '../lib/mapColors'
+import { precipToColor, impactToColor, gradeToColor, tempToColor } from '../lib/mapColors'
+import type { ViewMode } from '../lib/viewMode'
 import type { PollenData, PollenType, PollenLevel } from '../lib/pollen'
 import { POLLEN_META, POLLEN_TYPES, pollenLevel, pollenLevelStyle, pollenLevelColor } from '../lib/pollen'
 import type { TerrainType } from '../lib/terrain'
@@ -25,14 +26,13 @@ import { bandAt } from '../lib/daylight'
 import { WindLayer } from './WindLayer'
 import { WindPlayer } from './WindPlayer'
 
-export type MapMode = 'rain' | 'wind' | 'pollen' | 'terrain' | 'daylight'
 export type { AnalyzeRange }
 
 interface Props {
   track: GpxTrack
   waypoints: EnrichedWaypoint[]
-  mapMode: MapMode
-  onMapModeChange: (m: MapMode) => void
+  /** Shared colouring mode (driven by the single ModeSelector). */
+  mode: ViewMode
   /** When true, slider is replaced by a GPS progress bar */
   liveMode?: boolean
   /** Current GPS coordinates in live mode */
@@ -102,12 +102,6 @@ interface Props {
   /** Called when the user clicks the retry button after a fetch failure. */
   onTerrainRetry?: () => void
   /**
-   * Called when the user explicitly requests an initial terrain load. The
-   * terrain mode is opt-in (Overpass calls are expensive on long routes), so
-   * the idle-state chip needs an explicit trigger separate from the retry one.
-   */
-  onFetchTerrain?: () => void
-  /**
    * Whether the animated rain-radar overlay is enabled. Only used when
    * `mapMode === 'rain'` and `rainRadarAvailable` is true.
    */
@@ -138,15 +132,6 @@ interface Props {
    * in temperate latitudes are only a few minutes, irrelevant at our scale.
    */
   daylightAnchor?: { lat: number; lon: number }
-  /**
-   * Whether the planning forecast has been computed (i.e. there are waypoints
-   * with ETAs / weather). When false the map still renders the route geometry
-   * and terrain (track-only data), but forecast-dependent modes (rain/wind/
-   * pollen/daylight) are suppressed: the effective mode is forced to 'terrain'
-   * and the daylight button is hidden until the user plans. Defaults to true
-   * for backward compatibility.
-   */
-  forecastReady?: boolean
   /**
    * Km position the user is hovering on the elevation profile. When set, a
    * marker is shown at that point on the map so the two views stay in sync.
@@ -257,8 +242,7 @@ function StatPill({ label, value, color = 'text-slate-200' }: { label: string; v
 export function RouteMap({
   track,
   waypoints,
-  mapMode: mapModeProp,
-  onMapModeChange,
+  mode,
   liveMode = false,
   liveCoords = null,
   liveProgress = 0,
@@ -281,7 +265,6 @@ export function RouteMap({
   terrainErrorKind = 'network',
   terrainRetryAfterSec = 0,
   onTerrainRetry,
-  onFetchTerrain,
   showRainRadar = false,
   onShowRainRadarChange,
   rainRadarAvailable = false,
@@ -289,17 +272,13 @@ export function RouteMap({
   onShowWindAnimationChange,
   windAnimationAvailable = false,
   daylightAnchor,
-  forecastReady = true,
   hoverKm = null,
 }: Props) {
   const { points } = track
 
-  // Before the forecast is computed, the route map only has track-only data
-  // (geometry + terrain). Force the effective mode to 'terrain' so the rest of
-  // the component (memos, legend, overlays) renders coherently regardless of
-  // the parent's persisted mapMode. The mode-bar buttons still write the real
-  // mapMode via onMapModeChange; pre-plan only the terrain button is shown.
-  const mapMode: MapMode = forecastReady ? mapModeProp : 'terrain'
+  // The shared mode drives all colouring/legend/overlay branches below. Kept as
+  // a local `mapMode` alias so the rest of the component is unchanged.
+  const mapMode = mode
 
   // ── Rain-radar state (RainViewer animated overlay) ────────────────────────
   const [radarFrames, setRadarFrames]   = useState<RadarFrame[]>([])
@@ -555,8 +534,15 @@ export function RouteMap({
         .map((p): [number, number] => [p.lat, p.lon])
       // When terrain mode is active but data isn't ready yet, fall through to
       // rain coloring so the map stays informative instead of going all-grey.
+      const segGrade =
+        ((points[curr.index].ele - points[prev.index].ele) /
+          Math.max(1, (cumKm[curr.index] - cumKm[prev.index]) * 1000)) * 100
       const color =
-        mapMode === 'wind'
+        mapMode === 'slope'
+          ? gradeToColor(segGrade)
+          : mapMode === 'temp'
+          ? (curr.weather ? tempToColor(curr.weather.temperatureC) : '#64748b')
+          : mapMode === 'wind'
           ? impactToColor(curr)
           : mapMode === 'pollen'
           ? pollenLevelColor(effectivePollenType, pollenData?.[i + 1]?.[effectivePollenType] ?? null)
@@ -942,7 +928,6 @@ export function RouteMap({
   }, [waypoints, targetKm, effectiveProgress])
 
   // ── Derived UI values ─────────────────────────────────────────────────────
-  const hasWeather = waypoints.some((w) => w.weather !== null)
   const legend = mapMode === 'wind' ? WIND_LEGEND : RAIN_LEGEND
   const legendTitle = mapMode === 'wind' ? 'Viento:' : 'Prob. lluvia:'
   const sliderAtFull = progress >= 1
@@ -1028,94 +1013,6 @@ export function RouteMap({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {(hasWeather || hasTerrain || terrainStatus === 'loading' || terrainStatus === 'error' || daylightAnchor || onFetchTerrain) && (
-            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-              {hasWeather && (
-                <>
-                  <button
-                    onClick={() => onMapModeChange('rain')}
-                    className={`px-3 py-1.5 transition-colors ${mapMode === 'rain' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                  >
-                    🌧️ Lluvia
-                  </button>
-                  <button
-                    onClick={() => onMapModeChange('wind')}
-                    className={`px-3 py-1.5 transition-colors ${mapMode === 'wind' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                  >
-                    💨 Viento
-                  </button>
-                </>
-              )}
-              {daylightAnchor && forecastReady && (
-                <button
-                  onClick={() => onMapModeChange('daylight')}
-                  className={`px-3 py-1.5 transition-colors ${mapMode === 'daylight' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                >
-                  ☀️ Luz
-                </button>
-              )}
-              {hasPollen && (
-                <button
-                  onClick={() => onMapModeChange('pollen')}
-                  className={`px-3 py-1.5 transition-colors ${mapMode === 'pollen' ? 'bg-green-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                >
-                  🌿 Polen
-                </button>
-              )}
-              {/* ── Terrain button: state-aware (loading / error / done) ── */}
-              {terrainStatus === 'loading' ? (
-                <button
-                  disabled
-                  title="Cargando datos de terreno desde OpenStreetMap…"
-                  className="relative px-3 py-1.5 bg-slate-800 text-slate-400 cursor-wait flex items-center gap-1.5 overflow-hidden"
-                >
-                  <span className="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                  🏔️ Terreno
-                  {/* Indeterminate progress bar at the bottom of the button */}
-                  <span
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500/40 overflow-hidden"
-                    aria-hidden="true"
-                  >
-                    <span
-                      className="absolute inset-y-0 w-1/3 bg-amber-400"
-                      style={{ animation: 'terrain-progress 1.4s ease-in-out infinite' }}
-                    />
-                  </span>
-                </button>
-              ) : terrainStatus === 'error' ? (
-                <button
-                  onClick={onTerrainRetry}
-                  title={
-                    terrainErrorKind === 'rate-limit'
-                      ? `Servidor OpenStreetMap saturado — espera ~${Math.max(terrainRetryAfterSec, 5)}s antes de reintentar`
-                      : terrainErrorKind === 'network'
-                      ? 'Error de red — comprueba tu conexión y reintenta'
-                      : 'Error del servidor OpenStreetMap — click para reintentar'
-                  }
-                  className="px-3 py-1.5 bg-slate-800 text-red-400 hover:text-red-300 hover:bg-slate-700 transition-colors flex items-center gap-1.5"
-                >
-                  <span className="text-base leading-none">↻</span>
-                  🏔️ Terreno
-                </button>
-              ) : hasTerrain ? (
-                <button
-                  onClick={() => onMapModeChange('terrain')}
-                  className={`px-3 py-1.5 transition-colors ${mapMode === 'terrain' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                >
-                  🏔️ Terreno
-                </button>
-              ) : onFetchTerrain ? (
-                <button
-                  onClick={onFetchTerrain}
-                  title="Cargar datos de terreno desde OpenStreetMap (consulta pesada en rutas largas — opt-in)"
-                  className="px-3 py-1.5 bg-slate-800 text-slate-400 hover:text-amber-300 hover:bg-slate-700 transition-colors flex items-center gap-1.5"
-                >
-                  <span className="text-amber-500 text-[10px] leading-none">▶</span>
-                  🏔️ Terreno
-                </button>
-              ) : null}
-            </div>
-          )}
           <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
             {mapMode === 'terrain' && terrainStatus === 'loading' ? (
               /* ── Loading: spinner + helper text instead of legend ── */
@@ -1210,6 +1107,20 @@ export function RouteMap({
                  Capa 1 state. Without this branch the chain falls through to the
                  rain legend below, which makes no sense before any forecast. */
               <span className="text-slate-500">Pulsa «🏔️ Terreno» para ver el tipo de firme</span>
+            ) : mapMode === 'slope' ? (
+              <>
+                <span>Pendiente:</span>
+                {([['#2563eb', 'bajada'], ['#64748b', 'llano'], ['#fbbf24', 'suave'], ['#f97316', 'fuerte'], ['#b91c1c', 'muy fuerte']] as const).map(([c, l]) => (
+                  <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />{l}</span>
+                ))}
+              </>
+            ) : mapMode === 'temp' ? (
+              <>
+                <span>Temperatura:</span>
+                {([['#1d4ed8', '≤0°'], ['#22d3ee', '~10°'], ['#22c55e', '~16°'], ['#fbbf24', '~22°'], ['#f97316', '~28°'], ['#b91c1c', '35°+']] as const).map(([c, l]) => (
+                  <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />{l}</span>
+                ))}
+              </>
             ) : (
               <>
                 <span>{legendTitle}</span>
