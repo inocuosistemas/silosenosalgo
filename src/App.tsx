@@ -2572,6 +2572,9 @@ export default function App() {
           waypoints={enrichedWaypoints}
           startTime={startTime}
           paceConfig={paceConfig}
+          daylight={daylight}
+          forecastGeneratedAt={weatherFetchedAt}
+          gpxValidity={gpxValidity}
           onClose={() => setShowShareCard(false)}
         />
       )}

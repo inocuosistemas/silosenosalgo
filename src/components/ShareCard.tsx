@@ -2,14 +2,47 @@ import { useRef, useState } from 'react'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
+import type { DaylightSummary } from '../lib/daylight'
+import type { GpxTimesValidity } from '../lib/gpxValidity'
 import { ACTIVITY_LABEL, formatTime, formatDuration, formatPace } from '../lib/timing'
+import { solarIrradiance, sunTempUplift } from '../lib/sunTemp'
 
 interface Props {
   track: GpxTrack
   waypoints: EnrichedWaypoint[]
   startTime: Date
   paceConfig: PaceConfig
+  daylight?: DaylightSummary | null
+  /** Momento en que se descargó la previsión meteo mostrada. */
+  forecastGeneratedAt?: Date | null
+  /** Validez/estadísticas de los tiempos del GPX (para el tiempo parado en modo «gpx»). */
+  gpxValidity?: GpxTimesValidity | null
   onClose: () => void
+}
+
+/** Compact "Xh YYm" formatter for the info strip. */
+function fmtHM(min: number): string {
+  const m = Math.round(min)
+  if (m < 1) return '0m'
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (h === 0) return `${r}m`
+  if (r === 0) return `${h}h`
+  return `${h}h ${r.toString().padStart(2, '0')}m`
+}
+
+/**
+ * Tamaño de fuente del título según su longitud (rem), con un mínimo legible.
+ * El nombre puede ocupar hasta 2 líneas; si aún no cabe se recorta con «…»
+ * (line-clamp en el render).
+ */
+function titleFontRem(name: string): string {
+  const len = name.trim().length
+  if (len <= 18) return '1.55rem'
+  if (len <= 26) return '1.38rem'
+  if (len <= 38) return '1.2rem'
+  if (len <= 54) return '1.02rem'
+  return '0.9rem'
 }
 
 // ── SVG helpers ───────────────────────────────────────────────────────────────
@@ -40,18 +73,50 @@ function toPolyline(pts: { x: number; y: number }[]): string {
   return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
 }
 
-function elevAreaPath(track: GpxTrack, w: number, h: number): string {
+// Ventana vertical mínima del perfil (m), igual que en planificación: una ruta
+// con relieve < ELE_MIN_SPAN_M se dibuja dentro de esa ventana, así se nota
+// cuando es básicamente plana en vez de exagerarse a toda la altura.
+const ELE_MIN_SPAN_M = 400
+
+/** Dominio vertical [lo, hi] del perfil — misma lógica que ElevationProfile. */
+function eleDomain(eles: number[]): [number, number] {
+  if (eles.length === 0) return [0, ELE_MIN_SPAN_M]
+  const eMin = Math.min(...eles), eMax = Math.max(...eles)
+  const relief = eMax - eMin
+  const pad = Math.max(20, relief * 0.15)
+  let lo: number, hi: number
+  if (relief + 2 * pad >= ELE_MIN_SPAN_M) {
+    lo = eMin - pad; hi = eMax + pad
+  } else {
+    const extra = (ELE_MIN_SPAN_M - relief) / 2
+    lo = eMin - extra; hi = eMax + extra
+  }
+  lo = Math.max(0, Math.floor(lo / 50) * 50)
+  hi = Math.ceil(hi / 50) * 50
+  return [lo, hi]
+}
+
+// `realistic` aplica la ventana mínima de eje Y (perfil honesto); sin él el
+// trazo se estira a toda la altura (silueta decorativa de fondo).
+function elevAreaPath(track: GpxTrack, w: number, h: number, realistic = false): string {
   const pts = track.points
   if (pts.length < 2) return ''
   const step = Math.max(1, Math.floor(pts.length / 160))
   const sampled = pts.filter((_, i) => i % step === 0)
   const eles = sampled.map((p) => p.ele)
-  const minE = Math.min(...eles), maxE = Math.max(...eles)
-  const dE = maxE - minE || 1
+  let lo: number, dE: number
+  if (realistic) {
+    const [domLo, domHi] = eleDomain(eles)
+    lo = domLo
+    dE = domHi - domLo || 1
+  } else {
+    lo = Math.min(...eles)
+    dE = Math.max(...eles) - lo || 1
+  }
   const n = sampled.length
   const seg = sampled.map((p, i) => {
     const x = (i / (n - 1)) * w
-    const y = h - ((p.ele - minE) / dE) * h * 0.78 - h * 0.06
+    const y = h - ((p.ele - lo) / dE) * h * 0.92 - h * 0.04
     return `${x.toFixed(1)},${y.toFixed(1)}`
   })
   return `M0,${h} L${seg[0]} ${seg.slice(1).map((s) => 'L' + s).join(' ')} L${w},${h} Z`
@@ -59,15 +124,31 @@ function elevAreaPath(track: GpxTrack, w: number, h: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: Props) {
+export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, forecastGeneratedAt, gpxValidity, onClose }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
+  // Texto libre del punto de encuentro — se edita fuera de la tarjeta (el editor
+  // no se captura) y se muestra dentro como texto plano, que sí se integra en el PNG.
+  const [meetingPoint, setMeetingPoint] = useState('')
+  const trimmedMeeting = meetingPoint.trim()
 
   // Route summary
   const lastWp = waypoints[waypoints.length - 1]
   const endTime = lastWp?.estimatedTime ?? null
   const durationMs = endTime ? endTime.getTime() - startTime.getTime() : null
   const firstWeather = waypoints[0]?.weather ?? null
+
+  // Tiempo previsto en paradas. En modo «gpx» las paradas van implícitas en las
+  // marcas de tiempo del GPX (parado = span − tiempo en movimiento); en el resto
+  // de modos son las pausas explícitas planificadas en los POIs.
+  const poiPauseMin = (track.namedWaypoints ?? []).reduce(
+    (sum, w) => sum + (w.pauseMin && w.pauseMin > 0 ? w.pauseMin : 0),
+    0,
+  )
+  const stoppedMin =
+    paceConfig.mode === 'gpx' && gpxValidity?.issue === 'ok' && gpxValidity.movingTimeSec > 0
+      ? Math.max(0, (gpxValidity.spanSec - gpxValidity.movingTimeSec) / 60)
+      : poiPauseMin
 
   // Rangos meteo a lo largo de la ruta
   const temps = waypoints.map((w) => w.weather?.temperatureC).filter((t): t is number => t != null)
@@ -77,6 +158,18 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
   const tempMax = temps.length ? Math.round(Math.max(...temps)) : null
   const windMax = winds.length ? Math.round(Math.max(...winds)) : null
   const rainMax = rains.length ? Math.round(Math.max(...rains)) : null
+
+  // Temperatura sentida al sol (mismo modelo que el resumen de ruta)
+  const wpsWithWeather = waypoints.filter((w) => w.weather != null)
+  const sunUplifts = wpsWithWeather.map((w) =>
+    sunTempUplift(solarIrradiance(w.estimatedTime, w.lat, w.lon, w.weather!.cloudCoverPct)),
+  )
+  const maxUplift = sunUplifts.length ? Math.max(...sunUplifts) : 0
+  const maxSunTemp = wpsWithWeather.length
+    ? Math.round(Math.max(...wpsWithWeather.map((w, i) => w.weather!.temperatureC + sunUplifts[i])))
+    : null
+  const showSunChip = maxSunTemp != null && maxUplift >= 1
+
   const startLocation = waypoints[0]?.location?.nearestPlace?.name ?? null
   const endLocation = lastWp?.location?.nearestPlace?.name ?? null
   const activity = ACTIVITY_LABEL[paceConfig.activity]
@@ -117,11 +210,69 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
   const ELEV_W = 680, ELEV_H = 220
   const elevPath = elevAreaPath(track, ELEV_W, ELEV_H)
 
-  // Mini elevation profile (highlighted strip)
+  // Mini elevation profile (highlighted strip) — eje Y honesto con ventana mínima
   const MINI_W = 420, MINI_H = 60
-  const miniElevPath = elevAreaPath(track, MINI_W, MINI_H)
+  const miniElevPath = elevAreaPath(track, MINI_W, MINI_H, true)
 
+  const forecastStamp = forecastGeneratedAt
+    ? forecastGeneratedAt.toLocaleString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).replace(',', '')
+    : null
   const footerStamp = startTime.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+
+  // Cuenta atrás hasta la salida: días restantes, u horas si falta menos de 1 día.
+  const startCountdown = ((): string | null => {
+    const msUntil = startTime.getTime() - Date.now()
+    if (msUntil <= 0) return null
+    const hours = msUntil / 3_600_000
+    if (hours < 24) return `en ${Math.max(1, Math.round(hours))} h`
+    const startDay = new Date(startTime.getFullYear(), startTime.getMonth(), startTime.getDate())
+    const now = new Date()
+    const todayDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const days = Math.round((startDay.getTime() - todayDay.getTime()) / 86_400_000)
+    return days === 1 ? 'en 1 día' : `en ${days} días`
+  })()
+
+  const paceSourceLabel = paceConfig.mode === 'gpx'
+    ? 'tiempos del GPX'
+    : paceConfig.mode === 'gpx-moving'
+    ? `GPX en mov · ${formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}`
+    : formatPace(paceConfig.paceMinPerKm, paceConfig.activity)
+
+  // ── Tira de info: cada recuadro agrupa métricas de la misma naturaleza ──
+  // (temperatura sombra+sol en uno; luz útil+requiere en otro).
+  type Metric = { icon: string; value: string; color: string }
+  type InfoGroup = { label: string; metrics: Metric[] }
+  const infoGroups: InfoGroup[] = []
+  if (firstWeather) {
+    const tempMetrics: Metric[] = [{
+      icon: '🌡',
+      value: tempMin != null && tempMax != null && tempMin !== tempMax
+        ? `${tempMin}–${tempMax}°`
+        : `${Math.round(firstWeather.temperatureC)}°`,
+      color: '#e2e8f0',
+    }]
+    if (showSunChip) {
+      tempMetrics.push({ icon: '☀️', value: `${maxSunTemp}°`, color: '#fb923c' })
+    }
+    infoGroups.push({ label: 'temp.', metrics: tempMetrics })
+    infoGroups.push({
+      label: 'km/h',
+      metrics: [{ icon: '💨', value: windMax != null ? `≤${windMax}` : `${Math.round(firstWeather.windSpeedKmh)}`, color: '#e2e8f0' }],
+    })
+    infoGroups.push({
+      label: 'lluvia',
+      metrics: [{ icon: '☔', value: rainMax != null ? `≤${rainMax}%` : `${Math.round(firstWeather.precipProbability)}%`, color: '#e2e8f0' }],
+    })
+  }
+  if (daylight) {
+    infoGroups.push({
+      label: 'luz',
+      metrics: [
+        { icon: '🔆', value: fmtHM(daylight.usefulMin), color: '#fcd34d' },
+        { icon: '🔦', value: daylight.darknessMin > 0 ? fmtHM(daylight.darknessMin) : 'no', color: daylight.darknessMin > 0 ? '#a5b4fc' : '#4ade80' },
+      ],
+    })
+  }
 
   async function handleDownload() {
     if (!cardRef.current) return
@@ -167,12 +318,36 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
         </button>
       </div>
 
+      {/* Wrapper: editor (no se captura) + tarjeta */}
+      <div className="w-full flex flex-col gap-2" style={{ maxWidth: 680 }}>
+
+      {/* Editor del punto de encuentro — fuera de la tarjeta, no aparece en el PNG */}
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700">
+        <span className="text-sky-400 text-sm shrink-0">📍</span>
+        <input
+          type="text"
+          value={meetingPoint}
+          onChange={(e) => setMeetingPoint(e.target.value)}
+          maxLength={90}
+          placeholder="Punto de encuentro (opcional) — p. ej. Parada de taxis 🚕"
+          className="flex-1 min-w-0 bg-transparent text-white text-sm placeholder-slate-500 focus:outline-none"
+        />
+        {meetingPoint && (
+          <button
+            onClick={() => setMeetingPoint('')}
+            className="shrink-0 text-slate-500 hover:text-slate-300 text-sm"
+            title="Borrar"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* ── Card ── */}
       <div
         ref={cardRef}
         className="relative w-full overflow-hidden rounded-2xl shadow-2xl"
         style={{
-          maxWidth: 680,
           background: 'linear-gradient(135deg, #0f172a 0%, #0c1a2e 60%, #0f172a 100%)',
           fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         }}
@@ -202,57 +377,125 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
         <div className="relative px-4 pt-5 pb-4 sm:px-6 sm:pt-6 sm:pb-5">
 
           {/* Activity label */}
-          <p className="text-sky-500 text-[10px] uppercase tracking-[0.2em] font-semibold mb-1">
+          <p className="text-sky-500 text-[10px] uppercase tracking-[0.2em] font-semibold mb-2">
             {activity.emoji} {activity.label} · ruta planificada
           </p>
 
-          {/* Route name */}
-          <h2
-            className="text-white font-extrabold leading-tight mb-3"
-            style={{ fontSize: 'clamp(1.1rem, 3.5vw, 1.6rem)', letterSpacing: '-0.02em' }}
-          >
-            {track.name}
-          </h2>
-
-          {/* ── Convocatoria: fecha + hora de salida ── */}
+          {/* ── Convocatoria: fecha de salida + nombre de ruta + tiempos ── */}
           <div
-            className="mb-3 sm:mb-5 flex items-center gap-3 px-3 py-2 sm:px-4 sm:py-3 rounded-xl"
+            className="mb-3 sm:mb-4 flex flex-col gap-2 px-3 py-2 sm:px-4 sm:py-3 rounded-xl"
             style={{
               background: 'linear-gradient(90deg, rgba(14,165,233,0.18) 0%, rgba(14,165,233,0.06) 100%)',
               border: '1px solid rgba(56,189,248,0.35)',
             }}
           >
-            <div
-              className="flex flex-col items-center justify-center shrink-0 rounded-lg px-3 py-1.5"
-              style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(56,189,248,0.25)' }}
-            >
-              <span className="text-sky-400 text-[9px] uppercase tracking-[0.18em] font-bold leading-none">
-                {startTime.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}
-              </span>
-              <span className="text-white font-extrabold tabular-nums leading-none mt-0.5" style={{ fontSize: 'clamp(1.25rem, 5vw, 1.5rem)' }}>
-                {startTime.getDate()}
-              </span>
+           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* Fecha */}
+            <div className="flex items-stretch gap-3 flex-1" style={{ minWidth: 165 }}>
+              <div
+                className="flex flex-col items-center justify-center shrink-0 rounded-lg px-3 py-2"
+                style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(56,189,248,0.25)' }}
+              >
+                <span className="text-sky-400 text-[9px] uppercase tracking-[0.14em] font-bold leading-none whitespace-nowrap">
+                  {startTime.toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', '')}
+                  {' · '}
+                  {startTime.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')}
+                </span>
+                <span className="text-white font-extrabold tabular-nums leading-none mt-0.5" style={{ fontSize: 'clamp(1.4rem, 5vw, 1.65rem)' }}>
+                  {startTime.getDate()}
+                </span>
+                {startCountdown && (
+                  <span
+                    className="self-stretch text-center text-sky-300 uppercase tracking-wide font-bold leading-none mt-1.5 pt-1.5"
+                    style={{ fontSize: '0.5rem', borderTop: '1px solid rgba(56,189,248,0.2)' }}
+                  >
+                    {startCountdown}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col justify-center min-w-0">
+                <h2
+                  className="text-white font-extrabold"
+                  style={{
+                    fontSize: titleFontRem(track.name),
+                    lineHeight: 1.12,
+                    letterSpacing: '-0.01em',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                  title={track.name}
+                >
+                  {track.name}
+                </h2>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sky-300 text-[10px] uppercase tracking-[0.18em] font-bold">
-                Salida
-              </p>
-              <p className="text-white font-bold capitalize leading-tight" style={{ fontSize: 'clamp(0.8rem, 3vw, 0.95rem)' }}>
-                {startTime.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-              <p className="text-white font-extrabold tabular-nums leading-tight" style={{ fontSize: 'clamp(1.05rem, 4.5vw, 1.35rem)' }}>
-                {formatTime(startTime)}
-                <span className="text-slate-400 font-medium ml-1" style={{ fontSize: '0.75rem' }}>h</span>
-              </p>
+
+            {/* Tiempos: salida → llegada (con población debajo), duración y paradas */}
+            <div className="text-right">
+              <div className="flex items-start justify-end gap-2">
+                {/* Salida */}
+                <div className="min-w-0 text-right">
+                  <p className="flex items-center justify-end gap-1.5 text-white font-extrabold tabular-nums leading-none" style={{ fontSize: 'clamp(1rem, 4vw, 1.2rem)' }}>
+                    <span style={{ color: '#22c55e', fontSize: 8 }}>⬤</span>
+                    {formatTime(startTime)}
+                  </p>
+                  {startLocation && (
+                    <p className="text-slate-400 truncate leading-tight mt-0.5" style={{ fontSize: '0.6rem' }}>{startLocation}</p>
+                  )}
+                </div>
+                {endTime && (
+                  <>
+                    <span className="text-slate-500 leading-none" style={{ fontSize: '1rem', marginTop: 1 }}>→</span>
+                    {/* Llegada */}
+                    <div className="min-w-0 text-right">
+                      <p className="flex items-center justify-end gap-1.5 text-white font-extrabold tabular-nums leading-none" style={{ fontSize: 'clamp(1rem, 4vw, 1.2rem)' }}>
+                        <span style={{ color: '#f87171', fontSize: 8 }}>⬤</span>
+                        ~{formatTime(endTime)}
+                      </p>
+                      {endLocation && (
+                        <p className="text-slate-400 truncate leading-tight mt-0.5" style={{ fontSize: '0.6rem' }}>{endLocation}</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              {durationMs != null && (
+                <p className="text-slate-300 tabular-nums mt-1" style={{ fontSize: '0.8rem' }}>
+                  <span className="text-slate-500">⏱</span> {formatDuration(durationMs)}
+                  {stoppedMin >= 1 && (
+                    <span className="text-slate-400"> · ⏸ {fmtHM(stoppedMin)} en paradas</span>
+                  )}
+                </p>
+              )}
+              <p className="text-slate-600 mt-0.5" style={{ fontSize: '0.6rem' }}>{paceSourceLabel}</p>
             </div>
+           </div>
+
+           {/* Punto de encuentro (texto libre) — solo si se ha rellenado */}
+           {trimmedMeeting && (
+             <div className="flex items-start gap-2 pt-2 border-t border-sky-400/15">
+               <span className="leading-none" style={{ fontSize: '0.85rem' }}>📍</span>
+               <div className="min-w-0 flex-1">
+                 <p className="text-sky-300/80 uppercase tracking-[0.14em] font-bold leading-none" style={{ fontSize: '0.55rem' }}>
+                   Punto de encuentro
+                 </p>
+                 <p className="text-white font-medium leading-snug mt-0.5" style={{ fontSize: '0.82rem' }}>
+                   {trimmedMeeting}
+                 </p>
+               </div>
+             </div>
+           )}
           </div>
 
           {/* ── Main body: map + info ── */}
-          <div className="flex flex-row gap-3 sm:gap-5 items-start">
+          <div className="flex flex-row gap-3 sm:gap-5 items-stretch">
 
-            {/* Route map */}
+            {/* Left column: map (stretches to fill row) + start/end places */}
+            <div className="shrink-0 w-28 sm:w-50 flex flex-col gap-2">
             <div
-              className="shrink-0 rounded-xl overflow-hidden w-28 h-28 sm:w-50 sm:h-50"
+              className="flex-1 min-h-24 sm:min-h-28 rounded-xl overflow-hidden"
               style={{
                 background: 'rgba(15,23,42,0.9)',
                 border: '1px solid rgba(148,163,184,0.12)',
@@ -330,39 +573,10 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
                 )}
               </svg>
             </div>
+            </div>
 
-            {/* Right column: times + stats */}
-            <div className="flex-1 min-w-0 flex flex-col justify-between gap-2 sm:gap-4">
-
-              {/* Start / End times */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span style={{ color: '#22c55e', fontSize: 9 }}>⬤</span>
-                  <span className="text-white font-semibold text-sm tabular-nums">{formatTime(startTime)}</span>
-                  {startLocation && (
-                    <span className="text-slate-400 text-xs truncate">{startLocation}</span>
-                  )}
-                </div>
-                {endTime && (
-                  <div className="flex items-center gap-2">
-                    <span style={{ color: '#f87171', fontSize: 9 }}>⬤</span>
-                    <span className="text-white font-semibold text-sm tabular-nums">~{formatTime(endTime)}</span>
-                    {endLocation && (
-                      <span className="text-slate-400 text-xs truncate">{endLocation}</span>
-                    )}
-                  </div>
-                )}
-                {durationMs && (
-                  <p className="text-slate-500 text-xs pl-4">
-                    {formatDuration(durationMs)} previstos
-                    <span className="text-slate-600"> · ⏱ {paceConfig.mode === 'gpx'
-                      ? 'tiempos del GPX'
-                      : paceConfig.mode === 'gpx-moving'
-                      ? `GPX en mov · ${formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}`
-                      : formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}</span>
-                  </p>
-                )}
-              </div>
+            {/* Right column: stats + profile */}
+            <div className="flex-1 min-w-0 flex flex-col gap-2 sm:gap-3">
 
               {/* Stats */}
               <div className="grid grid-cols-3 gap-2">
@@ -383,16 +597,17 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
                 />
               </div>
 
-              {/* Mini elevation profile */}
+              {/* Mini elevation profile — crece para ocupar el alto disponible */}
               <div
-                className="rounded-lg overflow-hidden"
+                className="flex-1 flex flex-col rounded-lg overflow-hidden"
                 style={{
                   background: 'rgba(15,23,42,0.7)',
                   border: '1px solid rgba(148,163,184,0.1)',
                   padding: '6px 8px',
+                  minHeight: MINI_H,
                 }}
               >
-                <div className="flex items-center justify-between mb-0.5">
+                <div className="flex items-center justify-between mb-0.5 shrink-0">
                   <span className="text-slate-500 text-[9px] uppercase tracking-wider font-semibold">
                     Perfil
                   </span>
@@ -403,57 +618,56 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
                     {' m'}
                   </span>
                 </div>
-                <svg
-                  width="100%"
-                  height={MINI_H}
-                  viewBox={`0 0 ${MINI_W} ${MINI_H}`}
-                  preserveAspectRatio="none"
-                  style={{ display: 'block' }}
-                >
-                  <defs>
-                    <linearGradient id="miniElevGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" />
-                      <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.15" />
-                    </linearGradient>
-                  </defs>
-                  <path d={miniElevPath} fill="url(#miniElevGrad)" stroke="#7dd3fc" strokeWidth={1} />
-                </svg>
+                <div className="flex-1" style={{ minHeight: 0 }}>
+                  <svg
+                    width="100%"
+                    height="100%"
+                    viewBox={`0 0 ${MINI_W} ${MINI_H}`}
+                    preserveAspectRatio="none"
+                    style={{ display: 'block' }}
+                  >
+                    <defs>
+                      <linearGradient id="miniElevGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" />
+                        <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.15" />
+                      </linearGradient>
+                    </defs>
+                    <path d={miniElevPath} fill="url(#miniElevGrad)" stroke="#7dd3fc" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* ── Weather strip ── */}
-          {firstWeather && (
-            <div
-              className="mt-3 sm:mt-5 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 sm:py-2.5 rounded-xl sm:px-4"
-              style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.08)' }}
-            >
-              <WeatherChip
-                icon="🌡"
-                value={tempMin != null && tempMax != null && tempMin !== tempMax
-                  ? `${tempMin}–${tempMax}°C`
-                  : `${Math.round(firstWeather.temperatureC)}°C`}
-                label="temp."
-              />
-              <WeatherChip
-                icon="💨"
-                value={windMax != null
-                  ? `≤${windMax} km/h`
-                  : `${Math.round(firstWeather.windSpeedKmh)} km/h`}
-                label="viento"
-              />
-              <WeatherChip
-                icon="☔"
-                value={rainMax != null
-                  ? `≤${rainMax}%`
-                  : `${Math.round(firstWeather.precipProbability)}%`}
-                label="lluvia"
-              />
+          {/* ── Info strip: recuadros agrupados por naturaleza (rellenan el ancho) ── */}
+          {infoGroups.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5 items-stretch">
+              {infoGroups.map((g) => (
+                <div
+                  key={g.label}
+                  className="flex flex-col items-center justify-center text-center rounded-lg py-2 px-1.5 gap-0.5"
+                  style={{ flex: '1 1 80px', background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.08)' }}
+                >
+                  {g.metrics.map((m, i) => (
+                    <span
+                      key={i}
+                      className="flex items-center justify-center gap-1 font-bold tabular-nums leading-none whitespace-nowrap"
+                      style={{ color: m.color, fontSize: '0.8rem' }}
+                    >
+                      <span style={{ fontSize: '0.8em' }}>{m.icon}</span>
+                      {m.value}
+                    </span>
+                  ))}
+                  <span className="text-slate-500 uppercase tracking-wide mt-0.5" style={{ fontSize: '0.5rem', letterSpacing: '0.04em' }}>
+                    {g.label}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 
           {/* ── Footer ── */}
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="text-base">🌧️</span>
               <span
@@ -463,9 +677,18 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, onClose }: 
                 SiLoSeNoSalgo
               </span>
             </div>
-            <span className="text-slate-600 text-[10px] capitalize">{footerStamp}</span>
+            {forecastStamp ? (
+              <span className="text-slate-500 text-[10px] text-right leading-tight">
+                <span className="text-slate-600">Previsión generada</span>
+                <br />
+                <span className="text-slate-400 tabular-nums capitalize">{forecastStamp} h</span>
+              </span>
+            ) : (
+              <span className="text-slate-600 text-[10px] capitalize">{footerStamp}</span>
+            )}
           </div>
         </div>
+      </div>
       </div>
 
       {/* Screenshot hint */}
@@ -492,14 +715,3 @@ function StatBox({ value, unit, color }: { value: string; unit: string; color: s
   )
 }
 
-function WeatherChip({ icon, value, label }: { icon: string; value: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-sm">{icon}</span>
-      <div>
-        <div className="text-white text-xs font-semibold tabular-nums">{value}</div>
-        <div className="text-slate-600 text-[9px] uppercase tracking-wide">{label}</div>
-      </div>
-    </div>
-  )
-}
