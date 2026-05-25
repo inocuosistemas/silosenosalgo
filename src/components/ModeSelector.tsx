@@ -24,6 +24,7 @@ interface Props {
 
 const BTN = 'px-3 py-1.5 transition-colors whitespace-nowrap'
 const inactive = 'bg-slate-800 text-slate-400 hover:text-slate-200'
+const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
 
 export function ModeSelector({
   mode,
@@ -37,20 +38,46 @@ export function ModeSelector({
   onFetchTerrain,
   onTerrainRetry,
 }: Props) {
-  const modeBtn = (m: ViewMode, activeCls = 'bg-sky-600 text-white') => (
-    <button
-      onClick={() => onModeChange(m)}
-      className={`${BTN} ${mode === m ? activeCls : inactive}`}
-    >
-      {MODE_META[m].emoji} {MODE_META[m].label}
-    </button>
-  )
+  const modeBtn = (
+    m: ViewMode,
+    opts: { activeCls?: string; available?: boolean; disabledTitle?: string } = {},
+  ) => {
+    const { activeCls = 'bg-sky-600 text-white', available = true, disabledTitle } = opts
+    if (!available) {
+      return (
+        <button
+          type="button"
+          disabled
+          title={disabledTitle}
+          className={`${BTN} ${disabledCls}`}
+        >
+          {MODE_META[m].emoji} {MODE_META[m].label}
+        </button>
+      )
+    }
+    return (
+      <button
+        onClick={() => onModeChange(m)}
+        className={`${BTN} ${mode === m ? activeCls : inactive}`}
+      >
+        {MODE_META[m].emoji} {MODE_META[m].label}
+      </button>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-slate-500 uppercase tracking-widest font-semibold mr-1">Vista</span>
       <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs flex-wrap">
+        {/* Order: track → forecast (rain, wind, temp) → daylight → pollen → terrain.
+           Modes whose data isn't ready stay visible but muted, so the row layout
+           is stable and the user can see what features will unlock. */}
         {modeBtn('slope')}
+        {modeBtn('rain', { available: weatherAvailable, disabledTitle: 'Disponible al calcular el plan (botón Calcular)' })}
+        {modeBtn('wind', { available: weatherAvailable, disabledTitle: 'Disponible al calcular el plan (botón Calcular)' })}
+        {modeBtn('temp', { available: weatherAvailable, disabledTitle: 'Disponible al calcular el plan (botón Calcular)' })}
+        {modeBtn('sunTemp', { activeCls: 'bg-orange-600 text-white', available: weatherAvailable, disabledTitle: 'Disponible al calcular el plan — estima la T sentida al sol (cielo claro/nubes según parte)' })}
+        {modeBtn('daylight', { activeCls: 'bg-amber-600 text-white', available: daylightAvailable, disabledTitle: 'Disponible al calcular el plan (necesita hora de salida)' })}
+        {modeBtn('pollen', { activeCls: 'bg-green-700 text-white', available: pollenAvailable, disabledTitle: 'Disponible si la ruta está en Europa y se ha calculado el plan' })}
 
         {/* Terreno — state-aware: fetch (idle) / loading / retry (error) / select (done) */}
         {terrainStatus === 'loading' ? (
@@ -77,7 +104,7 @@ export function ModeSelector({
             <span className="text-base leading-none">↻</span> 🏔️ Terreno
           </button>
         ) : terrainStatus === 'done' ? (
-          modeBtn('terrain', 'bg-amber-700 text-white')
+          modeBtn('terrain', { activeCls: 'bg-amber-700 text-white' })
         ) : (
           <button
             onClick={() => { onFetchTerrain(); onModeChange('terrain') }}
@@ -87,13 +114,6 @@ export function ModeSelector({
             <span className="text-amber-500 text-[10px] leading-none">▶</span> 🏔️ Terreno
           </button>
         )}
-
-        {/* Forecast modes — appear only when their data is available */}
-        {weatherAvailable && modeBtn('temp')}
-        {weatherAvailable && modeBtn('rain')}
-        {weatherAvailable && modeBtn('wind')}
-        {pollenAvailable && modeBtn('pollen', 'bg-green-700 text-white')}
-        {daylightAvailable && modeBtn('daylight', 'bg-amber-600 text-white')}
       </div>
     </div>
   )

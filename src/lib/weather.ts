@@ -7,6 +7,7 @@ export interface WeatherData {
   windSpeedKmh: number
   windDirection: number  // 0-360°, meteorological (from where wind blows)
   weatherCode: number
+  cloudCoverPct: number  // 0-100, used to attenuate solar irradiance for the "sun-feel" temp
 }
 
 export type WindImpact = 'tailwind' | 'headwind' | 'crosswind' | 'calm'
@@ -52,6 +53,7 @@ interface OpenMeteoResponse {
     wind_speed_10m: number[]
     wind_direction_10m: number[]
     weather_code: number[]
+    cloud_cover: number[]
   }
 }
 
@@ -85,8 +87,8 @@ async function fetchCellWeather(
 
   // precipitation_probability is not a reanalysis variable — omit it for archive
   const hourlyVars = useArchive
-    ? 'temperature_2m,precipitation,wind_speed_10m,wind_direction_10m,weather_code'
-    : 'temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code'
+    ? 'temperature_2m,precipitation,wind_speed_10m,wind_direction_10m,weather_code,cloud_cover'
+    : 'temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m,weather_code,cloud_cover'
 
   const url = new URL(baseUrl)
   url.searchParams.set('latitude', lat.toFixed(2))
@@ -219,6 +221,7 @@ export async function fetchWeatherForWaypoints(
       windSpeedKmh:      data.hourly.wind_speed_10m[idx],
       windDirection:     data.hourly.wind_direction_10m[idx],
       weatherCode:       data.hourly.weather_code[idx],
+      cloudCoverPct:     data.hourly.cloud_cover?.[idx] ?? 0,
     }
     return { ...wp, weather }
   })

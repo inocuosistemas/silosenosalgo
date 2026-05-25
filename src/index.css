@@ -56,3 +56,25 @@
 .range-dual-from::-moz-range-thumb     { background: #0ea5e9; }
 .range-dual-to::-webkit-slider-thumb   { background: #10b981; }
 .range-dual-to::-moz-range-thumb       { background: #10b981; }
+
+/* ── Discreet scrollbar ────────────────────────────────────────────────────
+   Used by horizontally-scrolling containers (e.g. waypoints table) so the
+   native chunky bar doesn't break the dark UI. Slim track, dim thumb that
+   only emphasises on hover. Works on Firefox (scrollbar-width/color) and
+   Chromium/Webkit (::-webkit-scrollbar). */
+.scrollbar-slim {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;   /* thumb · track */
+}
+.scrollbar-slim::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-slim::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-slim::-webkit-scrollbar-thumb {
+  background: #334155;                     /* slate-700 */
+  border-radius: 9999px;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb:hover {
+  background: #475569;                     /* slate-600 */
+}

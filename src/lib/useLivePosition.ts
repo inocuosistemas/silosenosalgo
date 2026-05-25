@@ -2,6 +2,33 @@ import { useState, useEffect, useRef } from 'react'
 import type { GpxTrack } from './gpx'
 import { haversineKm } from './timing'
 
+/**
+ * One-shot version of the hook's nearest-point lookup: takes a single GPS fix
+ * and returns where on the track it falls. Used by handleComputeLive to anchor
+ * the start time from the user's current position (mid-route entry).
+ */
+export function snapFixToTrack(
+  track: GpxTrack,
+  lat: number,
+  lon: number,
+): { trackKm: number; trackIndex: number; distanceFromTrackKm: number } {
+  const pts = track.points
+  let cum = 0
+  let bestIdx = 0
+  let bestDist = Infinity
+  let bestCum = 0
+  for (let i = 0; i < pts.length; i++) {
+    if (i > 0) cum += haversineKm(pts[i - 1], pts[i])
+    const d = haversineKm({ lat, lon }, pts[i])
+    if (d < bestDist) {
+      bestDist = d
+      bestIdx = i
+      bestCum = cum
+    }
+  }
+  return { trackKm: bestCum, trackIndex: bestIdx, distanceFromTrackKm: bestDist }
+}
+
 export interface LivePositionState {
   /** Waiting for first GPS fix */
   isLocating: boolean

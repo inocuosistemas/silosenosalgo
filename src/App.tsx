@@ -19,6 +19,7 @@ import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/tim
 import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
+import { solarIrradiance, sunTempUplift } from './lib/sunTemp'
 import type { PollenData, PollenType } from './lib/pollen'
 import { fetchPollenForWaypoints, isInEurope, defaultPollenType, POLLEN_TYPES } from './lib/pollen'
 import type { TerrainType } from './lib/terrain'
@@ -34,7 +35,7 @@ import { computeCutoffStrategy } from './lib/cutoffStrategy'
 import type { SegmentPace } from './lib/timing'
 import type { BuddyObservation } from './lib/buddyTracking'
 import { buildBuddyDerived, projectBuddyKmAt } from './lib/buddyTracking'
-import { useLivePosition } from './lib/useLivePosition'
+import { useLivePosition, snapFixToTrack } from './lib/useLivePosition'
 import type { LivePositionState } from './lib/useLivePosition'
 import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
@@ -1334,8 +1335,11 @@ export default function App() {
     }
   }
 
-  // Live shortcut: use now() + auto sampling, skip date/time and waypoint steps,
-  // switch directly to live mode after fetching weather
+  // Live shortcut: pide un fix GPS, ancla la hora de salida a tu posición
+  // actual ("estás en el km X ahora → habrías arrancado hace X·ritmo minutos"),
+  // calcula y entra en modo en vivo. Hace que la previsión meteo de los
+  // waypoints por delante quede alineada con el momento real en que llegarás
+  // a cada uno — útil cuando empiezas la app a mitad de ruta.
   async function handleComputeLive() {
     if (!track) return
     setStatus('live-loading')
@@ -1343,9 +1347,34 @@ export default function App() {
     liveWeatherFetchedRef.current = true // weather will be current; no need to re-fetch on GPS fix
 
     try {
+      // 1) Un único fix GPS (no levantamos watchPosition — sólo necesitamos el ahora).
+      const fix = await new Promise<GeolocationPosition>((resolve, reject) => {
+        if (!('geolocation' in navigator)) {
+          reject(new Error('Tu dispositivo no soporta GPS'))
+          return
+        }
+        navigator.geolocation.getCurrentPosition(resolve, (err) => {
+          const msg =
+            err.code === err.PERMISSION_DENIED  ? 'Permiso de GPS denegado — actívalo para usar esta opción.' :
+            err.code === err.POSITION_UNAVAILABLE ? 'Señal GPS no disponible — prueba a la intemperie.' :
+            err.code === err.TIMEOUT             ? 'Tiempo de espera GPS agotado.' :
+            'Error al obtener la posición GPS.'
+          reject(new Error(msg))
+        }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+      })
+
+      // 2) Mapea el fix al track y ancla la hora de salida hacia atrás usando el
+      //    ritmo configurado (Naismith incluido vía expectedMinutesForSegment).
+      const { trackKm: currentKm, distanceFromTrackKm } = snapFixToTrack(
+        track, fix.coords.latitude, fix.coords.longitude,
+      )
+      const elapsedMin = expectedMinutesForSegment(track, 0, currentKm, paceConfig)
       const now = new Date()
-      setStartTime(now)  // record actual departure time as "now"
-      const wps = computeWaypoints(track, now, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined, pauses)
+      const anchoredStart = new Date(now.getTime() - elapsedMin * 60_000)
+      setStartTime(anchoredStart)
+
+      // 3) Resto del flujo igual que antes
+      const wps = computeWaypoints(track, anchoredStart, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined, pauses)
       setBaseWaypoints(wps)
       setLocationArr(wps.map(() => null))
       setWeatherArr(wps.map(() => null))
@@ -1354,7 +1383,14 @@ export default function App() {
       setWeatherArr(results.map((r) => r.weather))
       setWeatherFetchedAt(new Date())
       setStatus('done')
-      setAppMode('live')  // enter live mode right away
+      setAppMode('live')
+
+      // Aviso suave si el fix queda lejos del track (probablemente GPS frío
+      // o usuario no está realmente en ruta) — la previsión funciona igual
+      // pero conviene que lo sepa.
+      if (distanceFromTrackKm > 0.5) {
+        console.warn(`Fix GPS a ${distanceFromTrackKm.toFixed(2)} km del track — ¿posición frío?`)
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')
       setStatus('idle')
@@ -1578,34 +1614,70 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* ── Header ── */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-10">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-[1100]">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3">
           <span className="text-2xl">🌧️</span>
           <div>
             <h1 className="text-xl font-bold tracking-tight">SiLoSeNoSalgo</h1>
             <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
-          {isDone && (
+          {(() => {
+            const disabledTitle = 'Disponible al calcular el plan (botón Calcular)'
+            const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
+            return (
             <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={() => setShowShareCard(true)}
-                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
-              >
-                📤 <span className="hidden sm:inline">Compartir</span>
-              </button>
+              {isDone ? (
+                <button
+                  onClick={() => setShowShareCard(true)}
+                  className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
+                >
+                  📤 <span className="hidden sm:inline">Compartir</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  title={disabledTitle}
+                  className={`px-3 py-2 rounded-lg border border-slate-700 text-xs flex items-center gap-1.5 ${disabledCls}`}
+                >
+                  📤 <span className="hidden sm:inline">Compartir</span>
+                </button>
+              )}
               <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-                <button
-                  onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('plan') }}
-                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                >
-                  🗺️ <span className="hidden sm:inline">Planificar</span>
-                </button>
-                <button
-                  onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('live') }}
-                  className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' && simKm === null ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-                >
-                  📍 <span className="hidden sm:inline">En vivo</span>
-                </button>
+                {isDone ? (
+                  <button
+                    onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('plan') }}
+                    className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'plan' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  >
+                    🗺️ <span className="hidden sm:inline">Planificar</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    title={disabledTitle}
+                    className={`px-3 py-2 flex items-center gap-1.5 ${disabledCls}`}
+                  >
+                    🗺️ <span className="hidden sm:inline">Planificar</span>
+                  </button>
+                )}
+                {isDone ? (
+                  <button
+                    onClick={() => { setSimKm(null); setSimCoords(null); setSimPicking(false); setAppMode('live') }}
+                    className={`px-3 py-2 transition-colors flex items-center gap-1.5 ${appMode === 'live' && simKm === null ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  >
+                    📍 <span className="hidden sm:inline">En vivo</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    title={disabledTitle}
+                    className={`px-3 py-2 flex items-center gap-1.5 ${disabledCls}`}
+                  >
+                    📍 <span className="hidden sm:inline">En vivo</span>
+                  </button>
+                )}
                 {IS_DEV && isDone && (
                   <button
                     onClick={() => {
@@ -1638,7 +1710,8 @@ export default function App() {
                 )}
               </div>
             </div>
-          )}
+            )
+          })()}
         </div>
       </header>
 
@@ -1847,25 +1920,9 @@ export default function App() {
               <span>🛤️</span> Recorrido
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              Tu ruta sobre el mapa y el perfil — sin necesidad de planificar todavía.
+              Explora la ruta sobre el mapa y el perfil — reproduce el recorrido o selecciona un tramo para analizarlo.
             </p>
           </div>
-        )}
-
-        {/* Single shared mode selector — drives both the map and the profile. */}
-        {track && (
-          <ModeSelector
-            mode={viewMode}
-            onModeChange={setViewMode}
-            weatherAvailable={weatherArr.some((w) => w !== null)}
-            pollenAvailable={pollenArr.some((p) => p !== null)}
-            daylightAvailable={baseWaypoints.length >= 2 && daylightAnchor != null}
-            terrainStatus={terrainStatus}
-            terrainErrorKind={terrainErrorKind}
-            terrainRetryAfterSec={terrainRetryAfterSec}
-            onFetchTerrain={() => fetchTerrain()}
-            onTerrainRetry={retryTerrain}
-          />
         )}
 
         {track && (
@@ -1874,6 +1931,20 @@ export default function App() {
             waypoints={enrichedWaypoints}
             namedWaypoints={enrichedNamedWaypoints}
             mode={viewMode}
+            headerSlot={
+              <ModeSelector
+                mode={viewMode}
+                onModeChange={setViewMode}
+                weatherAvailable={weatherArr.some((w) => w !== null)}
+                pollenAvailable={pollenArr.some((p) => p !== null)}
+                daylightAvailable={baseWaypoints.length >= 2 && daylightAnchor != null}
+                terrainStatus={terrainStatus}
+                terrainErrorKind={terrainErrorKind}
+                terrainRetryAfterSec={terrainRetryAfterSec}
+                onFetchTerrain={() => fetchTerrain()}
+                onTerrainRetry={retryTerrain}
+              />
+            }
             liveMode={appMode === 'live'}
             liveCoords={livePos.coords}
             liveProgress={livePos.progress}
@@ -2092,10 +2163,10 @@ export default function App() {
                     {isLiveLoading ? (
                       <>
                         <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full" />
-                        Preparando modo en vivo…
+                        Ubicando y preparando modo en vivo…
                       </>
                     ) : (
-                      <>📍 Ya estoy en ruta — calcular ahora y abrir modo en vivo</>
+                      <>📍 Estoy en ruta — anclar a mi posición GPS y abrir modo en vivo</>
                     )}
                   </button>
                 </div>
@@ -2301,24 +2372,6 @@ export default function App() {
           </>
         )}
 
-        {/* ── Buddy tracker (plan mode, after computing) ── */}
-        {appMode === 'plan' && isDone && track && (
-          <BuddyTracker
-            track={track}
-            startTime={startTime}
-            paceConfig={paceConfig}
-            observations={buddyObs}
-            derived={buddyDerived}
-            onAdd={handleAddBuddyObs}
-            onRemove={handleRemoveBuddyObs}
-            onClear={handleClearBuddy}
-            onSetAll={handleSetAllBuddyObs}
-            buddyKmNow={buddyKmNow}
-            buddyEta={buddyEta}
-            nextCutoff={buddyNextCutoff}
-          />
-        )}
-
         {/* ── Cut-off summary (plan mode, when at least one cut-off is defined) ── */}
         {appMode === 'plan' && enrichedNamedWaypoints.some((w) => w.cutoffTime) && (
           <CutoffSummary
@@ -2328,21 +2381,6 @@ export default function App() {
                 : enrichedNamedWaypoints
             }
             startTime={startTime}
-          />
-        )}
-
-        {/* ── Cut-off pace strategy (plan mode, after computing, when cut-offs exist) ── */}
-        {appMode === 'plan' && cutoffStrategy && (
-          <CutoffStrategy
-            strategy={cutoffStrategy}
-            paceConfig={paceConfig}
-            onApplySinglePace={handleApplySinglePace}
-            onApplyVariablePaces={handleApplyVariablePaces}
-            variablePacesActive={segmentPaces !== null}
-            marginMin={strategyMargin}
-            onMarginChange={setStrategyMargin}
-            segmentTargets={segmentTargets}
-            onSegmentTargetChange={handleSegmentTargetChange}
           />
         )}
 
@@ -2446,6 +2484,63 @@ export default function App() {
                 </>
               )
             })()}
+          </>
+        )}
+
+        {/* ── 🎯 Estrategia: solo tiene sentido con cortes definidos. Capa propia
+            (cabecera + panel) para evitar que aparezca flotando en medio de la
+            planificación cuando el usuario añade una hora límite. ── */}
+        {appMode === 'plan' && cutoffStrategy && (
+          <>
+            <div className="pt-5 mt-2 border-t border-slate-700">
+              <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                <span>🎯</span> Estrategia
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Ajusta el ritmo (único o variable por tramos) para llegar a tiempo a cada corte con el margen que elijas.
+              </p>
+            </div>
+            <CutoffStrategy
+              strategy={cutoffStrategy}
+              paceConfig={paceConfig}
+              onApplySinglePace={handleApplySinglePace}
+              onApplyVariablePaces={handleApplyVariablePaces}
+              variablePacesActive={segmentPaces !== null}
+              marginMin={strategyMargin}
+              onMarginChange={setStrategyMargin}
+              segmentTargets={segmentTargets}
+              onSegmentTargetChange={handleSegmentTargetChange}
+            />
+          </>
+        )}
+
+        {/* ── 📍 Seguimiento: fase de ejecución — sigue el progreso de un
+            compañero contra el plan. Última capa conceptual, posterior a la
+            planificación y la estrategia. ── */}
+        {appMode === 'plan' && isDone && track && (
+          <>
+            <div className="pt-5 mt-2 border-t border-slate-700">
+              <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                <span>📍</span> Seguimiento
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Registra puntos de paso del compañero para recalcular su ritmo real, su ETA y el margen al próximo corte.
+              </p>
+            </div>
+            <BuddyTracker
+              track={track}
+              startTime={startTime}
+              paceConfig={paceConfig}
+              observations={buddyObs}
+              derived={buddyDerived}
+              onAdd={handleAddBuddyObs}
+              onRemove={handleRemoveBuddyObs}
+              onClear={handleClearBuddy}
+              onSetAll={handleSetAllBuddyObs}
+              buddyKmNow={buddyKmNow}
+              buddyEta={buddyEta}
+              nextCutoff={buddyNextCutoff}
+            />
           </>
         )}
 
@@ -2561,7 +2656,13 @@ const WeatherSummary = memo(function WeatherSummary({
   onClearRange?: () => void
   daylight?: DaylightSummary | null
 }) {
-  type Wp = { weather: { temperatureC: number; precipProbability: number } | null; distanceKm: number }
+  type Wp = {
+    weather: { temperatureC: number; precipProbability: number; cloudCoverPct: number } | null
+    distanceKm: number
+    lat: number
+    lon: number
+    estimatedTime: Date
+  }
   const allWps = waypoints as Wp[]
 
   const wps = allWps.filter((w) => {
@@ -2575,18 +2676,30 @@ const WeatherSummary = memo(function WeatherSummary({
   const hasWeather = wps.length > 0
   const temps = hasWeather ? wps.map((w) => w.weather!.temperatureC) : []
   const probs = hasWeather ? wps.map((w) => w.weather!.precipProbability) : []
+  const sunTemps = hasWeather
+    ? wps.map((w) => w.weather!.temperatureC + sunTempUplift(solarIrradiance(w.estimatedTime, w.lat, w.lon, w.weather!.cloudCoverPct)))
+    : []
   const maxProb = hasWeather ? Math.max(...probs) : 0
   const minTemp = hasWeather ? Math.min(...temps) : 0
   const maxTemp = hasWeather ? Math.max(...temps) : 0
+  const maxSunTemp = hasWeather ? Math.max(...sunTemps) : 0
+  const maxUplift = hasWeather ? Math.max(...sunTemps.map((s, i) => s - temps[i])) : 0
   const rainyCount = hasWeather ? probs.filter((p) => p >= 50).length : 0
   const risk = maxProb >= 70 ? 'alto' : maxProb >= 40 ? 'moderado' : 'bajo'
   const riskColor = maxProb >= 70 ? 'text-blue-400' : maxProb >= 40 ? 'text-yellow-400' : 'text-green-400'
 
   type Card = { label: string; value: string; color: string; title?: string }
+  const showSunCard = hasWeather && maxUplift >= 1
   const weatherCards: Card[] = hasWeather ? [
     { label: 'Riesgo lluvia',     value: risk,                                                        color: riskColor },
     { label: 'Prob. máx.',        value: `${maxProb}%`,                                               color: maxProb >= 70 ? 'text-blue-400' : 'text-slate-200' },
     { label: 'Temperatura',       value: `${minTemp.toFixed(0)}–${maxTemp.toFixed(0)}°C`,             color: 'text-slate-200' },
+    ...(showSunCard ? [{
+      label: 'T máx al sol',
+      value: `${Math.round(maxSunTemp)}°C`,
+      color: 'text-orange-400',
+      title: `Estimación de la T sentida al sol — +${maxUplift.toFixed(1)}° sobre la T del parte. Cielo claro/nubes según parte; no modela viento ni humedad.`,
+    }] : []),
     { label: 'Tramos con lluvia', value: `${rainyCount} / ${wps.length}`,                             color: rainyCount > 0 ? 'text-sky-400' : 'text-green-400' },
   ] : []
 
@@ -2602,8 +2715,12 @@ const WeatherSummary = memo(function WeatherSummary({
 
   const allCards = [...weatherCards, ...lightCards]
   const totalCols = allCards.length
-  const gridCls = totalCols === 6
+  const gridCls = totalCols >= 7
+    ? 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3'
+    : totalCols === 6
     ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3'
+    : totalCols === 5
+    ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'
     : totalCols === 4
     ? 'grid grid-cols-2 sm:grid-cols-4 gap-3'
     : 'grid grid-cols-2 gap-3'

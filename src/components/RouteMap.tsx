@@ -23,10 +23,40 @@ import type { WindFrame } from '../lib/windField'
 import { fetchWindField, trackBbox, findCurrentWindIndex } from '../lib/windField'
 import type { DaylightBand } from '../lib/daylight'
 import { bandAt } from '../lib/daylight'
+import { solarIrradiance, sunTempUplift } from '../lib/sunTemp'
 import { WindLayer } from './WindLayer'
 import { WindPlayer } from './WindPlayer'
 
 export type { AnalyzeRange }
+
+/**
+ * Gate Leaflet's scroll-wheel zoom behind the Ctrl/⌘ modifier so the page
+ * keeps scrolling when the cursor happens to be over the map. When the user
+ * scrolls without the modifier, we show a brief hint and let the browser do
+ * its normal scroll. With the modifier we step out and Leaflet zooms as usual.
+ *
+ * Implementation note: we attach the listener in the *capture* phase on the
+ * map container and stopImmediatePropagation so Leaflet's own wheel handler
+ * (registered in bubble phase) never sees the event. preventDefault is NOT
+ * called → the browser's default scroll behaviour fires.
+ */
+function CtrlScrollZoomGate({ onHint }: { onHint: () => void }) {
+  const map = useMap()
+  useEffect(() => {
+    const el = map.getContainer()
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return  // let Leaflet zoom
+      e.stopImmediatePropagation()
+      onHint()
+    }
+    el.addEventListener('wheel', onWheel, { capture: true, passive: true })
+    return () => el.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions)
+  }, [map, onHint])
+  return null
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')
+const ZOOM_MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl'
 
 interface Props {
   track: GpxTrack
@@ -137,6 +167,12 @@ interface Props {
    * marker is shown at that point on the map so the two views stay in sync.
    */
   hoverKm?: number | null
+  /**
+   * Slot rendered on the left side of the map header, sharing the row with
+   * the legend on the right. Used to host the shared ModeSelector so the
+   * vista chips and the map's own legend live on the same line.
+   */
+  headerSlot?: React.ReactNode
 }
 
 const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
@@ -273,6 +309,7 @@ export function RouteMap({
   windAnimationAvailable = false,
   daylightAnchor,
   hoverKm = null,
+  headerSlot,
 }: Props) {
   const { points } = track
 
@@ -343,6 +380,16 @@ export function RouteMap({
   // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [zoomHintVisible, setZoomHintVisible] = useState(false)
+  const zoomHintTimerRef = useRef<number | null>(null)
+  const showZoomHint = () => {
+    setZoomHintVisible(true)
+    if (zoomHintTimerRef.current != null) window.clearTimeout(zoomHintTimerRef.current)
+    zoomHintTimerRef.current = window.setTimeout(() => setZoomHintVisible(false), 1400)
+  }
+  useEffect(() => () => {
+    if (zoomHintTimerRef.current != null) window.clearTimeout(zoomHintTimerRef.current)
+  }, [])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Derived from controlled prop: null = play mode, object = analyze mode
@@ -468,6 +515,43 @@ export function RouteMap({
       return out
     }
 
+    // ── Slope per-point sampling (matches the elevation profile) ────────
+    // Waypoint-based sampling averages climbs and descents over long stretches
+    // and most segments end up in the flat (grey) bucket. Resample to ~320
+    // evenly-spaced points like the profile so the slope coloring is faithful
+    // — and works in Capa 1 (no plan, no waypoints).
+    if (mapMode === 'slope' && points.length >= 2) {
+      const SLOPE_SAMPLES = 320
+      const step = Math.max(1, Math.ceil(points.length / SLOPE_SAMPLES))
+      const idx: number[] = []
+      for (let i = 0; i < points.length; i += step) idx.push(i)
+      if (idx[idx.length - 1] !== points.length - 1) idx.push(points.length - 1)
+
+      const out: Seg[] = []
+      for (let k = 1; k < idx.length; k++) {
+        const a = idx[k - 1]
+        const b = idx[k]
+        const segPts: [number, number][] = []
+        for (let j = a; j <= b; j++) segPts.push([points[j].lat, points[j].lon])
+        const dEle = points[b].ele - points[a].ele
+        const dM = Math.max(1, (cumKm[b] - cumKm[a]) * 1000)
+        const grade = (dEle / dM) * 100
+        out.push({
+          key: k,
+          pts: segPts,
+          color: gradeToColor(grade),
+          startKm: cumKm[a],
+          endKm: cumKm[b],
+          ptStart: a,
+          ptEnd: b,
+          // No ETA in slope mode (works without a plan). Inf disables the
+          // "past" fade in the play renderer below.
+          endTimeMs: Number.POSITIVE_INFINITY,
+        })
+      }
+      return out
+    }
+
     // ── Daylight runs (per-point granularity) ───────────────────────────
     // Each point's "estimated time" is interpolated from the bracketing
     // waypoints; its band (day / civil / night) drives the color. Bands
@@ -542,6 +626,20 @@ export function RouteMap({
           ? gradeToColor(segGrade)
           : mapMode === 'temp'
           ? (curr.weather ? tempToColor(curr.weather.temperatureC) : '#64748b')
+          : mapMode === 'sunTemp'
+          ? (curr.weather
+              ? tempToColor(
+                  curr.weather.temperatureC +
+                    sunTempUplift(
+                      solarIrradiance(
+                        curr.estimatedTime,
+                        curr.lat,
+                        curr.lon,
+                        curr.weather.cloudCoverPct,
+                      ),
+                    ),
+                )
+              : '#64748b')
           : mapMode === 'wind'
           ? impactToColor(curr)
           : mapMode === 'pollen'
@@ -569,7 +667,11 @@ export function RouteMap({
   // ── Split allSegments at targetKm into "before" and "after" (play mode) ──
   const { beforeSegments, afterSegments } = useMemo(() => {
     type SegRender = { key: number; positions: [number, number][]; color: string; endTimeMs: number }
-    if (effectiveProgress >= 1) {
+    // Idle (progress 0, not playing) defaults to "fully painted" so a freshly
+    // loaded route looks complete — same visual as having finished playback.
+    // Pressing play resets the visual to the progressive trail state.
+    const idleDefault = !isPlaying && effectiveProgress <= 0
+    if (effectiveProgress >= 1 || idleDefault) {
       return {
         beforeSegments: allSegments.map((s) => ({ key: s.key, positions: s.pts, color: s.color, endTimeMs: s.endTimeMs })),
         afterSegments: [] as SegRender[],
@@ -622,7 +724,7 @@ export function RouteMap({
     }
 
     return { beforeSegments: before, afterSegments: after }
-  }, [allSegments, effectiveProgress, targetKm, cumKm, points])
+  }, [allSegments, effectiveProgress, isPlaying, targetKm, cumKm, points])
 
   // Leading-edge pointer at the current play position. Geometry-based (not
   // derived from the weather-coloured segments) so it shows even in Capa 1,
@@ -989,29 +1091,9 @@ export function RouteMap({
 
   return (
     <div className="space-y-2">
-      {/* ── Header row ── */}
+      {/* ── Header row: mode-selector slot on the left, legend on the right ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-lg font-semibold text-slate-200">Mapa de ruta</h2>
-          {/* Interaction mode toggle — plan mode only */}
-          {!liveMode && (
-            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-              <button
-                onClick={exitAnalyze}
-                className={`px-3 py-1.5 transition-colors ${interactionMode === 'play' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-              >
-                🎬 Reproducir
-              </button>
-              <button
-                onClick={enterAnalyze}
-                className={`px-3 py-1.5 transition-colors ${interactionMode === 'analyze' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
-              >
-                🔍 Analizar tramo
-              </button>
-            </div>
-          )}
-        </div>
-
+        <div className="flex items-center gap-2 flex-wrap">{headerSlot}</div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
             {mapMode === 'terrain' && terrainStatus === 'loading' ? (
@@ -1109,7 +1191,6 @@ export function RouteMap({
               <span className="text-slate-500">Pulsa «🏔️ Terreno» para ver el tipo de firme</span>
             ) : mapMode === 'slope' ? (
               <>
-                <span>Pendiente:</span>
                 {([['#2563eb', 'bajada'], ['#64748b', 'llano'], ['#fbbf24', 'suave'], ['#f97316', 'fuerte'], ['#b91c1c', 'muy fuerte']] as const).map(([c, l]) => (
                   <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />{l}</span>
                 ))}
@@ -1197,146 +1278,6 @@ export function RouteMap({
         </div>
       </div>
 
-      {/* ── Progress row: slider (play) or GPS bar (live) or analyze sliders ── */}
-      {liveMode ? (
-        <div className="flex items-center gap-3 px-1">
-          <span className="flex items-center gap-2 text-xs text-sky-400 flex-shrink-0">
-            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse inline-block" />
-            GPS en vivo
-          </span>
-          <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
-            <div
-              className="h-full bg-sky-500 rounded-full transition-all duration-1000"
-              style={{ width: `${effectiveProgress * 100}%` }}
-            />
-          </div>
-          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
-            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
-            {' / '}
-            <span>{totalKm.toFixed(1)} km</span>
-            {currentTimeLabel && (
-              <span className="text-slate-300">
-                {' · '}
-                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
-              </span>
-            )}
-          </span>
-        </div>
-      ) : interactionMode === 'analyze' ? (
-        /* ── Single bar, two thumbs (start + end) ── */
-        <div className="space-y-2 px-1">
-          {/* Dual-thumb range: shared track + filled selection + two overlaid inputs */}
-          <div className="relative h-5 flex items-center mx-2">
-            {/* background track */}
-            <div className="absolute inset-x-0 h-1.5 rounded-full bg-slate-700" />
-            {/* filled selection between the two thumbs */}
-            <div
-              className="absolute h-1.5 rounded-full bg-sky-500/70"
-              style={{
-                left: `${(analyzeFrom / totalKm) * 100}%`,
-                right: `${100 - (analyzeTo / totalKm) * 100}%`,
-              }}
-            />
-            {/* start thumb — raised above the end thumb when in the upper half so
-                it stays grabbable even when both handles are near the maximum */}
-            <input
-              type="range"
-              min={0}
-              max={SLIDER_STEPS}
-              step={1}
-              value={Math.round((analyzeFrom / totalKm) * SLIDER_STEPS)}
-              onChange={handleFromSlider}
-              aria-label="Inicio del tramo"
-              className="range-dual range-dual-from absolute inset-x-0 w-full"
-              style={{ zIndex: (analyzeFrom / totalKm) > 0.5 ? 6 : 4 }}
-            />
-            {/* end thumb */}
-            <input
-              type="range"
-              min={0}
-              max={SLIDER_STEPS}
-              step={1}
-              value={Math.round((analyzeTo / totalKm) * SLIDER_STEPS)}
-              onChange={handleToSlider}
-              aria-label="Final del tramo"
-              className="range-dual range-dual-to absolute inset-x-0 w-full"
-              style={{ zIndex: 5 }}
-            />
-          </div>
-
-          {/* Values + fine controls + reset */}
-          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
-            <span className="flex items-center gap-1">
-              <span className="text-slate-400">De</span>
-              <span className="font-mono text-sky-400 w-14 text-right">{analyzeFrom.toFixed(1)} km</span>
-              <button
-                onClick={handleFromMinus}
-                title="−0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
-              >−</button>
-              <button
-                onClick={handleFromPlus}
-                title="+0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
-              >+</button>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="text-slate-400">A</span>
-              <span className="font-mono text-emerald-400 w-14 text-right">{analyzeTo.toFixed(1)} km</span>
-              <button
-                onClick={handleToMinus}
-                title="−0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
-              >−</button>
-              <button
-                onClick={handleToPlus}
-                title="+0.1 km"
-                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
-              >+</button>
-            </span>
-            <span className="text-slate-500">· Tramo {(analyzeTo - analyzeFrom).toFixed(1)} km</span>
-            <button
-              onClick={resetRange}
-              className="ml-auto text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              ↺ Reset
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* ── Play slider ── */
-        <div className="flex items-center gap-3 px-1">
-          <button
-            onClick={handlePlayPause}
-            title={isPlaying ? 'Pausar' : sliderAtFull ? 'Reproducir desde el inicio' : 'Reproducir'}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors text-sm"
-          >
-            {playIcon}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={SLIDER_STEPS}
-            step={1}
-            value={Math.round(progress * SLIDER_STEPS)}
-            onChange={handleSliderChange}
-            className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-sky-500"
-            style={{ background: `linear-gradient(to right, #0ea5e9 ${progress * 100}%, #334155 ${progress * 100}%)` }}
-          />
-          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
-            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
-            {' / '}
-            <span>{totalKm.toFixed(1)} km</span>
-            {currentTimeLabel && (
-              <span className="text-slate-300">
-                {' · '}
-                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
-              </span>
-            )}
-          </span>
-        </div>
-      )}
-
       {/* ── Map ── */}
       <div className="relative rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
         <MapContainer
@@ -1345,6 +1286,7 @@ export function RouteMap({
           boundsOptions={{ padding: [30, 30] }}
           style={{ height: '100%', width: '100%' }}
         >
+          <CtrlScrollZoomGate onHint={showZoomHint} />
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -1381,14 +1323,21 @@ export function RouteMap({
             pathOptions={{ color: '#0f172a', weight: 9, opacity: 0.5 }}
           />
 
-          {/* Grey background (plan mode) */}
+          {/* Grey background (plan mode). Only shown when there's contrast to
+             provide: during active playback or while paused mid-route. Idle
+             (progress 0 + not playing) hides it so the colored route is the
+             default visual, matching the finished state. */}
           {!liveMode && (
             <Polyline
               positions={fullRoute}
               pathOptions={{
                 color: '#475569',
                 weight: 5,
-                opacity: interactionMode === 'analyze' ? 0.55 : (effectiveProgress < 1 ? 0.55 : 0),
+                opacity:
+                  interactionMode === 'analyze' ? 0.55
+                  : effectiveProgress >= 1 ? 0
+                  : !isPlaying && effectiveProgress <= 0 ? 0
+                  : 0.55,
               }}
             />
           )}
@@ -1555,7 +1504,18 @@ export function RouteMap({
                     {w ? (
                       <>
                         <p>{emoji} {label}</p>
-                        <p>🌡️ {w.temperatureC.toFixed(1)}°C</p>
+                        <p>
+                          🌡️ {w.temperatureC.toFixed(1)}°C
+                          {(() => {
+                            const upl = sunTempUplift(solarIrradiance(wp.estimatedTime, wp.lat, wp.lon, w.cloudCoverPct))
+                            if (upl < 0.5) return null
+                            return (
+                              <span style={{ color: '#f97316', marginLeft: 6 }}>
+                                · 🌞 {(w.temperatureC + upl).toFixed(1)}°C al sol (+{upl.toFixed(1)}°)
+                              </span>
+                            )
+                          })()}
+                        </p>
                         <p>🌧️ {w.precipProbability}% lluvia</p>
                         <p>
                           💨 {Math.round(w.windSpeedKmh)} km/h {windDirectionLabel(w.windDirection)}
@@ -1809,6 +1769,15 @@ export function RouteMap({
           )}
         </MapContainer>
 
+        {/* ── Ctrl/⌘+scroll zoom hint (transient) ── */}
+        <div
+          className={`pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center transition-opacity duration-150 ${zoomHintVisible ? 'opacity-100' : 'opacity-0'}`}
+        >
+          <div className="bg-slate-900/85 text-slate-100 text-sm font-medium px-4 py-2 rounded-lg border border-slate-700 shadow-lg">
+            Mantén <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs font-mono">{ZOOM_MOD_LABEL}</kbd> para hacer zoom
+          </div>
+        </div>
+
         {/* ── Rain radar player (overlay, only when radar active) ── */}
         {radarActive && radarFrames.length > 0 && (
           <RainPlayer
@@ -1839,6 +1808,173 @@ export function RouteMap({
           </div>
         )}
       </div>
+
+      {/* ── Interaction row: mode toggle + slider (under the map). In analyze
+         mode the dual-thumb bar shares the row with the toggle; values + reset
+         drop to a second line. In play mode everything lives in a single row. */}
+      {liveMode ? (
+        <div className="flex items-center gap-3 px-1">
+          <span className="flex items-center gap-2 text-xs text-sky-400 flex-shrink-0">
+            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse inline-block" />
+            GPS en vivo
+          </span>
+          <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-sky-500 rounded-full transition-all duration-1000"
+              style={{ width: `${effectiveProgress * 100}%` }}
+            />
+          </div>
+          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
+            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
+            {' / '}
+            <span>{totalKm.toFixed(1)} km</span>
+            {currentTimeLabel && (
+              <span className="text-slate-300">
+                {' · '}
+                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
+              </span>
+            )}
+          </span>
+        </div>
+      ) : interactionMode === 'analyze' ? (
+        <div className="space-y-2 px-1">
+          {/* Toggle + dual-thumb range share the first row. We're in the
+             analyze branch here, so the analyze button is the active one. */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs flex-shrink-0">
+              <button
+                onClick={exitAnalyze}
+                className="px-3 py-1.5 transition-colors bg-slate-800 text-slate-400 hover:text-slate-200"
+              >
+                🎬 Reproducir
+              </button>
+              <button
+                onClick={enterAnalyze}
+                className="px-3 py-1.5 transition-colors bg-sky-600 text-white"
+              >
+                🔍 Analizar tramo
+              </button>
+            </div>
+            <div className="relative h-5 flex items-center mx-2 flex-1 min-w-[200px]">
+              <div className="absolute inset-x-0 h-1.5 rounded-full bg-slate-700" />
+              <div
+                className="absolute h-1.5 rounded-full bg-sky-500/70"
+                style={{
+                  left: `${(analyzeFrom / totalKm) * 100}%`,
+                  right: `${100 - (analyzeTo / totalKm) * 100}%`,
+                }}
+              />
+              <input
+                type="range"
+                min={0}
+                max={SLIDER_STEPS}
+                step={1}
+                value={Math.round((analyzeFrom / totalKm) * SLIDER_STEPS)}
+                onChange={handleFromSlider}
+                aria-label="Inicio del tramo"
+                className="range-dual range-dual-from absolute inset-x-0 w-full"
+                style={{ zIndex: (analyzeFrom / totalKm) > 0.5 ? 6 : 4 }}
+              />
+              <input
+                type="range"
+                min={0}
+                max={SLIDER_STEPS}
+                step={1}
+                value={Math.round((analyzeTo / totalKm) * SLIDER_STEPS)}
+                onChange={handleToSlider}
+                aria-label="Final del tramo"
+                className="range-dual range-dual-to absolute inset-x-0 w-full"
+                style={{ zIndex: 5 }}
+              />
+            </div>
+          </div>
+
+          {/* Values + fine controls + reset on a second sub-row */}
+          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
+            <span className="flex items-center gap-1">
+              <span className="text-slate-400">De</span>
+              <span className="font-mono text-sky-400 w-14 text-right">{analyzeFrom.toFixed(1)} km</span>
+              <button
+                onClick={handleFromMinus}
+                title="−0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >−</button>
+              <button
+                onClick={handleFromPlus}
+                title="+0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >+</button>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-slate-400">A</span>
+              <span className="font-mono text-emerald-400 w-14 text-right">{analyzeTo.toFixed(1)} km</span>
+              <button
+                onClick={handleToMinus}
+                title="−0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >−</button>
+              <button
+                onClick={handleToPlus}
+                title="+0.1 km"
+                className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 hover:text-white font-bold transition-colors leading-none"
+              >+</button>
+            </span>
+            <span className="text-slate-500">· Tramo {(analyzeTo - analyzeFrom).toFixed(1)} km</span>
+            <button
+              onClick={resetRange}
+              className="ml-auto text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              ↺ Reset
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Play mode: toggle + play button + slider + km/time on a single row */
+        <div className="flex items-center gap-3 px-1 flex-wrap">
+          <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs flex-shrink-0">
+            <button
+              onClick={exitAnalyze}
+              className="px-3 py-1.5 transition-colors bg-sky-600 text-white"
+            >
+              🎬 Reproducir
+            </button>
+            <button
+              onClick={enterAnalyze}
+              className="px-3 py-1.5 transition-colors bg-slate-800 text-slate-400 hover:text-slate-200"
+            >
+              🔍 Analizar tramo
+            </button>
+          </div>
+          <button
+            onClick={handlePlayPause}
+            title={isPlaying ? 'Pausar' : sliderAtFull ? 'Reproducir desde el inicio' : 'Reproducir'}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors text-sm"
+          >
+            {playIcon}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={SLIDER_STEPS}
+            step={1}
+            value={Math.round(progress * SLIDER_STEPS)}
+            onChange={handleSliderChange}
+            className="flex-1 min-w-[150px] h-1.5 rounded-full appearance-none cursor-pointer accent-sky-500"
+            style={{ background: `linear-gradient(to right, #0ea5e9 ${progress * 100}%, #334155 ${progress * 100}%)` }}
+          />
+          <span className="flex-shrink-0 text-xs font-mono text-slate-400 text-right">
+            <span className="text-sky-400 font-semibold">{targetKm.toFixed(1)}</span>
+            {' / '}
+            <span>{totalKm.toFixed(1)} km</span>
+            {currentTimeLabel && (
+              <span className="text-slate-300">
+                {' · '}
+                <span className="text-sky-300 font-semibold">{currentTimeLabel}</span>
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* ── Section stats panel (analyze mode only) ── */}
       {!liveMode && interactionMode === 'analyze' && analyzeStats && (

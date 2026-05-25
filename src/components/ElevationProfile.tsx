@@ -21,6 +21,7 @@ import type { PollenData, PollenType } from '../lib/pollen'
 import { pollenLevelColor, pollenLevelStyle, POLLEN_META } from '../lib/pollen'
 import type { DaylightBand } from '../lib/daylight'
 import { bandAt } from '../lib/daylight'
+import { sunTempUplift, solarIrradiance } from '../lib/sunTemp'
 
 /**
  * Elevation profile — a route "canvas" parallel to the map. The silhouette is
@@ -75,6 +76,8 @@ interface Datum {
   grade: number
   pointIdx: number
   temp: number | null
+  sunTemp: number | null
+  sunUplift: number | null
   precip: number | null
   windKmh: number | null
   windColor: string | null
@@ -95,6 +98,9 @@ function ProfileTooltip({
   const p = payload[0].payload
   let extra: string | null = null
   if (mode === 'temp' && p.temp != null) extra = `🌡️ ${Math.round(p.temp)}°C`
+  else if (mode === 'sunTemp' && p.temp != null && p.sunTemp != null) {
+    extra = `🌞 ${Math.round(p.sunTemp)}°C al sol · ${Math.round(p.temp)}°C sombra (Δ+${(p.sunUplift ?? 0).toFixed(1)}°)`
+  }
   else if (mode === 'rain' && p.precip != null) extra = `🌧️ ${Math.round(p.precip)}%`
   else if (mode === 'wind' && p.windKmh != null) extra = `💨 ${Math.round(p.windKmh)} km/h`
   else if (mode === 'daylight' && p.etaMs != null) {
@@ -142,6 +148,7 @@ export const ElevationProfile = memo(function ElevationProfile({
     return {
       km: ww.map((w) => w.distanceKm),
       temp: ww.map((w) => w.weather!.temperatureC),
+      cloud: ww.map((w) => w.weather!.cloudCoverPct),
       precip: ww.map((w) => w.weather!.precipProbability),
       windKmh: ww.map((w) => w.weather!.windSpeedKmh),
       windColor: ww.map((w) => impactToColor(w)),
@@ -175,6 +182,7 @@ export const ElevationProfile = memo(function ElevationProfile({
 
       // Weather interpolation (over weather-bearing waypoints)
       let temp: number | null = null, precip: number | null = null
+      let cloud: number | null = null
       let windKmh: number | null = null, windColor: string | null = null
       if (nW > 0) {
         let j = 0
@@ -183,6 +191,7 @@ export const ElevationProfile = memo(function ElevationProfile({
         const span = wx.km[j1] - wx.km[j]
         const t = span > 0 ? Math.max(0, Math.min(1, (km - wx.km[j]) / span)) : 0
         temp = wx.temp[j] + t * (wx.temp[j1] - wx.temp[j])
+        cloud = wx.cloud[j] + t * (wx.cloud[j1] - wx.cloud[j])
         precip = wx.precip[j] + t * (wx.precip[j1] - wx.precip[j])
         windKmh = wx.windKmh[j] + t * (wx.windKmh[j1] - wx.windKmh[j])
         windColor = t < 0.5 ? wx.windColor[j] : wx.windColor[j1]
@@ -203,9 +212,18 @@ export const ElevationProfile = memo(function ElevationProfile({
         }
       }
 
-      return { km, ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0, pointIdx: i, temp, precip, windKmh, windColor, nearestWpIdx, etaMs }
+      // Sun-feel uplift (only meaningful when we have shade temp + ETA + anchor)
+      let sunTemp: number | null = null
+      let sunUplift: number | null = null
+      if (temp != null && etaMs != null && daylightAnchor) {
+        const irr = solarIrradiance(new Date(etaMs), daylightAnchor.lat, daylightAnchor.lon, cloud)
+        sunUplift = sunTempUplift(irr)
+        sunTemp = temp + sunUplift
+      }
+
+      return { km, ele: Math.round(points[i].ele), grade: k > 0 ? (dEle / dM) * 100 : 0, pointIdx: i, temp, sunTemp, sunUplift, precip, windKmh, windColor, nearestWpIdx, etaMs }
     })
-  }, [points, cumKm, wx, wpAll])
+  }, [points, cumKm, wx, wpAll, daylightAnchor])
 
   const eleDomain = useMemo<[number, number]>(() => {
     if (data.length === 0) return [0, ELE_MIN_SPAN_M]
@@ -232,6 +250,7 @@ export const ElevationProfile = memo(function ElevationProfile({
     return data.map((d) => {
       let color: string
       if (mode === 'temp' && d.temp != null) color = tempToColor(d.temp)
+      else if (mode === 'sunTemp' && d.sunTemp != null) color = tempToColor(d.sunTemp)
       else if (mode === 'rain' && d.precip != null) color = precipToColor(d.precip)
       else if (mode === 'wind' && d.windColor) color = d.windColor
       else if (mode === 'terrain' && pointTerrains && pointTerrains[d.pointIdx]) {
@@ -385,6 +404,15 @@ export const ElevationProfile = memo(function ElevationProfile({
             {([['#1d4ed8', '≤0°'], ['#22d3ee', '~10°'], ['#22c55e', '~16°'], ['#fbbf24', '~22°'], ['#f97316', '~28°'], ['#b91c1c', '35°+']] as const).map(([c, l]) => (
               <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} />{l}</span>
             ))}
+          </>
+        )}
+        {mode === 'sunTemp' && (
+          <>
+            <span>T sentida al sol (estimación):</span>
+            {([['#1d4ed8', '≤0°'], ['#22d3ee', '~10°'], ['#22c55e', '~16°'], ['#fbbf24', '~22°'], ['#f97316', '~28°'], ['#b91c1c', '35°+']] as const).map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} />{l}</span>
+            ))}
+            <span className="text-slate-600 italic">cielo claro/nubes según parte, sin viento/humedad</span>
           </>
         )}
         {mode === 'rain' && (

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
+import type { WeatherData } from '../lib/weather'
 import { formatTime, formatDuration, splitHoursMinutes } from '../lib/timing'
 import type { DaylightBand } from '../lib/daylight'
 import { bandAt } from '../lib/daylight'
+import { solarIrradiance, sunTempUplift } from '../lib/sunTemp'
 
 interface Props {
   waypoints: EnrichedWaypoint[]
@@ -162,6 +164,33 @@ function tempColor(t: number) {
   return 'text-blue-400'
 }
 
+/**
+ * "22.0° / 28.0°" — sombra (T parte) y T sentida al sol, separadas por barra.
+ * El segmento de sol solo aparece cuando el uplift es significativo (≥0.5°);
+ * de noche o con nubes muy densas se omite para no añadir ruido.
+ */
+function TempCell({
+  w, lat, lon, at,
+}: {
+  w: WeatherData | null
+  lat: number
+  lon: number
+  at: Date | null
+}) {
+  if (!w) return <span className="text-slate-600">—</span>
+  const shadeCls = tempColor(w.temperatureC)
+  const uplift = at ? sunTempUplift(solarIrradiance(at, lat, lon, w.cloudCoverPct)) : 0
+  if (uplift < 0.5) return <span className={shadeCls}>{w.temperatureC.toFixed(1)}°</span>
+  const sunT = w.temperatureC + uplift
+  return (
+    <span title={`Sombra ${w.temperatureC.toFixed(1)}° · Sol ${sunT.toFixed(1)}° (Δ+${uplift.toFixed(1)}°, estimación cielo-claro/nubes)`}>
+      <span className={shadeCls}>{w.temperatureC.toFixed(1)}°</span>
+      <span className="text-slate-600 mx-1">/</span>
+      <span className={tempColor(sunT)}>🌞{sunT.toFixed(1)}°</span>
+    </span>
+  )
+}
+
 /** Format a Date as "HH:MM" for an <input type="time"> */
 function cutoffToTimeStr(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
@@ -279,7 +308,7 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-700">
+      <div className="overflow-x-auto scrollbar-slim rounded-xl border border-slate-700">
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
             <tr className="bg-slate-800 text-slate-400 text-xs uppercase tracking-wide">
@@ -445,10 +474,10 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     {hasWeather && (
                       <>
                         <td className="px-3 py-2.5 text-center" title={label}>
-                          {w ? `${emoji} ${label}` : <span className="text-slate-600">—</span>}
+                          {w ? emoji : <span className="text-slate-600">—</span>}
                         </td>
-                        <td className={`px-3 py-2.5 text-right font-mono ${w ? tempColor(w.temperatureC) : 'text-slate-600'}`}>
-                          {w ? `${w.temperatureC.toFixed(1)}°` : '—'}
+                        <td className="px-3 py-2.5 text-right font-mono">
+                          <TempCell w={w} lat={wpt.lat} lon={wpt.lon} at={wpt.estimatedTime ?? null} />
                         </td>
                         <td className={`px-3 py-2.5 text-right font-mono ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
                           {w ? `${w.precipProbability}%` : '—'}
@@ -523,10 +552,10 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                   {hasWeather && (
                     <>
                       <td className="px-3 py-2.5 text-center" title={label}>
-                        {w ? `${emoji} ${label}` : <span className="text-slate-600">—</span>}
+                        {w ? emoji : <span className="text-slate-600">—</span>}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono ${w ? tempColor(w.temperatureC) : 'text-slate-600'}`}>
-                        {w ? `${w.temperatureC.toFixed(1)}°` : '—'}
+                      <td className="px-3 py-2.5 text-right font-mono">
+                        <TempCell w={w} lat={wp.lat} lon={wp.lon} at={wp.estimatedTime} />
                       </td>
                       <td className={`px-3 py-2.5 text-right font-mono ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
                         {w

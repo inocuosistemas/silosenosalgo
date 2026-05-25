@@ -9,15 +9,17 @@ export type ViewMode =
   | 'slope'
   | 'terrain'
   | 'temp'
+  | 'sunTemp'
   | 'rain'
   | 'wind'
   | 'pollen'
   | 'daylight'
 
 export const MODE_META: Record<ViewMode, { label: string; emoji: string }> = {
-  slope:    { label: 'Pendiente', emoji: '⛰️' },
+  slope:    { label: 'Track',     emoji: '📈' },
   terrain:  { label: 'Terreno',   emoji: '🏔️' },
   temp:     { label: 'Temp',      emoji: '🌡️' },
+  sunTemp:  { label: 'T al sol',  emoji: '🌞' },
   rain:     { label: 'Lluvia',    emoji: '🌧️' },
   wind:     { label: 'Viento',    emoji: '💨' },
   pollen:   { label: 'Polen',     emoji: '🌿' },
