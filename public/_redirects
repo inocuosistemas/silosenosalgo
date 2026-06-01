@@ -1,0 +1,3 @@
+# Cloudflare Pages SPA fallback so deep links like /?s=<id> load the app.
+# Pages Functions (/api/*) are matched BEFORE this rule, so the API is unaffected.
+/*  /index.html  200

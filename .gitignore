@@ -32,5 +32,8 @@ dist-ssr
 # Local Netlify folder
 .netlify
 
+# Wrangler / Cloudflare Pages local state
+.wrangler
+
 # Local test fixtures (large GPX files)
 test-data/

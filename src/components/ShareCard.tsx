@@ -6,6 +6,8 @@ import type { DaylightSummary } from '../lib/daylight'
 import type { GpxTimesValidity } from '../lib/gpxValidity'
 import { ACTIVITY_LABEL, formatTime, formatDuration, formatPace } from '../lib/timing'
 import { solarIrradiance, sunTempUplift } from '../lib/sunTemp'
+import { ShareLinkButton } from './ShareLinkButton'
+import type { SharePayloadV1 } from '../lib/sharePayload'
 
 interface Props {
   track: GpxTrack
@@ -17,6 +19,8 @@ interface Props {
   forecastGeneratedAt?: Date | null
   /** Validez/estadísticas de los tiempos del GPX (para el tiempo parado en modo «gpx»). */
   gpxValidity?: GpxTimesValidity | null
+  /** Build the shareable snapshot for the "Compartir enlace" action. */
+  getSharePayload?: () => SharePayloadV1
   onClose: () => void
 }
 
@@ -124,7 +128,7 @@ function elevAreaPath(track: GpxTrack, w: number, h: number, realistic = false):
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, forecastGeneratedAt, gpxValidity, onClose }: Props) {
+export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, forecastGeneratedAt, gpxValidity, getSharePayload, onClose }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
   // Texto libre del punto de encuentro — se edita fuera de la tarjeta (el editor
@@ -342,6 +346,16 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
           </button>
         )}
       </div>
+
+      {/* Compartir enlace — fuera de la tarjeta, no aparece en el PNG.
+          Genera un link que reconstruye la salida completa (copia editable). */}
+      {getSharePayload && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700">
+          <span className="text-emerald-400 text-sm shrink-0">🔗</span>
+          <span className="text-slate-400 text-xs shrink-0 hidden sm:inline">Enlace editable:</span>
+          <ShareLinkButton getPayload={getSharePayload} />
+        </div>
+      )}
 
       {/* ── Card ── */}
       <div

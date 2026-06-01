@@ -1,0 +1,25 @@
+# Cloudflare Pages config for the "Compartir salida" backend (Pages Functions).
+#
+# The Functions live in /functions and are deployed automatically by
+# `wrangler pages deploy dist` (scripts/deploy.mjs) — no script change needed.
+#
+# ── KV provisioning (one-time, manual) ────────────────────────────────────────
+#   npx wrangler kv namespace create SHARE_KV
+#   npx wrangler kv namespace create SHARE_KV --preview
+# Paste the returned ids below (replace the REEMPLAZAR placeholders). Also bind
+# SHARE_KV in the Cloudflare dashboard: Pages → (project) → Settings → Functions
+# → KV namespace bindings (the dashboard binding is what deployed Functions use).
+#
+# ── Local dev ─────────────────────────────────────────────────────────────────
+#   npm run build && npx wrangler pages dev dist --kv SHARE_KV
+# (`--kv SHARE_KV` gives a local simulated namespace, so you can test without
+# real ids; `vite dev` on :5173 does NOT serve the Functions.)
+
+name = "silosenosalgo"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "SHARE_KV"
+id = "b669534a923040dfaf547131ee42990b"
+preview_id = "c6212e6a0f6a41859dcc6dc23837cf96"

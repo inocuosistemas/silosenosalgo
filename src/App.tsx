@@ -42,6 +42,8 @@ import { useNowTick } from './lib/useNowTick'
 import { checkGpxTimes, reclassifyForActivity } from './lib/gpxValidity'
 import type { GpxTimesValidity } from './lib/gpxValidity'
 import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
+import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePayloadV1 } from './lib/sharePayload'
+import { fetchShare, gunzipToString, ShareTransportError } from './lib/shareTransport'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -410,6 +412,10 @@ export default function App() {
   const computeTokenRef = useRef(0)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [showShareCard, setShowShareCard] = useState(false)
+
+  // ── "Compartir salida" load state (when opened via /?s=<id>) ───────────────
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareLoadError, setShareLoadError] = useState<string | null>(null)
 
   // ── Weather freshness ──────────────────────────────────────────────────────
   const [weatherFetchedAt, setWeatherFetchedAt] = useState<Date | null>(null)
@@ -1020,6 +1026,61 @@ export default function App() {
       }
     }
   }
+
+  // ── Compartir salida: build the snapshot from current state ───────────────
+  const buildCurrentSharePayload = useCallback((): SharePayloadV1 => {
+    if (!track) throw new Error('no track')
+    return buildSharePayload({ track, startTime, paceConfig, sampling, cutoffWallClocks })
+  }, [track, startTime, paceConfig, sampling, cutoffWallClocks])
+
+  // ── Compartir salida: load from /?s=<id> at mount (creates an editable fork)
+  // We fetch + gunzip + revive the shared payload and inject it through the same
+  // restore path as "Recuperar sesión", then strip `?s=` from the URL so a reload
+  // starts from the now-local (autosaved) session — the receiver's edits never
+  // touch the immutable KV blob, and the sender is unaffected.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('s')
+    if (!id) return
+
+    setShareLoading(true)
+    setShareLoadError(null)
+    ;(async () => {
+      try {
+        const buf = await fetchShare(id)
+        const json = await gunzipToString(buf)
+        const revived = reviveSharePayload(JSON.parse(json))
+
+        handleTrack(revived.track)
+        setStartTime(revived.startTime)
+        if (revived.paceConfig) setPaceConfig(revived.paceConfig)
+        if (revived.sampling) setSampling(revived.sampling)
+        // handleTrack already seeded cut-offs from the wpts; override with the
+        // payload's authoritative map and persist it under the receiver's track.
+        setCutoffWallClocksState(revived.cutoffWallClocks)
+        saveCutoffWallClocks(revived.track.name, revived.cutoffWallClocks)
+        setSavedSession(null)
+      } catch (err) {
+        if (err instanceof ShareTransportError && err.kind === 'not_found') {
+          setShareLoadError('Este enlace ha caducado o no existe.')
+        } else if (err instanceof SharePayloadError && err.kind === 'unsupported_version') {
+          setShareLoadError('Este enlace se creó con una versión más reciente. Actualiza la página.')
+        } else if (err instanceof ShareTransportError && err.kind === 'unsupported') {
+          setShareLoadError('Tu navegador no permite abrir enlaces compartidos (actualízalo).')
+        } else {
+          setShareLoadError('No se pudo cargar la salida compartida. Revisa tu conexión.')
+        }
+      } finally {
+        // Strip `?s=` so reloading doesn't re-fetch and the fork is independent.
+        const url = new URL(window.location.href)
+        url.searchParams.delete('s')
+        window.history.replaceState({}, '', url.toString())
+        setShareLoading(false)
+      }
+    })()
+    // Mount-only: we read the URL once on first render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── User-POI handlers ─────────────────────────────────────────────────────
   function handleAddPois(materialised: MaterialisedPoi[]) {
@@ -2575,8 +2636,35 @@ export default function App() {
           daylight={daylight}
           forecastGeneratedAt={weatherFetchedAt}
           gpxValidity={gpxValidity}
+          getSharePayload={buildCurrentSharePayload}
           onClose={() => setShowShareCard(false)}
         />
+      )}
+
+      {/* ── Compartir salida: loading overlay while restoring from /?s=<id> ── */}
+      {shareLoading && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm">
+          <div className="flex items-center gap-3 text-slate-200">
+            <span className="inline-block w-5 h-5 border-2 border-slate-600 border-t-sky-400 rounded-full animate-spin" />
+            <span className="text-sm">Cargando salida compartida…</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Compartir salida: error banner if the link could not be loaded ── */}
+      {shareLoadError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[3000] max-w-md w-[92vw]">
+          <div className="bg-rose-950/90 border border-rose-700/60 rounded-xl px-4 py-3 flex items-start gap-3 backdrop-blur">
+            <span className="text-rose-300 text-lg shrink-0">⚠️</span>
+            <p className="text-rose-100 text-sm flex-1">{shareLoadError}</p>
+            <button
+              onClick={() => setShareLoadError(null)}
+              className="shrink-0 text-rose-300 hover:text-rose-100 text-sm"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
