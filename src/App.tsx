@@ -1977,9 +1977,18 @@ export default function App() {
             capas de previsión aparecen en el selector cuando hay datos. ── */}
         {track && (
           <div className="pt-1">
-            <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-              <span>🛤️</span> Recorrido
-            </h2>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                <span>🛤️</span> Recorrido
+              </h2>
+              <button
+                onClick={handleDownloadGpx}
+                title="Descargar el GPX de esta ruta (con POIs y cortes si los hay)"
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
+              >
+                ↓ <span className="hidden sm:inline">Descargar GPX</span>
+              </button>
+            </div>
             <p className="text-sm text-slate-500 mt-1">
               Explora la ruta sobre el mapa y el perfil — reproduce el recorrido o selecciona un tramo para analizarlo.
             </p>

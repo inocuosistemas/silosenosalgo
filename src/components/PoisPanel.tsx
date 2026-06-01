@@ -389,16 +389,14 @@ export function PoisPanel({
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={onDownload}
-                disabled={totalPois === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
-                title="Descargar GPX con todos los POIs y cortes incrustados (track)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
+                title="Descargar GPX con el track y, si los hay, los POIs y cortes incrustados"
               >
                 <DownloadIcon /> Descargar GPX
               </button>
               <button
                 onClick={onDownloadFit}
-                disabled={totalPois === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium transition-colors"
                 title="Descargar curso FIT para Garmin Connect: los POI conservan su km (a diferencia del GPX)"
               >
                 <DownloadIcon /> Curso FIT (Garmin)
