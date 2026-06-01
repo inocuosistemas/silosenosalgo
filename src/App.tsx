@@ -1987,14 +1987,14 @@ export default function App() {
                   title="Descargar el GPX de esta ruta (con POIs y cortes si los hay)"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
                 >
-                  ↓ <span className="hidden sm:inline">Descargar GPX</span>
+                  ↓ <span className="hidden sm:inline">Descargar </span>GPX
                 </button>
                 <button
                   onClick={handleDownloadFit}
                   title="Descargar curso FIT para Garmin Connect: los POI conservan su km (a diferencia del GPX)"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium transition-colors"
                 >
-                  ↓ <span className="hidden sm:inline">Curso FIT</span>
+                  ↓ <span className="hidden sm:inline">Curso </span>FIT
                 </button>
               </div>
             </div>
