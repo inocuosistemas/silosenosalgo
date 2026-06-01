@@ -1981,13 +1981,22 @@ export default function App() {
               <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
                 <span>🛤️</span> Recorrido
               </h2>
-              <button
-                onClick={handleDownloadGpx}
-                title="Descargar el GPX de esta ruta (con POIs y cortes si los hay)"
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
-              >
-                ↓ <span className="hidden sm:inline">Descargar GPX</span>
-              </button>
+              <div className="shrink-0 flex items-center gap-2">
+                <button
+                  onClick={handleDownloadGpx}
+                  title="Descargar el GPX de esta ruta (con POIs y cortes si los hay)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
+                >
+                  ↓ <span className="hidden sm:inline">Descargar GPX</span>
+                </button>
+                <button
+                  onClick={handleDownloadFit}
+                  title="Descargar curso FIT para Garmin Connect: los POI conservan su km (a diferencia del GPX)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium transition-colors"
+                >
+                  ↓ <span className="hidden sm:inline">Curso FIT</span>
+                </button>
+              </div>
             </div>
             <p className="text-sm text-slate-500 mt-1">
               Explora la ruta sobre el mapa y el perfil — reproduce el recorrido o selecciona un tramo para analizarlo.
