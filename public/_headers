@@ -1,0 +1,18 @@
+# Cabeceras para Cloudflare Pages. CF Pages IGNORA netlify.toml, asi que las
+# reglas de cache/seguridad deben vivir aqui (Vite copia public/ -> dist/).
+# Mantener en sync con netlify.toml por si tambien se despliega en Netlify.
+
+# Assets de Vite con hash en el nombre: inmutables, cachear para siempre.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# index.html debe revalidarse siempre para que los usuarios vean cada deploy.
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+# Cabeceras de seguridad base para todo el sitio.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=()
