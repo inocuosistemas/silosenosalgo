@@ -1,10 +1,34 @@
 import { useRef, useState } from 'react'
 import type { SharePayloadV1 } from '../lib/sharePayload'
-import { createShare, gzipBytes, isShareSupported, MAX_SHARE_BYTES, ShareTransportError } from '../lib/shareTransport'
+import { createShare, gzipBytes, isShareSupported, MAX_SHARE_BYTES, ShareTransportError, uploadShareImage, type ShareMeta } from '../lib/shareTransport'
+
+/**
+ * Summary shown in the link preview (WhatsApp/Telegram/…). The date is rendered
+ * here, on the sender's device, so it reflects their locale + timezone — the
+ * edge has neither. Distance/elevation come straight from the track.
+ */
+function buildShareMeta(p: SharePayloadV1): ShareMeta {
+  const km = p.track.totalDistanceKm
+  const kmStr = km >= 100 ? Math.round(km).toString() : km.toFixed(1)
+  const gain = Math.round(p.track.elevGainM).toLocaleString('es-ES')
+  const when = new Date(p.startTimeISO)
+    .toLocaleString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    .replace(',', '')
+  return {
+    title: p.track.name?.trim() || 'Salida compartida',
+    desc: `${kmStr} km · +${gain} m · ${when}`,
+  }
+}
 
 interface Props {
   /** Build the snapshot to share from the current app state. */
   getPayload: () => SharePayloadV1
+  /**
+   * Render the link's preview image (the landscape track card) to a PNG Blob.
+   * Optional + best-effort: if absent or it fails, the link still works and the
+   * preview falls back to the brand card.
+   */
+  capturePreview?: () => Promise<Blob | null>
 }
 
 type State = 'idle' | 'working' | 'done' | 'error'
@@ -26,7 +50,7 @@ function errorMessage(err: unknown): string {
  * uploads it to the Pages Function, and shows the resulting `/?s=<id>` URL with
  * a copy button. Self-contained — owns its own upload/copy state.
  */
-export function ShareLinkButton({ getPayload }: Props) {
+export function ShareLinkButton({ getPayload, capturePreview }: Props) {
   const [state, setState] = useState<State>('idle')
   const [link, setLink] = useState('')
   const [error, setError] = useState('')
@@ -40,10 +64,19 @@ export function ShareLinkButton({ getPayload }: Props) {
     setError('')
     setCopied(false)
     try {
-      const json = JSON.stringify(getPayload())
+      const payload = getPayload()
+      const json = JSON.stringify(payload)
       const gz = await gzipBytes(json)
       if (gz.byteLength > MAX_SHARE_BYTES) throw new ShareTransportError('too_large')
-      const id = await createShare(gz)
+      const id = await createShare(gz, buildShareMeta(payload))
+
+      // Render + upload the per-link preview image (the track card). Best-effort:
+      // a failure leaves the link working with the brand-card preview fallback.
+      try {
+        const png = await capturePreview?.()
+        if (png) await uploadShareImage(id, png)
+      } catch { /* preview is a nice-to-have — never block the link for it */ }
+
       const url = `${window.location.origin}/?s=${id}`
       setLink(url)
       setState('done')

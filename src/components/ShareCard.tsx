@@ -8,6 +8,13 @@ import { ACTIVITY_LABEL, formatTime, formatDuration, formatPace } from '../lib/t
 import { solarIrradiance, sunTempUplift } from '../lib/sunTemp'
 import { ShareLinkButton } from './ShareLinkButton'
 import type { SharePayloadV1 } from '../lib/sharePayload'
+import faviconRaw from '../../public/favicon.svg?raw'
+
+/**
+ * App logo as an inline data-URI. Embedding it (vs `<img src="/favicon.svg">`)
+ * guarantees `html-to-image` captures it for the OG card without a runtime fetch.
+ */
+const FAVICON_DATA_URI = `data:image/svg+xml,${encodeURIComponent(faviconRaw)}`
 
 interface Props {
   track: GpxTrack
@@ -130,6 +137,7 @@ function elevAreaPath(track: GpxTrack, w: number, h: number, realistic = false):
 
 export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, forecastGeneratedAt, gpxValidity, getSharePayload, onClose }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
+  const ogRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
   // Texto libre del punto de encuentro — se edita fuera de la tarjeta (el editor
   // no se captura) y se muestra dentro como texto plano, que sí se integra en el PNG.
@@ -278,6 +286,32 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
     })
   }
 
+  /**
+   * Rasterise the hidden 1200×630 landscape card to a PNG Blob — this is the
+   * `og:image` for the share link (the real track, not just the brand logo).
+   * Returns null on failure so the caller degrades to the brand card.
+   */
+  async function capturePreview(): Promise<Blob | null> {
+    if (!ogRef.current) return null
+    try {
+      const { toJpeg } = await import('html-to-image')
+      // JPEG, not PNG: a 1200×630 PNG at 2× is >1 MB and WhatsApp silently drops
+      // large preview images (the "all blue then nothing" symptom). This lands
+      // ~90–120 KB — crisp and safely under every crawler's size limit.
+      const dataUrl = await toJpeg(ogRef.current, {
+        width: 1200,
+        height: 630,
+        pixelRatio: 1.5,
+        quality: 0.85,
+        backgroundColor: '#0f172a',
+        cacheBust: true,
+      })
+      return await (await fetch(dataUrl)).blob()
+    } catch {
+      return null
+    }
+  }
+
   async function handleDownload() {
     if (!cardRef.current) return
     setDownloading(true)
@@ -353,7 +387,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700">
           <span className="text-emerald-400 text-sm shrink-0">🔗</span>
           <span className="text-slate-400 text-xs shrink-0 hidden sm:inline">Enlace editable:</span>
-          <ShareLinkButton getPayload={getSharePayload} />
+          <ShareLinkButton getPayload={getSharePayload} capturePreview={capturePreview} />
         </div>
       )}
 
@@ -709,6 +743,145 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
       <p className="hidden sm:block absolute bottom-4 text-slate-600 text-xs">
         📸 Haz una captura de pantalla para compartir
       </p>
+
+      {/* ── Hidden 1200×630 landscape card — rasterised to the share-link og:image.
+           Off-screen but fully laid out (display:none can't be captured). Reuses
+           the same map/profile/stats/weather the visible card already computed. ── */}
+      <div aria-hidden style={{ position: 'fixed', left: -99999, top: 0, width: 1200, height: 630, pointerEvents: 'none' }}>
+        {/* `ogRef` is on THIS inner card — never on the off-screen wrapper above:
+            html-to-image clones the captured node with its own styles, so a node
+            carrying `left:-99999` renders its content off-canvas → all-blue blob. */}
+        <div ref={ogRef} style={{ position: 'relative', width: 1200, height: 630, overflow: 'hidden', boxSizing: 'border-box', background: 'linear-gradient(135deg, #0f172a 0%, #0c1a2e 60%, #0f172a 100%)', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+          {/* Elevation silhouette — full-bleed background */}
+          <svg width="100%" height="100%" viewBox={`0 0 ${ELEV_W} ${ELEV_H}`} preserveAspectRatio="xMidYMax slice" style={{ position: 'absolute', inset: 0, opacity: 0.06 }}>
+            <defs><linearGradient id="ogElevGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" /></linearGradient></defs>
+            <path d={elevPath} fill="url(#ogElevGrad)" />
+          </svg>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg, transparent, rgba(56,189,248,0.5), transparent)' }} />
+
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', padding: 44, boxSizing: 'border-box' }}>
+            {/* Header: name + date/times */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ color: '#0ea5e9', fontSize: 15, textTransform: 'uppercase', letterSpacing: 3, fontWeight: 700, margin: '0 0 8px' }}>
+                  {activity.emoji} {activity.label} · ruta planificada
+                </p>
+                <h2 style={{ color: '#fff', fontWeight: 800, fontSize: ogTitleSize(track.name), lineHeight: 1.1, margin: 0, letterSpacing: '-0.01em', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                  {track.name}
+                </h2>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 30, lineHeight: 1 }}>
+                  {startTime.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')}
+                </div>
+                <div style={{ color: '#e2e8f0', fontSize: 22, marginTop: 8, fontWeight: 700 }}>
+                  <span style={{ color: '#22c55e' }}>●</span> {formatTime(startTime)}
+                  {endTime && <> <span style={{ color: '#64748b' }}>→</span> <span style={{ color: '#f87171' }}>●</span> ~{formatTime(endTime)}</>}
+                </div>
+                {durationMs != null && (
+                  <div style={{ color: '#cbd5e1', fontSize: 16, marginTop: 6 }}>
+                    ⏱ {formatDuration(durationMs)}{stoppedMin >= 1 && <> · ⏸ {fmtHM(stoppedMin)}</>}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Body: map + (stats / weather / profile) */}
+            <div style={{ display: 'flex', gap: 28, flex: 1, marginTop: 22, minHeight: 0 }}>
+              <div style={{ width: 392, flexShrink: 0, borderRadius: 18, overflow: 'hidden', background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(148,163,184,0.12)' }}>
+                <svg viewBox="0 0 200 200" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+                  <defs>
+                    <filter id="ogGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                    <linearGradient id="ogRouteGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#38bdf8" /></linearGradient>
+                  </defs>
+                  <path d={routePath} fill="none" stroke="#38bdf8" strokeWidth={5} strokeOpacity={0.18} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={routePath} fill="none" stroke="url(#ogRouteGrad)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" filter="url(#ogGlow)" />
+                  {intermediateWpts.map((w, i) => { const p = projectWpt(w.lat, w.lon); return <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="#fbbf24" stroke="#0f172a" strokeWidth={1} /> })}
+                  {startPt && <><circle cx={startPt.x} cy={startPt.y} r={7} fill="#22c55e" fillOpacity={0.2} /><circle cx={startPt.x} cy={startPt.y} r={4} fill="#22c55e" stroke="#0f172a" strokeWidth={1.5} /></>}
+                  {endPt && endPt !== startPt && <><circle cx={endPt.x} cy={endPt.y} r={7} fill="#f87171" fillOpacity={0.2} /><circle cx={endPt.x} cy={endPt.y} r={4} fill="#f87171" stroke="#0f172a" strokeWidth={1.5} /></>}
+                </svg>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+                  <OgStat value={track.totalDistanceKm.toFixed(1)} unit="km" color="#e2e8f0" />
+                  <OgStat value={`+${Math.round(track.elevGainM)}`} unit="m D+" color="#fb923c" />
+                  <OgStat value={`−${Math.round(track.elevLossM)}`} unit="m D−" color="#60a5fa" />
+                </div>
+                {infoGroups.length > 0 && (
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {infoGroups.map((g) => (
+                      <div key={g.label} style={{ flex: '1 1 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: '12px 6px', borderRadius: 12, background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.08)' }}>
+                        {g.metrics.map((m, i) => (
+                          <span key={i} style={{ color: m.color, fontSize: 22, fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: '0.8em' }}>{m.icon}</span> {m.value}
+                          </span>
+                        ))}
+                        <span style={{ color: '#64748b', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>{g.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.1)', padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: '#64748b', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>Perfil</span>
+                    <span style={{ color: '#94a3b8', fontSize: 13 }}>
+                      <span style={{ color: '#fb923c' }}>+{Math.round(track.elevGainM)}</span> / <span style={{ color: '#60a5fa' }}>−{Math.round(track.elevLossM)}</span> m
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <svg width="100%" height="100%" viewBox={`0 0 ${MINI_W} ${MINI_H}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+                      <defs><linearGradient id="ogMiniElev" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" /><stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.15" /></linearGradient></defs>
+                      <path d={miniElevPath} fill="url(#ogMiniElev)" stroke="#7dd3fc" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer: brand (logo + name) + start/end places */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 44, height: 42, flexShrink: 0, backgroundImage: `url("${FAVICON_DATA_URI}")`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+                  <span style={{ color: '#38bdf8', fontWeight: 800, fontSize: 26, letterSpacing: '-0.01em' }}>SiLoSeNoSalgo</span>
+                  <span style={{ color: '#64748b', fontSize: 14 }}>Previsión meteo a lo largo de tu ruta</span>
+                </div>
+              </div>
+              {(startLocation || forecastStamp) && (
+                <div style={{ textAlign: 'right', maxWidth: 380, overflow: 'hidden' }}>
+                  {startLocation && (
+                    <div style={{ color: '#cbd5e1', fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      📍 {startLocation}{endLocation && endLocation !== startLocation ? ` → ${endLocation}` : ''}
+                    </div>
+                  )}
+                  {forecastStamp && <div style={{ color: '#64748b', fontSize: 13, marginTop: 3, textTransform: 'capitalize' }}>Previsión {forecastStamp} h</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Title size (px) for the landscape OG card — scales down as the name grows. */
+function ogTitleSize(name: string): number {
+  const len = name.trim().length
+  if (len <= 18) return 50
+  if (len <= 28) return 42
+  if (len <= 40) return 34
+  if (len <= 54) return 28
+  return 24
+}
+
+/** Stat box for the landscape OG card (inline-styled so html-to-image captures it faithfully). */
+function OgStat({ value, unit, color }: { value: string; unit: string; color: string }) {
+  return (
+    <div style={{ borderRadius: 12, padding: '14px 10px', textAlign: 'center', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(148,163,184,0.08)' }}>
+      <div style={{ color, fontWeight: 800, fontSize: 34, lineHeight: 1.05 }}>{value}</div>
+      <div style={{ color: '#64748b', fontSize: 14, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 }}>{unit}</div>
     </div>
   )
 }

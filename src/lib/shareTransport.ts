@@ -41,14 +41,32 @@ export async function gunzipToString(buf: ArrayBuffer): Promise<string> {
   return new TextDecoder().decode(out)
 }
 
+/**
+ * Tiny human-readable summary of the outing, stored alongside the blob so the
+ * edge middleware can render a per-link preview (Open Graph) without gunzipping
+ * the whole payload. `desc` is preformatted on the client (locale + timezone
+ * aware) — see `ShareLinkButton`.
+ */
+export interface ShareMeta {
+  title: string
+  desc: string
+}
+
 /** Upload a gzipped payload, returning the short id. */
-export async function createShare(gzipped: ArrayBuffer): Promise<string> {
+export async function createShare(gzipped: ArrayBuffer, meta?: ShareMeta): Promise<string> {
   if (gzipped.byteLength > MAX_SHARE_BYTES) throw new ShareTransportError('too_large')
+  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
+  if (meta) {
+    // encodeURIComponent → pure ASCII, so accents/emoji in the title travel
+    // safely in an HTTP header. The server decodes + validates (best-effort:
+    // a bad/missing header never blocks share creation).
+    headers['X-Share-Meta'] = encodeURIComponent(JSON.stringify(meta))
+  }
   let res: Response
   try {
     res = await fetch('/api/share', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
+      headers,
       body: new Blob([gzipped]),
     })
   } catch {
@@ -59,6 +77,20 @@ export async function createShare(gzipped: ArrayBuffer): Promise<string> {
   const data = (await res.json()) as { id?: string }
   if (!data.id) throw new ShareTransportError('network')
   return data.id
+}
+
+/**
+ * Upload the per-share preview image (PNG the browser rendered for `og:image`).
+ * Best-effort: a failure here never invalidates the link — the preview just
+ * falls back to the brand card. Fire-and-forget friendly (caller may ignore).
+ */
+export async function uploadShareImage(id: string, image: Blob): Promise<void> {
+  const res = await fetch(`/og/${encodeURIComponent(id)}.jpg`, {
+    method: 'PUT',
+    headers: { 'Content-Type': image.type || 'image/jpeg' },
+    body: image,
+  })
+  if (!res.ok) throw new ShareTransportError('network')
 }
 
 /** Fetch a shared payload by id, returning the gzipped bytes. */

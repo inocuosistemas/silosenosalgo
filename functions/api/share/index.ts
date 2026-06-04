@@ -33,6 +33,24 @@ function genId(): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/**
+ * Parse the optional `X-Share-Meta` header into a small, clamped `{title, desc}`
+ * object for the link preview. Best-effort: any problem yields `null` and the
+ * share still succeeds (the edge falls back to brand defaults).
+ */
+function parseMeta(header: string | null): string | null {
+  if (!header) return null
+  try {
+    const raw = JSON.parse(decodeURIComponent(header)) as { title?: unknown; desc?: unknown }
+    const title = typeof raw.title === 'string' ? raw.title.slice(0, 120).trim() : ''
+    const desc = typeof raw.desc === 'string' ? raw.desc.slice(0, 200).trim() : ''
+    if (!title && !desc) return null
+    return JSON.stringify({ title, desc })
+  } catch {
+    return null
+  }
+}
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const buf = await request.arrayBuffer()
   if (buf.byteLength === 0) return json({ error: 'empty' }, 400)
@@ -40,5 +58,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const id = genId()
   await env.SHARE_KV.put(id, buf, { expirationTtl: TTL_SECONDS })
+
+  // Sidecar for the link preview (Open Graph). Stored under `${id}:og` with the
+  // same TTL so it expires together with the blob. Failure here is non-fatal.
+  const meta = parseMeta(request.headers.get('X-Share-Meta'))
+  if (meta) {
+    try {
+      await env.SHARE_KV.put(`${id}:og`, meta, { expirationTtl: TTL_SECONDS })
+    } catch { /* preview is a nice-to-have — never fail the share for it */ }
+  }
+
   return json({ id }, 200)
 }
