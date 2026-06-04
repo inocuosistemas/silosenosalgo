@@ -2150,7 +2150,13 @@ export default function App() {
                     type="datetime-local"
                     value={toLocalInputValue(startTime)}
                     onChange={(e) => {
-                      setStartTime(new Date(e.target.value))
+                      // While editing a segment (e.g. typing a new day) the field
+                      // briefly emits an empty/incomplete value → Invalid Date.
+                      // Letting that into startTime crashes the autosave effect
+                      // (startTime.toISOString()) and unmounts the whole app.
+                      const d = new Date(e.target.value)
+                      if (isNaN(d.getTime())) return
+                      setStartTime(d)
                       setBuddyObs([])
                       if (hasComputedOnce) setParamsDirty(true)
                       // reset() is intentionally NOT called here so that previous
