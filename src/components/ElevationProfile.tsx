@@ -284,6 +284,18 @@ export const ElevationProfile = memo(function ElevationProfile({
 
   if (data.length < 2) return null
 
+  // Map a recharts hover/touch state (MouseHandlerDataParam) to a km and report
+  // it. Shared by mouse and touch so the map marker follows both cursor and finger.
+  const reportFromState = (s: { activeTooltipIndex?: unknown; activeLabel?: unknown }) => {
+    const i = Number(s.activeTooltipIndex)
+    const lbl = Number(s.activeLabel)
+    const km =
+      Number.isInteger(i) && data[i] ? data[i].km
+      : Number.isFinite(lbl) ? lbl
+      : null
+    reportHover(km)
+  }
+
   const gradId = 'elev-fill'
 
   return (
@@ -298,21 +310,18 @@ export const ElevationProfile = memo(function ElevationProfile({
         </span>
       </div>
 
-      <ResponsiveContainer width="100%" height={170}>
+      {/* touchAction:none → dragging a finger scrubs the profile instead of
+          scrolling the page, so the map marker follows the touch on mobile. */}
+      <ResponsiveContainer width="100%" height={170} style={{ touchAction: 'none' }}>
         <ComposedChart
           data={data}
           margin={{ top: 4, right: 8, bottom: 0, left: -8 }}
-          onMouseMove={(s) => {
-            // recharts v3: handler gets MouseHandlerDataParam (no activePayload).
-            const i = Number(s.activeTooltipIndex)
-            const lbl = Number(s.activeLabel)
-            const km =
-              Number.isInteger(i) && data[i] ? data[i].km
-              : Number.isFinite(lbl) ? lbl
-              : null
-            reportHover(km)
-          }}
+          // recharts v3: handlers get MouseHandlerDataParam (no activePayload).
+          // Touch handlers share the same logic so the marker follows the finger.
+          onMouseMove={reportFromState}
           onMouseLeave={() => reportHover(null)}
+          onTouchStart={reportFromState}
+          onTouchMove={reportFromState}
         >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
