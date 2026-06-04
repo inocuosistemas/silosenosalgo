@@ -1371,6 +1371,19 @@ export function RouteMap({
             )
           })}
 
+          {/* Plan / play: weather-colored remaining (ahead) segments. Without
+              this the not-yet-travelled portion would fall back to the grey
+              base line, so dragging the slider back from 100% dropped the mode
+              gradient ahead of the cursor (looked like the whole route turned
+              slate-blue). Keep the gradient; the tip marker shows the position. */}
+          {!liveMode && interactionMode === 'play' && afterSegments.map((seg) => (
+            <Polyline
+              key={`after-${seg.key}`}
+              positions={seg.positions}
+              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
+            />
+          ))}
+
           {/* Tip marker at the leading edge of the painted route */}
           {!liveMode && interactionMode === 'play' && tipPoint && (
             <>
