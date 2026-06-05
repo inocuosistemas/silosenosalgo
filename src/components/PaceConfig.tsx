@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { ActivityType, PaceConfig } from '../lib/timing'
 import { ACTIVITY_LABEL, formatPace } from '../lib/timing'
 import type { GpxTimesValidity } from '../lib/gpxValidity'
@@ -77,7 +77,16 @@ interface Props {
 }
 
 export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, totalDistanceKm = 0, onChange }: Props) {
-  const [paceUnit, setPaceUnit] = useState<'pace' | 'speed'>('pace')
+  // The whole app speaks of bikes in km/h (formatPace, paceUnitLabel…), so the
+  // editable pace unit defaults to km/h for bike and min/km for foot activities.
+  const [paceUnit, setPaceUnit] = useState<'pace' | 'speed'>(
+    config.activity === 'bike' ? 'speed' : 'pace',
+  )
+  // Re-apply that default whenever the activity changes. Runs only on activity
+  // change, so a manual toggle within the same activity is preserved.
+  useEffect(() => {
+    setPaceUnit(config.activity === 'bike' ? 'speed' : 'pace')
+  }, [config.activity])
 
   // GPX-derived paces for the two split buttons.
   const gpxOk = !!(hasGpxTimes && gpxValidity && gpxValidity.issue === 'ok')
