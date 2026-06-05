@@ -55,6 +55,45 @@ function CtrlScrollZoomGate({ onHint }: { onHint: () => void }) {
   return null
 }
 
+/**
+ * Mobile analogue of CtrlScrollZoomGate: gate map panning behind a two-finger
+ * gesture so a one-finger swipe scrolls the *page* instead of dragging the map.
+ *
+ * Implementation note: Leaflet (1.9) has no `touch-action` here — a one-finger
+ * pan is stopped from scrolling the page only because Leaflet's drag handler
+ * calls preventDefault on every single-touch `touchmove`. So we simply disable
+ * one-finger dragging (`map.dragging.disable()`): with it off, Leaflet no
+ * longer preventDefaults, and the browser scrolls the page as usual. Two-finger
+ * gestures are untouched — Leaflet's TouchZoom handler pans *and* zooms from two
+ * touches — so the map stays fully usable. A one-finger drag flashes a hint.
+ *
+ * Limited to coarse-pointer devices (phones/tablets) so mouse-drag panning on
+ * desktop and touch-capable laptops keeps working.
+ */
+function TwoFingerDragGate({ onHint }: { onHint: () => void }) {
+  const map = useMap()
+  useEffect(() => {
+    const coarse =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches
+    if (!coarse) return
+
+    map.dragging.disable()
+
+    const el = map.getContainer()
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) onHint()
+    }
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    return () => {
+      el.removeEventListener('touchmove', onTouchMove)
+      map.dragging.enable()
+    }
+  }, [map, onHint])
+  return null
+}
+
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')
 const ZOOM_MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl'
 
@@ -380,15 +419,17 @@ export function RouteMap({
   // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [zoomHintVisible, setZoomHintVisible] = useState(false)
-  const zoomHintTimerRef = useRef<number | null>(null)
-  const showZoomHint = () => {
-    setZoomHintVisible(true)
-    if (zoomHintTimerRef.current != null) window.clearTimeout(zoomHintTimerRef.current)
-    zoomHintTimerRef.current = window.setTimeout(() => setZoomHintVisible(false), 1400)
+  // Transient overlay hint shared by both interaction gates: 'zoom' = desktop
+  // Ctrl-to-zoom, 'pan' = mobile two-finger-to-move.
+  const [mapHint, setMapHint] = useState<'zoom' | 'pan' | null>(null)
+  const mapHintTimerRef = useRef<number | null>(null)
+  const showMapHint = (kind: 'zoom' | 'pan') => {
+    setMapHint(kind)
+    if (mapHintTimerRef.current != null) window.clearTimeout(mapHintTimerRef.current)
+    mapHintTimerRef.current = window.setTimeout(() => setMapHint(null), 1400)
   }
   useEffect(() => () => {
-    if (zoomHintTimerRef.current != null) window.clearTimeout(zoomHintTimerRef.current)
+    if (mapHintTimerRef.current != null) window.clearTimeout(mapHintTimerRef.current)
   }, [])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -1286,7 +1327,8 @@ export function RouteMap({
           boundsOptions={{ padding: [30, 30] }}
           style={{ height: '100%', width: '100%' }}
         >
-          <CtrlScrollZoomGate onHint={showZoomHint} />
+          <CtrlScrollZoomGate onHint={() => showMapHint('zoom')} />
+          <TwoFingerDragGate onHint={() => showMapHint('pan')} />
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -1782,12 +1824,16 @@ export function RouteMap({
           )}
         </MapContainer>
 
-        {/* ── Ctrl/⌘+scroll zoom hint (transient) ── */}
+        {/* ── Interaction hint (transient): Ctrl-to-zoom / two-finger-to-move ── */}
         <div
-          className={`pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center transition-opacity duration-150 ${zoomHintVisible ? 'opacity-100' : 'opacity-0'}`}
+          className={`pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center transition-opacity duration-150 ${mapHint ? 'opacity-100' : 'opacity-0'}`}
         >
           <div className="bg-slate-900/85 text-slate-100 text-sm font-medium px-4 py-2 rounded-lg border border-slate-700 shadow-lg">
-            Mantén <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs font-mono">{ZOOM_MOD_LABEL}</kbd> para hacer zoom
+            {mapHint === 'pan' ? (
+              <>Usa <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs font-mono">2 dedos</kbd> para mover el mapa</>
+            ) : (
+              <>Mantén <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs font-mono">{ZOOM_MOD_LABEL}</kbd> para hacer zoom</>
+            )}
           </div>
         </div>
 
