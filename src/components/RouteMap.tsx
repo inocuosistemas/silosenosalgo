@@ -1384,9 +1384,13 @@ export function RouteMap({
             />
           )}
 
-          {/* Plan / play: travelled trail (geometry). Shows progress even in
-              Capa 1; the weather-coloured segments draw on top when present. */}
-          {!liveMode && interactionMode === 'play' && playedRoutePositions.length >= 2 && (
+          {/* Plan / play: travelled trail (geometry) — Capa 1 ONLY (no mode
+              segments). When the mode gradient exists, beforeSegments already
+              carry the colour for the travelled portion, and this sky trail must
+              NOT draw: a conditionally-mounted Polyline gets appended on top of
+              the already-mounted segment lines, so it would hide the gradient
+              behind a flat blue line from start to the cursor. */}
+          {!liveMode && interactionMode === 'play' && allSegments.length === 0 && playedRoutePositions.length >= 2 && (
             <Polyline
               positions={playedRoutePositions}
               pathOptions={{ color: '#38bdf8', weight: 5, opacity: 0.95 }}
@@ -1413,16 +1417,16 @@ export function RouteMap({
             )
           })}
 
-          {/* Plan / play: weather-colored remaining (ahead) segments. Without
-              this the not-yet-travelled portion would fall back to the grey
-              base line, so dragging the slider back from 100% dropped the mode
-              gradient ahead of the cursor (looked like the whole route turned
-              slate-blue). Keep the gradient; the tip marker shows the position. */}
+          {/* Plan / play: the not-yet-reached (ahead) portion, drawn in the flat
+              base colour — NOT the mode gradient. The slider is a progress fill:
+              travelled (start→cursor) keeps the mode colouring, and whatever you
+              "un-do" by dragging the slider back reverts to the base slate. The
+              tip marker sits exactly on the boundary between the two. */}
           {!liveMode && interactionMode === 'play' && afterSegments.map((seg) => (
             <Polyline
               key={`after-${seg.key}`}
               positions={seg.positions}
-              pathOptions={{ color: seg.color, weight: 5, opacity: 1 }}
+              pathOptions={{ color: '#475569', weight: 5, opacity: 1 }}
             />
           ))}
 
