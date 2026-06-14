@@ -31,6 +31,8 @@ import { ShareCard } from './components/ShareCard'
 import { CutoffStrategy } from './components/CutoffStrategy'
 import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
+import { LivePoiCarousel } from './components/LivePoiCarousel'
+import type { TrailPoint } from './lib/livePacing'
 import { computeCutoffStrategy } from './lib/cutoffStrategy'
 import type { SegmentPace } from './lib/timing'
 import type { BuddyObservation } from './lib/buddyTracking'
@@ -762,6 +764,24 @@ export default function App() {
     if (elapsedMin <= 0) return null
     return expectedKmAtElapsed(track, elapsedMin, paceConfig)
   }, [appMode, track, startTime, paceConfig, effectiveNow])
+
+  // ── Live breadcrumb trail: {t, km} samples used to reconstruct the *real*
+  // passage time of POIs already left behind (the carousel interpolates it).
+  const [liveTrail, setLiveTrail] = useState<TrailPoint[]>([])
+  useEffect(() => {
+    // Fresh trail per live session / per track (also clears on leaving live).
+    if (appMode !== 'live') setLiveTrail([])
+  }, [appMode, track])
+  useEffect(() => {
+    if (appMode !== 'live' || !livePos.coords) return
+    const km = livePos.trackKm
+    setLiveTrail((prev) => {
+      const last = prev[prev.length - 1]
+      if (last && Math.abs(km - last.km) < 0.05) return prev  // ignore tiny jitter
+      const next = [...prev, { t: effectiveNow, km }]
+      return next.length > 600 ? next.slice(next.length - 600) : next
+    })
+  }, [appMode, livePos.coords, livePos.trackKm, effectiveNow])
 
   // ── Enriched waypoints (plan base) ────────────────────────────────────────
   const enrichedWaypoints = useMemo(
@@ -2303,17 +2323,16 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Live mode: GPS status bar ── */}
+        {/* ── Live mode: compact GPS status strip (always-visible "ahora") ── */}
         {appMode === 'live' && (
-          <div className={`rounded-xl text-sm overflow-hidden ${
+          <div className={`rounded-xl text-sm ${
             livePos.error
               ? 'bg-red-900/30 border border-red-700/50 text-red-400'
               : livePos.isLocating
               ? 'bg-slate-800 border border-slate-700 text-slate-400'
               : 'bg-sky-900/20 border border-sky-800/40 text-sky-300'
           }`}>
-            {/* Row 1: GPS position info */}
-            <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
               {livePos.error ? (
                 <><span>⚠️</span><span>{livePos.error}</span></>
               ) : livePos.isLocating ? (
@@ -2321,34 +2340,30 @@ export default function App() {
                   <span className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full inline-block flex-shrink-0" />
                   <span>Localizando posición GPS…</span>
                 </>
-              ) : isOffTrack ? (
-                <>
-                  <span className="text-amber-400 flex-shrink-0">📡</span>
-                  <span className="text-amber-300 font-medium">
-                    GPS lejos del recorrido
-                  </span>
-                  <span className="text-amber-500 text-xs font-mono">
-                    ({livePos.distanceFromTrackKm.toFixed(1)} km del trayecto)
-                  </span>
-                  <span className="text-amber-300/80 text-xs font-mono">
-                    · punto más cercano: km{' '}
-                    <span className="font-semibold text-amber-200">{livePos.trackKm.toFixed(1)}</span>
-                    {' · '}
-                    quedan <span className="font-semibold text-amber-200">{liveRemainingKm.toFixed(1)} km</span>
-                  </span>
-                </>
               ) : (
                 <>
-                  <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
-                  <span className="font-mono">
-                    Km <span className="font-semibold text-sky-200">{livePos.trackKm.toFixed(1)}</span>
-                    {' · '}
-                    Quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
+                  {isOffTrack ? (
+                    <>
+                      <span className="text-amber-400 flex-shrink-0">📡</span>
+                      <span className="font-mono text-amber-200">
+                        ~km <span className="font-semibold">{livePos.trackKm.toFixed(1)}</span>
+                        <span className="text-amber-400/80"> ({livePos.distanceFromTrackKm.toFixed(1)} km fuera)</span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2.5 h-2.5 bg-sky-400 rounded-full animate-pulse flex-shrink-0" />
+                      <span className="font-mono">
+                        Km <span className="font-semibold text-sky-200">{livePos.trackKm.toFixed(1)}</span>
+                      </span>
+                    </>
+                  )}
+                  <span className="font-mono text-slate-400">
+                    quedan <span className="font-semibold text-sky-200">{liveRemainingKm.toFixed(1)} km</span>
                   </span>
                   {liveEta && (
-                    <span className="text-slate-400 text-xs">
-                      Llegada estimada:{' '}
-                      <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
+                    <span className="text-xs text-slate-400">
+                      meta <span className="text-sky-300 font-semibold">{formatTime(liveEta)}</span>
                     </span>
                   )}
                   {paceDelta !== null && (
@@ -2365,62 +2380,72 @@ export default function App() {
                       {formatDelta(paceDelta)}
                     </span>
                   )}
+                  {!isOffTrack && realPaceMinPerKm !== null && (
+                    <span className="text-xs text-slate-400">
+                      ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm, paceConfig.activity)}</span>
+                    </span>
+                  )}
+                  {/* Inline start-time editor */}
+                  {liveEditingStart ? (
+                    <input
+                      type="time"
+                      defaultValue={`${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`}
+                      autoFocus
+                      onBlur={(e) => {
+                        const [h, m] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(m)) {
+                          const d = new Date(startTime)
+                          d.setHours(h, m, 0, 0)
+                          setStartTime(d)
+                        }
+                        setLiveEditingStart(false)
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                      className="bg-slate-800 border border-sky-500 rounded px-2 py-0.5 text-xs font-mono text-sky-200 w-24 focus:outline-none"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setLiveEditingStart(true)}
+                      className="text-xs text-slate-400 hover:text-sky-300 transition-colors flex items-center gap-1"
+                      title="Editar hora de salida real"
+                    >
+                      🕘 <span className="font-mono">{formatTime(startTime)}</span>
+                      <span className="text-slate-600 text-[10px]">✎</span>
+                    </button>
+                  )}
+                  {startTime.getTime() > Date.now() && (
+                    <span className="text-xs text-amber-400">← ajusta si ya saliste</span>
+                  )}
+                  <WeatherFreshnessChip
+                    fetchedAt={weatherFetchedAt}
+                    onRefresh={handleRefreshWeather}
+                    refreshing={refreshingWeather}
+                    etaDriftMin={weatherEtaDriftMin}
+                    className="ml-auto"
+                  />
                 </>
               )}
             </div>
-
-            {/* Row 2: startTime editor + real pace + freshness chip */}
-            {!livePos.error && (
-              <div className="flex flex-wrap items-center gap-3 px-5 pb-3 pt-1 border-t border-sky-900/40">
-                {/* Inline start-time editor */}
-                {liveEditingStart ? (
-                  <input
-                    type="time"
-                    defaultValue={`${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`}
-                    autoFocus
-                    onBlur={(e) => {
-                      const [h, m] = e.target.value.split(':').map(Number)
-                      if (!isNaN(h) && !isNaN(m)) {
-                        const d = new Date(startTime)
-                        d.setHours(h, m, 0, 0)
-                        setStartTime(d)
-                      }
-                      setLiveEditingStart(false)
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                    className="bg-slate-800 border border-sky-500 rounded px-2 py-0.5 text-xs font-mono text-sky-200 w-24 focus:outline-none"
-                  />
-                ) : (
-                  <button
-                    onClick={() => setLiveEditingStart(true)}
-                    className="text-xs text-slate-400 hover:text-sky-300 transition-colors flex items-center gap-1"
-                    title="Editar hora de salida real"
-                  >
-                    🕘 <span className="font-mono">{formatTime(startTime)}</span>
-                    <span className="text-slate-600 text-[10px]">✎</span>
-                  </button>
-                )}
-                {/* Hint when startTime looks wrong */}
-                {startTime.getTime() > Date.now() && (
-                  <span className="text-xs text-amber-400">← ajusta si ya saliste</span>
-                )}
-                {/* Real average pace — hidden when GPS is off-route (pace would be meaningless) */}
-                {!isOffTrack && realPaceMinPerKm !== null && (
-                  <span className="text-xs text-slate-400">
-                    ⚡ <span className="font-mono text-sky-300">{formatPace(realPaceMinPerKm, paceConfig.activity)}</span>
-                  </span>
-                )}
-                {/* Weather freshness */}
-                <WeatherFreshnessChip
-                  fetchedAt={weatherFetchedAt}
-                  onRefresh={handleRefreshWeather}
-                  refreshing={refreshingWeather}
-                  etaDriftMin={weatherEtaDriftMin}
-                  className="ml-auto"
-                />
-              </div>
-            )}
           </div>
+        )}
+
+        {/* ── Live mode: POI carousel (hero) ── */}
+        {appMode === 'live' && track && !livePos.error && (
+          <LivePoiCarousel
+            track={track}
+            namedWaypoints={enrichedNamedWaypoints}
+            sampledWaypoints={enrichedWaypoints}
+            currentKm={livePos.trackKm}
+            currentPaceMinPerKm={realPaceMinPerKm ?? paceConfig.paceMinPerKm}
+            nowMs={effectiveNow}
+            startTime={startTime}
+            pauses={pauses}
+            paceConfig={paceConfig}
+            strategyMarginMin={strategyMargin}
+            strategySegments={cutoffStrategy?.segments ?? []}
+            trail={liveTrail}
+            finishTime={liveEta}
+          />
         )}
 
         {/* ── Background enrichment banner (non-blocking) ── */}
