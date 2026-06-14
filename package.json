@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && node scripts/deploy.mjs"
+    "deploy": "npm run build && node scripts/deploy.mjs",
+    "deploy:cf": "node scripts/deploy-all.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241106.0",
