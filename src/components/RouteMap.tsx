@@ -1557,8 +1557,18 @@ export function RouteMap({
               }
               return true
             })
-            .map((wpt, i) => (
-              <Marker key={`nwp-${i}`} position={[wpt.lat, wpt.lon]} icon={FLAG_ICON}>
+            .map((wpt, i) => {
+              // Pin the flag to the POI's position ON THE TRACK (its distanceKm),
+              // not the raw <wpt> lat/lon. When a GPX carries a persisted
+              // distanceKm — or its coords snapped to the wrong pass of a route
+              // that overlaps itself — the raw coords sit at a different km than
+              // the value the rest of the app uses (table, cut-offs, carousel,
+              // popup). nearestTrackIndex is kept consistent with distanceKm by
+              // the parser, so this keeps the flag where the app says the POI is.
+              const snap = track.points[Math.min(Math.max(0, wpt.nearestTrackIndex), track.points.length - 1)]
+              const flagPos: [number, number] = snap ? [snap.lat, snap.lon] : [wpt.lat, wpt.lon]
+              return (
+              <Marker key={`nwp-${i}`} position={flagPos} icon={FLAG_ICON}>
                 <Popup>
                   <div style={{ minWidth: 160, lineHeight: 1.6 }}>
                     <p style={{ fontWeight: 700, marginBottom: 2 }}>🚩 {wpt.name}</p>
@@ -1600,7 +1610,8 @@ export function RouteMap({
                   </div>
                 </Popup>
               </Marker>
-            ))}
+              )
+            })}
 
           {/* Expected position dot */}
           {liveMode && expectedCoords && (
