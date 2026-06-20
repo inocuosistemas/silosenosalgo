@@ -189,14 +189,82 @@ const FLAG_ICON = L.divIcon({
   popupAnchor: [0, -20],
 })
 
-// ── Sub-component: auto-centers the map on live GPS position ─────────────────
-function MapCentering({ coords }: { coords: { lat: number; lon: number } | null }) {
+// Pause auto-follow this long after the user pans/zooms, so they can study
+// another part of the map without the view snapping back to the GPS dot.
+const FOLLOW_GRACE_MS = 20_000
+
+// ── Sub-component: auto-centers the map on live GPS position, but yields to the
+// user. Panning/zooming pauses the follow (re-armed on each interaction); it
+// resumes and re-centers after FOLLOW_GRACE_MS of quiet, or immediately when the
+// "volver a mi posición" button bumps `recenterNonce`. Reports follow state up
+// so the parent can show that button.
+function MapCentering({ coords, recenterNonce, onFollowingChange }: {
+  coords: { lat: number; lon: number } | null
+  recenterNonce: number
+  onFollowingChange: (following: boolean) => void
+}) {
   const map = useMap()
+  const pausedRef = useRef(false)
+  const coordsRef = useRef(coords)
+  const timerRef = useRef<number | null>(null)
+  coordsRef.current = coords
+
+  const setPaused = (p: boolean) => {
+    if (pausedRef.current === p) return
+    pausedRef.current = p
+    onFollowingChange(!p)
+  }
+  const recenter = () => {
+    if (timerRef.current != null) { window.clearTimeout(timerRef.current); timerRef.current = null }
+    setPaused(false)
+    const c = coordsRef.current
+    if (c) map.panTo([c.lat, c.lon], { animate: true, duration: 0.8 })
+  }
+
+  // Reset to "following" whenever this controller (re)mounts.
+  useEffect(() => { onFollowingChange(true) }, [onFollowingChange])
+
+  // Follow the GPS dot, unless the user is currently studying the map.
   useEffect(() => {
-    if (coords) {
+    if (coords && !pausedRef.current) {
       map.panTo([coords.lat, coords.lon], { animate: true, duration: 1 })
     }
   }, [coords, map])
+
+  // User pan/zoom → pause; resume after a quiet grace period.
+  useEffect(() => {
+    const armResume = () => {
+      if (timerRef.current != null) window.clearTimeout(timerRef.current)
+      timerRef.current = window.setTimeout(recenter, FOLLOW_GRACE_MS)
+    }
+    const onStart = () => {
+      setPaused(true)
+      if (timerRef.current != null) { window.clearTimeout(timerRef.current); timerRef.current = null }
+    }
+    map.on('dragstart', onStart)
+    map.on('zoomstart', onStart)
+    map.on('dragend', armResume)
+    map.on('zoomend', armResume)
+    return () => {
+      map.off('dragstart', onStart)
+      map.off('zoomstart', onStart)
+      map.off('dragend', armResume)
+      map.off('zoomend', armResume)
+      if (timerRef.current != null) window.clearTimeout(timerRef.current)
+    }
+    // refs keep the handlers current; only `map` needs to re-bind.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map])
+
+  // Explicit recenter from the button.
+  const seenNonce = useRef(recenterNonce)
+  useEffect(() => {
+    if (recenterNonce === seenNonce.current) return
+    seenNonce.current = recenterNonce
+    recenter()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenterNonce])
+
   return null
 }
 
@@ -352,6 +420,9 @@ export function RouteMap({
   // ── Play-mode state ───────────────────────────────────────────────────────
   const [progress, setProgress] = useState(1)
   const [isPlaying, setIsPlaying] = useState(false)
+  // Live-mode follow state: false while the user is studying the map (paused).
+  const [followingLive, setFollowingLive] = useState(true)
+  const [recenterNonce, setRecenterNonce] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Derived from controlled prop: null = play mode, object = analyze mode
@@ -1284,7 +1355,13 @@ export function RouteMap({
             />
           )}
 
-          {liveMode && followPosition && <MapCentering coords={liveCoords} />}
+          {liveMode && followPosition && (
+            <MapCentering
+              coords={liveCoords}
+              recenterNonce={recenterNonce}
+              onFollowingChange={setFollowingLive}
+            />
+          )}
           {onPickPosition && <MapClickPicker onPick={onPickPosition} />}
 
           {/* Dark shadow */}
@@ -1766,6 +1843,17 @@ export function RouteMap({
             </>
           )}
         </MapContainer>
+
+        {/* ── Recenter button (live mode): shown only while the user has panned
+             away from the GPS dot; taps re-center immediately. ── */}
+        {liveMode && followPosition && !followingLive && (
+          <button
+            onClick={() => { setFollowingLive(true); setRecenterNonce((n) => n + 1) }}
+            className="absolute z-[1000] top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-600/95 hover:bg-sky-500 text-white text-xs font-medium shadow-lg border border-sky-400/40 backdrop-blur-sm transition-colors"
+          >
+            📍 Volver a mi posición
+          </button>
+        )}
 
         {/* ── Rain radar player (overlay, only when radar active) ── */}
         {radarActive && radarFrames.length > 0 && (

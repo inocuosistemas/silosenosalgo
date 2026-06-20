@@ -27,7 +27,7 @@ function marginText(min: number): string {
   return `${sign}${Math.floor(abs / 60)}h ${(abs % 60).toString().padStart(2, '0')}`
 }
 
-/** Cutoff margin → colour: <0 red, 0–20 amber, ≥20 green (same as CutoffSummary). */
+/** Cutoff margin → colour: <0 red, 0–20 amber, ≥20 green. */
 function cutoffTone(min: number | null): Tone {
   if (min == null) return { text: 'text-slate-300', bg: 'bg-slate-800/50', ring: 'border-slate-700' }
   if (min < 0) return { text: 'text-red-300', bg: 'bg-red-900/30', ring: 'border-red-700/50' }

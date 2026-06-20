@@ -179,7 +179,7 @@ export function parsePoiPaste(text: string): PasteResult {
     if (pauseRaw.length > 0) {
       const p = parseFloat(pauseRaw.replace(',', '.'))
       if (!Number.isFinite(p) || p < 0) {
-        errors.push({ lineNo, line: raw, reason: `pausa no válida: "${pauseRaw}" (usa minutos, p. ej. 30)` })
+        errors.push({ lineNo, line: raw, reason: `parada no válida: "${pauseRaw}" (usa minutos, p. ej. 30)` })
         continue
       }
       if (p > 0) pauseMin = p
@@ -293,7 +293,7 @@ export function formatPoisAsText(
   pois:       { distanceKm: number; name: string; desc?: string; pauseMin?: number }[],
   cutoffByKm: Map<number, CutoffWallClock>,
 ): string {
-  const lines: string[] = ['# km | nombre | descripción | corte (HH:MM, día auto) | pausa (min)']
+  const lines: string[] = ['# km | nombre | descripción | corte (HH:MM, día auto) | parada (min)']
   const sorted = [...pois].sort((a, b) => a.distanceKm - b.distanceKm)
   for (const p of sorted) {
     const wc = cutoffByKm.get(p.distanceKm)

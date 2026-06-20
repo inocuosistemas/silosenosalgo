@@ -746,7 +746,7 @@ function TableSection({
                       <Text style={{ fontSize: 6, color: C.faint }}>{formatDuration(elapsed)}</Text>
                       {wpt.pauseMin && wpt.pauseMin > 0 && (
                         <Text style={{ fontSize: 6, color: '#be185d', fontFamily: 'Helvetica-Bold' }}>
-                          +{wpt.pauseMin}m pausa
+                          +{wpt.pauseMin}m parada
                         </Text>
                       )}
                     </>

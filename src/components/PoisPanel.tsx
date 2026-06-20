@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { GpxTrack } from '../lib/gpx'
+import type { GpxNamedWaypoint, GpxTrack } from '../lib/gpx'
 import {
   parsePoiPaste,
   validateRows,
@@ -9,6 +9,14 @@ import {
   type ValidatedRow,
 } from '../lib/customPois'
 import { formatTime } from '../lib/timing'
+import type { CutoffWallClock } from '../lib/cutoffInference'
+
+export interface PoiUpdateDraft {
+  distanceKm: number
+  name: string
+  desc: string
+  cutoff: CutoffWallClock | null
+}
 
 interface Props {
   track:        GpxTrack
@@ -20,9 +28,11 @@ interface Props {
    * and triggering re-render.
    */
   onAddPois:    (pois: MaterialisedPoi[]) => void
+  /** Update an existing POI. Changing km moves it onto the track at that km. */
+  onUpdatePoi:  (lat: number, lon: number, draft: PoiUpdateDraft) => void
   /**
-   * Remove a single user-added POI by its lat/lon (matched exactly).
-   * GPX-originated POIs cannot be removed via this hook.
+   * Remove a single POI by its lat/lon (matched by stable rounded key).
+   * Original GPX POIs are confirmed in the panel before calling this hook.
    */
   onRemovePoi:  (lat: number, lon: number) => void
   /** Remove ALL user-added POIs at once. Confirmed at the call site. */
@@ -40,6 +50,22 @@ interface Props {
 }
 
 const wptKey = (lat: number, lon: number) => `${lat.toFixed(6)},${lon.toFixed(6)}`
+
+function parseCutoffInput(value: string): CutoffWallClock | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const m = /^(\d{1,2}):(\d{2})$/.exec(trimmed)
+  if (!m) return null
+  const hour = Number(m[1])
+  const minute = Number(m[2])
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+  return { hour, minute }
+}
+
+function cutoffInputValue(cutoff: Date | undefined): string {
+  if (!cutoff) return ''
+  return `${cutoff.getHours().toString().padStart(2, '0')}:${cutoff.getMinutes().toString().padStart(2, '0')}`
+}
 
 // ── Tiny inline SVG icons (same style as BuddyTracker) ────────────────────────
 function PasteIcon() {
@@ -116,14 +142,14 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <section>
             <h4 className="text-slate-100 font-semibold mb-1.5">Formato por línea</h4>
             <pre className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-200 overflow-x-auto">
-{`km | nombre | descripción | corte | pausa`}
+{`km | nombre | descripción | corte | parada`}
             </pre>
             <ul className="mt-2 space-y-1 text-xs text-slate-400 list-disc pl-5">
               <li><code className="text-slate-200">km</code> — punto kilométrico, decimal con punto o coma (<code className="text-slate-200">15.5</code> o <code className="text-slate-200">15,5</code>)</li>
               <li><code className="text-slate-200">nombre</code> — obligatorio, cualquier texto</li>
               <li><code className="text-slate-200">descripción</code> — opcional, deja vacío entre los pipes si no aplica</li>
               <li><code className="text-slate-200">corte</code> — opcional, formato <code className="text-slate-200">HH:MM</code> únicamente. <strong className="text-slate-200">El día se calcula automáticamente</strong> (ver siguiente sección)</li>
-              <li><code className="text-slate-200">pausa</code> — opcional, minutos de parada prevista en este punto (p. ej. <code className="text-slate-200">30</code> para una parada de 30 min). Desplaza las horas de paso posteriores y reduce el tiempo de movimiento disponible en su tramo.</li>
+              <li><code className="text-slate-200">parada</code> — opcional, minutos previstos parado en este punto. Se puede ajustar después en Plan de paso.</li>
             </ul>
           </section>
 
@@ -131,7 +157,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <h4 className="text-slate-100 font-semibold mb-1.5">Ejemplo</h4>
             <pre className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-300 overflow-x-auto leading-relaxed">
 {`# Cabecera y comentarios opcionales
-km | nombre        | descripción            | corte | pausa
+km | nombre        | descripción            | corte | parada
 15.5 | Refugio       | Avituallamiento        | 14:30 | 30
 22.0 | Cima del Pico | Vista panorámica       |       |
 30.5 | Meta          |                        | 03:00 |`}
@@ -222,6 +248,7 @@ export function PoisPanel({
   startTime,
   cutoffTimes,
   onAddPois,
+  onUpdatePoi,
   onRemovePoi,
   onClearCustom,
   onDownload,
@@ -231,6 +258,13 @@ export function PoisPanel({
   const [open,        setOpen]        = useState(false)
   const [helpOpen,    setHelpOpen]    = useState(false)
   const [pasteText,   setPasteText]   = useState('')
+  const [editingKey,  setEditingKey]  = useState<string | null>(null)
+  const [editDraft,   setEditDraft]   = useState<{
+    km: string
+    name: string
+    desc: string
+    cutoff: string
+  } | null>(null)
   const [preview,     setPreview]     = useState<{
     valid:      ValidatedRow[]
     invalid:    { lineNo: number; line: string; reason: string }[]
@@ -252,6 +286,59 @@ export function PoisPanel({
   }, [])
 
   const customPois = track.namedWaypoints.filter((w) => w.custom)
+
+  const startEdit = (w: GpxNamedWaypoint) => {
+    const cutoff = cutoffTimes.get(wptKey(w.lat, w.lon))
+    setEditingKey(wptKey(w.lat, w.lon))
+    setEditDraft({
+      km: w.distanceKm.toFixed(2),
+      name: w.name,
+      desc: w.desc ?? '',
+      cutoff: cutoffInputValue(cutoff),
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingKey(null)
+    setEditDraft(null)
+  }
+
+  const saveEdit = (w: GpxNamedWaypoint) => {
+    if (!editDraft) return
+    const km = Number(editDraft.km.replace(',', '.'))
+    if (!Number.isFinite(km) || km < 0 || km > track.totalDistanceKm) {
+      setTransientStatus(`Km no válido: usa un valor entre 0 y ${track.totalDistanceKm.toFixed(1)}`)
+      return
+    }
+    const name = editDraft.name.trim()
+    if (!name) {
+      setTransientStatus('El nombre del POI no puede estar vacío')
+      return
+    }
+    const cutoff = parseCutoffInput(editDraft.cutoff)
+    if (editDraft.cutoff.trim() && !cutoff) {
+      setTransientStatus('Corte no válido: usa HH:MM')
+      return
+    }
+    onUpdatePoi(w.lat, w.lon, {
+      distanceKm: km,
+      name,
+      desc: editDraft.desc,
+      cutoff,
+    })
+    setTransientStatus('✓ POI actualizado')
+    cancelEdit()
+  }
+
+  const handleRemoveOne = (w: GpxNamedWaypoint) => {
+    const msg = w.custom
+      ? `¿Eliminar el POI "${w.name}"?`
+      : `¿Eliminar el POI original "${w.name}" de esta planificación? Si quieres conservar el cambio, descarga el GPX modificado.`
+    if (!confirm(msg)) return
+    onRemovePoi(w.lat, w.lon)
+    if (editingKey === wptKey(w.lat, w.lon)) cancelEdit()
+    setTransientStatus('POI eliminado')
+  }
 
   const handleAnalyse = () => {
     if (!pasteText.trim()) {
@@ -485,7 +572,7 @@ export function PoisPanel({
                         <th className="text-left py-1.5 pr-3">Nombre</th>
                         <th className="text-left py-1.5 pr-3">Descripción</th>
                         <th className="text-left py-1.5 pr-3">Corte</th>
-                        <th className="text-left py-1.5 pr-3">Pausa</th>
+                        <th className="text-left py-1.5 pr-3">Parada</th>
                         <th className="text-left py-1.5"></th>
                       </tr>
                     </thead>
@@ -570,40 +657,123 @@ export function PoisPanel({
                   </button>
                 )}
               </div>
-              <div className="max-h-60 overflow-y-auto pr-1">
+              <div className="max-h-72 overflow-y-auto scrollbar-slim pr-2">
                 <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-900 text-slate-500">
+                    <tr className="border-b border-slate-800/80">
+                      <th className="py-1.5 pr-2 text-right font-medium w-16">Km</th>
+                      <th className="py-1.5 pr-2 text-left font-medium">Nombre</th>
+                      <th className="py-1.5 pr-2 text-left font-medium">Descripción</th>
+                      <th className="py-1.5 pr-2 text-left font-medium w-24">Corte oficial</th>
+                      <th className="py-1.5 text-right font-medium w-24">Acciones</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {[...track.namedWaypoints]
                       .sort((a, b) => a.distanceKm - b.distanceKm)
                       .map((w) => {
                         const cutoff = cutoffTimes.get(wptKey(w.lat, w.lon))
+                        const key = wptKey(w.lat, w.lon)
+                        const editing = editingKey === key && editDraft !== null
                         return (
                           <tr key={`${w.lat},${w.lon},${w.name}`} className="border-t border-slate-800/40">
-                            <td className="py-1.5 pr-2 font-mono text-slate-400 w-12">{w.distanceKm.toFixed(1)}</td>
-                            <td className="py-1.5 pr-2">
-                              <span className="text-slate-200">{w.name}</span>
-                              {w.custom && (
-                                <span className="ml-1.5 text-[10px] bg-purple-900/40 border border-purple-700/50 text-purple-300 px-1.5 py-0.5 rounded">
-                                  personalizado
-                                </span>
+                            <td className="py-1.5 pr-2 font-mono text-slate-400 text-right align-top">
+                              {editing ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={track.totalDistanceKm}
+                                  step={0.1}
+                                  value={editDraft.km}
+                                  onChange={(e) => setEditDraft({ ...editDraft, km: e.target.value })}
+                                  className="w-16 bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-right text-slate-200 focus:outline-none focus:border-sky-600"
+                                />
+                              ) : (
+                                w.distanceKm.toFixed(1)
                               )}
                             </td>
-                            <td className="py-1.5 pr-2 text-slate-500 truncate max-w-[12rem]">{w.desc ?? ''}</td>
-                            <td className="py-1.5 pr-2 font-mono text-amber-300">
-                              {cutoff ? formatTime(cutoff) : ''}
+                            <td className="py-1.5 pr-2 align-top">
+                              {editing ? (
+                                <input
+                                  type="text"
+                                  value={editDraft.name}
+                                  onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                                  className="w-full min-w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-sky-600"
+                                />
+                              ) : (
+                                <>
+                                  <span className="text-slate-200">{w.name}</span>
+                                  {w.custom && (
+                                    <span className="ml-1.5 text-[10px] bg-purple-900/40 border border-purple-700/50 text-purple-300 px-1.5 py-0.5 rounded">
+                                      personalizado
+                                    </span>
+                                  )}
+                                </>
+                              )}
                             </td>
-                            <td className="py-1.5 pr-2 font-mono text-rose-300" title="Pausa prevista">
-                              {w.pauseMin && w.pauseMin > 0 ? `⏸ ${w.pauseMin}m` : ''}
+                            <td className="py-1.5 pr-2 align-top">
+                              {editing ? (
+                                <input
+                                  type="text"
+                                  value={editDraft.desc}
+                                  onChange={(e) => setEditDraft({ ...editDraft, desc: e.target.value })}
+                                  className="w-full min-w-40 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-sky-600"
+                                />
+                              ) : (
+                                <span className="block text-slate-500 truncate max-w-[18rem]" title={w.desc ?? ''}>{w.desc ?? ''}</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 pr-2 font-mono text-amber-300 align-top">
+                              {editing ? (
+                                <input
+                                  type="time"
+                                  value={editDraft.cutoff}
+                                  onChange={(e) => setEditDraft({ ...editDraft, cutoff: e.target.value })}
+                                  className="w-24 bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-amber-200 focus:outline-none focus:border-amber-500 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-60"
+                                />
+                              ) : (
+                                cutoff ? formatTime(cutoff) : ''
+                              )}
                             </td>
                             <td className="py-1.5 text-right">
-                              {w.custom && (
-                                <button
-                                  onClick={() => onRemovePoi(w.lat, w.lon)}
-                                  className="text-slate-500 hover:text-red-400 transition-colors text-xs px-1.5 py-0.5 rounded"
-                                  title="Eliminar este POI"
-                                >
-                                  ×
-                                </button>
+                              {editing ? (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => saveEdit(w)}
+                                    className="text-emerald-300 hover:text-emerald-200 transition-colors text-xs px-1.5 py-0.5 rounded"
+                                    title="Guardar cambios"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEdit}
+                                    className="text-slate-500 hover:text-slate-300 transition-colors text-xs px-1.5 py-0.5 rounded"
+                                    title="Cancelar"
+                                  >
+                                    ↩
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(w)}
+                                    className="text-sky-400 hover:text-sky-300 transition-colors text-xs px-1.5 py-0.5 rounded"
+                                    title="Editar POI"
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveOne(w)}
+                                    className="text-slate-500 hover:text-red-400 transition-colors text-xs px-1.5 py-0.5 rounded"
+                                    title="Eliminar POI"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>

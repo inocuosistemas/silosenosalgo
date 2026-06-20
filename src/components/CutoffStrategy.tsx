@@ -127,12 +127,12 @@ function SegmentRow({
       <td className="px-3 py-2.5 text-right font-mono text-orange-400 text-xs">
         +{Math.round(seg.elevGainM)}m
       </td>
-      {/* Tiempo disponible (con anotación de pausa si la hay) */}
+      {/* Tiempo disponible (con anotación de parada si la hay) */}
       <td className={`px-3 py-2.5 text-right font-mono text-xs ${seg.availableMin < 0 ? 'text-red-400' : 'text-slate-300'}`}>
         {fmtMin(seg.availableMin)}
         {seg.pauseMin > 0 && (
-          <div className="text-rose-300 text-[10px] font-normal mt-0.5" title={`Incluye ${seg.pauseMin} min de pausa prevista que reducen el tiempo de movimiento`}>
-            −{seg.pauseMin}m pausa
+          <div className="text-rose-300 text-[10px] font-normal mt-0.5" title={`Incluye ${seg.pauseMin} min de parada prevista que reducen el tiempo de movimiento`}>
+            −{seg.pauseMin}m parada
           </div>
         )}
       </td>
@@ -285,7 +285,7 @@ export function CutoffStrategy({
                   <th className="px-3 py-2 text-right">D+</th>
                   <th
                     className="px-3 py-2 text-right cursor-help"
-                    title="Tiempo del que dispones para cubrir este tramo respetando tu hora objetivo (o, si la dejas vacía, el corte menos el margen de seguridad global). Si dentro del tramo hay POIs con pausa prevista, se descuentan del tiempo de movimiento — el ritmo necesario se calcula sobre el tiempo neto."
+                    title="Tiempo del que dispones para cubrir este tramo respetando tu hora objetivo (o, si la dejas vacía, el corte menos el margen de seguridad global). Si dentro del tramo hay paradas previstas, se descuentan del tiempo de movimiento — el ritmo necesario se calcula sobre el tiempo neto."
                   >
                     Tiempo disp.
                   </th>

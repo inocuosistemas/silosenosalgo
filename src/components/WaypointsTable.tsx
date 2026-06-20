@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import { weatherLabel, windImpact, windImpactStyle, windDirectionLabel } from '../lib/weather'
 import type { WeatherData } from '../lib/weather'
@@ -12,12 +12,6 @@ interface Props {
   namedWaypoints?: EnrichedNamedWaypoint[]
   startTime: Date
   onSetCutoff?: (lat: number, lon: number, time: Date | null) => void
-  /**
-   * Set or clear (null / 0) the planned pause minutes at a POI. When provided,
-   * a small ⏸ input appears in each named-POI row so the user can plan stops
-   * inline without re-pasting the POI list.
-   */
-  onSetPause?: (lat: number, lon: number, minutes: number | null) => void
   /** Geographic anchor for sun-position calculation (typically the route's midpoint). */
   daylightAnchor?: { lat: number; lon: number }
 }
@@ -31,94 +25,6 @@ const BAND_TITLE: Record<DaylightBand, string> = {
   day:   'Día — luz natural plena',
   civil: 'Crepúsculo civil — luz tenue',
   night: 'Noche — luz artificial necesaria',
-}
-
-/**
- * Inline editor for planned pause at a POI. Collapsed by default to keep
- * visual noise low; expands to a number input when the user clicks "+pausa".
- * When a pause is already set, the chip shows the value with an ✕ to clear.
- */
-function PauseEditor({
-  pauseMin,
-  onChange,
-}: {
-  pauseMin?: number
-  onChange: (minutes: number | null) => void
-}) {
-  const hasPause = pauseMin != null && pauseMin > 0
-  const [editing, setEditing] = useState(false)
-  const inputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
-    }
-  }, [editing])
-
-  if (!editing && !hasPause) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="text-rose-300/50 hover:text-rose-300 text-[10px] mt-0.5 transition-colors"
-        title="Añadir pausa prevista en este POI"
-      >
-        + pausa
-      </button>
-    )
-  }
-
-  if (!editing && hasPause) {
-    return (
-      <div className="flex items-center justify-center gap-1 mt-0.5">
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="text-rose-300 hover:text-rose-200 text-[10px] font-medium transition-colors"
-          title="Editar pausa prevista"
-        >
-          ⏸ {pauseMin}m
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="text-rose-400/60 hover:text-red-400 text-[10px] leading-none px-0.5"
-          title="Quitar pausa"
-        >
-          ✕
-        </button>
-      </div>
-    )
-  }
-
-  // editing
-  return (
-    <div className="flex items-center justify-center gap-1 mt-0.5">
-      <span className="text-rose-300 text-[10px]">⏸</span>
-      <input
-        ref={inputRef}
-        type="number"
-        min={0}
-        step={5}
-        placeholder="min"
-        defaultValue={hasPause ? String(pauseMin) : ''}
-        onBlur={(e) => {
-          setEditing(false)
-          const v = e.target.value.trim()
-          if (v === '') { onChange(null); return }
-          const n = parseFloat(v)
-          onChange(Number.isFinite(n) && n > 0 ? n : null)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          if (e.key === 'Escape') { (e.target as HTMLInputElement).value = hasPause ? String(pauseMin) : ''; setEditing(false) }
-        }}
-        className="w-14 bg-slate-700 border border-rose-600/60 rounded px-1 py-0.5 text-[10px] font-mono text-rose-200 text-right focus:outline-none focus:border-rose-400"
-      />
-      <span className="text-rose-300/70 text-[10px] font-normal">min</span>
-    </div>
-  )
 }
 
 function DaylightIcon({ time, anchor }: { time: Date | null; anchor?: { lat: number; lon: number } }) {
@@ -256,7 +162,7 @@ function CutoffBadge({ min }: { min: number }) {
   )
 }
 
-export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, onSetPause, daylightAnchor }: Props) {
+export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, daylightAnchor }: Props) {
   if (waypoints.length === 0) return null
 
   const last = waypoints[waypoints.length - 1]
@@ -270,6 +176,15 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
   const hasLocation = waypoints.some((w) => w.location !== null)
   const hasCutoffCol = namedWaypoints.length > 0
   const hasNameCol   = hasLocation || namedWaypoints.length > 0
+
+  const columnWidths = useMemo(() => {
+    const weights = [5, 8, 6, 7, 11]
+    if (hasCutoffCol) weights.push(14)
+    if (hasWeather) weights.push(6, 8, 9, 12)
+    if (hasNameCol) weights.push(18)
+    const total = weights.reduce((sum, w) => sum + w, 0)
+    return weights.map((w) => `${(w / total) * 100}%`)
+  }, [hasCutoffCol, hasWeather, hasNameCol])
 
   // Merge computed waypoints + GPX named waypoints, sorted by km
   const rows = useMemo<TableRow[]>(() => {
@@ -309,27 +224,32 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
       </div>
 
       <div className="overflow-x-auto scrollbar-slim rounded-xl border border-slate-700">
-        <table className="w-full text-sm whitespace-nowrap">
+        <table className="w-full min-w-[880px] lg:min-w-0 lg:table-fixed text-sm">
+          <colgroup>
+            {columnWidths.map((width, i) => (
+              <col key={i} style={{ width }} />
+            ))}
+          </colgroup>
           <thead>
             <tr className="bg-slate-800 text-slate-400 text-xs uppercase tracking-wide">
-              <th className="px-3 py-3 text-right">Km</th>
-              <th className="px-3 py-3 text-right">D+/D-</th>
-              <th className="px-3 py-3 text-right">Alt</th>
-              <th className="px-3 py-3 text-right">Pend.</th>
-              <th className="px-3 py-3 text-center">Hora</th>
+              <th className="px-3 py-3 text-right whitespace-nowrap">Km</th>
+              <th className="px-3 py-3 text-right whitespace-nowrap">D+/D-</th>
+              <th className="px-3 py-3 text-right whitespace-nowrap">Alt</th>
+              <th className="px-3 py-3 text-right whitespace-nowrap">Pend.</th>
+              <th className="px-3 py-3 text-center whitespace-nowrap">Hora</th>
               {hasCutoffCol && (
-                <th className="px-3 py-3 text-left">Corte</th>
+                <th className="px-3 py-3 text-left whitespace-nowrap">Corte</th>
               )}
               {hasWeather && (
                 <>
-                  <th className="px-3 py-3 text-center">Tiempo</th>
-                  <th className="px-3 py-3 text-right">Tª</th>
-                  <th className="px-3 py-3 text-right">Lluvia</th>
-                  <th className="px-3 py-3 text-right">Viento</th>
+                  <th className="px-3 py-3 text-center whitespace-nowrap">Tiempo</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">Tª</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">Lluvia</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">Viento</th>
                 </>
               )}
               {hasNameCol && (
-                <th className="px-3 py-3 text-left">
+                <th className="px-3 py-3 text-left whitespace-normal">
                   {hasLocation ? 'Población / Comarca' : 'Nombre'}
                 </th>
               )}
@@ -353,19 +273,19 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     style={{ borderLeft: '3px solid #d97706' }}
                   >
                     {/* Km */}
-                    <td className="px-3 py-2.5 text-right font-mono text-amber-300">
+                    <td className="px-3 py-2.5 text-right font-mono text-amber-300 whitespace-nowrap">
                       {wpt.distanceKm.toFixed(1)}
                     </td>
                     {/* D+/D- */}
-                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
+                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs whitespace-nowrap">—</td>
                     {/* Alt */}
-                    <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                    <td className="px-3 py-2.5 text-right font-mono text-slate-300 whitespace-nowrap">
                       {wpt.ele != null ? `${Math.round(wpt.ele)}m` : '—'}
                     </td>
                     {/* Pend. */}
-                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs">—</td>
-                    {/* Hora + editor de pausa */}
-                    <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
+                    <td className="px-3 py-2.5 text-center text-slate-600 text-xs whitespace-nowrap">—</td>
+                    {/* Hora + planned stop indicator */}
+                    <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold whitespace-normal">
                       {(() => {
                         const displayTime = wpt.liveEstimatedTime ?? wpt.estimatedTime
                         const deltaMs = wpt.liveEstimatedTime && wpt.estimatedTime
@@ -399,23 +319,15 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                           </>
                         )
                       })()}
-                      {onSetPause ? (
-                        <PauseEditor
-                          key={`pause-${wpt.lat.toFixed(6)}-${wpt.lon.toFixed(6)}`}
-                          pauseMin={wpt.pauseMin}
-                          onChange={(m) => onSetPause(wpt.lat, wpt.lon, m)}
-                        />
-                      ) : (
-                        wpt.pauseMin && wpt.pauseMin > 0 && (
-                          <div className="text-rose-300 font-normal text-[10px] mt-0.5" title="Parada prevista">
-                            ⏸ +{wpt.pauseMin}m pausa
-                          </div>
-                        )
+                      {wpt.pauseMin && wpt.pauseMin > 0 && (
+                        <div className="text-rose-300 font-normal text-[10px] mt-0.5" title="Parada prevista">
+                          ⏸ +{wpt.pauseMin}m parada
+                        </div>
                       )}
                     </td>
                     {/* Corte — editor or read-only */}
                     {hasCutoffCol && (
-                      <td className="px-3 py-2.5 text-left">
+                      <td className="px-3 py-2.5 text-left whitespace-normal">
                         {onSetCutoff ? (
                           wpt.cutoffTime ? (
                             <div className="flex items-center gap-2 flex-wrap">
@@ -473,18 +385,18 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     {/* Weather */}
                     {hasWeather && (
                       <>
-                        <td className="px-3 py-2.5 text-center" title={label}>
+                        <td className="px-3 py-2.5 text-center whitespace-nowrap" title={label}>
                           {w ? emoji : <span className="text-slate-600">—</span>}
                         </td>
-                        <td className="px-3 py-2.5 text-right font-mono">
+                        <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">
                           <TempCell w={w} lat={wpt.lat} lon={wpt.lon} at={wpt.estimatedTime ?? null} />
                         </td>
-                        <td className={`px-3 py-2.5 text-right font-mono ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
+                        <td className={`px-3 py-2.5 text-right font-mono whitespace-normal ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
                           {w ? `${w.precipProbability}%` : '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                        <td className="px-3 py-2.5 text-right font-mono text-slate-400 whitespace-normal">
                           {w ? (
-                            <span className="inline-flex items-center gap-1.5 justify-end">
+                            <span className="inline-flex items-center gap-1.5 justify-end flex-wrap">
                               <span
                                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                                 style={{ background: impactColor }}
@@ -498,8 +410,8 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     )}
                     {/* Name (occupies the location column) */}
                     {hasNameCol && (
-                      <td className="px-3 py-2.5 text-left">
-                        <div className="leading-tight">
+                      <td className="px-3 py-2.5 text-left max-w-64 whitespace-normal">
+                        <div className="leading-tight break-words">
                           <span className="text-amber-400 font-semibold">🚩 {wpt.name}</span>
                           {wpt.desc && (
                             <div className="text-slate-500 text-xs mt-0.5">{wpt.desc}</div>
@@ -524,21 +436,21 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                   key={wp.index}
                   className={`border-t border-slate-700/50 ${idx % 2 === 0 ? 'bg-slate-900' : 'bg-slate-800/40'}`}
                 >
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-200">
+                  <td className="px-3 py-2.5 text-right font-mono text-slate-200 whitespace-nowrap">
                     {wp.distanceKm.toFixed(1)}
                   </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-xs">
+                  <td className="px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap">
                     <span className="text-orange-400">+{Math.round(wp.elevGainM)}</span>
                     <span className="text-slate-600">/</span>
                     <span className="text-blue-400">-{Math.round(wp.elevLossM)}</span>
                   </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                  <td className="px-3 py-2.5 text-right font-mono text-slate-300 whitespace-nowrap">
                     {Math.round(wp.ele)}m
                   </td>
-                  <td className={`px-3 py-2.5 text-right font-mono ${gradeColor(wp.segmentGrade)}`}>
+                  <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${gradeColor(wp.segmentGrade)}`}>
                     {wp.segmentGrade > 0 ? '+' : ''}{wp.segmentGrade.toFixed(1)}%
                   </td>
-                  <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold">
+                  <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold whitespace-normal">
                     {formatTime(wp.estimatedTime)}
                     <DaylightIcon time={wp.estimatedTime} anchor={daylightAnchor} />
                     <span className="text-slate-500 font-normal text-xs ml-1.5">
@@ -547,17 +459,17 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                   </td>
                   {/* Empty corte cell keeps column alignment */}
                   {hasCutoffCol && (
-                    <td className="px-3 py-2.5 text-center text-slate-700 text-xs">—</td>
+                    <td className="px-3 py-2.5 text-center text-slate-700 text-xs whitespace-nowrap">—</td>
                   )}
                   {hasWeather && (
                     <>
-                      <td className="px-3 py-2.5 text-center" title={label}>
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap" title={label}>
                         {w ? emoji : <span className="text-slate-600">—</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono">
+                      <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">
                         <TempCell w={w} lat={wp.lat} lon={wp.lon} at={wp.estimatedTime} />
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
+                      <td className={`px-3 py-2.5 text-right font-mono whitespace-normal ${w ? precipColor(w.precipProbability) : 'text-slate-600'}`}>
                         {w
                           ? <>
                               {w.precipProbability}%
@@ -567,9 +479,9 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                             </>
                           : '—'}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-400 whitespace-normal">
                         {w ? (
-                          <span className="inline-flex items-center gap-1.5 justify-end">
+                          <span className="inline-flex items-center gap-1.5 justify-end flex-wrap">
                             <span
                               className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                               style={{ background: impactColor }}
@@ -582,11 +494,11 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     </>
                   )}
                   {hasNameCol && (
-                    <td className="px-3 py-2.5 text-left">
+                    <td className="px-3 py-2.5 text-left max-w-64 whitespace-normal">
                       {loc === null ? (
                         <span className="text-slate-600 text-xs">cargando…</span>
                       ) : (
-                        <div className="leading-tight">
+                        <div className="leading-tight break-words">
                           {loc.nearestPlace ? (
                             <span className="text-slate-200">{loc.nearestPlace.name}</span>
                           ) : (

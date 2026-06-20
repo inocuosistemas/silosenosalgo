@@ -12,7 +12,7 @@ import type { GpxTrack, GpxNamedWaypoint } from './lib/gpx'
 import { downloadGpx } from './lib/gpxSerialize'
 import { downloadFitCourse } from './lib/fitCourse'
 import { ElevationProfile } from './components/ElevationProfile'
-import { PoisPanel, type MaterialisedPoi } from './components/PoisPanel'
+import { PoisPanel, type MaterialisedPoi, type PoiUpdateDraft } from './components/PoisPanel'
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
@@ -26,9 +26,9 @@ import type { TerrainType } from './lib/terrain'
 import { fetchTerrainForTrack, OverpassRateLimitError } from './lib/terrain'
 import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
-import { CutoffSummary } from './components/CutoffSummary'
 import { ShareCard } from './components/ShareCard'
 import { CutoffStrategy } from './components/CutoffStrategy'
+import { PassingPlan } from './components/PassingPlan'
 import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
 import { LivePoiCarousel } from './components/LivePoiCarousel'
@@ -43,6 +43,7 @@ import { useFreshnessLabel } from './lib/useFreshnessLabel'
 import { useNowTick } from './lib/useNowTick'
 import { checkGpxTimes, reclassifyForActivity } from './lib/gpxValidity'
 import type { GpxTimesValidity } from './lib/gpxValidity'
+import { coordsAtKm } from './lib/customPois'
 import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
 import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePayloadV1 } from './lib/sharePayload'
 import { fetchShare, gunzipToString, ShareTransportError } from './lib/shareTransport'
@@ -510,30 +511,6 @@ export default function App() {
    * Drives the "cambios sin guardar" indicator in the POIs panel.
    */
   const [trackDirty, setTrackDirty] = useState(false)
-
-  /**
-   * Set or clear the cut-off for a checkpoint.
-   *
-   * `time` may come from a `<input type="datetime-local">` (which gives a
-   * full Date) or from any other source. We intentionally extract only the
-   * wall-clock HH:MM and discard the day — the day will be re-inferred from
-   * route order + startTime + previous cut-offs by `inferCutoffDates`.
-   */
-  const setCutoff = useCallback((lat: number, lon: number, time: Date | null) => {
-    if (!track) return
-    const key = wptKey(lat, lon)
-    setCutoffWallClocksState((prev) => {
-      const next = new Map(prev)
-      if (time === null) {
-        next.delete(key)
-      } else {
-        next.set(key, { hour: time.getHours(), minute: time.getMinutes() })
-      }
-      saveCutoffWallClocks(track.name, next)
-      return next
-    })
-    setTrackDirty(true)
-  }, [track])
 
   // Deferred: WeatherCharts, WeatherSummary and the waypoints table only re-render
   // when React is idle, keeping slider drag at 60 fps.
@@ -1011,15 +988,15 @@ export default function App() {
     setBuddyObs([])
     setViewMode('slope') // back to the track-only default for the new route
 
-    // Cut-offs: localStorage takes precedence (most recent edits); any
-    // <silosenosalgo:cutoffWallClock> extensions from the loaded file fill
-    // remaining gaps. Days are NOT stored — they're inferred at consumption
-    // time by the `cutoffTimes` derived useMemo.
+    // Cut-offs: the loaded GPX is the source of truth when it already carries
+    // <silosenosalgo:cutoffWallClock>. localStorage only fills gaps for POIs
+    // without an embedded cut-off, avoiding stale browser edits overriding a
+    // freshly loaded file.
     const persisted = loadCutoffWallClocks(t.name)
     const merged = new Map(persisted)
     for (const wpt of mergedNamedWpts) {
       const key = wptKey(wpt.lat, wpt.lon)
-      if (wpt.cutoffWallClock && !merged.has(key)) merged.set(key, wpt.cutoffWallClock)
+      if (wpt.cutoffWallClock) merged.set(key, wpt.cutoffWallClock)
     }
     setCutoffWallClocksState(merged)
     saveCutoffWallClocks(t.name, merged)
@@ -1127,8 +1104,9 @@ export default function App() {
 
   function handleRemovePoi(lat: number, lon: number) {
     if (!track) return
+    const key = wptKey(lat, lon)
     const filtered = track.namedWaypoints.filter(
-      (w) => !(w.lat === lat && w.lon === lon && w.custom),
+      (w) => wptKey(w.lat, w.lon) !== key,
     )
     setTrack({ ...track, namedWaypoints: filtered })
     saveCustomPois(track.name, filtered.filter((w) => w.custom))
@@ -1136,11 +1114,96 @@ export default function App() {
     // Drop any cut-off attached to this POI
     setCutoffWallClocksState((prev) => {
       const next = new Map(prev)
-      next.delete(wptKey(lat, lon))
+      next.delete(key)
       saveCutoffWallClocks(track.name, next)
       return next
     })
+    setSegmentTargets((prev) => {
+      const removed = track.namedWaypoints.find((w) => wptKey(w.lat, w.lon) === key)
+      if (!removed) return prev
+      const next = new Map(prev)
+      next.delete(removed.distanceKm)
+      return next
+    })
     setTrackDirty(true)
+  }
+
+  function handleUpdatePoi(lat: number, lon: number, draft: PoiUpdateDraft) {
+    if (!track) return
+    const oldKey = wptKey(lat, lon)
+    const idx = track.namedWaypoints.findIndex((w) => wptKey(w.lat, w.lon) === oldKey)
+    if (idx < 0) return
+
+    const current = track.namedWaypoints[idx]
+    const distanceKm = Math.max(0, Math.min(track.totalDistanceKm, draft.distanceKm))
+    const pos = coordsAtKm(track, distanceKm)
+    const updated: GpxNamedWaypoint = {
+      ...current,
+      lat: pos.lat,
+      lon: pos.lon,
+      ele: pos.ele,
+      distanceKm,
+      nearestTrackIndex: pos.nearestIndex,
+      name: draft.name.trim() || current.name,
+      desc: draft.desc.trim() || undefined,
+    }
+    const newKey = wptKey(updated.lat, updated.lon)
+
+    const nextWaypoints = track.namedWaypoints
+      .map((w, i) => (i === idx ? updated : w))
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+    setTrack({ ...track, namedWaypoints: nextWaypoints })
+    saveCustomPois(track.name, nextWaypoints.filter((w) => w.custom))
+
+    setCutoffWallClocksState((prev) => {
+      const next = new Map(prev)
+      next.delete(oldKey)
+      if (draft.cutoff) next.set(newKey, draft.cutoff)
+      saveCutoffWallClocks(track.name, next)
+      return next
+    })
+
+    if (Math.abs(current.distanceKm - distanceKm) > 0.0001) {
+      setSegmentTargets((prev) => {
+        const next = new Map(prev)
+        next.delete(current.distanceKm)
+        return next
+      })
+    }
+    setTrackDirty(true)
+  }
+
+  function handleAddPassingPoint(draft: { km: number; name: string; pauseMin: number | null }) {
+    if (!track) return
+    const distanceKm = Math.max(0, Math.min(track.totalDistanceKm, draft.km))
+    const pos = coordsAtKm(track, distanceKm)
+    const poi: GpxNamedWaypoint = {
+      lat: pos.lat,
+      lon: pos.lon,
+      ele: pos.ele,
+      name: draft.name.trim() || `Km ${distanceKm.toFixed(1)}`,
+      desc: undefined,
+      distanceKm,
+      nearestTrackIndex: pos.nearestIndex,
+      custom: true,
+      pauseMin: draft.pauseMin != null && draft.pauseMin > 0 ? draft.pauseMin : undefined,
+    }
+    const nextWaypoints = [...track.namedWaypoints, poi].sort((a, b) => a.distanceKm - b.distanceKm)
+    const nextTrack: GpxTrack = { ...track, namedWaypoints: nextWaypoints }
+    setTrack(nextTrack)
+    saveCustomPois(track.name, nextWaypoints.filter((w) => w.custom))
+    setTrackDirty(true)
+
+    if (isDone && appMode === 'plan' && baseWaypoints.length > 0) {
+      const nextPauses: PausePoint[] = nextWaypoints
+        .filter((w) => w.pauseMin != null && w.pauseMin > 0)
+        .map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! }))
+      const wps = computeWaypoints(
+        nextTrack, startTime, effectivePaceConfig, sampling,
+        effectiveSegmentPaces ?? undefined, nextPauses,
+      )
+      setBaseWaypoints(wps)
+    }
   }
 
   function handleClearCustomPois() {
@@ -1513,17 +1576,16 @@ export default function App() {
   const isDone = status === 'done' && baseWaypoints.length > 0
 
   /**
-   * Set or clear the planned pause at a named POI (lat/lon-keyed match).
+   * Set or clear the planned stop at a named POI (km-keyed match).
    * Lives on track.namedWaypoints[i].pauseMin and is also persisted to the
    * custom-POIs localStorage cache. We recompute baseWaypoints inline so
    * the visible ETAs / strategy refresh immediately — no network calls,
    * weather/location arrays keep their order (km-based sampling unchanged).
    */
-  const setPause = useCallback((lat: number, lon: number, minutes: number | null) => {
+  const setPauseAtKm = useCallback((km: number, minutes: number | null) => {
     if (!track) return
-    const key = wptKey(lat, lon)
     const nextWaypoints = track.namedWaypoints.map((w) => {
-      if (wptKey(w.lat, w.lon) !== key) return w
+      if (Math.abs(w.distanceKm - km) > 0.001) return w
       const m = minutes != null && minutes > 0 ? minutes : undefined
       if (m === w.pauseMin) return w
       return { ...w, pauseMin: m }
@@ -2103,6 +2165,7 @@ export default function App() {
                 startTime={startTime}
                 cutoffTimes={cutoffTimes}
                 onAddPois={handleAddPois}
+                onUpdatePoi={handleUpdatePoi}
                 onRemovePoi={handleRemovePoi}
                 onClearCustom={handleClearCustomPois}
                 onDownload={handleDownloadGpx}
@@ -2482,24 +2545,23 @@ export default function App() {
           </>
         )}
 
-        {/* ── Cut-off summary (plan mode, when at least one cut-off is defined) ── */}
-        {appMode === 'plan' && enrichedNamedWaypoints.some((w) => w.cutoffTime) && (
-          <CutoffSummary
-            namedWaypoints={
-              buddyKmNow !== null
-                ? enrichedNamedWaypoints.filter((w) => w.distanceKm > buddyKmNow - 0.05)
-                : enrichedNamedWaypoints
-            }
-            startTime={startTime}
-          />
-        )}
-
         {/* ── Charts (plan mode only) ── */}
         {appMode === 'plan' && enrichedWaypoints.some((w) => w.weather) && (
           <WeatherCharts
             waypoints={enrichedWaypoints}
             range={deferredAnalyzeRange}
             onClearRange={() => setAnalyzeRange(null)}
+          />
+        )}
+
+        {/* ── Passing plan: personal itinerary / stops, with cut-off status when available ── */}
+        {appMode === 'plan' && isDone && track && (
+          <PassingPlan
+            points={enrichedNamedWaypoints}
+            totalDistanceKm={track.totalDistanceKm}
+            startTime={startTime}
+            onPauseChange={setPauseAtKm}
+            onAddPoint={handleAddPassingPoint}
           />
         )}
 
@@ -2587,8 +2649,6 @@ export default function App() {
                     waypoints={tableWaypoints}
                     namedWaypoints={tableNamedWaypoints}
                     startTime={startTime}
-                    onSetCutoff={appMode === 'plan' ? setCutoff : undefined}
-                    onSetPause={appMode === 'plan' ? setPause : undefined}
                     daylightAnchor={daylightAnchor}
                   />
                 </>
@@ -2957,4 +3017,3 @@ function fmtHM(min: number): string {
 function fmtClock(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
-
