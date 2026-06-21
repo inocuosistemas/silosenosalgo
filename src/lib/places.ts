@@ -19,6 +19,11 @@ export type EnrichedWaypoint = WaypointWithWeather & { location: LocationInfo | 
 /** A <wpt> POI enriched with interpolated estimated time and nearest-waypoint weather. */
 export interface EnrichedNamedWaypoint extends GpxNamedWaypoint {
   estimatedTime: Date | null
+  /**
+   * Strategy objective for this POI, independent of the current/real projection.
+   * Usually cut-off minus margin, or the user's per-segment override.
+   */
+  targetTime?: Date
   weather: WeatherData | null
   /** User-defined absolute cut-off time for this checkpoint */
   cutoffTime?: Date

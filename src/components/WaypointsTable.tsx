@@ -288,8 +288,12 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                     <td className="px-3 py-2.5 text-center font-mono text-sky-300 font-semibold whitespace-normal">
                       {(() => {
                         const displayTime = wpt.liveEstimatedTime ?? wpt.estimatedTime
-                        const deltaMs = wpt.liveEstimatedTime && wpt.estimatedTime
-                          ? wpt.liveEstimatedTime.getTime() - wpt.estimatedTime.getTime()
+                        const referenceTime = wpt.targetTime ?? (
+                          wpt.liveEstimatedTime ? wpt.estimatedTime : null
+                        )
+                        const referenceLabel = wpt.targetTime ? 'objetivo' : 'plan'
+                        const deltaMs = displayTime && referenceTime
+                          ? displayTime.getTime() - referenceTime.getTime()
                           : null
                         const deltaMin = deltaMs !== null ? Math.round(deltaMs / 60_000) : null
                         return (
@@ -310,9 +314,9 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
                               return (
                                 <div
                                   className={`font-normal text-[10px] mt-0.5 ${deltaMin > 0 ? 'text-red-400' : 'text-emerald-400'}`}
-                                  title={`Previsto: ${wpt.estimatedTime ? formatTime(wpt.estimatedTime) : '—'}`}
+                                  title={`${wpt.targetTime ? 'Objetivo' : 'Previsto'}: ${referenceTime ? formatTime(referenceTime) : '—'}`}
                                 >
-                                  {deltaMin > 0 ? '▲' : '▼'} {label} vs plan
+                                  {deltaMin > 0 ? '▲' : '▼'} {label} vs {referenceLabel}
                                 </div>
                               )
                             })()}

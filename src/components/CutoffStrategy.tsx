@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { CutoffStrategyResult, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
 import type { ActivityType, PaceConfig, SegmentPace } from '../lib/timing'
 import { formatPace, formatPaceDelta, splitHoursMinutes } from '../lib/timing'
@@ -38,6 +38,14 @@ function fmtMin(min: number): string {
   const { h, m } = splitHoursMinutes(Math.abs(min))
   const t = h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m} min`
   return min < 0 ? `−${t}` : t
+}
+
+function Accumulated({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+      acum. {children}
+    </div>
+  )
 }
 
 function fmtHHMM(d: Date): string {
@@ -122,14 +130,23 @@ function SegmentRow({
       {/* Dist */}
       <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-xs">
         {seg.distanceKm.toFixed(1)}
+        <Accumulated>{seg.cumulativeDistanceKm.toFixed(1)}</Accumulated>
       </td>
       {/* D+ */}
-      <td className="px-3 py-2.5 text-right font-mono text-orange-400 text-xs">
-        +{Math.round(seg.elevGainM)}m
+      <td className="px-3 py-2.5 text-right font-mono text-xs">
+        <span className="text-orange-400">+{Math.round(seg.elevGainM)}m</span>
+        <span className="text-slate-600 mx-1">/</span>
+        <span className="text-sky-300">−{Math.round(seg.elevLossM)}m</span>
+        <Accumulated>
+          <span>+{Math.round(seg.cumulativeElevGainM)}m</span>
+          <span className="mx-1">/</span>
+          <span>−{Math.round(seg.cumulativeElevLossM)}m</span>
+        </Accumulated>
       </td>
       {/* Tiempo disponible (con anotación de parada si la hay) */}
       <td className={`px-3 py-2.5 text-right font-mono text-xs ${seg.availableMin < 0 ? 'text-red-400' : 'text-slate-300'}`}>
         {fmtMin(seg.availableMin)}
+        <Accumulated>{fmtMin(seg.cumulativeAvailableMin)}</Accumulated>
         {seg.pauseMin > 0 && (
           <div className="text-rose-300 text-[10px] font-normal mt-0.5" title={`Incluye ${seg.pauseMin} min de parada prevista que reducen el tiempo de movimiento`}>
             −{seg.pauseMin}m parada
@@ -282,7 +299,7 @@ export function CutoffStrategy({
                 <tr className="bg-slate-800/60 text-slate-400 text-xs uppercase tracking-wide">
                   <th className="px-4 py-2 text-left">Tramo</th>
                   <th className="px-3 py-2 text-right">km</th>
-                  <th className="px-3 py-2 text-right">D+</th>
+                  <th className="px-3 py-2 text-right">Desnivel</th>
                   <th
                     className="px-3 py-2 text-right cursor-help"
                     title="Tiempo del que dispones para cubrir este tramo respetando tu hora objetivo (o, si la dejas vacía, el corte menos el margen de seguridad global). Si dentro del tramo hay paradas previstas, se descuentan del tiempo de movimiento — el ritmo necesario se calcula sobre el tiempo neto."

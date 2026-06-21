@@ -14,6 +14,15 @@ export interface SegmentStrategy {
   toLabel: string
   distanceKm: number
   elevGainM: number
+  elevLossM: number
+  /** Route km at the segment end anchor. */
+  cumulativeDistanceKm: number
+  /** Cumulative ascent from the strategy start anchor through this segment. */
+  cumulativeElevGainM: number
+  /** Cumulative descent from the strategy start anchor through this segment. */
+  cumulativeElevLossM: number
+  /** Cumulative available minutes from the strategy start anchor through this segment. */
+  cumulativeAvailableMin: number
   /**
    * Minutes available to cover this segment while respecting the margin.
    * = (targetArrival[i] − targetDeparture[i−1])
@@ -151,6 +160,9 @@ export function computeCutoffStrategy(
   ]
 
   const segments: SegmentStrategy[] = []
+  let cumulativeElevGainM = 0
+  let cumulativeElevLossM = 0
+  let cumulativeAvailableMin = 0
 
   const sortedPauses = (pauses ?? []).filter((p) => p.minutes > 0).sort((a, b) => a.km - b.km)
 
@@ -172,6 +184,10 @@ export function computeCutoffStrategy(
     // Elevation gain for this km range
     const stats    = elevationStatsForSegment(track, from.km, to.km, paceConfig)
     const elevGainM = stats.elevGainM
+    const elevLossM = stats.elevLossM
+    cumulativeElevGainM += elevGainM
+    cumulativeElevLossM += elevLossM
+    cumulativeAvailableMin += availableMin
 
     let requiredPaceMinPerKm: number | null = null
 
@@ -210,6 +226,11 @@ export function computeCutoffStrategy(
       toLabel:   to.label,
       distanceKm,
       elevGainM,
+      elevLossM,
+      cumulativeDistanceKm: to.km,
+      cumulativeElevGainM,
+      cumulativeElevLossM,
+      cumulativeAvailableMin,
       availableMin,
       requiredPaceMinPerKm,
       severity,

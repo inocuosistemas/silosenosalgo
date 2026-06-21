@@ -111,12 +111,17 @@ function segmentMinutes(
   /** Override the base pace (min/km) — Naismith elevation adjustment is still applied on top. */
   overridePaceMinPerKm?: number,
 ): number {
+  const hasPaceOverride = overridePaceMinPerKm !== undefined
+
   // GPX mode: trust the recorded time delta even when the device didn't move.
   // Aid-station stops and rests log near-identical coordinates while the clock
   // keeps advancing; short-circuiting on zero displacement (as the pace modes
   // do below) would silently drop that standing time and pull every downstream
   // ETA earlier. This must run *before* the distKm === 0 check.
-  if (config.mode === 'gpx' && a.time && b.time) {
+  //
+  // A strategy pace override is an explicit recalculation request, so it must
+  // take precedence over recorded GPX timestamps.
+  if (!hasPaceOverride && config.mode === 'gpx' && a.time && b.time) {
     return (b.time.getTime() - a.time.getTime()) / 60000
   }
 
@@ -132,6 +137,108 @@ function segmentMinutes(
   }
 
   return baseMin
+}
+
+function interpolatePoint(a: GpxPoint, b: GpxPoint, t: number): GpxPoint {
+  const clamped = Math.max(0, Math.min(1, t))
+  const time =
+    a.time && b.time
+      ? new Date(a.time.getTime() + clamped * (b.time.getTime() - a.time.getTime()))
+      : null
+  return {
+    lat: a.lat + clamped * (b.lat - a.lat),
+    lon: a.lon + clamped * (b.lon - a.lon),
+    ele: a.ele + clamped * (b.ele - a.ele),
+    time,
+  }
+}
+
+function nextPaceBoundary(km: number, toKm: number, segmentPaces?: SegmentPace[]): number | null {
+  if (!segmentPaces) return null
+  const EPS = 1e-6
+  let next: number | null = null
+  for (const seg of segmentPaces) {
+    for (const boundary of [seg.fromKm, seg.toKm]) {
+      if (boundary > km + EPS && boundary < toKm - EPS && (next === null || boundary < next)) {
+        next = boundary
+      }
+    }
+  }
+  return next
+}
+
+/**
+ * Exact planned arrival time at a route km.
+ *
+ * This follows the same timing rules as computeWaypoints, but it integrates up
+ * to the requested km directly instead of interpolating between sampled display
+ * waypoints. That matters for named POIs at cut-off/pace boundaries: the ETA is
+ * the arrival at the POI, before any pause anchored exactly at that same km.
+ */
+export function estimateArrivalTimeAtKm(
+  track: GpxTrack,
+  km: number,
+  startTime: Date,
+  paceConfig: PaceConfig,
+  segmentPaces?: SegmentPace[],
+  pauses?: PausePoint[],
+): Date | null {
+  const { points } = track
+  if (points.length === 0) return null
+  const targetKm = Math.max(0, Math.min(track.totalDistanceKm, km))
+  if (targetKm <= 0) return new Date(startTime)
+
+  const cumKm =
+    track.cumKm && track.cumKm.length === points.length
+      ? track.cumKm
+      : points.reduce<number[]>((acc, point, i) => {
+          if (i === 0) return [0]
+          acc.push(acc[i - 1] + haversineKm(points[i - 1], point))
+          return acc
+        }, [])
+
+  const EPS = 1e-6
+  const sortedPauses = (pauses ?? [])
+    .filter((p) => p.km > 0 && p.km < targetKm - EPS && p.minutes > 0)
+    .map((p) => ({ km: p.km, minutes: Math.max(0, p.minutes) }))
+    .sort((a, b) => a.km - b.km)
+
+  let pauseIdx = 0
+  let elapsedMs = 0
+
+  for (let i = 1; i < points.length; i++) {
+    const segStartKm = cumKm[i - 1]
+    const segEndKm = cumKm[i]
+    if (segEndKm <= segStartKm) continue
+    if (segStartKm >= targetKm - EPS) break
+
+    const clippedEndKm = Math.min(segEndKm, targetKm)
+    let cursorKm = segStartKm
+    let cursorPoint = points[i - 1]
+
+    while (cursorKm < clippedEndKm - EPS) {
+      const boundary = nextPaceBoundary(cursorKm, clippedEndKm, segmentPaces)
+      const nextKm = boundary ?? clippedEndKm
+      const t = (nextKm - segStartKm) / (segEndKm - segStartKm)
+      const nextPoint = interpolatePoint(points[i - 1], points[i], t)
+      const overridePace = segmentPaces ? lookupSegmentPace(cursorKm, segmentPaces) : undefined
+
+      elapsedMs += segmentMinutes(cursorPoint, nextPoint, paceConfig, overridePace) * 60_000
+      cursorKm = nextKm
+      cursorPoint = nextPoint
+
+      while (pauseIdx < sortedPauses.length && sortedPauses[pauseIdx].km <= cursorKm + EPS) {
+        elapsedMs += sortedPauses[pauseIdx].minutes * 60_000
+        pauseIdx++
+      }
+    }
+
+    if (clippedEndKm >= targetKm - EPS) {
+      return new Date(startTime.getTime() + elapsedMs)
+    }
+  }
+
+  return new Date(startTime.getTime() + elapsedMs)
 }
 
 export function SAMPLE_INTERVAL_KM(totalKm: number): number {

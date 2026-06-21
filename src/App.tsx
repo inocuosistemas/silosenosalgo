@@ -16,7 +16,7 @@ import { PoisPanel, type MaterialisedPoi, type PoiUpdateDraft } from './componen
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
-import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm } from './lib/timing'
+import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, estimateArrivalTimeAtKm, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import { solarIrradiance, sunTempUplift } from './lib/sunTemp'
@@ -123,6 +123,8 @@ interface SavedSession {
   startTimeISO: string
   paceConfig: PaceConfig
   sampling: SamplingConfig
+  strategyMargin?: number
+  segmentTargets?: { km: number; timeISO: string }[]
   savedAt: string
   /** Full-resolution GPX time stats, captured before any subsampling. */
   gpxStats?: GpxTimesValidity | null
@@ -164,8 +166,29 @@ function loadSession(): SavedSession | null {
     for (const p of obj.track.points) {
       p.time = p.time ? new Date(p.time) : null
     }
+    if (Array.isArray(obj.segmentTargets)) {
+      obj.segmentTargets = obj.segmentTargets.filter((t: { km?: unknown; timeISO?: unknown }) => {
+        if (typeof t?.km !== 'number' || typeof t?.timeISO !== 'string') return false
+        return !isNaN(new Date(t.timeISO).getTime())
+      })
+    }
     return obj as SavedSession
   } catch { return null }
+}
+
+function serializeSegmentTargets(targets: Map<number, Date>): SavedSession['segmentTargets'] {
+  return [...targets.entries()]
+    .filter(([km, time]) => Number.isFinite(km) && !isNaN(time.getTime()))
+    .map(([km, time]) => ({ km, timeISO: time.toISOString() }))
+}
+
+function reviveSegmentTargets(targets?: SavedSession['segmentTargets']): Map<number, Date> {
+  const map = new Map<number, Date>()
+  for (const t of targets ?? []) {
+    const d = new Date(t.timeISO)
+    if (Number.isFinite(t.km) && !isNaN(d.getTime())) map.set(t.km, d)
+  }
+  return map
 }
 
 function saveSession(s: Omit<SavedSession, 'savedAt'>) {
@@ -477,6 +500,7 @@ export default function App() {
       const next = new Map(prev)
       if (time) next.set(km, time)
       else      next.delete(km)
+      if (segmentPaces !== null) void reapplyVariableStrategy(strategyMargin, next)
       return next
     })
   }
@@ -658,10 +682,12 @@ export default function App() {
       startTimeISO: startTime.toISOString(),
       paceConfig,
       sampling,
+      strategyMargin,
+      segmentTargets: serializeSegmentTargets(segmentTargets),
       gpxStats: gpxValidity,
       originalPointCount: trackOriginalPoints || track.points.length,
     })
-  }, [track, startTime, paceConfig, sampling, gpxValidity, trackOriginalPoints])
+  }, [track, startTime, paceConfig, sampling, strategyMargin, segmentTargets, gpxValidity, trackOriginalPoints])
 
   // Fall back to 'fixed' automatically when activity changes and makes GPX
   // invalid (applies to both GPX modes; 'gpx-moving' keeps its derived pace).
@@ -808,7 +834,7 @@ export default function App() {
   }, [track, cutoffWallClocks, startTime])
 
   // ── Enriched named waypoints (<wpt> POIs from GPX) ────────────────────────
-  // Estimated time: linearly interpolated between the two bounding enrichedWaypoints.
+  // Estimated time: exact timing at the POI km, with interpolation fallback.
   // Weather: taken from the nearest enrichedWaypoint by distanceKm.
   const enrichedNamedWaypoints = useMemo<EnrichedNamedWaypoint[]>(() => {
     if (!track) return []
@@ -821,10 +847,17 @@ export default function App() {
       return track.namedWaypoints.map((wpt) => ({ ...wpt, estimatedTime: null, weather: null }))
     }
     return track.namedWaypoints.map((wpt) => {
-      // ── Interpolate estimated time ──────────────────────────────────────
-      let estimatedTime: Date | null = null
+      // ── Estimate arrival time ───────────────────────────────────────────
+      let estimatedTime = estimateArrivalTimeAtKm(
+        track,
+        wpt.distanceKm,
+        startTime,
+        effectivePaceConfig,
+        effectiveSegmentPaces ?? undefined,
+        pauses,
+      )
       const wps = enrichedWaypoints
-      if (wps.length >= 2) {
+      if (!estimatedTime && wps.length >= 2) {
         let prevIdx = 0
         for (let i = 1; i < wps.length; i++) {
           if (wps[i].distanceKm >= wpt.distanceKm) break
@@ -847,7 +880,7 @@ export default function App() {
         }
         estimatedTime = new Date(interpMs)
       } else {
-        estimatedTime = wps[0]?.estimatedTime ?? null
+        estimatedTime = estimatedTime ?? wps[0]?.estimatedTime ?? null
       }
 
       // ── Nearest waypoint weather ────────────────────────────────────────
@@ -860,14 +893,17 @@ export default function App() {
 
       const key = wptKey(wpt.lat, wpt.lon)
       const cutoffTime = cutoffTimes.get(key)
+      const targetTime = cutoffTime
+        ? segmentTargets.get(wpt.distanceKm) ?? new Date(cutoffTime.getTime() - strategyMargin * 60_000)
+        : undefined
       const cutoffMarginMin =
         cutoffTime && estimatedTime
           ? (cutoffTime.getTime() - estimatedTime.getTime()) / 60_000
           : undefined
 
-      return { ...wpt, estimatedTime, weather, cutoffTime, cutoffMarginMin }
+      return { ...wpt, estimatedTime, targetTime, weather, cutoffTime, cutoffMarginMin }
     })
-  }, [track, enrichedWaypoints, cutoffTimes])
+  }, [track, enrichedWaypoints, cutoffTimes, startTime, effectivePaceConfig, effectiveSegmentPaces, pauses, segmentTargets, strategyMargin])
 
   // ── Live waypoints: remaining only, ETAs from now ─────────────────────────
   // Uses real average pace if available, else falls back to planned pace.
@@ -1014,6 +1050,8 @@ export default function App() {
     setParamsExpanded(true)
     setParamsDirty(false)
     setHasComputedOnce(false)
+    setStrategyMargin(0)
+    setSegmentTargets(new Map())
     reset()
     if (t.points.some((p) => p.time)) {
       // Only auto-switch to 'gpx' when the times are actually valid for the current activity
@@ -1646,6 +1684,48 @@ export default function App() {
     )
   }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, pauses, buddyDerived, buddyKmNow, buddyTick])
 
+  function computeStrategyForInputs(
+    marginMin: number,
+    targets: Map<number, Date>,
+  ) {
+    if (!track || !isDone) return null
+    const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
+    if (withCutoffs.length === 0) return null
+    if (buddyDerived && buddyKmNow !== null) {
+      return computeCutoffStrategy(
+        track, withCutoffs, new Date(buddyTick),
+        effectivePaceConfig, marginMin,
+        buddyKmNow, 'Compañero',
+        targets,
+        pauses,
+      )
+    }
+    return computeCutoffStrategy(
+      track, withCutoffs, startTime, effectivePaceConfig, marginMin,
+      0, 'Salida', targets,
+      pauses,
+    )
+  }
+
+  async function reapplyVariableStrategy(
+    marginMin: number,
+    targets: Map<number, Date>,
+  ) {
+    const nextStrategy = computeStrategyForInputs(marginMin, targets)
+    if (!nextStrategy || nextStrategy.hasImpossible) {
+      setSegmentPaces(null)
+      return
+    }
+    setSegmentPaces(nextStrategy.variablePaces)
+    reset()
+    await doCompute(paceConfig, nextStrategy.variablePaces)
+  }
+
+  function handleStrategyMarginChange(minutes: number) {
+    setStrategyMargin(minutes)
+    if (segmentPaces !== null) void reapplyVariableStrategy(minutes, segmentTargets)
+  }
+
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
   // Reuses estimatedTime from enrichedNamedWaypoints (already recomputed with
   // the buddy-derived segment paces). The "affordable pace" is recomputed each
@@ -1660,9 +1740,9 @@ export default function App() {
     const cp = upcoming[0]
     if (!cp.cutoffTime || !cp.estimatedTime) return null
 
-    // Affordable pace from projected "now" position to (cutoff − margin)
+    // Affordable pace from projected "now" position to the strategy objective.
     const remainingKm  = cp.distanceKm - refKm
-    const targetTimeMs = cp.cutoffTime.getTime() - strategyMargin * 60_000
+    const targetTimeMs = (cp.targetTime ?? new Date(cp.cutoffTime.getTime() - strategyMargin * 60_000)).getTime()
     const remainingMin = (targetTimeMs - buddyTick) / 60_000
     const physicalMinPace = 60 / ACTIVITY_MAX_SPEED_KMH[paceConfig.activity]
     let affordablePaceMinPerKm: number | null = null
@@ -2029,6 +2109,8 @@ export default function App() {
                         setStartTime(new Date(s.startTimeISO))
                         setPaceConfig(s.paceConfig)
                         setSampling(s.sampling)
+                        setStrategyMargin(Math.max(0, s.strategyMargin ?? 0))
+                        setSegmentTargets(reviveSegmentTargets(s.segmentTargets))
                         // Restore the full-res stats + original resolution captured
                         // at save time (handleTrack reset them to the subsampled track).
                         setRestoredGpxStats(s.gpxStats ?? null)
@@ -2677,7 +2759,7 @@ export default function App() {
               onApplyVariablePaces={handleApplyVariablePaces}
               variablePacesActive={segmentPaces !== null}
               marginMin={strategyMargin}
-              onMarginChange={setStrategyMargin}
+              onMarginChange={handleStrategyMarginChange}
               segmentTargets={segmentTargets}
               onSegmentTargetChange={handleSegmentTargetChange}
             />
