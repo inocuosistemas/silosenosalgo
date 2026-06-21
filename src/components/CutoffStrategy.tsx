@@ -1,16 +1,19 @@
 import { useState, type ReactNode } from 'react'
-import type { CutoffStrategyResult, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
+import type { CutoffStrategyResult, CutoffStrategyTimeMode, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
 import type { ActivityType, PaceConfig, SegmentPace } from '../lib/timing'
 import { formatPace, formatPaceDelta, splitHoursMinutes } from '../lib/timing'
 
 interface Props {
   strategy: CutoffStrategyResult
+  actionStrategy?: CutoffStrategyResult
   paceConfig: PaceConfig
   onApplySinglePace: (pace: number) => void
   onApplyVariablePaces: (paces: SegmentPace[]) => void
   variablePacesActive: boolean
   marginMin: number
   onMarginChange: (minutes: number) => void
+  timeMode: CutoffStrategyTimeMode
+  onTimeModeChange: (mode: CutoffStrategyTimeMode) => void
   /** Per-anchor target-time overrides keyed by cut-off waypoint km. */
   segmentTargets: Map<number, Date>
   /** Set or clear (null) an override for a given cut-off km. */
@@ -52,6 +55,11 @@ function fmtHHMM(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
+function fmtSignedMin(min: number): string {
+  const sign = min >= 0 ? '+' : '−'
+  return `${sign}${fmtMin(Math.abs(min))}`
+}
+
 /**
  * Combine an HH:MM string with the cut-off's calendar date. If the resulting
  * timestamp lands after the cut-off, roll one day back — this handles
@@ -88,18 +96,26 @@ function SegmentRow({
   seg,
   isTightest,
   currentPace,
+  paceMode,
   activity,
+  timeMode,
   onTargetChange,
   showPaceDelta,
+  variablePacesActive,
 }: {
   seg: SegmentStrategy
   isTightest: boolean
   currentPace: number
+  paceMode: PaceConfig['mode']
   activity: ActivityType
+  timeMode: CutoffStrategyTimeMode
   onTargetChange: (km: number, time: Date | null) => void
   showPaceDelta: boolean
+  variablePacesActive: boolean
 }) {
-  const cfg = SEV[seg.severity]
+  const displaySeverity =
+    variablePacesActive && seg.requiredPaceMinPerKm !== null ? 'ok' : seg.severity
+  const cfg = SEV[displaySeverity]
   const targetValue = fmtHHMM(seg.toTime)
   const cutoffHHMM  = fmtHHMM(seg.cutoffTime)
   const marginToCutoffMin = Math.round((seg.cutoffTime.getTime() - seg.toTime.getTime()) / 60_000)
@@ -107,6 +123,16 @@ function SegmentRow({
     marginToCutoffMin < 0  ? 'text-red-400'
     : marginToCutoffMin < 5  ? 'text-amber-400'
     : 'text-slate-400'
+  const usesEquivalentBasePace = paceMode === 'smart' || paceMode === 'naismith'
+  const carriedBufferMin = timeMode === 'forecast' && seg.plannedBufferMin !== null && seg.plannedBufferMin > 0
+    ? seg.plannedBufferMin
+    : 0
+  const displayAvailableMin = seg.availableMin - carriedBufferMin
+  const movingAvailableMin = displayAvailableMin - seg.pauseMin
+  const requiredMovingPace =
+    seg.distanceKm > 0 && movingAvailableMin > 0 ? movingAvailableMin / seg.distanceKm : null
+  const totalSegmentPace =
+    seg.distanceKm > 0 && displayAvailableMin > 0 ? displayAvailableMin / seg.distanceKm : null
   return (
     <tr className={`border-t border-slate-700/40 ${cfg.rowCls} ${isTightest ? 'outline outline-1 outline-orange-700/60 outline-offset-[-1px]' : ''}`}>
       {/* Tramo */}
@@ -144,12 +170,21 @@ function SegmentRow({
         </Accumulated>
       </td>
       {/* Tiempo disponible (con anotación de parada si la hay) */}
-      <td className={`px-3 py-2.5 text-right font-mono text-xs ${seg.availableMin < 0 ? 'text-red-400' : 'text-slate-300'}`}>
-        {fmtMin(seg.availableMin)}
+      <td className={`px-3 py-2.5 text-right font-mono text-xs ${displayAvailableMin < 0 ? 'text-red-400' : 'text-slate-300'}`}>
+        {fmtMin(displayAvailableMin)}
         <Accumulated>{fmtMin(seg.cumulativeAvailableMin)}</Accumulated>
         {seg.pauseMin > 0 && (
           <div className="text-rose-300 text-[10px] font-normal mt-0.5" title={`Incluye ${seg.pauseMin} min de parada prevista que reducen el tiempo de movimiento`}>
             −{seg.pauseMin}m parada
+          </div>
+        )}
+        {seg.plannedBufferMin !== null && Math.abs(seg.plannedBufferMin) >= 1 && (
+          <div
+            className={`text-[10px] font-normal mt-0.5 ${seg.plannedBufferMin >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
+            title="Diferencia entre la ETA prevista y la hora objetivo del control anterior"
+          >
+            {seg.plannedBufferMin >= 0 ? 'colchón inicio ' : 'déficit inicio '}
+            {fmtSignedMin(seg.plannedBufferMin)}
           </div>
         )}
       </td>
@@ -194,11 +229,25 @@ function SegmentRow({
           <span className="text-gray-500 text-xs font-semibold">⛔ Imposible</span>
         ) : (
           <div className="flex flex-col items-center gap-0.5">
-            <span className={`inline-flex items-center gap-1 text-xs font-mono font-semibold ${cfg.textCls}`}>
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-mono font-semibold ${cfg.textCls}`}
+              title={usesEquivalentBasePace ? `Ritmo base equivalente del modelo: ${formatPace(seg.requiredPaceMinPerKm, activity)}` : undefined}
+            >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dotCls}`} />
-              {formatPace(seg.requiredPaceMinPerKm, activity)}
+              {usesEquivalentBasePace && (
+                <span className="text-[10px] font-normal text-slate-500">mov.</span>
+              )}
+              {formatPace(usesEquivalentBasePace && requiredMovingPace !== null ? requiredMovingPace : seg.requiredPaceMinPerKm, activity)}
             </span>
-            {showPaceDelta && (
+            {usesEquivalentBasePace && seg.pauseMin > 0 && totalSegmentPace !== null && (
+              <span
+                className="text-[10px] font-mono text-slate-400"
+                title="Media total de tramo incluyendo la parada prevista"
+              >
+                total {formatPace(totalSegmentPace, activity)}
+              </span>
+            )}
+            {showPaceDelta && !usesEquivalentBasePace && (
               <PaceDelta required={seg.requiredPaceMinPerKm} current={currentPace} activity={activity} />
             )}
           </div>
@@ -212,21 +261,32 @@ function SegmentRow({
 
 export function CutoffStrategy({
   strategy,
+  actionStrategy,
   paceConfig,
   onApplySinglePace,
   onApplyVariablePaces,
   variablePacesActive,
   marginMin,
   onMarginChange,
+  timeMode,
+  onTimeModeChange,
   onSegmentTargetChange,
 }: Props) {
   const [open, setOpen] = useState(false)
   const { segments, tightestSegment, hasImpossible, singlePace, variablePaces } = strategy
+  const actionSinglePace = actionStrategy?.singlePace ?? singlePace
+  const actionHasImpossible = actionStrategy?.hasImpossible ?? hasImpossible
+  const actionVariablePaces = actionStrategy?.variablePaces ?? variablePaces
 
   if (segments.length === 0) return null
 
-  const criticalCount = segments.filter((s) => s.severity === 'critical' || s.severity === 'impossible').length
-  const tightCount    = segments.filter((s) => s.severity === 'tight').length
+  const impossibleCount = segments.filter((s) => s.severity === 'impossible').length
+  const criticalCount = variablePacesActive
+    ? impossibleCount
+    : segments.filter((s) => s.severity === 'critical' || s.severity === 'impossible').length
+  const tightCount = variablePacesActive
+    ? 0
+    : segments.filter((s) => s.severity === 'tight').length
 
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -259,6 +319,11 @@ export function CutoffStrategy({
               ritmo variable activo
             </span>
           )}
+          {timeMode === 'forecast' && (
+            <span className="text-[10px] bg-sky-900/40 border border-sky-700/50 text-sky-300 px-2 py-0.5 rounded-full font-medium">
+              arrastra previsión
+            </span>
+          )}
         </div>
         <span className="text-slate-500 text-xs ml-2 shrink-0">{open ? '▲' : '▼'}</span>
       </button>
@@ -267,7 +332,7 @@ export function CutoffStrategy({
         <div className="border-t border-slate-800">
 
           {/* ── Margin control ── */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800/60 bg-slate-800/30">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-800/60 bg-slate-800/30">
             <label htmlFor="strategy-margin" className="text-xs text-slate-400 whitespace-nowrap shrink-0">
               ⏱ Margen de seguridad
             </label>
@@ -290,6 +355,25 @@ export function CutoffStrategy({
                 llegar {marginMin} min antes del corte
               </span>
             )}
+            <div className="ml-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950/70 p-0.5">
+              {([
+                ['forecast', 'Previsión'],
+                ['objectives', 'Objetivos'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => onTimeModeChange(mode)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    timeMode === mode
+                      ? 'bg-sky-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* ── Segment table ── */}
@@ -302,9 +386,9 @@ export function CutoffStrategy({
                   <th className="px-3 py-2 text-right">Desnivel</th>
                   <th
                     className="px-3 py-2 text-right cursor-help"
-                    title="Tiempo del que dispones para cubrir este tramo respetando tu hora objetivo (o, si la dejas vacía, el corte menos el margen de seguridad global). Si dentro del tramo hay paradas previstas, se descuentan del tiempo de movimiento — el ritmo necesario se calcula sobre el tiempo neto."
+                    title="Ventana entre la hora objetivo del inicio y la hora objetivo del final del tramo. En modo Previsión, el colchón o déficit acumulado al inicio se muestra aparte y no se convierte en ritmo."
                   >
-                    Tiempo disp.
+                    Ventana
                   </th>
                   <th
                     className="px-3 py-2 text-center cursor-help"
@@ -314,9 +398,9 @@ export function CutoffStrategy({
                   </th>
                   <th
                     className="px-3 py-2 text-center cursor-help"
-                    title="Ritmo medio necesario en este tramo para llegar a la hora objetivo. El número pequeño debajo es la diferencia respecto a tu ritmo planificado: verde = puedes ir más cómodo que tu plan, rojo = tienes que apretar."
+                    title="Media de movimiento necesaria para llegar a la hora objetivo. Si hay parada prevista, debajo se muestra también la media total del tramo incluyendo esa parada."
                   >
-                    Ritmo nec.
+                    Media necesaria
                   </th>
                 </tr>
               </thead>
@@ -327,9 +411,12 @@ export function CutoffStrategy({
                     seg={seg}
                     isTightest={seg === tightestSegment}
                     currentPace={paceConfig.paceMinPerKm}
+                    paceMode={paceConfig.mode}
                     activity={paceConfig.activity}
+                    timeMode={timeMode}
                     onTargetChange={onSegmentTargetChange}
                     showPaceDelta={!variablePacesActive}
+                    variablePacesActive={variablePacesActive}
                   />
                 ))}
               </tbody>
@@ -355,23 +442,23 @@ export function CutoffStrategy({
           <div className="flex flex-wrap gap-3 px-4 pt-3 pb-4">
             {/* A · Ritmo único */}
             <button
-              onClick={() => singlePace !== null && onApplySinglePace(singlePace)}
-              disabled={singlePace === null}
+              onClick={() => actionSinglePace !== null && onApplySinglePace(actionSinglePace)}
+              disabled={actionSinglePace === null}
               title={
-                singlePace === null
+                actionSinglePace === null
                   ? 'Hay tramos imposibles — ningún ritmo único alcanza todos los cortes'
-                  : `Aplicar ${formatPace(singlePace, paceConfig.activity)} a todo el recorrido`
+                  : `Aplicar ${formatPace(actionSinglePace, paceConfig.activity)} a todo el recorrido`
               }
               className="flex-1 min-w-[160px] flex flex-col items-center gap-0.5 px-4 py-3 rounded-xl bg-sky-900/30 border border-sky-700/50 hover:bg-sky-900/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <span className="text-sky-300 text-sm font-semibold">
                 A · Ritmo único
-                {singlePace !== null && (
-                  <span className="ml-1.5 font-mono">{formatPace(singlePace, paceConfig.activity)}</span>
+                {actionSinglePace !== null && (
+                  <span className="ml-1.5 font-mono">{formatPace(actionSinglePace, paceConfig.activity)}</span>
                 )}
               </span>
               <span className="text-slate-400 text-xs text-center">
-                {singlePace !== null
+                {actionSinglePace !== null
                   ? 'Ritmo más exigente aplicado a todo el recorrido'
                   : 'No disponible — tramos imposibles'}
               </span>
@@ -379,10 +466,10 @@ export function CutoffStrategy({
 
             {/* B · Ritmo variable */}
             <button
-              onClick={() => !hasImpossible && onApplyVariablePaces(variablePaces)}
-              disabled={hasImpossible}
+              onClick={() => !actionHasImpossible && onApplyVariablePaces(actionVariablePaces)}
+              disabled={actionHasImpossible}
               title={
-                hasImpossible
+                actionHasImpossible
                   ? 'Hay tramos imposibles — no se puede generar un plan variable'
                   : 'Cada tramo usa su ritmo mínimo necesario; la previsión se recalcula'
               }
@@ -390,7 +477,7 @@ export function CutoffStrategy({
             >
               <span className="text-emerald-300 text-sm font-semibold">B · Ritmo variable</span>
               <span className="text-slate-400 text-xs text-center">
-                {hasImpossible
+                {actionHasImpossible
                   ? 'No disponible — tramos imposibles'
                   : 'Ritmo distinto por tramo, waypoints recalculados'}
               </span>

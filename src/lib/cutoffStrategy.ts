@@ -1,11 +1,12 @@
 import type { GpxTrack } from './gpx'
 import type { PaceConfig, PausePoint, SegmentPace } from './timing'
-import { ACTIVITY_MAX_SPEED_KMH, elevationStatsForSegment } from './timing'
+import { ACTIVITY_MAX_SPEED_KMH, elevationStatsForSegment, expectedMinutesForSegment } from './timing'
 import type { EnrichedNamedWaypoint } from './places'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type SegmentSeverity = 'impossible' | 'critical' | 'tight' | 'ok' | 'easy'
+export type CutoffStrategyTimeMode = 'objectives' | 'forecast'
 
 export interface SegmentStrategy {
   fromKm: number
@@ -25,9 +26,9 @@ export interface SegmentStrategy {
   cumulativeAvailableMin: number
   /**
    * Minutes available to cover this segment while respecting the margin.
-   * = (targetArrival[i] − targetDeparture[i−1])
-   * For the first segment this equals (cutoff1 − marginMin − startTime).
-   * For subsequent segments the margin cancels: equals (cutoff[i] − cutoff[i−1]).
+   * In "objectives" mode this is targetArrival[i] − targetDeparture[i−1].
+   * In "forecast" mode the departure from previous cut-offs uses the currently
+   * estimated arrival there, so planned buffer or delay is carried forward.
    * Negative means the target arrival is already in the past.
    */
   availableMin: number
@@ -44,6 +45,13 @@ export interface SegmentStrategy {
    * = startTime for the first segment; cutoff[i−1] − marginMin for subsequent ones.
    */
   fromTime: Date
+  /**
+   * Forecast-vs-objective buffer at this segment's start anchor.
+   * Positive = the visible plan arrives that many minutes before the anchor's
+   * objective, giving the next segment extra room. Null for the route start or
+   * when no ETA is available.
+   */
+  plannedBufferMin: number | null
   /**
    * Target arrival time for this segment (= cutoff − marginMin, or the user's
    * per-segment override when set).
@@ -62,6 +70,7 @@ export interface SegmentStrategy {
 }
 
 export interface CutoffStrategyResult {
+  timeMode: CutoffStrategyTimeMode
   segments: SegmentStrategy[]
   /** The segment with the lowest required pace (hardest bottleneck). */
   tightestSegment: SegmentStrategy | null
@@ -127,13 +136,14 @@ export function computeCutoffStrategy(
   startLabel = 'Salida',
   targetTimes?: Map<number, Date>,
   pauses?: PausePoint[],
+  timeMode: CutoffStrategyTimeMode = 'objectives',
 ): CutoffStrategyResult {
   const withCutoffs = [...namedWaypoints]
     .filter((w) => w.cutoffTime != null && w.distanceKm > startKm + 0.05)
     .sort((a, b) => a.distanceKm - b.distanceKm)
 
   if (withCutoffs.length === 0) {
-    return { segments: [], tightestSegment: null, hasImpossible: false, singlePace: null, variablePaces: [] }
+    return { timeMode, segments: [], tightestSegment: null, hasImpossible: false, singlePace: null, variablePaces: [] }
   }
 
   // Physical lower bound on pace for this activity (fastest possible)
@@ -146,12 +156,14 @@ export function computeCutoffStrategy(
   //     (margin added to the "from" and subtracted from the "to" cancels out)
   const marginMs = marginMin * 60_000
   const anchors = [
-    { km: startKm, time: startTime, label: startLabel, cutoff: null as Date | null, override: false },
+    { km: startKm, targetTime: startTime, forecastTime: startTime as Date | null, label: startLabel, cutoff: null as Date | null, override: false },
     ...withCutoffs.map((w) => {
       const override = targetTimes?.get(w.distanceKm) ?? null
+      const targetTime = override ?? new Date(w.cutoffTime!.getTime() - marginMs)
       return {
         km: w.distanceKm,
-        time: override ?? new Date(w.cutoffTime!.getTime() - marginMs),
+        targetTime,
+        forecastTime: w.estimatedTime,
         label: w.name,
         cutoff: w.cutoffTime!,
         override: override !== null,
@@ -170,7 +182,15 @@ export function computeCutoffStrategy(
     const from = anchors[i]
     const to   = anchors[i + 1]
     const distanceKm   = to.km - from.km
-    const availableMin = (to.time.getTime() - from.time.getTime()) / 60_000
+    const fromTime = timeMode === 'forecast' && from.forecastTime ? from.forecastTime : from.targetTime
+    const availableMin = (to.targetTime.getTime() - fromTime.getTime()) / 60_000
+    const plannedBufferMin =
+      i > 0 && from.forecastTime
+        ? (from.targetTime.getTime() - from.forecastTime.getTime()) / 60_000
+        : null
+    const objectiveWindowMin = plannedBufferMin !== null
+      ? availableMin - plannedBufferMin
+      : availableMin
 
     // Pauses inside this segment (including one anchored exactly at `from.km`
     // — they delay departure from this anchor and so eat into the segment's
@@ -187,7 +207,7 @@ export function computeCutoffStrategy(
     const elevLossM = stats.elevLossM
     cumulativeElevGainM += elevGainM
     cumulativeElevLossM += elevLossM
-    cumulativeAvailableMin += availableMin
+    cumulativeAvailableMin += objectiveWindowMin
 
     let requiredPaceMinPerKm: number | null = null
 
@@ -198,6 +218,26 @@ export function computeCutoffStrategy(
       const eleTime     = (elevGainM / 100) * paceConfig.naismithMin100mUp
       const timeForFlat = movingMin - eleTime
       requiredPaceMinPerKm = timeForFlat > 0 ? timeForFlat / distanceKm : null
+    } else if (paceConfig.mode === 'smart') {
+      const smartSegmentMin = (paceMinPerKm: number) =>
+        expectedMinutesForSegment(track, from.km, to.km, {
+          ...paceConfig,
+          paceMinPerKm,
+        })
+      const fastestMin = smartSegmentMin(physicalMinPaceMinPerKm)
+      if (fastestMin <= movingMin) {
+        let lo = physicalMinPaceMinPerKm
+        let hi = 60
+        for (let j = 0; j < 28; j++) {
+          const mid = (lo + hi) / 2
+          const min = smartSegmentMin(mid)
+          if (min <= movingMin) lo = mid
+          else hi = mid
+        }
+        requiredPaceMinPerKm = lo
+      } else {
+        requiredPaceMinPerKm = null
+      }
     } else {
       // Fixed or GPX (treat as fixed for required-pace purposes)
       requiredPaceMinPerKm = movingMin / distanceKm
@@ -234,8 +274,9 @@ export function computeCutoffStrategy(
       availableMin,
       requiredPaceMinPerKm,
       severity,
-      fromTime: from.time,
-      toTime:   to.time,
+      fromTime,
+      plannedBufferMin,
+      toTime:   to.targetTime,
       cutoffTime: to.cutoff!,
       hasTargetOverride: to.override,
       pauseMin: segPauseMin,
@@ -272,5 +313,5 @@ export function computeCutoffStrategy(
     })
   }
 
-  return { segments, tightestSegment, hasImpossible, singlePace, variablePaces }
+  return { timeMode, segments, tightestSegment, hasImpossible, singlePace, variablePaces }
 }

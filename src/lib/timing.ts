@@ -1,14 +1,19 @@
 import type { GpxPoint, GpxTrack } from './gpx'
 
 export type ActivityType = 'walk' | 'run' | 'bike'
+export type SmartDescentProfile = 'cautious' | 'balanced' | 'aggressive'
+export type SmartFatigueProfile = 'low' | 'medium' | 'high'
 
 export interface PaceConfig {
   // 'gpx'        → exact recorded per-segment times.
   // 'gpx-moving' → uniform pace derived from the GPX moving-average speed
   //                (stops excluded); mechanically a fixed pace in paceMinPerKm.
-  mode: 'fixed' | 'naismith' | 'gpx' | 'gpx-moving'
+  // 'smart'      → terrain-adjusted estimate from flat pace + D+/D-/fatigue.
+  mode: 'fixed' | 'naismith' | 'smart' | 'gpx' | 'gpx-moving'
   paceMinPerKm: number
   naismithMin100mUp: number
+  smartDescent: SmartDescentProfile
+  smartFatigue: SmartFatigueProfile
   activity: ActivityType
 }
 
@@ -108,8 +113,13 @@ function segmentMinutes(
   a: GpxPoint,
   b: GpxPoint,
   config: PaceConfig,
-  /** Override the base pace (min/km) — Naismith elevation adjustment is still applied on top. */
+  /** Override the base pace (min/km); terrain adjustments still apply in adjusted modes. */
   overridePaceMinPerKm?: number,
+  context: { startKm: number; cumulativeGainM: number; cumulativeLossM: number } = {
+    startKm: 0,
+    cumulativeGainM: 0,
+    cumulativeLossM: 0,
+  },
 ): number {
   const hasPaceOverride = overridePaceMinPerKm !== undefined
 
@@ -129,6 +139,7 @@ function segmentMinutes(
   if (distKm === 0) return 0
 
   const eleGainM = Math.max(0, b.ele - a.ele)
+  const eleLossM = Math.max(0, a.ele - b.ele)
   const pace = overridePaceMinPerKm ?? config.paceMinPerKm
   const baseMin = distKm * pace
 
@@ -136,7 +147,95 @@ function segmentMinutes(
     return baseMin + (eleGainM / 100) * config.naismithMin100mUp
   }
 
+  if (config.mode === 'smart') {
+    return smartMinutesForSegment(
+      distKm,
+      eleGainM,
+      eleLossM,
+      context.startKm,
+      context.cumulativeGainM,
+      context.cumulativeLossM,
+      config,
+      pace,
+    )
+  }
+
   return baseMin
+}
+
+const DESCENT_PROFILES: Record<SmartDescentProfile, {
+  easyBonus: number
+  runnableAdjustment: number
+  steepPenalty: number
+}> = {
+  cautious:   { easyBonus: 0.08, runnableAdjustment: 0.04,  steepPenalty: 0.28 },
+  balanced:  { easyBonus: 0.14, runnableAdjustment: -0.02, steepPenalty: 0.18 },
+  aggressive:{ easyBonus: 0.20, runnableAdjustment: -0.08, steepPenalty: 0.10 },
+}
+
+const FATIGUE_PROFILES: Record<SmartFatigueProfile, { coefficient: number; cap: number }> = {
+  low:    { coefficient: 0.07, cap: 0.16 },
+  medium: { coefficient: 0.12, cap: 0.28 },
+  high:   { coefficient: 0.18, cap: 0.42 },
+}
+
+function smartDescentProfile(config: PaceConfig): SmartDescentProfile {
+  return config.smartDescent ?? 'balanced'
+}
+
+function smartFatigueProfile(config: PaceConfig): SmartFatigueProfile {
+  return config.smartFatigue ?? 'medium'
+}
+
+export function smartMinutesForSegment(
+  distanceKm: number,
+  elevGainM: number,
+  elevLossM: number,
+  startKm: number,
+  cumulativeGainM: number,
+  cumulativeLossM: number,
+  config: PaceConfig,
+  overridePaceMinPerKm?: number,
+): number {
+  if (distanceKm <= 0) return 0
+
+  const pace = overridePaceMinPerKm ?? config.paceMinPerKm
+  const netGradePct = ((elevGainM - elevLossM) / (distanceKm * 1000)) * 100
+  const descentGradePct = elevLossM > elevGainM ? Math.abs(netGradePct) : 0
+  const ascentGradePct = elevGainM > elevLossM ? netGradePct : 0
+
+  const descent = DESCENT_PROFILES[smartDescentProfile(config)]
+  let terrainMultiplier = 1
+  if (descentGradePct > 0.5) {
+    if (descentGradePct <= 6) {
+      terrainMultiplier -= descent.easyBonus * (descentGradePct / 6)
+    } else if (descentGradePct <= 14) {
+      const t = (descentGradePct - 6) / 8
+      terrainMultiplier += descent.runnableAdjustment * t
+    } else {
+      terrainMultiplier += descent.steepPenalty * Math.min(1.5, (descentGradePct - 14) / 12)
+    }
+  }
+  if (ascentGradePct > 15) {
+    terrainMultiplier += Math.min(0.35, (ascentGradePct - 15) * 0.018)
+  }
+
+  const effortKm =
+    startKm
+    + cumulativeGainM / 100 * 0.7
+    + cumulativeLossM / 100 * 0.25
+  const fatigue = FATIGUE_PROFILES[smartFatigueProfile(config)]
+  const fatigueLoad = Math.max(0, effortKm - 35) / 65
+  const fatigueMultiplier = 1 + Math.min(fatigue.cap, fatigue.coefficient * fatigueLoad ** 1.25)
+
+  const baseMin = distanceKm * pace * Math.max(0.65, terrainMultiplier) * fatigueMultiplier
+  const climbMin = (elevGainM / 100) * config.naismithMin100mUp
+  const technicalDescentMin =
+    descentGradePct > 18
+      ? distanceKm * pace * Math.min(0.35, (descentGradePct - 18) * 0.012)
+      : 0
+
+  return baseMin + climbMin + technicalDescentMin
 }
 
 function interpolatePoint(a: GpxPoint, b: GpxPoint, t: number): GpxPoint {
@@ -205,6 +304,8 @@ export function estimateArrivalTimeAtKm(
 
   let pauseIdx = 0
   let elapsedMs = 0
+  let cumulativeGainM = 0
+  let cumulativeLossM = 0
 
   for (let i = 1; i < points.length; i++) {
     const segStartKm = cumKm[i - 1]
@@ -223,7 +324,16 @@ export function estimateArrivalTimeAtKm(
       const nextPoint = interpolatePoint(points[i - 1], points[i], t)
       const overridePace = segmentPaces ? lookupSegmentPace(cursorKm, segmentPaces) : undefined
 
-      elapsedMs += segmentMinutes(cursorPoint, nextPoint, paceConfig, overridePace) * 60_000
+      elapsedMs += segmentMinutes(cursorPoint, nextPoint, paceConfig, overridePace, {
+        startKm: cursorKm,
+        cumulativeGainM,
+        cumulativeLossM,
+      }) * 60_000
+
+      const eleDelta = nextPoint.ele - cursorPoint.ele
+      if (eleDelta > 0) cumulativeGainM += eleDelta
+      else cumulativeLossM += Math.abs(eleDelta)
+
       cursorKm = nextKm
       cursorPoint = nextPoint
 
@@ -255,8 +365,8 @@ export function computeWaypoints(
   /**
    * Optional per-segment pace overrides (from the cut-off strategy panel).
    * When provided, each track segment uses the pace for its km position
-   * instead of paceConfig.paceMinPerKm. Naismith elevation is still applied
-   * on top of the overridden pace when mode === 'naismith'.
+   * instead of paceConfig.paceMinPerKm. Terrain adjustments still apply
+   * on top of the overridden pace in Naismith / smart modes.
    */
   segmentPaces?: SegmentPace[],
   /**
@@ -323,7 +433,11 @@ export function computeWaypoints(
     const segDist = haversineKm(points[i - 1], points[i])
     // distAccum here = km position of points[i-1] (start of this segment)
     const overridePace = segmentPaces ? lookupSegmentPace(distAccum, segmentPaces) : undefined
-    const segMin = segmentMinutes(points[i - 1], points[i], paceConfig, overridePace)
+    const segMin = segmentMinutes(points[i - 1], points[i], paceConfig, overridePace, {
+      startKm: distAccum,
+      cumulativeGainM: gainAccum,
+      cumulativeLossM: lossAccum,
+    })
     distAccum += segDist
     elapsedMs += segMin * 60000
 
@@ -391,9 +505,10 @@ export function computeWaypoints(
  *
  * - GPX mode with timestamps: linearly interpolates the original GPX timestamps
  *   at fromKm and toKm (independent of absolute clock — purely elapsed time).
+ * - Smart mode: integrates the terrain/fatigue model along the track.
  * - Fixed / Naismith mode: (toKm − fromKm) × paceMinPerKm.
- *   (Naismith elevation adjustment is omitted for live delta — elevation noise
- *   from GPS would add more error than it removes.)
+ *   (Naismith elevation adjustment is omitted here — elevation noise from GPS
+ *   would add more error than it removes.)
  */
 export function expectedMinutesForSegment(
   track: GpxTrack,
@@ -404,6 +519,13 @@ export function expectedMinutesForSegment(
   if (fromKm >= toKm) return 0
   const pts = track.points
   if (pts.length < 2) return 0
+
+  if (paceConfig.mode === 'smart') {
+    const anchor = new Date(0)
+    const fromTime = estimateArrivalTimeAtKm(track, fromKm, anchor, paceConfig)
+    const toTime = estimateArrivalTimeAtKm(track, toKm, anchor, paceConfig)
+    return fromTime && toTime ? (toTime.getTime() - fromTime.getTime()) / 60_000 : 0
+  }
 
   if (paceConfig.mode === 'gpx' && pts.some((p) => p.time)) {
     // Build cumulative km (O(n), fast for typical 10k-point tracks)
@@ -447,6 +569,7 @@ export function expectedMinutesForSegment(
  * - GPX mode with timestamps: uses the GPX time anchor of the first
  *   point with a timestamp; finds the segment whose duration window
  *   contains the target elapsed.
+ * - Smart: binary-searches the km whose integrated model time matches elapsed.
  * - Fixed / Naismith: elapsedMin / paceMinPerKm (linear).
  *
  * Result is clamped to [0, totalDistanceKm].
@@ -459,6 +582,18 @@ export function expectedKmAtElapsed(
   if (elapsedMin <= 0) return 0
   const pts = track.points
   if (pts.length < 2) return 0
+
+  if (paceConfig.mode === 'smart') {
+    let lo = 0
+    let hi = track.totalDistanceKm
+    for (let i = 0; i < 28; i++) {
+      const mid = (lo + hi) / 2
+      const midMin = expectedMinutesForSegment(track, 0, mid, paceConfig)
+      if (midMin < elapsedMin) lo = mid
+      else hi = mid
+    }
+    return Math.max(0, Math.min(track.totalDistanceKm, (lo + hi) / 2))
+  }
 
   if (paceConfig.mode === 'gpx' && pts.some((p) => p.time)) {
     // Find first point with time as anchor

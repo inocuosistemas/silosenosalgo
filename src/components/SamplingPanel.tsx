@@ -42,27 +42,37 @@ export function SamplingPanel({ config, totalKm, onChange }: Props) {
     return null
   })()
 
+  const options = [
+    { mode: 'auto', title: 'Automático', detail: 'densidad según distancia' },
+    { mode: 'km', title: 'Por kilómetros', detail: 'un punto cada X km' },
+    { mode: 'time', title: 'Por tiempo', detail: 'según minutos previstos' },
+    { mode: 'count', title: 'Por número', detail: 'cantidad fija de puntos' },
+  ] as const
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {(['auto', 'km', 'time', 'count'] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => onChange({ ...config, mode: m })}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
-              ${config.mode === m
-                ? 'bg-sky-500 text-white'
-                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-          >
-            {m === 'auto' && 'Automático'}
-            {m === 'km' && 'Por kilómetros'}
-            {m === 'time' && 'Por tiempo'}
-            {m === 'count' && 'Por número'}
-          </button>
-        ))}
+      <div className="space-y-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Generación del plan de paso</span>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {options.map((opt) => (
+            <button
+              key={opt.mode}
+              onClick={() => onChange({ ...config, mode: opt.mode })}
+              className={`min-h-16 rounded-lg border px-3 py-2 text-left text-sm transition-colors
+                ${config.mode === opt.mode
+                  ? 'border-sky-500 bg-sky-500/15 text-sky-100'
+                  : 'border-slate-700 bg-slate-950/35 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60'}`}
+            >
+              <span className="block font-semibold">{opt.title}</span>
+              <span className={`mt-0.5 block text-[11px] leading-snug ${config.mode === opt.mode ? 'text-sky-200/80' : 'text-slate-500'}`}>
+                {opt.detail}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 items-end">
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-3">
         {config.mode === 'auto' && (
           <p className="text-slate-400 text-sm">
             Intervalo automático según la longitud de la ruta.{' '}

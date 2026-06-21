@@ -248,6 +248,8 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
     ? 'tiempos del GPX'
     : paceConfig.mode === 'gpx-moving'
     ? `GPX en mov · ${formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}`
+    : paceConfig.mode === 'smart'
+    ? `inteligente · ${formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}`
     : formatPace(paceConfig.paceMinPerKm, paceConfig.activity)
 
   // ── Tira de info: cada recuadro agrupa métricas de la misma naturaleza ──
@@ -901,4 +903,3 @@ function StatBox({ value, unit, color }: { value: string; unit: string; color: s
     </div>
   )
 }
-

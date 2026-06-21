@@ -1,4 +1,4 @@
-import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { createElement, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { GpxTimesStats } from './components/GpxTimesStats'
@@ -33,7 +33,7 @@ import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
 import { LivePoiCarousel } from './components/LivePoiCarousel'
 import type { TrailPoint } from './lib/livePacing'
-import { computeCutoffStrategy } from './lib/cutoffStrategy'
+import { computeCutoffStrategy, type CutoffStrategyTimeMode } from './lib/cutoffStrategy'
 import type { SegmentPace } from './lib/timing'
 import type { BuddyObservation } from './lib/buddyTracking'
 import { buildBuddyDerived, projectBuddyKmAt } from './lib/buddyTracking'
@@ -52,6 +52,8 @@ const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
   paceMinPerKm: 5.5,
   naismithMin100mUp: 6,
+  smartDescent: 'balanced',
+  smartFatigue: 'medium',
   activity: 'walk',
 }
 
@@ -63,9 +65,11 @@ function loadPaceConfig(): PaceConfig {
     if (!raw) return DEFAULT_PACE
     const obj = JSON.parse(raw)
     return {
-      mode: obj.mode === 'naismith' || obj.mode === 'gpx' || obj.mode === 'gpx-moving' ? obj.mode : 'fixed',
+      mode: obj.mode === 'naismith' || obj.mode === 'smart' || obj.mode === 'gpx' || obj.mode === 'gpx-moving' ? obj.mode : 'fixed',
       paceMinPerKm: typeof obj.paceMinPerKm === 'number' && obj.paceMinPerKm > 0 ? obj.paceMinPerKm : DEFAULT_PACE.paceMinPerKm,
       naismithMin100mUp: typeof obj.naismithMin100mUp === 'number' ? obj.naismithMin100mUp : DEFAULT_PACE.naismithMin100mUp,
+      smartDescent: obj.smartDescent === 'cautious' || obj.smartDescent === 'aggressive' ? obj.smartDescent : DEFAULT_PACE.smartDescent,
+      smartFatigue: obj.smartFatigue === 'low' || obj.smartFatigue === 'high' ? obj.smartFatigue : DEFAULT_PACE.smartFatigue,
       activity: obj.activity === 'run' || obj.activity === 'bike' ? obj.activity : 'walk',
     }
   } catch {
@@ -316,6 +320,7 @@ function formatStartDate(d: Date): string {
 function paceShortLabel(p: PaceConfig): string {
   if (p.mode === 'gpx') return 'GPX exacto'
   if (p.mode === 'gpx-moving') return `GPX en mov · ${formatPace(p.paceMinPerKm, p.activity)}`
+  if (p.mode === 'smart') return `Inteligente · ${formatPace(p.paceMinPerKm, p.activity)}`
   return formatPace(p.paceMinPerKm, p.activity)
 }
 
@@ -326,6 +331,30 @@ function samplingShortLabel(s: SamplingConfig): string {
   if (s.mode === 'time')  return `cada ${s.intervalMinutes} min`
   if (s.mode === 'count') return `${s.count} puntos`
   return ''
+}
+
+function PlanningStep({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-3 border-b border-slate-800 px-4 py-5 last:border-b-0 md:px-5">
+      <div>
+        <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">
+          {step} · {title}
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-slate-500">{description}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  )
 }
 
 type LoadStatus = 'idle' | 'loading' | 'live-loading' | 'done' | 'error'
@@ -490,6 +519,7 @@ export default function App() {
 
   // ── Safety margin for cut-off strategy (minutes) ───────────────────────────
   const [strategyMargin, setStrategyMargin] = useState(0)
+  const [strategyTimeMode, setStrategyTimeMode] = useState<CutoffStrategyTimeMode>('forecast')
 
   // ── Per-segment target times (override the global margin per anchor) ───────
   // Keyed by the cut-off waypoint's km. When set, that anchor's time becomes
@@ -673,7 +703,6 @@ export default function App() {
     },
     [track, hasGpxTimes, paceConfig.activity, restoredGpxStats],
   )
-
   // Autosave the current planning session (subsampling large tracks to fit).
   useEffect(() => {
     if (!track) return
@@ -1348,8 +1377,8 @@ export default function App() {
   async function doCompute(
     computeConfig: typeof paceConfig,
     computeSegPaces: SegmentPace[] | null,
-  ) {
-    if (!track) return
+  ): Promise<boolean> {
+    if (!track) return false
     const token = ++computeTokenRef.current
     setErrorMsg(null)
     setLocationProgress({ done: 0, total: 0 })
@@ -1361,7 +1390,7 @@ export default function App() {
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')
       setStatus('error')
-      return
+      return false
     }
     setBaseWaypoints(wps)
     setWeatherArr(wps.map(() => null))
@@ -1396,13 +1425,20 @@ export default function App() {
         .catch(() => { /* silently ignore — route stays with null pollen */ })
         .finally(() => { if (fresh()) setPollenLoading(false) })
     }
+
+    return true
   }
 
   // Plan mode: full compute with configured start time + sampling.
   // Uses the effective config (so a buddy observation, if active, drives ETAs).
   async function handleCompute() {
     reset()
-    await doCompute(effectivePaceConfig, effectiveSegmentPaces)
+    const computed = await doCompute(effectivePaceConfig, effectiveSegmentPaces)
+    if (computed) {
+      setParamsDirty(false)
+      setParamsExpanded(false)
+      setHasComputedOnce(true)
+    }
   }
 
   // ── Strategy-panel apply handlers ─────────────────────────────────────────
@@ -1675,18 +1711,44 @@ export default function App() {
         buddyKmNow, 'Compañero',
         segmentTargets,
         pauses,
+        strategyTimeMode,
       )
     }
     return computeCutoffStrategy(
       track, withCutoffs, startTime, effectivePaceConfig, strategyMargin,
       0, 'Salida', segmentTargets,
       pauses,
+      strategyTimeMode,
     )
-  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, pauses, buddyDerived, buddyKmNow, buddyTick])
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, pauses, strategyTimeMode, buddyDerived, buddyKmNow, buddyTick])
+
+  const cutoffActionStrategy = useMemo(() => {
+    if (!track || !isDone) return null
+    if (strategyTimeMode === 'objectives') return cutoffStrategy
+    const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
+    if (withCutoffs.length === 0) return null
+    if (buddyDerived && buddyKmNow !== null) {
+      return computeCutoffStrategy(
+        track, withCutoffs, new Date(buddyTick),
+        effectivePaceConfig, strategyMargin,
+        buddyKmNow, 'Compañero',
+        segmentTargets,
+        pauses,
+        'objectives',
+      )
+    }
+    return computeCutoffStrategy(
+      track, withCutoffs, startTime, effectivePaceConfig, strategyMargin,
+      0, 'Salida', segmentTargets,
+      pauses,
+      'objectives',
+    )
+  }, [track, isDone, enrichedNamedWaypoints, startTime, effectivePaceConfig, strategyMargin, segmentTargets, pauses, strategyTimeMode, cutoffStrategy, buddyDerived, buddyKmNow, buddyTick])
 
   function computeStrategyForInputs(
     marginMin: number,
     targets: Map<number, Date>,
+    timeMode: CutoffStrategyTimeMode = strategyTimeMode,
   ) {
     if (!track || !isDone) return null
     const withCutoffs = enrichedNamedWaypoints.filter((w) => w.cutoffTime != null)
@@ -1698,20 +1760,23 @@ export default function App() {
         buddyKmNow, 'Compañero',
         targets,
         pauses,
+        timeMode,
       )
     }
     return computeCutoffStrategy(
       track, withCutoffs, startTime, effectivePaceConfig, marginMin,
       0, 'Salida', targets,
       pauses,
+      timeMode,
     )
   }
 
   async function reapplyVariableStrategy(
     marginMin: number,
     targets: Map<number, Date>,
+    timeMode: CutoffStrategyTimeMode = 'objectives',
   ) {
-    const nextStrategy = computeStrategyForInputs(marginMin, targets)
+    const nextStrategy = computeStrategyForInputs(marginMin, targets, timeMode)
     if (!nextStrategy || nextStrategy.hasImpossible) {
       setSegmentPaces(null)
       return
@@ -1724,6 +1789,10 @@ export default function App() {
   function handleStrategyMarginChange(minutes: number) {
     setStrategyMargin(minutes)
     if (segmentPaces !== null) void reapplyVariableStrategy(minutes, segmentTargets)
+  }
+
+  function handleStrategyTimeModeChange(mode: CutoffStrategyTimeMode) {
+    setStrategyTimeMode(mode)
   }
 
   // ── Buddy: next upcoming cut-off ahead of the projected position ──────────
@@ -2308,32 +2377,43 @@ export default function App() {
 
             {/* ── Expanded params form (initial / "Modificar") ── */}
             {track && paramsExpanded && (
-              <>
-                <section className="space-y-3">
-                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">2 · Fecha y hora de salida</h2>
-                  <input
-                    type="datetime-local"
-                    value={toLocalInputValue(startTime)}
-                    onChange={(e) => {
-                      // While editing a segment (e.g. typing a new day) the field
-                      // briefly emits an empty/incomplete value → Invalid Date.
-                      // Letting that into startTime crashes the autosave effect
-                      // (startTime.toISOString()) and unmounts the whole app.
-                      const d = new Date(e.target.value)
-                      if (isNaN(d.getTime())) return
-                      setStartTime(d)
-                      setBuddyObs([])
-                      if (hasComputedOnce) setParamsDirty(true)
-                      // reset() is intentionally NOT called here so that previous
-                      // results stay visible while editing. reset() runs inside
-                      // handleCompute when the user explicitly asks to recompute.
-                    }}
-                    className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:outline-none focus:border-sky-400 text-slate-100"
-                  />
-                </section>
+              <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900/30">
+                <PlanningStep
+                  step="2"
+                  title="Fecha y hora de salida"
+                  description="Fecha y hora desde la que se calculan pasos, luz, meteo y cortes."
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      type="datetime-local"
+                      value={toLocalInputValue(startTime)}
+                      onChange={(e) => {
+                        // While editing a segment (e.g. typing a new day) the field
+                        // briefly emits an empty/incomplete value → Invalid Date.
+                        // Letting that into startTime crashes the autosave effect
+                        // (startTime.toISOString()) and unmounts the whole app.
+                        const d = new Date(e.target.value)
+                        if (isNaN(d.getTime())) return
+                        setStartTime(d)
+                        setBuddyObs([])
+                        if (hasComputedOnce) setParamsDirty(true)
+                        // reset() is intentionally NOT called here so that previous
+                        // results stay visible while editing. reset() runs inside
+                        // handleCompute when the user explicitly asks to recompute.
+                      }}
+                      className="w-full max-w-xs rounded-lg border border-slate-600 bg-slate-950/60 px-4 py-2.5 font-mono text-slate-100 focus:border-sky-400 focus:outline-none"
+                    />
+                    <span className="text-xs text-slate-500">
+                      {formatStartDate(startTime)} · {formatTime(startTime)}
+                    </span>
+                  </div>
+                </PlanningStep>
 
-                <section className="space-y-3">
-                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">3 · Ritmo</h2>
+                <PlanningStep
+                  step="3"
+                  title="Ritmo"
+                  description="Elige el modelo de previsión y ajusta solo los parámetros que necesita ese modelo."
+                >
                   <PaceConfigPanel
                     config={paceConfig}
                     hasGpxTimes={hasGpxTimes}
@@ -2348,23 +2428,25 @@ export default function App() {
                   />
                   {/* Variable-pace active indicator — shown when strategy panel has been applied */}
                   {segmentPaces && (
-                    <div className="flex items-center justify-between gap-3 text-xs bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-2">
-                      <span className="text-emerald-300 flex items-center gap-1.5">
-                        <span>🔀</span>
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-3 py-2 text-xs">
+                      <span className="flex items-center gap-1.5 text-emerald-300">
                         <span>Ritmo variable por tramos activo</span>
                       </span>
                       <button
                         onClick={() => { setSegmentPaces(null); if (hasComputedOnce) setParamsDirty(true) }}
-                        className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-400 transition-colors shrink-0"
+                        className="shrink-0 rounded border border-slate-600 px-2 py-0.5 text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200"
                       >
                         Volver a ritmo único
                       </button>
                     </div>
                   )}
-                </section>
+                </PlanningStep>
 
-                <section className="space-y-3">
-                  <h2 className="text-slate-400 text-xs uppercase tracking-widest font-semibold">4 · Detalle de waypoints</h2>
+                <PlanningStep
+                  step="4"
+                  title="Detalle de waypoints"
+                  description="Define cuántos puntos intermedios quieres ver en el plan de paso."
+                >
                   <SamplingPanel
                     config={sampling}
                     totalKm={track.totalDistanceKm}
@@ -2373,54 +2455,55 @@ export default function App() {
                       if (hasComputedOnce) setParamsDirty(true)
                     }}
                   />
-                </section>
+                </PlanningStep>
 
-                {/* Pending-changes chip: shown when params have changed since last compute */}
-                {paramsDirty && hasComputedOnce && (
-                  <div className="flex items-center gap-2 text-xs bg-amber-900/30 border border-amber-700/50 text-amber-300 px-3 py-2 rounded-lg">
-                    <span>⏳</span>
-                    <span>Cambios pendientes — la previsión visible es del cálculo anterior.</span>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {/* Primary: plan mode */}
-                  <button
-                    onClick={handleCompute}
-                    disabled={isLiveLoading}
-                    className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-3 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
-                  >
-                    {hasComputedOnce ? 'Recalcular previsión →' : 'Calcular y obtener previsión →'}
-                  </button>
-
-                  {/* Cancel button: only shown when there is a previous compute to return to */}
-                  {hasComputedOnce && (
-                    <button
-                      onClick={handleCancelModify}
-                      disabled={isLiveLoading}
-                      className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-600 text-slate-400 hover:text-slate-200 font-medium py-2.5 rounded-xl transition-colors text-sm"
-                    >
-                      Cancelar — volver sin recalcular
-                    </button>
+                <div className="space-y-3 border-t border-slate-800 bg-slate-950/35 px-4 py-4 md:px-5">
+                  {/* Pending-changes chip: shown when params have changed since last compute */}
+                  {paramsDirty && hasComputedOnce && (
+                    <div className="flex items-center gap-2 rounded-lg border border-amber-700/50 bg-amber-900/30 px-3 py-2 text-xs text-amber-300">
+                      <span>Cambios pendientes: la previsión visible es del cálculo anterior.</span>
+                    </div>
                   )}
+
+                  <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                    {/* Primary: plan mode */}
+                    <button
+                      onClick={handleCompute}
+                      disabled={isLiveLoading}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-sky-500 py-3 text-base font-semibold text-white transition-colors hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500"
+                    >
+                      {hasComputedOnce ? 'Recalcular previsión' : 'Calcular previsión'}
+                    </button>
+
+                    {/* Cancel button: only shown when there is a previous compute to return to */}
+                    {hasComputedOnce && (
+                      <button
+                        onClick={handleCancelModify}
+                        disabled={isLiveLoading}
+                        className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
 
                   {/* Secondary: live shortcut */}
                   <button
                     onClick={handleComputeLive}
                     disabled={isLiveLoading}
-                    className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-600 hover:border-sky-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:border-sky-700 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600"
                   >
                     {isLiveLoading ? (
                       <>
-                        <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full" />
+                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
                         Ubicando y preparando modo en vivo…
                       </>
                     ) : (
-                      <>📍 Estoy en ruta — anclar a mi posición GPS y abrir modo en vivo</>
+                      <>Estoy en ruta: anclar a mi posición GPS y abrir modo en vivo</>
                     )}
                   </button>
                 </div>
-              </>
+              </div>
             )}
 
             {errorMsg && (
@@ -2754,12 +2837,15 @@ export default function App() {
             </div>
             <CutoffStrategy
               strategy={cutoffStrategy}
+              actionStrategy={cutoffActionStrategy ?? cutoffStrategy}
               paceConfig={paceConfig}
               onApplySinglePace={handleApplySinglePace}
               onApplyVariablePaces={handleApplyVariablePaces}
               variablePacesActive={segmentPaces !== null}
               marginMin={strategyMargin}
               onMarginChange={handleStrategyMarginChange}
+              timeMode={strategyTimeMode}
+              onTimeModeChange={handleStrategyTimeModeChange}
               segmentTargets={segmentTargets}
               onSegmentTargetChange={handleSegmentTargetChange}
             />
