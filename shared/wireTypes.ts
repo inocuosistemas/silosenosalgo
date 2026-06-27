@@ -28,6 +28,22 @@ export interface InvitesListResponse {
   invites: InviteInfo[]
 }
 
+/** Metadata for a saved race plan ("previsión"), without the heavy payload. */
+export interface PlanMeta {
+  id: string
+  name: string
+  routeName: string | null
+  distanceKm: number | null
+  elevGainM: number | null
+  startTime: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface PlansListResponse {
+  plans: PlanMeta[]
+}
+
 export interface AuthOkResponse {
   user: AuthUser
   /** Present only for token-mode (native) clients; web uses the HttpOnly cookie. */

@@ -45,9 +45,10 @@ import { checkGpxTimes, reclassifyForActivity } from './lib/gpxValidity'
 import type { GpxTimesValidity } from './lib/gpxValidity'
 import { coordsAtKm } from './lib/customPois'
 import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
-import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePayloadV1 } from './lib/sharePayload'
+import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePayloadV1, type RevivedShare } from './lib/sharePayload'
 import { fetchShare, gunzipToString, ShareTransportError } from './lib/shareTransport'
 import { AuthMenu } from './components/AuthMenu'
+import { MyPlansPanel } from './components/MyPlansPanel'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -1098,6 +1099,18 @@ export default function App() {
     return buildSharePayload({ track, startTime, paceConfig, sampling, cutoffWallClocks })
   }, [track, startTime, paceConfig, sampling, cutoffWallClocks])
 
+  // Inject a revived share/plan into app state — shared by the ?s= open flow and
+  // "Cargar" in Mis previsiones, so both paths behave identically.
+  function applyRevivedShare(revived: RevivedShare) {
+    handleTrack(revived.track)
+    setStartTime(revived.startTime)
+    if (revived.paceConfig) setPaceConfig(revived.paceConfig)
+    if (revived.sampling) setSampling(revived.sampling)
+    setCutoffWallClocksState(revived.cutoffWallClocks)
+    saveCutoffWallClocks(revived.track.name, revived.cutoffWallClocks)
+    setSavedSession(null)
+  }
+
   // ── Compartir salida: load from /?s=<id> at mount (creates an editable fork)
   // We fetch + gunzip + revive the shared payload and inject it through the same
   // restore path as "Recuperar sesión", then strip `?s=` from the URL so a reload
@@ -1116,15 +1129,7 @@ export default function App() {
         const json = await gunzipToString(buf)
         const revived = reviveSharePayload(JSON.parse(json))
 
-        handleTrack(revived.track)
-        setStartTime(revived.startTime)
-        if (revived.paceConfig) setPaceConfig(revived.paceConfig)
-        if (revived.sampling) setSampling(revived.sampling)
-        // handleTrack already seeded cut-offs from the wpts; override with the
-        // payload's authoritative map and persist it under the receiver's track.
-        setCutoffWallClocksState(revived.cutoffWallClocks)
-        saveCutoffWallClocks(revived.track.name, revived.cutoffWallClocks)
-        setSavedSession(null)
+        applyRevivedShare(revived)
       } catch (err) {
         if (err instanceof ShareTransportError && err.kind === 'not_found') {
           setShareLoadError('Este enlace ha caducado o no existe.')
@@ -1920,6 +1925,7 @@ export default function App() {
             return (
             <div className="ml-auto flex items-center gap-2">
               <AuthMenu />
+              <MyPlansPanel getPayload={buildCurrentSharePayload} hasTrack={!!track} onLoad={applyRevivedShare} />
               {isDone ? (
                 <button
                   onClick={() => setShowShareCard(true)}

@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useAuth } from '../lib/AuthContext'
+import type { SharePayloadV1, RevivedShare } from '../lib/sharePayload'
+import type { PlanMeta } from '../../shared/wireTypes'
+import {
+  listPlans, createPlan, getPlan, renamePlan, deletePlan,
+  suggestPlanName, plansErrorMessage, PlansError,
+} from '../lib/plansTransport'
+
+/**
+ * Self-contained "Mis previsiones" control for the header (only visible when
+ * logged in). App passes the current-state payload builder and the load
+ * callback, so this component stays decoupled from the big App state.
+ */
+export function MyPlansPanel({
+  getPayload, hasTrack, onLoad,
+}: {
+  getPayload: () => SharePayloadV1
+  hasTrack: boolean
+  onLoad: (revived: RevivedShare) => void
+}) {
+  const { user, status } = useAuth()
+  const [open, setOpen] = useState(false)
+  if (status !== 'ready' || !user) return null
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Mis previsiones"
+        className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
+      >
+        📁 <span className="hidden sm:inline">Mis previsiones</span>
+      </button>
+      {open && (
+        <Modal title="Mis previsiones" onClose={() => setOpen(false)}>
+          <PlansBody getPayload={getPayload} hasTrack={hasTrack} onLoad={(r) => { onLoad(r); setOpen(false) }} />
+        </Modal>
+      )}
+    </>
+  )
+}
+
+function PlansBody({
+  getPayload, hasTrack, onLoad,
+}: {
+  getPayload: () => SharePayloadV1
+  hasTrack: boolean
+  onLoad: (revived: RevivedShare) => void
+}) {
+  const [plans, setPlans] = useState<PlanMeta[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
+
+  const refresh = useCallback(async () => {
+    try { setPlans(await listPlans()); setError(null) }
+    catch (e) { setError(plansErrorMessage(codeOf(e))) }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  // Prefill the save name from the current route the first time it's available.
+  useEffect(() => {
+    if (hasTrack && !name) {
+      try { setName(suggestPlanName(getPayload())) } catch { /* no track yet */ }
+    }
+  }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save() {
+    if (!hasTrack || !name.trim()) return
+    setBusy(true); setError(null)
+    try {
+      await createPlan(getPayload(), name.trim())
+      await refresh()
+    } catch (e) { setError(plansErrorMessage(codeOf(e))) }
+    finally { setBusy(false) }
+  }
+
+  async function load(id: string) {
+    setBusy(true); setError(null)
+    try { onLoad(await getPlan(id)) }
+    catch (e) { setError(plansErrorMessage(codeOf(e))); setBusy(false) }
+  }
+
+  async function rename(p: PlanMeta) {
+    const next = window.prompt('Nuevo nombre de la previsión', p.name)?.trim()
+    if (!next || next === p.name) return
+    setBusy(true); setError(null)
+    try { await renamePlan(p.id, next); await refresh() }
+    catch (e) { setError(plansErrorMessage(codeOf(e))) }
+    finally { setBusy(false) }
+  }
+
+  async function remove(p: PlanMeta) {
+    if (!window.confirm(`¿Borrar "${p.name}"? No se puede deshacer.`)) return
+    setBusy(true); setError(null)
+    try { await deletePlan(p.id); await refresh() }
+    catch (e) { setError(plansErrorMessage(codeOf(e))) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Save current */}
+      <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+        <p className="text-xs text-slate-400 mb-2">Guardar la ruta actual en tu cuenta</p>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={hasTrack ? 'Nombre de la previsión' : 'Carga una ruta primero'}
+            disabled={!hasTrack || busy}
+            className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50"
+          />
+          <button
+            onClick={() => void save()}
+            disabled={!hasTrack || !name.trim() || busy}
+            className="rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 transition-colors"
+          >
+            Guardar
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-red-400 text-xs">{error}</p>}
+
+      {/* List */}
+      <div className="space-y-2 max-h-72 overflow-y-auto">
+        {plans === null ? (
+          <p className="text-xs text-slate-500">Cargando…</p>
+        ) : plans.length === 0 ? (
+          <p className="text-xs text-slate-500">Aún no tienes previsiones guardadas.</p>
+        ) : (
+          plans.map((p) => (
+            <div key={p.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 text-xs">
+              <p className="font-medium text-slate-200 truncate">{p.name}</p>
+              <p className="text-slate-500 truncate">
+                {[p.routeName, p.distanceKm != null ? `${p.distanceKm.toFixed(p.distanceKm < 100 ? 1 : 0)} km` : null, fmtDate(p.updatedAt)]
+                  .filter(Boolean).join(' · ')}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <RowBtn onClick={() => void load(p.id)} disabled={busy} primary>Cargar</RowBtn>
+                <RowBtn onClick={() => void rename(p)} disabled={busy}>Renombrar</RowBtn>
+                <RowBtn onClick={() => void remove(p)} disabled={busy} danger>Borrar</RowBtn>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RowBtn({ children, onClick, disabled, primary, danger }: {
+  children: ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean; danger?: boolean
+}) {
+  const tone = primary ? 'text-sky-400 hover:bg-sky-950/50' : danger ? 'text-red-400 hover:bg-red-950/40' : 'text-slate-300 hover:bg-slate-800'
+  return (
+    <button onClick={onClick} disabled={disabled} className={`px-2 py-1 rounded border border-slate-700 disabled:opacity-50 transition-colors ${tone}`}>
+      {children}
+    </button>
+  )
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[2000] overflow-y-auto bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 my-8" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold">{title}</h2>
+            <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+          </div>
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function codeOf(e: unknown): string {
+  return e instanceof PlansError ? e.code : 'network'
+}
+
+function fmtDate(ms: number): string {
+  try { return new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) } catch { return '' }
+}
