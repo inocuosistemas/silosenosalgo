@@ -7,23 +7,31 @@ struct LoginView: View {
     @State private var busy = false
     @State private var error: String?
 
+    private var canSubmit: Bool { !busy && !username.isEmpty && !password.isEmpty }
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
             Spacer()
+
+            Text("🌧️").font(.system(size: 52))
             Text("SiLoSeNoSalgo")
                 .font(.largeTitle.bold())
+                .foregroundStyle(Theme.slate100)
             Text("Iniciar sesión")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.slate400)
 
-            TextField("Usuario", text: $username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textContentType(.username)
-                .textFieldStyle(.roundedBorder)
+            VStack(spacing: 12) {
+                TextField("", text: $username, prompt: Text("Usuario").foregroundColor(Theme.slate400))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.username)
+                    .appField()
 
-            SecureField("Contraseña", text: $password)
-                .textContentType(.password)
-                .textFieldStyle(.roundedBorder)
+                SecureField("", text: $password, prompt: Text("Contraseña").foregroundColor(Theme.slate400))
+                    .textContentType(.password)
+                    .appField()
+            }
+            .padding(.top, 4)
 
             if let error {
                 Text(error)
@@ -35,24 +43,29 @@ struct LoginView: View {
             Button {
                 Task { await submit() }
             } label: {
-                if busy {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Text("Entrar").frame(maxWidth: .infinity)
+                Group {
+                    if busy {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Entrar").fontWeight(.semibold)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(busy || username.isEmpty || password.isEmpty)
+            .background(canSubmit ? Theme.sky600 : Theme.slate700)
+            .foregroundStyle(.white)
+            .cornerRadius(12)
+            .disabled(!canSubmit)
 
             Text("El acceso es solo con cuenta. Pide una invitación al organizador para crearla desde la web.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.slate400)
                 .multilineTextAlignment(.center)
 
             Spacer()
         }
-        .padding()
+        .padding(24)
     }
 
     private func submit() async {

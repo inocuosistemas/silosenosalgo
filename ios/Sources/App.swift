@@ -8,6 +8,8 @@ struct SiLoSeNoSalgoTrackerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(auth)
+                .tint(Theme.sky500)
+                .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
         }
     }

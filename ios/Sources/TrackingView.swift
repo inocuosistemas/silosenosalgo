@@ -19,11 +19,12 @@ struct TrackingView: View {
                             .foregroundStyle(.green)
                     } else {
                         Label("Detenido", systemImage: "pause.circle")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.slate400)
                     }
                 }
+                .listRowBackground(Theme.slate900)
 
-                Section("Ajustes") {
+                Section {
                     if !store.isSharing {
                         TextField("Nombre (opcional)", text: $title)
                     }
@@ -35,16 +36,25 @@ struct TrackingView: View {
                         Text("1 min").tag(60.0)
                         Text("2 min").tag(120.0)
                     }
+                } header: {
+                    Text("Ajustes").foregroundStyle(Theme.slate400)
                 }
+                .listRowBackground(Theme.slate900)
 
                 if store.isSharing, let link = store.shareLink {
-                    Section("Enlace para compartir") {
+                    Section {
                         Text(link)
                             .font(.footnote)
+                            .foregroundStyle(Theme.slate400)
                             .textSelection(.enabled)
                         ShareLink("Compartir enlace", item: link)
+                            .foregroundStyle(Theme.sky500)
+                    } header: {
+                        Text("Enlace para compartir").foregroundStyle(Theme.slate400)
                     }
-                    Section("Estado") {
+                    .listRowBackground(Theme.slate900)
+
+                    Section {
                         LabeledContent("Posiciones enviadas", value: "\(store.pingCount)")
                         if let last = store.lastSentAt {
                             LabeledContent("Último envío", value: last.formatted(date: .omitted, time: .standard))
@@ -52,13 +62,17 @@ struct TrackingView: View {
                         if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
                             LabeledContent("Precisión GPS", value: String(format: "± %.0f m", loc.horizontalAccuracy))
                         }
+                    } header: {
+                        Text("Estado").foregroundStyle(Theme.slate400)
                     }
+                    .listRowBackground(Theme.slate900)
                 }
 
                 if let err = store.lastError {
                     Section {
                         Text(err).foregroundStyle(.red).font(.footnote)
                     }
+                    .listRowBackground(Theme.slate900)
                 }
 
                 if store.authStatus == .authorizedWhenInUse {
@@ -67,22 +81,25 @@ struct TrackingView: View {
                             .font(.footnote)
                             .foregroundStyle(.orange)
                     }
+                    .listRowBackground(Theme.slate900)
                 } else if store.authStatus == .denied || store.authStatus == .restricted {
                     Section {
                         Text("El permiso de ubicación está desactivado. Actívalo en Ajustes → SiLoSeNoSalgo → Ubicación.")
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }
+                    .listRowBackground(Theme.slate900)
                 }
 
                 Section {
                     Text("Mantén la app abierta (puede ser en segundo plano) con el indicador de ubicación activo. iOS detiene el GPS si cierras la app por completo.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.slate400)
                 }
+                .listRowBackground(Theme.slate900)
 
                 Section {
-                    Button(role: store.isSharing ? .destructive : nil) {
+                    Button {
                         Task {
                             if store.isSharing {
                                 await store.stopSharing()
@@ -92,12 +109,20 @@ struct TrackingView: View {
                         }
                     } label: {
                         Text(store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
+                            .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .background(store.isSharing ? Color.red.opacity(0.85) : Theme.sky600)
+                    .foregroundStyle(.white)
+                    .cornerRadius(12)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
+                .listRowBackground(Color.clear)
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.slate950)
+            .tint(Theme.sky500)
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -107,6 +132,7 @@ struct TrackingView: View {
                             await auth.logout()
                         }
                     }
+                    .tint(Theme.sky500)
                 }
             }
         }
