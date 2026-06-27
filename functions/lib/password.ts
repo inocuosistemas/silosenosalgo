@@ -7,12 +7,13 @@
  */
 
 /**
- * Default iteration count. OWASP's PBKDF2-SHA256 floor is 210k. Login runs a
- * second (dummy) derivation on a miss, so raise toward 600k only after
- * confirming Pages Functions CPU headroom. Stored per user, so changing this
- * only affects new / re-hashed passwords.
+ * Iteration count is CAPPED by the Cloudflare free-plan per-request CPU limit
+ * (~10ms): 210k threw 1101 (CPU exceeded) in production. This value is tuned to
+ * fit that budget. It's below the OWASP 600k ideal, an accepted trade-off for a
+ * hobby app on the free tier; stored per-row so it can be raised (and old
+ * hashes upgraded on next login) if the project moves to Workers Paid.
  */
-export const PBKDF2_ITERATIONS = 210_000
+export const PBKDF2_ITERATIONS = 100_000
 const SALT_BYTES = 16
 const KEY_BITS = 256
 
