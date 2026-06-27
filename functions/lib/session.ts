@@ -20,6 +20,7 @@ async function sha256Hex(input: string): Promise<string> {
 export interface SessionUser {
   id: string
   username: string
+  isAdmin: boolean
 }
 
 /** Create a session row, returning the raw token to hand to the client. */
@@ -51,15 +52,15 @@ export async function getSessionUser(request: Request, env: Env): Promise<Sessio
 
   const tokenHash = await sha256Hex(token)
   const row = await env.DB.prepare(
-    `SELECT s.user_id AS userId, s.expires_at AS expiresAt, u.username AS username
+    `SELECT s.user_id AS userId, s.expires_at AS expiresAt, u.username AS username, u.is_admin AS isAdmin
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ?`,
-  ).bind(tokenHash).first<{ userId: string; expiresAt: string; username: string }>()
+  ).bind(tokenHash).first<{ userId: string; expiresAt: string; username: string; isAdmin: number }>()
   if (!row) return null
 
   if (new Date(row.expiresAt).getTime() < Date.now()) {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run()
     return null
   }
-  return { id: row.userId, username: row.username }
+  return { id: row.userId, username: row.username, isAdmin: !!row.isAdmin }
 }

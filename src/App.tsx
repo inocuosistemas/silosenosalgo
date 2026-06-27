@@ -47,6 +47,7 @@ import { coordsAtKm } from './lib/customPois'
 import { summariseDaylight, type DaylightSummary, type DaylightBand } from './lib/daylight'
 import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePayloadV1 } from './lib/sharePayload'
 import { fetchShare, gunzipToString, ShareTransportError } from './lib/shareTransport'
+import { AuthMenu } from './components/AuthMenu'
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -1918,6 +1919,7 @@ export default function App() {
             const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
             return (
             <div className="ml-auto flex items-center gap-2">
+              <AuthMenu />
               {isDone ? (
                 <button
                   onClick={() => setShowShareCard(true)}

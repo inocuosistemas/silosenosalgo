@@ -6,6 +6,6 @@ import type { MeResponse } from '../../../shared/wireTypes'
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const user = await getSessionUser(request, env)
-  const body: MeResponse = { user: user ? { id: user.id, username: user.username } : null }
+  const body: MeResponse = { user: user ? { id: user.id, username: user.username, isAdmin: user.isAdmin } : null }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

@@ -11,6 +11,8 @@ export const PASSWORD_MAX = 128
 export const PLAN_ID_RE = /^[A-Za-z0-9_-]{8,32}$/
 /** Session / live-track tokens: 128-bit base64url ≈ 22 chars; allow 16–32. */
 export const TOKEN_RE = /^[A-Za-z0-9_-]{16,32}$/
+/** Invitation codes: base64url; wide range so a hand-picked bootstrap code also fits. */
+export const INVITE_RE = /^[A-Za-z0-9_-]{8,64}$/
 
 /** Normalise a username for case-insensitive comparison/storage. */
 export function normalizeUsername(username: string): string {

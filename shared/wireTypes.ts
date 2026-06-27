@@ -7,6 +7,25 @@
 export interface AuthUser {
   id: string
   username: string
+  isAdmin: boolean
+}
+
+/** An invitation as shown to an admin in the management panel. */
+export interface InviteInfo {
+  code: string
+  grantsAdmin: boolean
+  createdAt: number
+  expiresAt: number | null
+  used: boolean
+  usedAt: number | null
+}
+
+export interface CreateInviteResponse {
+  code: string
+}
+
+export interface InvitesListResponse {
+  invites: InviteInfo[]
 }
 
 export interface AuthOkResponse {

@@ -29,8 +29,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const row = await env.DB.prepare(
-    'SELECT id, username, password_hash AS hash, salt, iterations FROM users WHERE username_ci = ?',
-  ).bind(usernameCi).first<{ id: string; username: string; hash: string; salt: string; iterations: number }>()
+    'SELECT id, username, password_hash AS hash, salt, iterations, is_admin AS isAdmin FROM users WHERE username_ci = ?',
+  ).bind(usernameCi).first<{ id: string; username: string; hash: string; salt: string; iterations: number; isAdmin: number }>()
 
   if (!row) {
     await verifyPassword(body.password, DUMMY_HASH, DUMMY_SALT, PBKDF2_ITERATIONS) // timing parity
@@ -52,7 +52,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const token = await createSession(env, row.id)
   const useToken = wantsToken(request)
-  const payload: AuthOkResponse = { user: { id: row.id, username: row.username }, ...(useToken ? { token } : {}) }
+  const payload: AuthOkResponse = { user: { id: row.id, username: row.username, isAdmin: !!row.isAdmin }, ...(useToken ? { token } : {}) }
   const headers = useToken ? undefined : { 'Set-Cookie': buildSessionCookie(requestHost(request), token) }
   return json(payload, 200, headers)
 }

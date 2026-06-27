@@ -96,13 +96,6 @@ enum API {
         return try JSONDecoder().decode(AuthResponse.self, from: data)
     }
 
-    static func register(username: String, password: String) async throws -> AuthResponse {
-        let (data, http) = try await request("api/auth/register", method: "POST", token: nil,
-                                             body: ["username": username, "password": password])
-        guard ok(http) else { throw decodeError(data, http.statusCode) }
-        return try JSONDecoder().decode(AuthResponse.self, from: data)
-    }
-
     static func me(token: String) async throws -> AuthUser? {
         let (data, http) = try await request("api/auth/me", method: "GET", token: token)
         guard ok(http) else { throw decodeError(data, http.statusCode) }

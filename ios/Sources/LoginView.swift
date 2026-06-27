@@ -4,7 +4,6 @@ struct LoginView: View {
     @EnvironmentObject var auth: AuthStore
     @State private var username = ""
     @State private var password = ""
-    @State private var isRegister = false
     @State private var busy = false
     @State private var error: String?
 
@@ -13,7 +12,7 @@ struct LoginView: View {
             Spacer()
             Text("SiLoSeNoSalgo")
                 .font(.largeTitle.bold())
-            Text(isRegister ? "Crear cuenta" : "Iniciar sesión")
+            Text("Iniciar sesión")
                 .foregroundStyle(.secondary)
 
             TextField("Usuario", text: $username)
@@ -23,7 +22,7 @@ struct LoginView: View {
                 .textFieldStyle(.roundedBorder)
 
             SecureField("Contraseña", text: $password)
-                .textContentType(isRegister ? .newPassword : .password)
+                .textContentType(.password)
                 .textFieldStyle(.roundedBorder)
 
             if let error {
@@ -39,18 +38,17 @@ struct LoginView: View {
                 if busy {
                     ProgressView().frame(maxWidth: .infinity)
                 } else {
-                    Text(isRegister ? "Crear cuenta" : "Entrar").frame(maxWidth: .infinity)
+                    Text("Entrar").frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(busy || username.isEmpty || password.isEmpty)
 
-            Button(isRegister ? "Ya tengo cuenta" : "Crear una cuenta nueva") {
-                isRegister.toggle()
-                error = nil
-            }
-            .font(.footnote)
+            Text("El acceso es solo con cuenta. Pide una invitación al organizador para crearla desde la web.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
 
             Spacer()
         }
@@ -62,11 +60,7 @@ struct LoginView: View {
         error = nil
         defer { busy = false }
         do {
-            if isRegister {
-                try await auth.register(username: username, password: password)
-            } else {
-                try await auth.login(username: username, password: password)
-            }
+            try await auth.login(username: username, password: password)
         } catch {
             self.error = (error as? APIError)?.errorDescription ?? "Error de conexión"
         }

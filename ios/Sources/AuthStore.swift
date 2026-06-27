@@ -34,10 +34,6 @@ final class AuthStore: ObservableObject {
         try await apply(API.login(username: username, password: password))
     }
 
-    func register(username: String, password: String) async throws {
-        try await apply(API.register(username: username, password: password))
-    }
-
     func logout() async {
         if let t = token { await API.logout(token: t) }
         clearLocal()
