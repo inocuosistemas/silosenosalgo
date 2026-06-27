@@ -35,7 +35,15 @@ struct TrackingView: View {
                         Text("30 s").tag(30.0)
                         Text("1 min").tag(60.0)
                         Text("2 min").tag(120.0)
+                        Text("3 min").tag(180.0)
+                        Text("5 min").tag(300.0)
+                        Text("10 min").tag(600.0)
                     }
+                    Text(store.intervalSeconds >= 180
+                        ? "Ahorro de batería: GPS menos preciso. Ideal para ultras."
+                        : "Más frecuente = más preciso, pero más batería.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.slate400)
                 } header: {
                     Text("Ajustes").foregroundStyle(Theme.slate400)
                 }

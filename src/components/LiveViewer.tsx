@@ -98,9 +98,10 @@ export default function LiveViewer({ token }: { token: string }) {
             <div className="min-w-0">
               <p className="font-semibold truncate">{state.title || 'Seguimiento en vivo'}</p>
               <p className="text-xs text-slate-400">
-                {ended ? 'Seguimiento finalizado'
-                  : fix ? <>en directo · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
-                  : 'Esperando la primera posición…'}
+                {state.username && <>Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span> · </>}
+                {ended ? 'finalizado'
+                  : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
+                  : 'esperando primera posición…'}
               </p>
             </div>
           </div>

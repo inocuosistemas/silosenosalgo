@@ -77,6 +77,8 @@ export type TrackStatus = 'active' | 'ended'
 
 export interface TrackStateResponse {
   status: TrackStatus
+  /** Display username of the broadcaster (shown to followers). */
+  username: string | null
   title: string | null
   startedAt: number
   expiresAt: number

@@ -8,7 +8,9 @@ import CoreLocation
 final class TrackingStore: ObservableObject {
     @Published var isSharing = false
     @Published var sessionToken: String?
-    @Published var intervalSeconds: Double = 15
+    @Published var intervalSeconds: Double = 15 {
+        didSet { location.configure(interval: intervalSeconds) }
+    }
     @Published var lastSentAt: Date?
     @Published var pingCount = 0
     @Published var lastError: String?
@@ -45,6 +47,7 @@ final class TrackingStore: ObservableObject {
             pingCount = 0
             lastSentAt = nil
             lastSendAttempt = .distantPast
+            location.configure(interval: intervalSeconds)
             location.start()
         } catch {
             lastError = (error as? APIError)?.errorDescription ?? "No se pudo iniciar el seguimiento."

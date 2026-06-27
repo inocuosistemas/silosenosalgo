@@ -29,6 +29,22 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.requestAlwaysAuthorization()
     }
 
+    /// Tie GPS power to the upload interval. Continuous high-accuracy GPS is the
+    /// main battery drain (not upload frequency), so wider intervals switch to
+    /// coarser accuracy + a distance filter — the real saver for ultras.
+    func configure(interval: TimeInterval) {
+        if interval <= 30 {
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            manager.distanceFilter = kCLDistanceFilterNone
+        } else if interval <= 120 {
+            manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            manager.distanceFilter = 10
+        } else {
+            manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            manager.distanceFilter = 25
+        }
+    }
+
     func start() {
         enableBackgroundIfAuthorized()
         manager.startUpdatingLocation()
