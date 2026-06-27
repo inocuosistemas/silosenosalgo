@@ -23,3 +23,17 @@ compatibility_date = "2024-11-01"
 binding = "SHARE_KV"
 id = "b669534a923040dfaf547131ee42990b"
 preview_id = "c6212e6a0f6a41859dcc6dc23837cf96"
+
+# ── D1 (login + tracking) ─────────────────────────────────────────────────────
+# One-time provisioning (replace the REEMPLAZAR database_id with the value
+# `wrangler d1 create` prints):
+#   npx wrangler d1 create silosenosalgo-db
+#   npx wrangler d1 migrations apply silosenosalgo-db --local     # local dev DB
+#   npx wrangler d1 migrations apply silosenosalgo-db --remote    # production
+# Also bind DB in the dashboard: Pages → (project) → Settings → Functions → D1
+# bindings (the dashboard binding is what DEPLOYED Functions use).
+[[d1_databases]]
+binding = "DB"
+database_name = "silosenosalgo-db"
+database_id = "78eb290e-8713-4aea-9341-92c47b637b83"
+migrations_dir = "migrations"
