@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
 import { authErrorMessage, createInvite, listInvites } from '../lib/authClient'
 import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
+import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
 
 /**
@@ -276,7 +277,7 @@ function InviteManager() {
     }
   }
 
-  function linkFor(code: string) { return `${window.location.origin}/?invite=${code}` }
+  function linkFor(code: string) { return `${PUBLIC_BASE_URL}/?invite=${code}` }
 
   async function copy(code: string) {
     try {

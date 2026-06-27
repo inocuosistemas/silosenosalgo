@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import { createShare, gzipBytes, isShareSupported, MAX_SHARE_BYTES, ShareTransportError, uploadShareImage, type ShareMeta } from '../lib/shareTransport'
+import { PUBLIC_BASE_URL } from '../../shared/config'
 
 /**
  * Summary shown in the link preview (WhatsApp/Telegram/…). The date is rendered
@@ -77,7 +78,7 @@ export function ShareLinkButton({ getPayload, capturePreview }: Props) {
         if (png) await uploadShareImage(id, png)
       } catch { /* preview is a nice-to-have — never block the link for it */ }
 
-      const url = `${window.location.origin}/?s=${id}`
+      const url = `${PUBLIC_BASE_URL}/?s=${id}`
       setLink(url)
       setState('done')
       try {
