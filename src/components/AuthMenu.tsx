@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
 import { authErrorMessage, createInvite, listInvites } from '../lib/authClient'
 import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
@@ -104,12 +105,15 @@ export function AuthMenu() {
 }
 
 /**
- * Overlay that scrolls when the card is taller than the viewport, so the modal
- * is never clipped on short windows (min-h-full + items-center inside an
- * overflow-y-auto layer is the robust pattern).
+ * Modal rendered through a portal to document.body. This is essential here: the
+ * <header> uses `backdrop-blur` (a CSS filter), and a filtered ancestor becomes
+ * the containing block for `position: fixed` descendants — which would confine
+ * the overlay to the header strip. Portaling to body restores viewport-relative
+ * fixed positioning. The overlay also scrolls when the card is taller than the
+ * viewport (min-h-full + items-center inside an overflow-y-auto layer).
  */
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[2000] overflow-y-auto bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="flex min-h-full items-center justify-center p-4">
         <div
@@ -123,7 +127,8 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
