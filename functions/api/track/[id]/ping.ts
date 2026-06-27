@@ -11,7 +11,14 @@ import type { TrailPoint } from '../../../../shared/wireTypes'
  */
 
 const MIN_PING_INTERVAL_MS = 4000
-const TRAIL_MAX = 60
+/**
+ * Max stored path points. The full traveled path IS the route the viewer draws
+ * when no plan is linked, so we keep the whole thing — but downsample (drop
+ * every other point) once over the cap to bound size while preserving the
+ * overall shape. ~2000 pts ≈ a long race at coarse resolution, well under D1's
+ * row limit.
+ */
+const PATH_MAX = 2000
 
 interface PingBody {
   lat: number; lon: number
@@ -50,7 +57,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   let trail: TrailPoint[] = []
   if (row.trail) { try { trail = JSON.parse(row.trail) as TrailPoint[] } catch { trail = [] } }
   trail.push({ t: now, lat, lon })
-  if (trail.length > TRAIL_MAX) trail = trail.slice(trail.length - TRAIL_MAX)
+  if (trail.length > PATH_MAX) {
+    // Halve by keeping every other point; always retain the most recent fix.
+    const latest = trail[trail.length - 1]
+    trail = trail.filter((_, i) => i % 2 === 0)
+    if (trail[trail.length - 1] !== latest) trail.push(latest)
+  }
 
   await env.DB.prepare(
     `UPDATE tracking_sessions
