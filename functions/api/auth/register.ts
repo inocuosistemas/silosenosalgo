@@ -9,10 +9,14 @@ import { usernameOk, passwordOk, normalizeUsername, INVITE_RE } from '../../../s
 import type { AuthOkResponse } from '../../../shared/wireTypes'
 
 /**
- * INVITE-ONLY registration. A valid, unused, unexpired invitation code is
- * required. The invite is claimed atomically (single conditional UPDATE → the
- * single-use lock), so a code can create exactly one account. An invite may
- * grant admin (`grants_admin`).
+ * INVITE-ONLY registration. A valid, unused, unexpired invitation is required
+ * and consumed single-use.
+ *
+ * Correctness note: D1's `meta.changes` is NOT reliable in production for
+ * conditional UPDATEs, so we never branch on it. Instead we (1) validate the
+ * invite with a SELECT, (2) create the user, (3) claim the invite, then (4)
+ * READ BACK `used_by` to confirm we own it — rolling back the user if we lost a
+ * race. This keeps single-use guarantees without depending on `meta.changes`.
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -36,30 +40,37 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const usernameCi = normalizeUsername(body.username)
   const username = body.username.trim()
   const now = Date.now()
+
+  // 1. Validate the invite (must exist, be unused, and not expired).
+  const inv = await env.DB.prepare(
+    'SELECT grants_admin AS grantsAdmin, used_by AS usedBy, expires_at AS expiresAt FROM invitations WHERE code=?',
+  ).bind(body.invite).first<{ grantsAdmin: number; usedBy: string | null; expiresAt: number | null }>()
+  if (!inv || inv.usedBy !== null || (inv.expiresAt !== null && inv.expiresAt <= now)) {
+    return json({ error: 'invalid_invite' }, 410)
+  }
+  const isAdmin = inv.grantsAdmin ? 1 : 0
+
+  // 2. Create the user (fails if the username is taken).
   const userId = genId(8)
-
-  // Atomically claim the invite. Setting used_by up-front (to the not-yet-created
-  // user id) is the single-use lock: if 0 rows change, the code is unknown,
-  // already used, or expired.
-  const claim = await env.DB.prepare(
-    'UPDATE invitations SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL AND (expires_at IS NULL OR expires_at > ?)',
-  ).bind(userId, now, body.invite, now).run()
-  if (!(claim.meta?.changes ?? 0)) return json({ error: 'invalid_invite' }, 410)
-
-  const inv = await env.DB.prepare('SELECT grants_admin AS grantsAdmin FROM invitations WHERE code=?')
-    .bind(body.invite).first<{ grantsAdmin: number }>()
-  const isAdmin = inv?.grantsAdmin ? 1 : 0
-
   const { hash, salt, iterations } = await hashPassword(body.password)
   try {
     await env.DB.prepare(
       'INSERT INTO users (id, username, username_ci, password_hash, salt, iterations, is_admin) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).bind(userId, username, usernameCi, hash, salt, iterations, isAdmin).run()
   } catch {
-    // Username already taken → release the invite so it can be reused.
-    await env.DB.prepare('UPDATE invitations SET used_by=NULL, used_at=NULL WHERE code=? AND used_by=?')
-      .bind(body.invite, userId).run()
     return json({ error: 'username_taken' }, 409)
+  }
+
+  // 3. Claim the invite atomically, then 4. read back to confirm we own it.
+  await env.DB.prepare(
+    'UPDATE invitations SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL AND (expires_at IS NULL OR expires_at > ?)',
+  ).bind(userId, now, body.invite, now).run()
+  const claimed = await env.DB.prepare('SELECT used_by AS usedBy FROM invitations WHERE code=?')
+    .bind(body.invite).first<{ usedBy: string | null }>()
+  if (claimed?.usedBy !== userId) {
+    // Lost a race (or invite became invalid) → roll back the user we created.
+    await env.DB.prepare('DELETE FROM users WHERE id=?').bind(userId).run()
+    return json({ error: 'invalid_invite' }, 410)
   }
 
   const token = await createSession(env, userId)
