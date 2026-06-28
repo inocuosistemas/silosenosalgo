@@ -15,17 +15,27 @@ struct TrackingView: View {
     private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
 
     /// Maps the linear slider position (0…n) to/from the chosen interval.
+    private var modeBinding: Binding<SendMode> {
+        Binding(get: { store.sendMode }, set: { store.sendMode = $0; store.profile = .custom })
+    }
+
     private var intervalIndexBinding: Binding<Double> {
         Binding(
             get: { Double(intervalSteps.firstIndex(of: store.intervalSeconds) ?? 2) },
-            set: { store.intervalSeconds = intervalSteps[min(intervalSteps.count - 1, max(0, Int($0.rounded())))] }
+            set: {
+                store.intervalSeconds = intervalSteps[min(intervalSteps.count - 1, max(0, Int($0.rounded())))]
+                store.profile = .custom
+            }
         )
     }
 
     private var distanceIndexBinding: Binding<Double> {
         Binding(
             get: { Double(distanceSteps.firstIndex(of: store.distanceMeters) ?? 2) },
-            set: { store.distanceMeters = distanceSteps[min(distanceSteps.count - 1, max(0, Int($0.rounded())))] }
+            set: {
+                store.distanceMeters = distanceSteps[min(distanceSteps.count - 1, max(0, Int($0.rounded())))]
+                store.profile = .custom
+            }
         )
     }
 
@@ -47,46 +57,51 @@ struct TrackingView: View {
                     if !store.isSharing {
                         TextField("Nombre (opcional)", text: $title)
                     }
-                    Picker("Enviar", selection: $store.sendMode) {
-                        Text("Por tiempo").tag(SendMode.time)
-                        Text("Por distancia").tag(SendMode.distance)
-                    }
-                    .pickerStyle(.segmented)
+                    profileRow(.balanced, title: "Equilibrado",
+                               detail: "Por distancia (~100 m). Buena precisión y batería.",
+                               autonomy: "Buena autonomía", color: .green, recommended: true)
+                    profileRow(.saver, title: "Ahorro · ultra",
+                               detail: "Por distancia (~500 m). Parado no gasta batería.",
+                               autonomy: "Máxima autonomía", color: .green)
+                    profileRow(.precision, title: "Alta precisión",
+                               detail: "Por tiempo (cada 10 s). Máximo detalle.",
+                               autonomy: "Menor autonomía", color: .orange)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        if store.sendMode == .time {
-                            HStack {
-                                Text("Cada \(intervalLabel(store.intervalSeconds))").fontWeight(.semibold)
-                                Spacer()
-                                Text(batteryLabel(store.intervalSeconds))
-                                    .font(.caption).fontWeight(.semibold)
-                                    .foregroundStyle(batteryColor(store.intervalSeconds))
+                    DisclosureGroup("Avanzado") {
+                        Picker("Enviar", selection: modeBinding) {
+                            Text("Por tiempo").tag(SendMode.time)
+                            Text("Por distancia").tag(SendMode.distance)
+                        }
+                        .pickerStyle(.segmented)
+                        VStack(alignment: .leading, spacing: 6) {
+                            if store.sendMode == .time {
+                                HStack {
+                                    Text("Cada \(intervalLabel(store.intervalSeconds))").fontWeight(.semibold)
+                                    Spacer()
+                                    Text(batteryLabel(store.intervalSeconds))
+                                        .font(.caption).fontWeight(.semibold)
+                                        .foregroundStyle(batteryColor(store.intervalSeconds))
+                                }
+                                Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
+                            } else {
+                                HStack {
+                                    Text("Cada \(distanceLabel(store.distanceMeters))").fontWeight(.semibold)
+                                    Spacer()
+                                    Text(batteryLabelDist(store.distanceMeters))
+                                        .font(.caption).fontWeight(.semibold)
+                                        .foregroundStyle(batteryColorDist(store.distanceMeters))
+                                }
+                                Slider(value: distanceIndexBinding, in: 0...Double(distanceSteps.count - 1), step: 1)
                             }
-                            Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
-                        } else {
                             HStack {
-                                Text("Cada \(distanceLabel(store.distanceMeters))").fontWeight(.semibold)
+                                Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
                                 Spacer()
-                                Text(batteryLabelDist(store.distanceMeters))
-                                    .font(.caption).fontWeight(.semibold)
-                                    .foregroundStyle(batteryColorDist(store.distanceMeters))
+                                Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
                             }
-                            Slider(value: distanceIndexBinding, in: 0...Double(distanceSteps.count - 1), step: 1)
                         }
-                        HStack {
-                            Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
-                            Spacer()
-                            Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
-                        }
-                        if store.sendMode == .distance {
-                            Text("Parado, igualmente se emite cada pocos minutos para que no parezcas sin señal.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        } else if store.intervalSeconds >= 180 {
-                            Text("GPS menos preciso para ahorrar batería. Ideal para ultras.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                    .tint(Theme.sky500)
                     Picker("Conservar al finalizar", selection: $store.retainHours) {
                         Text("6 h").tag(6.0)
                         Text("12 h").tag(12.0)
@@ -96,7 +111,7 @@ struct TrackingView: View {
                         Text("1 semana").tag(168.0)
                     }
                 } header: {
-                    Text("Ajustes").foregroundStyle(Theme.slate400)
+                    Text("Modo de seguimiento").foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -338,5 +353,34 @@ struct TrackingView: View {
         if m <= 50 { return .orange }
         if m <= 250 { return .yellow }
         return .green
+    }
+
+    @ViewBuilder
+    private func profileRow(_ p: SendProfile, title: String, detail: String, autonomy: String, color: Color, recommended: Bool = false) -> some View {
+        Button {
+            store.selectProfile(p)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: store.profile == p ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(store.profile == p ? Theme.sky500 : Theme.slate400)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(title).foregroundStyle(Theme.slate100)
+                        if recommended {
+                            Text("Recomendado")
+                                .font(.caption2).fontWeight(.semibold)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Theme.sky600.opacity(0.25))
+                                .foregroundStyle(Theme.sky500)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text(detail).font(.caption).foregroundStyle(Theme.slate400)
+                    Text(autonomy).font(.caption2).foregroundStyle(color)
+                }
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

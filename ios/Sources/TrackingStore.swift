@@ -4,6 +4,9 @@ import CoreLocation
 /// How position uploads are paced.
 enum SendMode: String { case time, distance }
 
+/// User-facing preset that maps to a sendMode + value. `.custom` = manual.
+enum SendProfile: String { case balanced, saver, precision, custom }
+
 /// Orchestrates a live-sharing session: creates it on the backend, then pings
 /// the latest GPS fix at the chosen interval. Location updates arrive
 /// continuously (foreground + background); we upload only once per interval.
@@ -11,7 +14,9 @@ enum SendMode: String { case time, distance }
 final class TrackingStore: ObservableObject {
     @Published var isSharing = false
     @Published var sessionToken: String?
-    @Published var sendMode: SendMode = .time {
+    /// User-facing preset (default = the recommended balanced profile).
+    @Published var profile: SendProfile = .balanced
+    @Published var sendMode: SendMode = .distance {
         didSet { applyLocationConfig() }
     }
     @Published var intervalSeconds: Double = 15 {
@@ -218,6 +223,17 @@ final class TrackingStore: ObservableObject {
     /// Distance-mode heartbeat: still emit at least this often when stationary,
     /// so followers don't see a frozen "lost signal".
     private let heartbeatSeconds: TimeInterval = 150
+
+    /// Apply a user-facing preset; `.custom` leaves the manual values untouched.
+    func selectProfile(_ p: SendProfile) {
+        profile = p
+        switch p {
+        case .balanced: sendMode = .distance; distanceMeters = 100
+        case .saver: sendMode = .distance; distanceMeters = 500
+        case .precision: sendMode = .time; intervalSeconds = 10
+        case .custom: break
+        }
+    }
 
     private func applyLocationConfig() {
         if sendMode == .time {

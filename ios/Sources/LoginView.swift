@@ -17,6 +17,9 @@ struct LoginView: View {
             Text("SiLoSeNoSalgo")
                 .font(.largeTitle.bold())
                 .foregroundStyle(Theme.slate100)
+            Text("Baliza · seguimiento en vivo")
+                .font(.subheadline)
+                .foregroundStyle(Theme.sky500)
             Text("Iniciar sesión")
                 .foregroundStyle(Theme.slate400)
 
