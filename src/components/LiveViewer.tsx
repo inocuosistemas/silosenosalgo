@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { TrackStateResponse } from '../../shared/wireTypes'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
+import { fetchShare, gunzipToString } from '../lib/shareTransport'
+import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
+import { expectedKmAtElapsed } from '../lib/timing'
+import type { GpxNamedWaypoint } from '../lib/gpx'
 
 const POLL_MS = 10_000
 const STALE_MS = 35_000
@@ -18,6 +22,18 @@ function Follow({ lat, lon }: { lat: number; lon: number }) {
   return null
 }
 
+/** Fits the map to the planned route once, while there's no live fix yet. */
+function FitPlan({ positions }: { positions: [number, number][] }) {
+  const map = useMap()
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current || positions.length < 2) return
+    done.current = true
+    map.fitBounds(positions, { padding: [40, 40] })
+  }, [positions, map])
+  return null
+}
+
 function freshness(updatedAt: number): { label: string; stale: boolean } {
   const s = Math.max(0, Math.round((Date.now() - updatedAt) / 1000))
   const stale = Date.now() - updatedAt > STALE_MS
@@ -30,6 +46,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const [state, setState] = useState<TrackStateResponse | null>(null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
   const [, force] = useState(0)
+  const [plan, setPlan] = useState<RevivedShare | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -52,6 +69,25 @@ export default function LiveViewer({ token }: { token: string }) {
     return () => window.clearInterval(id)
   }, [])
 
+  // Load the planned route once, the first time a planShareId shows up.
+  const planShareId = state?.planShareId ?? null
+  const loadedPlanRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!planShareId || loadedPlanRef.current === planShareId) return
+    loadedPlanRef.current = planShareId // guard: only attempt to load once per id
+    let alive = true
+    void (async () => {
+      try {
+        const buf = await fetchShare(planShareId)
+        const revived = reviveSharePayload(JSON.parse(await gunzipToString(buf)))
+        if (alive) setPlan(revived)
+      } catch {
+        // Ignore — fall back to live-trace-only.
+      }
+    })()
+    return () => { alive = false }
+  }, [planShareId])
+
   const trail = state?.trail ?? []
   const trailLatLng = useMemo(() => trail.map((p) => [p.lat, p.lon] as [number, number]), [trail])
   const distanceKm = useMemo(() => {
@@ -60,26 +96,81 @@ export default function LiveViewer({ token }: { token: string }) {
     return d
   }, [trail])
 
+  const planLatLng = useMemo(
+    () => (plan ? plan.track.points.map((p) => [p.lat, p.lon] as [number, number]) : []),
+    [plan],
+  )
+
+  // Progress = nearest planned-track point to the current live fix.
+  const fixLat = state?.fix?.lat ?? null
+  const fixLon = state?.fix?.lon ?? null
+  const progressKm = useMemo(() => {
+    if (!plan || fixLat == null || fixLon == null) return null
+    const pts = plan.track.points
+    let bestIdx = 0
+    let bestDist = Infinity
+    for (let i = 0; i < pts.length; i++) {
+      const d = haversineKm(fixLat, fixLon, pts[i].lat, pts[i].lon)
+      if (d < bestDist) { bestDist = d; bestIdx = i }
+    }
+    return plan.track.cumKm[bestIdx] ?? null
+  }, [plan, fixLat, fixLon])
+
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
   if (!state) return <Centered title="Cargando…" />
 
   const fix = state.fix
   const ended = state.status === 'ended'
+  const planStart = plan ? plan.track.points[0] : null
   const center: [number, number] = fix ? [fix.lat, fix.lon]
     : trail.length ? [trail[trail.length - 1].lat, trail[trail.length - 1].lon]
+    : planStart ? [planStart.lat, planStart.lon]
     : [40.4168, -3.7038]
   const fr = fix ? freshness(fix.updatedAt) : null
   const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
 
+  // Plan-relative stats (only meaningful once we have a snapped progress).
+  const totalKm = plan?.track.totalDistanceKm ?? 0
+  const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
+
+  let paceDelta: number | null = null
+  if (plan && progressKm != null) {
+    const elapsedMin = (Date.now() - plan.startTime.getTime()) / 60000
+    if (Number.isFinite(elapsedMin) && elapsedMin > 0) {
+      const expectedKm = expectedKmAtElapsed(plan.track, elapsedMin, plan.paceConfig)
+      const delta = progressKm - expectedKm
+      if (Number.isFinite(delta)) paceDelta = delta
+    }
+  }
+
+  let nextPoi: GpxNamedWaypoint | null = null
+  if (plan && progressKm != null) {
+    for (const w of plan.track.namedWaypoints) {
+      if (w.distanceKm > progressKm && (!nextPoi || w.distanceKm < nextPoi.distanceKm)) nextPoi = w
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-100">
-      <MapContainer center={center} zoom={fix || trail.length ? 14 : 6} className="absolute inset-0" zoomControl={false}>
+      <MapContainer center={center} zoom={fix || trail.length ? 14 : plan ? 13 : 6} className="absolute inset-0" zoomControl={false}>
         <TileLayer
           attribution='&copy; OpenStreetMap'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        {/* Planned route, drawn UNDER the live trace. */}
+        {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
         {trailLatLng.length > 1 && <Polyline positions={trailLatLng} pathOptions={{ color: '#0ea5e9', weight: 4, opacity: 0.85 }} />}
+        {plan?.track.namedWaypoints.map((w, i) => (
+          <CircleMarker
+            key={`poi-${i}`}
+            center={[w.lat, w.lon]}
+            radius={5}
+            pathOptions={{ color: '#fff', weight: 1, fillColor: '#f59e0b', fillOpacity: 0.9 }}
+          >
+            <Tooltip>{w.name}</Tooltip>
+          </CircleMarker>
+        ))}
         {fix && (
           <CircleMarker
             center={[fix.lat, fix.lon]}
@@ -88,6 +179,7 @@ export default function LiveViewer({ token }: { token: string }) {
           />
         )}
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
+        {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
 
       {/* Top overlay panel */}
@@ -106,11 +198,31 @@ export default function LiveViewer({ token }: { token: string }) {
             </div>
           </div>
           {fix && !ended && (
-            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-              <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />
-              <Stat label="Velocidad" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
-              <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
-            </div>
+            <>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                {plan && progressKm != null
+                  ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
+                  : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
+                <Stat label="Velocidad" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
+                <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
+              </div>
+              {plan && progressKm != null && (paceDelta != null || nextPoi) && (
+                <div className="mt-2 space-y-0.5 text-xs">
+                  {paceDelta != null && (
+                    <p className={paceDelta >= 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                      {paceDelta >= 0
+                        ? `${paceDelta.toFixed(1)} km por delante`
+                        : `${Math.abs(paceDelta).toFixed(1)} km por detrás`}
+                    </p>
+                  )}
+                  {nextPoi && (
+                    <p className="text-slate-300">
+                      Próximo: {nextPoi.name} (+{(nextPoi.distanceKm - progressKm).toFixed(1)} km)
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

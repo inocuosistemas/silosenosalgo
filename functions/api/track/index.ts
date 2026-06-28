@@ -18,11 +18,37 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = (await readJson<{ title?: string; planShareId?: string; ttlMs?: number }>(request)) || {}
+  const body =
+    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number }>(request)) || {}
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
-  const planShareId =
-    typeof body.planShareId === 'string' && PLAN_ID_RE.test(body.planShareId) ? body.planShareId : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
+
+  // Resolve the plan to overlay on the public viewer (nullable):
+  //  - planId: copy the owner's saved plan payload into SHARE_KV under a fresh,
+  //    TTL-bound id so it's fetchable via the public GET /api/share/:id route.
+  //  - planShareId: an existing share id (web broadcaster path) — use as-is.
+  let planShareId: string | null = null
+  if (typeof body.planId === 'string' && PLAN_ID_RE.test(body.planId)) {
+    const row = await env.DB.prepare('SELECT payload FROM plans WHERE id=? AND user_id=?')
+      .bind(body.planId, user.id).first<{ payload: unknown }>()
+    if (row) {
+      // D1 returns BLOB columns as number[]; normalise to raw bytes (handle
+      // ArrayBuffer / typed arrays defensively too) — see functions/api/plans/[id].ts.
+      const raw = row.payload
+      let bytes: Uint8Array
+      if (Array.isArray(raw)) bytes = new Uint8Array(raw)
+      else if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw)
+      else if (ArrayBuffer.isView(raw)) bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+      else bytes = new Uint8Array(0)
+      const kvId = genId(8)
+      await env.SHARE_KV.put(kvId, bytes, { expirationTtl: Math.max(60, Math.ceil(ttl / 1000)) })
+      planShareId = kvId
+    }
+  }
+  // Fallback (or plan not found/owned): accept a pre-existing share id directly.
+  if (!planShareId && typeof body.planShareId === 'string' && PLAN_ID_RE.test(body.planShareId)) {
+    planShareId = body.planShareId
+  }
 
   const now = Date.now()
   // One active session per user: end any prior active ones (stop accumulation).

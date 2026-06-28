@@ -21,6 +21,16 @@ struct CreateTrackResponse: Codable {
     let expiresAt: Double
 }
 
+/// A saved race plan ("previsión") belonging to the user. The server returns
+/// extra fields (elevGainM, startTime, createdAt, updatedAt); Codable ignores
+/// unknown keys, so we declare only what the UI uses.
+struct PlanSummary: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let routeName: String?
+    let distanceKm: Double?
+}
+
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.
 struct Fix {
     var lat: Double
@@ -106,11 +116,21 @@ enum API {
         _ = try? await request("api/auth/logout", method: "POST", token: token)
     }
 
+    // MARK: Plans
+
+    static func listPlans(token: String) async throws -> [PlanSummary] {
+        struct Wrapper: Codable { let plans: [PlanSummary] }
+        let (data, http) = try await request("api/plans", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(Wrapper.self, from: data).plans
+    }
+
     // MARK: Tracking
 
-    static func createTrack(token: String, title: String?) async throws -> CreateTrackResponse {
+    static func createTrack(token: String, title: String?, planId: String? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
+        if let planId { body["planId"] = planId }
         let (data, http) = try await request("api/track", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)

@@ -49,6 +49,25 @@ struct TrackingView: View {
                 }
                 .listRowBackground(Theme.slate900)
 
+                if !store.isSharing {
+                    Section {
+                        Picker("Ruta (previsión)", selection: $store.selectedPlanId) {
+                            Text("Sin ruta · trazado en vivo").tag(String?.none)
+                            ForEach(store.plans) { plan in
+                                Text(plan.name).tag(Optional(plan.id))
+                            }
+                        }
+                        if store.selectedPlanId != nil {
+                            Text("Tus seguidores verán la ruta planificada y tu progreso.")
+                                .font(.caption)
+                                .foregroundStyle(Theme.slate400)
+                        }
+                    } header: {
+                        Text("Ruta").foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
                 if store.isSharing, let link = store.shareLink {
                     Section {
                         Text(link)
@@ -131,6 +150,7 @@ struct TrackingView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.slate950)
             .tint(Theme.sky500)
+            .task { await store.loadPlans() }
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

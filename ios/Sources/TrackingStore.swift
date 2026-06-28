@@ -16,6 +16,8 @@ final class TrackingStore: ObservableObject {
     @Published var lastError: String?
     @Published var lastLocation: CLLocation?
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
+    @Published var plans: [PlanSummary] = []
+    @Published var selectedPlanId: String? = nil
 
     private let token: String
     private let location = LocationManager()
@@ -37,11 +39,18 @@ final class TrackingStore: ObservableObject {
         return Config.shareLink(for: t)
     }
 
+    func loadPlans() async {
+        // Best-effort: if it fails we simply offer "Sin ruta"; never crash.
+        if let result = try? await API.listPlans(token: token) {
+            plans = result
+        }
+    }
+
     func startSharing(title: String?) async {
         lastError = nil
         location.requestAuthorization()
         do {
-            let res = try await API.createTrack(token: token, title: title)
+            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId)
             sessionToken = res.id
             isSharing = true
             pingCount = 0
