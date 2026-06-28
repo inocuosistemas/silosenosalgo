@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
+import { projectToTrack } from '../lib/customPois'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment, splitHoursMinutes } from '../lib/timing'
@@ -145,6 +146,18 @@ interface Props {
    * vista chips and the map's own legend live on the same line.
    */
   headerSlot?: React.ReactNode
+  /**
+   * When true the 🚩 POI flags become draggable. Dragging is *magnetic*: the
+   * flag rides the track and never leaves it, snapping to the projected km on
+   * release. Off by default (a flag is only movable in the plan-mode "Reubicar"
+   * sub-mode), so the map keeps panning normally otherwise.
+   */
+  editablePois?: boolean
+  /**
+   * Commit a relocated POI. The original `lat`/`lon` identify which POI moved
+   * (its stable key upstream); `km` is the new snapped distance along the track.
+   */
+  onMovePoi?: (lat: number, lon: number, km: number) => void
 }
 
 const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
@@ -184,6 +197,17 @@ function cutoffMarginText(min: number): string {
 const FLAG_ICON = L.divIcon({
   className: '',
   html: '<div style="font-size:18px;line-height:1;user-select:none;pointer-events:none">🚩</div>',
+  iconSize: [20, 22],
+  iconAnchor: [3, 21],
+  popupAnchor: [0, -20],
+})
+
+// Draggable variant used in "Reubicar" mode. Critically it does NOT set
+// pointer-events:none (Leaflet needs the element to receive the drag), and it
+// adds a grab cursor + sky glow so it reads as movable.
+const FLAG_ICON_DRAG = L.divIcon({
+  className: '',
+  html: '<div style="font-size:18px;line-height:1;user-select:none;cursor:grab;filter:drop-shadow(0 0 2px #38bdf8) drop-shadow(0 0 5px #38bdf8)">🚩</div>',
   iconSize: [20, 22],
   iconAnchor: [3, 21],
   popupAnchor: [0, -20],
@@ -350,8 +374,14 @@ export function RouteMap({
   daylightAnchor,
   hoverKm = null,
   headerSlot,
+  editablePois = false,
+  onMovePoi,
 }: Props) {
   const { points } = track
+
+  // Live km of the flag currently being dragged (imperative — updated on every
+  // drag tick without a React re-render, committed to state only on dragend).
+  const dragKmRef = useRef(0)
 
   // The shared mode drives all colouring/legend/overlay branches below. Kept as
   // a local `mapMode` alias so the rest of the component is unchanged.
@@ -1634,18 +1664,47 @@ export function RouteMap({
               }
               return true
             })
-            .map((wpt, i) => {
-              // Pin the flag to the POI's position ON THE TRACK (its distanceKm),
-              // not the raw <wpt> lat/lon. When a GPX carries a persisted
-              // distanceKm — or its coords snapped to the wrong pass of a route
-              // that overlaps itself — the raw coords sit at a different km than
-              // the value the rest of the app uses (table, cut-offs, carousel,
-              // popup). nearestTrackIndex is kept consistent with distanceKm by
-              // the parser, so this keeps the flag where the app says the POI is.
-              const snap = track.points[Math.min(Math.max(0, wpt.nearestTrackIndex), track.points.length - 1)]
-              const flagPos: [number, number] = snap ? [snap.lat, snap.lon] : [wpt.lat, wpt.lon]
+            .map((wpt) => {
+              // Rest position: the exact interpolated point at the POI's km, so a
+              // relocated flag sits precisely where the magnet dropped it (not the
+              // nearest vertex). This also keeps the flag on the track when a GPX
+              // carries a persisted distanceKm that disagrees with its raw coords,
+              // or snapped to the wrong pass of a self-overlapping route.
+              const flagPos: [number, number] =
+                coordsAtKm(points, cumKm, totalKm, wpt.distanceKm) ?? [wpt.lat, wpt.lon]
+              // Stable key by the POI's *original* lat/lon so the marker isn't
+              // remounted as the list re-sorts after a move (and so a drag commits
+              // against the right identity).
+              const stableKey = `nwp-${wpt.lat.toFixed(6)},${wpt.lon.toFixed(6)}`
               return (
-              <Marker key={`nwp-${i}`} position={flagPos} icon={FLAG_ICON}>
+              <Marker
+                key={stableKey}
+                position={flagPos}
+                icon={editablePois ? FLAG_ICON_DRAG : FLAG_ICON}
+                draggable={editablePois}
+                eventHandlers={editablePois ? {
+                  dragstart: (e) => {
+                    dragKmRef.current = wpt.distanceKm
+                    const m = e.target as L.Marker
+                    m.bindTooltip(`Km ${wpt.distanceKm.toFixed(2)}`, {
+                      permanent: true, direction: 'top', offset: [0, -16], className: 'poi-km-tip',
+                    }).openTooltip()
+                  },
+                  drag: (e) => {
+                    const m = e.target as L.Marker
+                    const ll = m.getLatLng()
+                    const p = projectToTrack(track, ll.lat, ll.lng, { nearKm: dragKmRef.current, windowKm: 3 })
+                    dragKmRef.current = p.km
+                    m.setLatLng([p.lat, p.lon])           // magnet: glue the flag to the track
+                    m.setTooltipContent(`Km ${p.km.toFixed(2)}`)
+                  },
+                  dragend: (e) => {
+                    const m = e.target as L.Marker
+                    m.unbindTooltip()
+                    onMovePoi?.(wpt.lat, wpt.lon, dragKmRef.current)
+                  },
+                } : undefined}
+              >
                 <Popup>
                   <div style={{ minWidth: 160, lineHeight: 1.6 }}>
                     <p style={{ fontWeight: 700, marginBottom: 2 }}>🚩 {wpt.name}</p>

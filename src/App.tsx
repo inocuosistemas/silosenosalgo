@@ -422,6 +422,14 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('slope')
   // Km hovered on the elevation profile → mirrored as a marker on the map.
   const [hoverKm, setHoverKm] = useState<number | null>(null)
+  // Plan-mode "Reubicar POIs": when on, map flags become draggable (magnetic snap).
+  const [relocatePois, setRelocatePois] = useState(false)
+  // True once an *original* (non-custom) POI has been relocated this session.
+  // Those moves live in the session/export but NOT in the per-track custom cache,
+  // so re-importing the raw GPX would revert them — we surface the option-C hint
+  // (download the GPX to make it permanent). Custom POIs persist on their own.
+  const [originalPoiMoved, setOriginalPoiMoved] = useState(false)
+  const [relocateHintDismissed, setRelocateHintDismissed] = useState(false)
   const [showRainRadar, setShowRainRadarState] = useState<boolean>(loadShowRainRadar)
   const setShowRainRadar = useCallback((v: boolean) => {
     setShowRainRadarState(v)
@@ -469,6 +477,8 @@ export default function App() {
   const computeTokenRef = useRef(0)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [showShareCard, setShowShareCard] = useState(false)
+  // "Mis previsiones" modal — opened from the user menu (AuthMenu dropdown).
+  const [plansOpen, setPlansOpen] = useState(false)
 
   // ── "Compartir salida" load state (when opened via /?s=<id>) ───────────────
   const [shareLoading, setShareLoading] = useState(false)
@@ -1070,6 +1080,8 @@ export default function App() {
 
     // Fresh load → no pending session changes
     setTrackDirty(false)
+    setOriginalPoiMoved(false)
+    setRelocateHintDismissed(false)
 
     // Fresh load → full resolution, no restore override or subsample notice.
     // (A session restore re-sets these right after calling handleTrack.)
@@ -1248,6 +1260,30 @@ export default function App() {
     setTrackDirty(true)
   }
 
+  /**
+   * Commit a POI relocated by dragging its flag on the map. The drag already
+   * snapped to a km on the track (magnetic); here we just route that new km
+   * through `handleUpdatePoi`, preserving the POI's name/desc/cut-off. That
+   * reuses all the existing bookkeeping: re-position + re-elevation from km,
+   * re-keying the cut-off map, invalidating the segment target, persisting
+   * custom POIs and flagging the track dirty.
+   */
+  function handleMovePoi(lat: number, lon: number, km: number) {
+    if (!track) return
+    const key = wptKey(lat, lon)
+    const w = track.namedWaypoints.find((p) => wptKey(p.lat, p.lon) === key)
+    if (!w) return
+    // Only originals risk reverting on a fresh re-import (custom POIs are cached
+    // per track). Surface the "download GPX" hint just for them.
+    if (!w.custom) setOriginalPoiMoved(true)
+    handleUpdatePoi(lat, lon, {
+      distanceKm: km,
+      name: w.name,
+      desc: w.desc ?? '',
+      cutoff: cutoffWallClocks.get(key) ?? null,
+    })
+  }
+
   function handleAddPassingPoint(draft: { km: number; name: string; pauseMin: number | null }) {
     if (!track) return
     const distanceKm = Math.max(0, Math.min(track.totalDistanceKm, draft.km))
@@ -1339,6 +1375,9 @@ export default function App() {
     // day is meant to be inferred at re-import time.
     downloadGpx(track, cutoffWallClocks)
     setTrackDirty(false)
+    // The relocated positions are now baked into the file → hint no longer applies.
+    setOriginalPoiMoved(false)
+    setRelocateHintDismissed(false)
   }
 
   // Garmin-compatible export: a FIT course whose course_points carry an explicit
@@ -1926,8 +1965,14 @@ export default function App() {
             const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
             return (
             <div className="ml-auto flex items-center gap-2">
-              <AuthMenu />
-              <MyPlansPanel getPayload={buildCurrentSharePayload} hasTrack={!!track} onLoad={applyRevivedShare} />
+              <AuthMenu onOpenPlans={() => setPlansOpen(true)} />
+              <MyPlansPanel
+                open={plansOpen}
+                onClose={() => setPlansOpen(false)}
+                getPayload={buildCurrentSharePayload}
+                hasTrack={!!track}
+                onLoad={applyRevivedShare}
+              />
               {isDone ? (
                 <button
                   onClick={() => setShowShareCard(true)}
@@ -2254,18 +2299,33 @@ export default function App() {
             namedWaypoints={enrichedNamedWaypoints}
             mode={viewMode}
             headerSlot={
-              <ModeSelector
-                mode={viewMode}
-                onModeChange={setViewMode}
-                weatherAvailable={weatherArr.some((w) => w !== null)}
-                pollenAvailable={pollenArr.some((p) => p !== null)}
-                daylightAvailable={baseWaypoints.length >= 2 && daylightAnchor != null}
-                terrainStatus={terrainStatus}
-                terrainErrorKind={terrainErrorKind}
-                terrainRetryAfterSec={terrainRetryAfterSec}
-                onFetchTerrain={() => fetchTerrain()}
-                onTerrainRetry={retryTerrain}
-              />
+              <>
+                <ModeSelector
+                  mode={viewMode}
+                  onModeChange={setViewMode}
+                  weatherAvailable={weatherArr.some((w) => w !== null)}
+                  pollenAvailable={pollenArr.some((p) => p !== null)}
+                  daylightAvailable={baseWaypoints.length >= 2 && daylightAnchor != null}
+                  terrainStatus={terrainStatus}
+                  terrainErrorKind={terrainErrorKind}
+                  terrainRetryAfterSec={terrainRetryAfterSec}
+                  onFetchTerrain={() => fetchTerrain()}
+                  onTerrainRetry={retryTerrain}
+                />
+                {appMode === 'plan' && track.namedWaypoints.length > 0 && (
+                  <button
+                    onClick={() => setRelocatePois((v) => !v)}
+                    title="Arrastra las 🚩 sobre el mapa para reubicarlas; se quedan pegadas al track"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      relocatePois
+                        ? 'bg-sky-600 border-sky-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    ✥ {relocatePois ? 'Reubicando POIs — arrastra las 🚩' : 'Reubicar POIs'}
+                  </button>
+                )}
+              </>
             }
             liveMode={appMode === 'live'}
             liveCoords={livePos.coords}
@@ -2296,7 +2356,37 @@ export default function App() {
             windAnimationAvailable={weatherArr.some((w) => w !== null)}
             daylightAnchor={daylightAnchor}
             hoverKm={hoverKm}
+            editablePois={appMode === 'plan' && relocatePois}
+            onMovePoi={handleMovePoi}
           />
+        )}
+
+        {/* ── Aviso de persistencia tras reubicar POIs originales (opción C) ── */}
+        {appMode === 'plan' && originalPoiMoved && !relocateHintDismissed && (
+          <div className="flex items-start gap-3 bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3">
+            <span className="text-amber-300 text-lg leading-none mt-0.5">ℹ️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-200">Has reubicado POIs del recorrido</p>
+              <p className="text-xs text-amber-100/70 mt-0.5">
+                Los cambios se guardan en esta sesión (vuelven con «Recuperar» al recargar). Para
+                conservarlos de forma permanente, descarga el GPX: si vuelves a importar el fichero
+                original, mandará su contenido.
+              </p>
+              <button
+                onClick={handleDownloadGpx}
+                className="flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
+              >
+                ↓ Descargar GPX
+              </button>
+            </div>
+            <button
+              onClick={() => setRelocateHintDismissed(true)}
+              className="text-amber-300/60 hover:text-amber-200 text-lg leading-none shrink-0"
+              aria-label="Cerrar aviso"
+            >
+              ×
+            </button>
+          </div>
         )}
 
         {/* ── 🛤️ Perfil de altura: track-only, aparece junto al mapa al cargar.

@@ -11,45 +11,36 @@ import {
 type Current = { id: string; name: string } | null
 
 /**
- * "Mis previsiones" header control (logged-in only). Tracks the currently
- * loaded/saved plan so it can offer "Actualizar «X»" (overwrite in place) vs
- * "Guardar como nueva". State lives here (the button stays mounted) so it
- * survives opening/closing the modal.
+ * "Mis previsiones" modal. Opened from the user menu (AuthMenu → "📁 Mis
+ * previsiones"); this component owns the modal and the "currently loaded/saved
+ * plan" state so it can offer "Actualizar «X»" (overwrite in place) vs "Guardar
+ * como nueva". The parent renders it unconditionally and it self-hides (returns
+ * null) until `open`, so `current` survives opening/closing.
  */
 export function MyPlansPanel({
-  getPayload, hasTrack, onLoad,
+  open, onClose, getPayload, hasTrack, onLoad,
 }: {
+  open: boolean
+  onClose: () => void
   getPayload: () => SharePayloadV1
   hasTrack: boolean
   onLoad: (revived: RevivedShare) => void
 }) {
   const { user, status } = useAuth()
-  const [open, setOpen] = useState(false)
   const [current, setCurrent] = useState<Current>(null)
-  if (status !== 'ready' || !user) return null
+  if (status !== 'ready' || !user || !open) return null
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        title="Mis previsiones"
-        className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
-      >
-        📁 <span className="hidden sm:inline">Mis previsiones</span>
-      </button>
-      {open && (
-        <Modal title="Mis previsiones" onClose={() => setOpen(false)}>
-          <PlansBody
-            getPayload={getPayload}
-            hasTrack={hasTrack}
-            current={current}
-            onSaved={(id, name) => setCurrent({ id, name })}
-            onLoaded={(id, name, revived) => { setCurrent({ id, name }); onLoad(revived); setOpen(false) }}
-            onDeleted={(id) => setCurrent((c) => (c && c.id === id ? null : c))}
-          />
-        </Modal>
-      )}
-    </>
+    <Modal title="Mis previsiones" onClose={onClose}>
+      <PlansBody
+        getPayload={getPayload}
+        hasTrack={hasTrack}
+        current={current}
+        onSaved={(id, name) => setCurrent({ id, name })}
+        onLoaded={(id, name, revived) => { setCurrent({ id, name }); onLoad(revived); onClose() }}
+        onDeleted={(id) => setCurrent((c) => (c && c.id === id ? null : c))}
+      />
+    </Modal>
   )
 }
 

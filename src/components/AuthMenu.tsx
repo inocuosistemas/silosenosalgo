@@ -12,7 +12,7 @@ import type { InviteInfo } from '../../shared/wireTypes'
  * (`?invite=<code>`), which auto-opens the registration form. Admins get an
  * "Invitaciones" panel to generate those links.
  */
-export function AuthMenu() {
+export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const { user, status, login, register, logout } = useAuth()
   const [invite, setInvite] = useState<string | null>(() => {
     const c = new URLSearchParams(window.location.search).get('invite')
@@ -55,6 +55,14 @@ export function AuthMenu() {
                   Sesión iniciada como<br />
                   <span className="text-slate-300 font-medium">{user.username}</span>
                 </div>
+                {onOpenPlans && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onOpenPlans() }}
+                    className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                  >
+                    📁 Mis previsiones
+                  </button>
+                )}
                 {user.isAdmin && (
                   <button
                     onClick={() => { setMenuOpen(false); setShowInvites(true) }}

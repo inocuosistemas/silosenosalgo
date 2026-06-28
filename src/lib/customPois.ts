@@ -54,6 +54,90 @@ export function coordsAtKm(track: GpxTrack, km: number): { lat: number; lon: num
   }
 }
 
+/**
+ * Inverse of `coordsAtKm`: project an arbitrary lat/lon onto the track polyline
+ * and return the nearest point ON the track. This is what "snaps" a dragged POI
+ * marker back to the route.
+ *
+ * Unlike `snapFixToTrack` (which snaps to the nearest GPX *vertex*), this
+ * projects onto track *segments* — the perpendicular foot — so the result is
+ * exact and smooth, not quantised to the point spacing. Returns the
+ * interpolated km/lat/lon/ele plus `nearestIndex` (kept consistent with how the
+ * parser snaps wpts) and `offTrackKm` (how far the input was from the route, for
+ * optional feedback).
+ *
+ * `opts.nearKm` + `opts.windowKm` restrict the search to segments whose
+ * cumulative km lies within `nearKm ± windowKm`. On routes that cross or double
+ * back on themselves this keeps a drag *local*: without it a global nearest
+ * search can teleport the POI to the other pass. Omit them to scan everything.
+ */
+export function projectToTrack(
+  track: GpxTrack,
+  lat: number,
+  lon: number,
+  opts?: { nearKm?: number; windowKm?: number },
+): { km: number; lat: number; lon: number; ele: number; nearestIndex: number; offTrackKm: number } {
+  const { points, cumKm } = track
+  if (points.length === 0) return { km: 0, lat, lon, ele: 0, nearestIndex: 0, offTrackKm: 0 }
+  if (points.length === 1) {
+    return {
+      km: 0,
+      lat: points[0].lat, lon: points[0].lon, ele: points[0].ele,
+      nearestIndex: 0,
+      offTrackKm: haversineKm({ lat, lon, ele: 0, time: null }, points[0]),
+    }
+  }
+
+  // Segment range to scan: segment i spans points[i] → points[i + 1].
+  let firstSeg = 0
+  let lastSeg  = points.length - 2
+  if (opts?.nearKm != null && opts?.windowKm != null) {
+    const minKm = opts.nearKm - opts.windowKm
+    const maxKm = opts.nearKm + opts.windowKm
+    while (firstSeg < lastSeg && cumKm[firstSeg + 1] < minKm) firstSeg++
+    while (lastSeg  > firstSeg && cumKm[lastSeg]      > maxKm) lastSeg--
+  }
+
+  // Equirectangular scaling so 1° lon ≈ 1° lat in the planar foot math near `lat`.
+  const cosLat = Math.cos((lat * Math.PI) / 180)
+  const px = lon * cosLat
+  const py = lat
+
+  let bestT   = 0
+  let bestSeg = firstSeg
+  let bestD2  = Infinity
+  for (let i = firstSeg; i <= lastSeg; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const ax = a.lon * cosLat, ay = a.lat
+    const dx = b.lon * cosLat - ax, dy = b.lat - ay
+    const len2 = dx * dx + dy * dy
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0
+    const fx = ax + t * dx, fy = ay + t * dy
+    const d2 = (px - fx) ** 2 + (py - fy) ** 2
+    if (d2 < bestD2) {
+      bestD2  = d2
+      bestT   = t
+      bestSeg = i
+    }
+  }
+
+  const a = points[bestSeg]
+  const b = points[bestSeg + 1]
+  const footLat = a.lat + bestT * (b.lat - a.lat)
+  const footLon = a.lon + bestT * (b.lon - a.lon)
+  const footEle = a.ele + bestT * (b.ele - a.ele)
+  const km = cumKm[bestSeg] + bestT * (cumKm[bestSeg + 1] - cumKm[bestSeg])
+  return {
+    km,
+    lat: footLat,
+    lon: footLon,
+    ele: footEle,
+    nearestIndex: bestT < 0.5 ? bestSeg : bestSeg + 1,
+    offTrackKm: haversineKm({ lat, lon, ele: 0, time: null }, { lat: footLat, lon: footLon, ele: 0, time: null }),
+  }
+}
+
 function haversineKm(a: GpxPoint, b: GpxPoint): number {
   const R = 6371
   const dLat = ((b.lat - a.lat) * Math.PI) / 180
