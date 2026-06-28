@@ -5,8 +5,9 @@ import type { TrackStateResponse } from '../../shared/wireTypes'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
-import { expectedKmAtElapsed, estimateArrivalTimeAtKm, formatTime, type PausePoint } from '../lib/timing'
+import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment, formatTime, type PausePoint } from '../lib/timing'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
+import { bandAt, type DaylightBand } from '../lib/daylight'
 
 const POLL_MS = 10_000
 const STALE_MS = 35_000
@@ -44,13 +45,33 @@ function freshness(updatedAt: number): { label: string; stale: boolean } {
   return { label: `hace ${m} min`, stale }
 }
 
-function deltaLabel(min: number): string {
+/** Format a minutes magnitude as H:MM h (or "M min" under an hour). */
+function hhmm(min: number): string {
   const a = Math.abs(Math.round(min))
-  if (a === 0) return 'en hora'
   const h = Math.floor(a / 60)
   const m = a % 60
-  const t = h > 0 ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`
-  return `${t} por ${min < 0 ? 'delante' : 'detrás'}`
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`
+}
+
+function deltaLabel(min: number): string {
+  if (Math.abs(Math.round(min)) === 0) return 'en hora'
+  return `${hhmm(min)} por ${min < 0 ? 'delante' : 'detrás'}`
+}
+
+function dayOffset(date: Date, ref: Date): number {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const r = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate()).getTime()
+  return Math.round((d - r) / 86_400_000)
+}
+
+/** Clock time, plus "+Nd" when it falls on a later day than the reference (start). */
+function clockDay(date: Date, ref: Date): string {
+  const off = dayOffset(date, ref)
+  return off > 0 ? `${formatTime(date)} +${off}d` : formatTime(date)
+}
+
+function bandIcon(band: DaylightBand): string {
+  return band === 'night' ? '🌙' : band === 'civil' ? '🌆' : '☀️'
 }
 
 export default function LiveViewer({ token }: { token: string }) {
@@ -129,6 +150,20 @@ export default function LiveViewer({ token }: { token: string }) {
     return plan.track.cumKm[bestIdx] ?? null
   }, [plan, fixLat, fixLon])
 
+  // Static per-POI plan data (segment distance/elevation + planned elapsed from
+  // start), computed once per plan — not on every 1s freshness re-render.
+  const planRows = useMemo(() => {
+    if (!plan) return null
+    const epoch = new Date(0)
+    const sorted = plan.track.namedWaypoints.slice().sort((a, b) => a.distanceKm - b.distanceKm)
+    return sorted.map((w, i) => {
+      const prevKm = i > 0 ? sorted[i - 1].distanceKm : 0
+      const seg = elevationStatsForSegment(plan.track, prevKm, w.distanceKm, plan.paceConfig)
+      const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
+      return { w, seg, plannedElapsedMs: eta0 ? eta0.getTime() : null }
+    })
+  }, [plan, pauses])
+
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
   if (!state) return <Centered title="Cargando…" />
@@ -196,17 +231,15 @@ export default function LiveViewer({ token }: { token: string }) {
 
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
-    const cards = plan.track.namedWaypoints
-      .slice()
-      .sort((a, b) => a.distanceKm - b.distanceKm)
-      .map((w) => {
-        const plannedETA = estimateArrivalTimeAtKm(plan.track, w.distanceKm, sessionStart, plan.paceConfig, undefined, pauses)
-        const cutoff = cutoffDates.get(cutoffWptKey(w.lat, w.lon)) ?? null
-        const projectedETA = plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
-        const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
-        const passed = progressKm != null && w.distanceKm <= progressKm + 0.05
-        return { w, plannedETA, cutoff, projectedETA, marginMin, passed }
-      })
+    const cards = (planRows ?? []).map((r) => {
+      const plannedETA = r.plannedElapsedMs != null ? new Date(sessionStart.getTime() + r.plannedElapsedMs) : null
+      const cutoff = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon)) ?? null
+      const projectedETA = plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
+      const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
+      const passed = progressKm != null && r.w.distanceKm <= progressKm + 0.05
+      const band: DaylightBand | null = projectedETA ? bandAt(projectedETA, r.w.lat, r.w.lon) : null
+      return { w: r.w, seg: r.seg, plannedETA, cutoff, projectedETA, marginMin, passed, band }
+    })
     const nextIdx = cards.findIndex((c) => !c.passed)
     const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses)
     const projFinish = plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
@@ -220,7 +253,7 @@ export default function LiveViewer({ token }: { token: string }) {
             <div className="grid grid-cols-3 gap-2 text-center">
               <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
               <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
-              <Stat label="Meta (prev.)" value={projFinish ? formatTime(projFinish) : '—'} />
+              <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
             </div>
           </div>
           {cards.length === 0 ? (
@@ -233,23 +266,20 @@ export default function LiveViewer({ token }: { token: string }) {
               <div className="flex items-baseline justify-between gap-2">
                 <p className="font-semibold truncate">
                   {i === nextIdx && <span className="text-sky-400">▶ </span>}
+                  {c.band && <span>{bandIcon(c.band)} </span>}
                   {c.w.name}
                 </p>
                 <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                <span className="text-slate-300">
-                  Paso prev.: <span className="font-medium">{c.projectedETA ? formatTime(c.projectedETA) : '—'}</span>
-                  {c.plannedETA && c.projectedETA && Math.abs(c.projectedETA.getTime() - c.plannedETA.getTime()) > 60_000 && (
-                    <span className="text-slate-500"> (plan {formatTime(c.plannedETA)})</span>
-                  )}
-                </span>
+                <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
                 {c.cutoff && (
                   <span className={marginTone(c.marginMin)}>
-                    Corte {formatTime(c.cutoff)}
-                    {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : ''}{Math.abs(Math.round(c.marginMin))} min</>}
+                    Corte {clockDay(c.cutoff, sessionStart)}
+                    {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
                   </span>
                 )}
+                <span className="text-slate-500">↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m</span>
                 {c.w.pauseMin != null && c.w.pauseMin > 0 && <span className="text-slate-500">⏸ {c.w.pauseMin} min</span>}
               </div>
             </div>
