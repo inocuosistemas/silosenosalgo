@@ -74,6 +74,10 @@ function bandIcon(band: DaylightBand): string {
   return band === 'night' ? '🌙' : band === 'civil' ? '🌆' : '☀️'
 }
 
+function formatDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
+}
+
 export default function LiveViewer({ token }: { token: string }) {
   const [state, setState] = useState<TrackStateResponse | null>(null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -135,10 +139,11 @@ export default function LiveViewer({ token }: { token: string }) {
     () => (plan ? plan.track.namedWaypoints.filter((w) => w.pauseMin != null && w.pauseMin > 0).map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! })) : []),
     [plan],
   )
-  // Progress = nearest planned-track point to the current live fix.
+  // Snap the live fix to the nearest planned-track point: km along route + how
+  // far the fix actually is from the route.
   const fixLat = state?.fix?.lat ?? null
   const fixLon = state?.fix?.lon ?? null
-  const progressKm = useMemo(() => {
+  const nearest = useMemo(() => {
     if (!plan || fixLat == null || fixLon == null) return null
     const pts = plan.track.points
     let bestIdx = 0
@@ -147,8 +152,18 @@ export default function LiveViewer({ token }: { token: string }) {
       const d = haversineKm(fixLat, fixLon, pts[i].lat, pts[i].lon)
       if (d < bestDist) { bestDist = d; bestIdx = i }
     }
-    return plan.track.cumKm[bestIdx] ?? null
+    return { km: plan.track.cumKm[bestIdx] ?? 0, distKm: bestDist }
   }, [plan, fixLat, fixLon])
+
+  // Off-route with hysteresis (no flicker at the boundary): off at >250 m from
+  // the route, back on at <120 m. Avoids snapping to a bogus "progress" when the
+  // runner is far from the route (e.g. at home before the start).
+  const [offRoute, setOffRoute] = useState(false)
+  useEffect(() => {
+    if (!nearest) { if (offRoute) setOffRoute(false); return }
+    if (nearest.distKm > 0.25 && !offRoute) setOffRoute(true)
+    else if (nearest.distKm <= 0.12 && offRoute) setOffRoute(false)
+  }, [nearest, offRoute])
 
   // Static per-POI plan data (segment distance/elevation + planned elapsed from
   // start), computed once per plan — not on every 1s freshness re-render.
@@ -182,6 +197,9 @@ export default function LiveViewer({ token }: { token: string }) {
   const cutoffDates = plan
     ? inferCutoffDatesFromWaypoints(plan.track.namedWaypoints, plan.cutoffWallClocks ?? new Map(), sessionStart)
     : new Map<string, Date>()
+
+  // Only treat the snapped km as real progress when actually on the route.
+  const progressKm = nearest && !offRoute ? nearest.km : null
 
   // For ended sessions the delta vs plan is frozen at the last known fix.
   const refNow = ended && fix ? fix.updatedAt : Date.now()
@@ -256,6 +274,11 @@ export default function LiveViewer({ token }: { token: string }) {
               <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
             </div>
           </div>
+          {offRoute && (
+            <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-2.5 text-xs text-amber-300">
+              ⚠️ Fuera de ruta · a {nearest ? formatDist(nearest.distKm) : ''} de la traza. Los tiempos mostrados son los del plan, no proyecciones en vivo.
+            </div>
+          )}
           {cards.length === 0 ? (
             <p className="text-xs text-slate-500 text-center py-4">Esta previsión no tiene puntos de control.</p>
           ) : cards.map((c, i) => (
@@ -301,7 +324,7 @@ export default function LiveViewer({ token }: { token: string }) {
             <Tooltip>{w.name}</Tooltip>
           </CircleMarker>
         ))}
-        {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : fr?.stale ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
+        {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
@@ -320,6 +343,9 @@ export default function LiveViewer({ token }: { token: string }) {
               </div>
               {deltaMin != null && (
                 <p className={`mt-2 text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</p>
+              )}
+              {hasPlan && offRoute && nearest && (
+                <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
               )}
             </>
           )}
