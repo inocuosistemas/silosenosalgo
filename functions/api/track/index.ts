@@ -21,7 +21,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body =
-    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number }>(request)) || {}
+    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number }>(request)) || {}
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
 
@@ -53,6 +53,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const now = Date.now()
+  // Reference start = the PLANNED departure time (settable), so the broadcaster
+  // can activate tracking later and keep paces/predictions anchored to the real
+  // start. Defaults to now; clamped to ±24 h to reject bad values.
+  const startedAt = typeof body.startAt === 'number' && Math.abs(body.startAt - now) <= 24 * 60 * 60 * 1000
+    ? body.startAt
+    : now
   // One active session per user: end any prior active ones (stop accumulation).
   // Keep their data so they stay viewable for 24 h, then they're lazy-purged.
   await env.DB.prepare(
@@ -63,7 +69,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const expiresAt = now + ttl
   await env.DB.prepare(
     "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, status, started_at, expires_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
-  ).bind(id, user.id, title, planShareId, now, expiresAt).run()
+  ).bind(id, user.id, title, planShareId, startedAt, expiresAt).run()
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)

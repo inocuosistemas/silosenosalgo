@@ -33,6 +33,10 @@ final class TrackingStore: ObservableObject {
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var plans: [PlanSummary] = []
     @Published var selectedPlanId: String? = nil
+    /// Planned departure time = reference for paces/predictions. Default now;
+    /// keep it at the real start even if tracking is activated later.
+    @Published var startAt: Date = Date()
+    var startAtTouched = false
     @Published var sessions: [TrackSessionSummary] = []
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
     @Published var retainHours: Double = 24
@@ -108,7 +112,10 @@ final class TrackingStore: ObservableObject {
         lastError = nil
         location.requestAuthorization()
         do {
-            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId)
+            // If the user didn't set a departure time, use "now" at share time
+            // (not the stale value from when the screen opened).
+            let start = startAtTouched ? startAt : Date()
+            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000)
             sessionToken = res.id
             isSharing = true
             pingCount = 0

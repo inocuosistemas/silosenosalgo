@@ -110,6 +110,12 @@ struct TrackingView: View {
                         Text("72 h").tag(72.0)
                         Text("1 semana").tag(168.0)
                     }
+                    if !store.isSharing {
+                        DatePicker("Hora de salida prevista", selection: $store.startAt, displayedComponents: [.date, .hourAndMinute])
+                            .onChange(of: store.startAt) { _ in store.startAtTouched = true }
+                        Text("Por defecto, ahora. Si activas el seguimiento más tarde, ajústala a la hora real de salida para mantener ritmos y previsiones correctos.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
                 } header: {
                     Text("Modo de seguimiento").foregroundStyle(Theme.slate400)
                 }

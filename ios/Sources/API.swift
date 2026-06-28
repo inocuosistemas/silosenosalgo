@@ -145,10 +145,11 @@ enum API {
         return try JSONDecoder().decode(Wrapper.self, from: data).sessions
     }
 
-    static func createTrack(token: String, title: String?, planId: String? = nil) async throws -> CreateTrackResponse {
+    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
         if let planId { body["planId"] = planId }
+        if let startAt { body["startAt"] = startAt }
         let (data, http) = try await request("api/track", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)

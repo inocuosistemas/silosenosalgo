@@ -98,6 +98,61 @@ function paceLabel(minPerKm: number): string {
   return `${m}:${String(s).padStart(2, '0')}/km`
 }
 
+function heroTone(marginMin: number): string {
+  if (marginMin < 0) return 'border-red-600 bg-red-950/50 text-red-200'
+  if (marginMin < 15) return 'border-amber-600 bg-amber-950/50 text-amber-100'
+  return 'border-emerald-700 bg-emerald-950/40 text-emerald-100'
+}
+
+const PROFILE_W = 100
+const PROFILE_H = 28
+interface SegProfile { line: string; area: string; fromKm: number; span: number }
+
+/** Build an SVG elevation sparkline for the segment [fromKm, toKm]. Computed once. */
+function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[] }, fromKm: number, toKm: number): SegProfile | null {
+  const { points, cumKm } = track
+  const idx: number[] = []
+  for (let i = 0; i < points.length; i++) {
+    if (cumKm[i] >= fromKm - 0.0005 && cumKm[i] <= toKm + 0.0005) idx.push(i)
+  }
+  if (idx.length < 2) return null
+  const step = Math.max(1, Math.ceil(idx.length / 80))
+  const sel = idx.filter((_, k) => k % step === 0)
+  if (sel[sel.length - 1] !== idx[idx.length - 1]) sel.push(idx[idx.length - 1])
+  let minE = Infinity, maxE = -Infinity
+  for (const i of sel) { const e = points[i].ele; if (e < minE) minE = e; if (e > maxE) maxE = e }
+  const span = toKm - fromKm || 1
+  const eleSpan = maxE - minE || 1
+  const x = (km: number) => ((km - fromKm) / span) * PROFILE_W
+  const y = (ele: number) => PROFILE_H - 1 - ((ele - minE) / eleSpan) * (PROFILE_H - 2)
+  const coords = sel.map((i) => `${x(cumKm[i]).toFixed(1)},${y(points[i].ele).toFixed(1)}`)
+  return {
+    line: `M${coords.join('L')}`,
+    area: `M${x(cumKm[sel[0]]).toFixed(1)},${PROFILE_H}L${coords.join('L')}L${x(cumKm[sel[sel.length - 1]]).toFixed(1)},${PROFILE_H}Z`,
+    fromKm,
+    span,
+  }
+}
+
+/** Mini elevation profile of a segment with a live position marker. */
+function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm: number | null }) {
+  if (!profile) return null
+  const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
+  const px = inSeg ? ((posKm! - profile.fromKm) / profile.span) * PROFILE_W : null
+  return (
+    <svg viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" className="mt-1.5 w-full h-8">
+      <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
+      <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      {px != null && (
+        <>
+          <line x1={px} y1={0} x2={px} y2={PROFILE_H} stroke="#ffffff" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <circle cx={px} cy={2} r={2} fill="#ffffff" />
+        </>
+      )}
+    </svg>
+  )
+}
+
 export default function LiveViewer({ token }: { token: string }) {
   const [state, setState] = useState<TrackStateResponse | null>(null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -196,8 +251,9 @@ export default function LiveViewer({ token }: { token: string }) {
       const prevKm = i > 0 ? sorted[i - 1].distanceKm : 0
       const seg = elevationStatsForSegment(plan.track, prevKm, w.distanceKm, plan.paceConfig)
       cumGainM += seg.elevGainM
+      const profile = buildSegmentProfile(plan.track, prevKm, w.distanceKm)
       const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
-      return { w, seg, cumGainM, plannedElapsedMs: eta0 ? eta0.getTime() : null }
+      return { w, seg, cumGainM, profile, plannedElapsedMs: eta0 ? eta0.getTime() : null }
     })
   }, [plan, pauses])
 
@@ -258,6 +314,29 @@ export default function LiveViewer({ token }: { token: string }) {
     }
   }
 
+  // Next cut-off ahead — the headline "are you OK?" info.
+  let nextCutoff: { name: string; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number } | null = null
+  if (plan && planRows && progressKm != null && !offRoute && deltaMin != null) {
+    for (const r of planRows) {
+      if (r.w.distanceKm <= progressKm + 0.05) continue
+      const cutoff = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon))
+      if (!cutoff) continue
+      const plannedETA = r.plannedElapsedMs != null ? new Date(sessionStart.getTime() + r.plannedElapsedMs) : null
+      if (!plannedETA) continue
+      const projectedETA = new Date(plannedETA.getTime() + deltaMin * 60_000)
+      const remDist = r.w.distanceKm - progressKm
+      const availMin = (cutoff.getTime() - Date.now()) / 60_000
+      nextCutoff = {
+        name: r.w.name,
+        cutoff,
+        marginMin: (cutoff.getTime() - projectedETA.getTime()) / 60_000,
+        reqPace: availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null,
+        remDist,
+      }
+      break
+    }
+  }
+
   const hasPlan = !!plan
   const center: [number, number] = fix ? [fix.lat, fix.lon]
     : trail.length ? [trail[trail.length - 1].lat, trail[trail.length - 1].lon]
@@ -281,6 +360,20 @@ export default function LiveViewer({ token }: { token: string }) {
     </div>
   )
 
+  const cutoffHero = nextCutoff && (
+    <div className={`rounded-xl border p-3 text-center ${heroTone(nextCutoff.marginMin)}`}>
+      <p className="text-[11px] uppercase tracking-wide opacity-80 truncate">Próximo corte · {nextCutoff.name}</p>
+      <p className="text-3xl font-extrabold leading-tight">
+        {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}
+        {nextCutoff.marginMin < 15 && <span className="text-sm font-bold"> · ⚠️ APRIETA</span>}
+      </p>
+      <p className="text-xs opacity-90">
+        Corte {clockDay(nextCutoff.cutoff, sessionStart)} · a {nextCutoff.remDist.toFixed(1)} km
+        {nextCutoff.reqPace != null && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
+      </p>
+    </div>
+  )
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -298,7 +391,7 @@ export default function LiveViewer({ token }: { token: string }) {
         reqPace = availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null
       }
       const wx = projectedETA && weather ? weatherAt(weather[i], projectedETA) : null
-      return { w: r.w, seg: r.seg, cumGainM: r.cumGainM, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
+      return { w: r.w, seg: r.seg, cumGainM: r.cumGainM, profile: r.profile, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
     const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses)
@@ -308,6 +401,7 @@ export default function LiveViewer({ token }: { token: string }) {
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
         <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">{header}</div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {cutoffHero}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -351,6 +445,7 @@ export default function LiveViewer({ token }: { token: string }) {
                 {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
                 {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
               </div>
+              <SegmentProfile profile={c.profile} posKm={progressKm} />
               {c.wx && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
                   <span>🌡️ {Math.round(c.wx.temp)}°</span>
@@ -385,6 +480,7 @@ export default function LiveViewer({ token }: { token: string }) {
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
         <div className="mx-auto max-w-md rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
+          {cutoffHero && <div className="mt-2">{cutoffHero}</div>}
           {fix && (
             <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
