@@ -26,6 +26,7 @@ struct CreateTrackResponse: Codable {
 struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let id: String
     let title: String?
+    let planName: String?   // linked route name, if any (shown on continue)
     let status: String
     let startedAt: Double
     let expiresAt: Double

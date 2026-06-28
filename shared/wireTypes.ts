@@ -109,6 +109,8 @@ export interface TrackStateResponse {
 export interface TrackSessionSummary {
   id: string
   title: string | null
+  /** Display name of the linked plan/route, if any (for continued sessions). */
+  planName: string | null
   status: 'active' | 'ended'
   startedAt: number
   expiresAt: number

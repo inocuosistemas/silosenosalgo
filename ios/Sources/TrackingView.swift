@@ -297,8 +297,8 @@ struct TrackingView: View {
                 .foregroundStyle(Theme.slate400)
         }
         if store.isSharing {
-            if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
-                Label(plan.name, systemImage: "map.fill")
+            if let name = store.activePlanName, !name.isEmpty {
+                Label(name, systemImage: "map.fill")
                     .font(.subheadline)
             } else {
                 Label("Sin ruta · trazado en vivo", systemImage: "scribble.variable")

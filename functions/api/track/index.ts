@@ -30,10 +30,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   //    TTL-bound id so it's fetchable via the public GET /api/share/:id route.
   //  - planShareId: an existing share id (web broadcaster path) — use as-is.
   let planShareId: string | null = null
+  let planName: string | null = null
   if (typeof body.planId === 'string' && PLAN_ID_RE.test(body.planId)) {
-    const row = await env.DB.prepare('SELECT payload FROM plans WHERE id=? AND user_id=?')
-      .bind(body.planId, user.id).first<{ payload: unknown }>()
+    const row = await env.DB.prepare('SELECT payload, name FROM plans WHERE id=? AND user_id=?')
+      .bind(body.planId, user.id).first<{ payload: unknown; name: string | null }>()
     if (row) {
+      planName = typeof row.name === 'string' ? row.name : null
       // D1 returns BLOB columns as number[]; normalise to raw bytes (handle
       // ArrayBuffer / typed arrays defensively too) — see functions/api/plans/[id].ts.
       const raw = row.payload
@@ -75,8 +77,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // before the race survives through it (and the retention window after).
   const expiresAt = Math.max(now, startedAt) + ttl
   await env.DB.prepare(
-    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, status, started_at, expires_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
-  ).bind(id, user.id, title, planShareId, startedAt, expiresAt).run()
+    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt).run()
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)
@@ -93,16 +95,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const { results } = await env.DB.prepare(
-    `SELECT id, title, status, started_at AS startedAt, expires_at AS expiresAt
+    `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
-    id: string; title: string | null; status: string; startedAt: number; expiresAt: number
+    id: string; title: string | null; planName: string | null; status: string; startedAt: number; expiresAt: number
   }>()
 
   const now = Date.now()
   const sessions: TrackSessionSummary[] = (results || []).map((r) => ({
     id: r.id,
     title: r.title,
+    planName: r.planName,
     status: r.status === 'active' && now <= r.expiresAt ? 'active' : 'ended',
     startedAt: r.startedAt,
     expiresAt: r.expiresAt,

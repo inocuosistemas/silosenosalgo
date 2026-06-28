@@ -36,6 +36,9 @@ final class TrackingStore: ObservableObject {
     @Published var lastLocation: CLLocation?
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var plans: [PlanSummary] = []
+    /// Name of the route linked to the CURRENT live/armed session (persists while
+    /// sharing, incl. continued sessions where selectedPlanId isn't known).
+    @Published var activePlanName: String? = nil
     @Published var selectedPlanId: String? = nil {
         didSet { applyPlanStart() }
     }
@@ -139,6 +142,9 @@ final class TrackingStore: ObservableObject {
     func continueSession(_ id: String) {
         lastError = nil
         sessionToken = id
+        // A continued session keeps its route name from the backend summary
+        // (selectedPlanId isn't known for a session we didn't just create).
+        activePlanName = sessions.first(where: { $0.id == id })?.planName
         isSharing = true
         pingCount = 0
         lastSentAt = nil
@@ -169,6 +175,7 @@ final class TrackingStore: ObservableObject {
             let start = startAtTouched ? startAt : Date()
             let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000)
             sessionToken = res.id
+            activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true
             pingCount = 0
             lastSentAt = nil
@@ -198,6 +205,7 @@ final class TrackingStore: ObservableObject {
         location.stop()
         isSharing = false
         isStandby = false
+        activePlanName = nil
         let t = sessionToken
         sessionToken = nil
         if let t {
