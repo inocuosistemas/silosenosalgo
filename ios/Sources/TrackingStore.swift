@@ -60,6 +60,10 @@ final class TrackingStore: ObservableObject {
     @Published var estimatedHoursRemaining: Double?
     /// Recent (time, level) samples since the last unplug, for the drain estimate.
     private var batterySamples: [(t: Date, level: Double)] = []
+    /// Battery level is coarse and changes slowly, so sampling every ~2 min is
+    /// plenty; reading it is free, but this keeps the sample history tidy.
+    private let batterySampleInterval: TimeInterval = 120
+    private var lastBatterySampleAt: Date = .distantPast
 
     private let token: String
     private let location = LocationManager()
@@ -306,7 +310,15 @@ final class TrackingStore: ObservableObject {
     /// Battery level on iOS is coarse (~5% steps), so we average over a rolling
     /// window and smooth, and only publish a rate once it's meaningful. While
     /// charging we reset the baseline (drain isn't meaningful plugged in).
+    /// Throttled wrapper for the periodic timer: only actually samples every
+    /// `batterySampleInterval`, so the 20 s flush tick doesn't oversample.
+    private func sampleBatteryIfDue() {
+        guard Date().timeIntervalSince(lastBatterySampleAt) >= batterySampleInterval else { return }
+        sampleBattery()
+    }
+
     private func sampleBattery() {
+        lastBatterySampleAt = Date()
         let device = UIDevice.current
         let level = Double(device.batteryLevel) // -1 if unknown
         let charging = device.batteryState == .charging || device.batteryState == .full
@@ -372,7 +384,7 @@ final class TrackingStore: ObservableObject {
                 // Primary trigger to leave standby when stationary at the start
                 // line (coarse location may deliver no callbacks while still).
                 self?.maybeBeginFromStandby()
-                self?.sampleBattery()
+                self?.sampleBatteryIfDue()
                 self?.heartbeatTick()
                 await self?.flush()
             }
