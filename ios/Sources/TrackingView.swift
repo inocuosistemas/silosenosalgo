@@ -43,33 +43,7 @@ struct TrackingView: View {
         NavigationStack {
             Form {
                 Section {
-                    if store.isStandby {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label("Armado · ahorrando batería", systemImage: "moon.zzz.fill")
-                                .foregroundStyle(.yellow)
-                            Text("Empieza solo hacia las \(store.startAt.formatted(date: .omitted, time: .shortened)). Deja la app abierta en segundo plano (no la cierres).")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        }
-                    } else if store.isSharing {
-                        Label("Compartiendo en directo", systemImage: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(.green)
-                    } else {
-                        Label("Detenido", systemImage: "pause.circle")
-                            .foregroundStyle(Theme.slate400)
-                    }
-                    if store.isSharing {
-                        if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
-                            Label(plan.name, systemImage: "map.fill")
-                                .font(.subheadline)
-                        } else {
-                            Label("Sin ruta · trazado en vivo", systemImage: "scribble.variable")
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.slate400)
-                        }
-                    }
-                    if store.isSharing, store.batteryLevel >= 0 {
-                        batteryRow
-                    }
+                    statusContent
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -302,6 +276,38 @@ struct TrackingView: View {
                     .tint(Theme.sky500)
                 }
             }
+        }
+    }
+
+    /// Status header: state (armed / live / stopped), selected route, battery.
+    @ViewBuilder
+    private var statusContent: some View {
+        if store.isStandby {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Armado · ahorrando batería", systemImage: "moon.zzz.fill")
+                    .foregroundStyle(.yellow)
+                Text("Empieza solo hacia las \(store.startAt.formatted(date: .omitted, time: .shortened)). Deja la app abierta en segundo plano (no la cierres).")
+                    .font(.caption).foregroundStyle(Theme.slate400)
+            }
+        } else if store.isSharing {
+            Label("Compartiendo en directo", systemImage: "dot.radiowaves.left.and.right")
+                .foregroundStyle(.green)
+        } else {
+            Label("Detenido", systemImage: "pause.circle")
+                .foregroundStyle(Theme.slate400)
+        }
+        if store.isSharing {
+            if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
+                Label(plan.name, systemImage: "map.fill")
+                    .font(.subheadline)
+            } else {
+                Label("Sin ruta · trazado en vivo", systemImage: "scribble.variable")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.slate400)
+            }
+        }
+        if store.isSharing, store.batteryLevel >= 0 {
+            batteryRow
         }
     }
 
