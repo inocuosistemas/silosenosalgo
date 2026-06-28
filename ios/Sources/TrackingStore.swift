@@ -18,6 +18,9 @@ final class TrackingStore: ObservableObject {
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var plans: [PlanSummary] = []
     @Published var selectedPlanId: String? = nil
+    @Published var sessions: [TrackSessionSummary] = []
+    /// How long a finished route stays viewable (hours). Sent to the backend on stop.
+    @Published var retainHours: Double = 24
 
     private let token: String
     private let location = LocationManager()
@@ -46,6 +49,39 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    func loadSessions() async {
+        // Best-effort: if it fails we keep whatever we had; never crash.
+        if let result = try? await API.listSessions(token: token) {
+            sessions = result
+        }
+    }
+
+    func isActive(_ s: TrackSessionSummary) -> Bool { s.status == "active" }
+
+    /// Resume broadcasting to an EXISTING active session without creating a new
+    /// one. The ping endpoint already accepts an owned, active session.
+    func continueSession(_ id: String) {
+        lastError = nil
+        sessionToken = id
+        isSharing = true
+        pingCount = 0
+        lastSentAt = nil
+        lastSendAttempt = .distantPast
+        location.configure(interval: intervalSeconds)
+        location.requestAuthorization()
+        location.start()
+    }
+
+    func deleteSession(_ id: String) async {
+        await API.deleteSession(token: token, id: id)
+        if id == sessionToken {
+            location.stop()
+            isSharing = false
+            sessionToken = nil
+        }
+        await loadSessions()
+    }
+
     func startSharing(title: String?) async {
         lastError = nil
         location.requestAuthorization()
@@ -65,9 +101,12 @@ final class TrackingStore: ObservableObject {
 
     func stopSharing() async {
         location.stop()
-        if let t = sessionToken { await API.end(token: token, id: t) }
+        if let t = sessionToken { await API.end(token: token, id: t, retainHours: retainHours) }
         isSharing = false
         sessionToken = nil
+        // The backend keeps the just-ended session for 24h; refresh so it
+        // appears in "Mis seguimientos".
+        await loadSessions()
     }
 
     private func handleLocation(_ loc: CLLocation) {

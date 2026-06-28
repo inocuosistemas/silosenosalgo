@@ -4,14 +4,16 @@ import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
 import { PLAN_ID_RE } from '../../../shared/validate'
-import type { CreateTrackResponse } from '../../../shared/wireTypes'
+import type { CreateTrackResponse, TrackSessionsResponse, TrackSessionSummary } from '../../../shared/wireTypes'
 
 /**
  * POST /api/track — create a live-tracking session (owner only). Returns a
  * public unguessable token; the runner shares `/?t=<token>`. Auto-expires.
+ * GET /api/track — list the owner's recent sessions (owner only).
  */
 
 const MAX_TTL_MS = 1000 * 60 * 60 * 16 // 16 h — covers an ultra; lazy-expired on read.
+const KEEP_AFTER_END_MS = 24 * 60 * 60 * 1000 // ended sessions stay viewable 24 h, then lazy-purged.
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -52,9 +54,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const now = Date.now()
   // One active session per user: end any prior active ones (stop accumulation).
+  // Keep their data so they stay viewable for 24 h, then they're lazy-purged.
   await env.DB.prepare(
-    "UPDATE tracking_sessions SET status='ended', ended_at=?, lat=NULL, lon=NULL, trail=NULL WHERE owner_user_id=? AND status='active'",
-  ).bind(now, user.id).run()
+    "UPDATE tracking_sessions SET status='ended', ended_at=?, expires_at=? WHERE owner_user_id=? AND status='active'",
+  ).bind(now, now + KEEP_AFTER_END_MS, user.id).run()
 
   const id = genId(16)
   const expiresAt = now + ttl
@@ -64,4 +67,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)
+}
+
+/**
+ * GET /api/track — list the owner's recent sessions (newest first), so the
+ * native app can continue a live one, start a new one, or delete any. Owner
+ * only; never cached. Sessions past `expires_at` are projected as 'ended'
+ * (their data is lazy-purged on the public read path).
+ */
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+  const user = await getSessionUser(request, env)
+  if (!user) return json({ error: 'unauthorized' }, 401)
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, title, status, started_at AS startedAt, expires_at AS expiresAt
+       FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
+  ).bind(user.id).all<{
+    id: string; title: string | null; status: string; startedAt: number; expiresAt: number
+  }>()
+
+  const now = Date.now()
+  const sessions: TrackSessionSummary[] = (results || []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    status: r.status === 'active' && now <= r.expiresAt ? 'active' : 'ended',
+    startedAt: r.startedAt,
+    expiresAt: r.expiresAt,
+  }))
+
+  const res: TrackSessionsResponse = { sessions }
+  return json(res, 200, { 'Cache-Control': 'no-store' })
 }

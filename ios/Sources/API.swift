@@ -21,6 +21,16 @@ struct CreateTrackResponse: Codable {
     let expiresAt: Double
 }
 
+/// One of the user's tracking sessions, as listed by GET /api/track.
+/// `startedAt`/`expiresAt` are epoch MILLISECONDS; `status` is "active" or "ended".
+struct TrackSessionSummary: Codable, Identifiable, Equatable {
+    let id: String
+    let title: String?
+    let status: String
+    let startedAt: Double
+    let expiresAt: Double
+}
+
 /// A saved race plan ("previsión") belonging to the user. The server returns
 /// extra fields (elevGainM, startTime, createdAt, updatedAt); Codable ignores
 /// unknown keys, so we declare only what the UI uses.
@@ -127,6 +137,13 @@ enum API {
 
     // MARK: Tracking
 
+    static func listSessions(token: String) async throws -> [TrackSessionSummary] {
+        struct Wrapper: Codable { let sessions: [TrackSessionSummary] }
+        let (data, http) = try await request("api/track", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(Wrapper.self, from: data).sessions
+    }
+
     static func createTrack(token: String, title: String?, planId: String? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
@@ -148,7 +165,13 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
-    static func end(token: String, id: String) async {
-        _ = try? await request("api/track/\(id)/end", method: "POST", token: token)
+    static func end(token: String, id: String, retainHours: Double? = nil) async {
+        var body: [String: Any]? = nil
+        if let retainHours { body = ["retainHours": retainHours] }
+        _ = try? await request("api/track/\(id)/end", method: "POST", token: token, body: body)
+    }
+
+    static func deleteSession(token: String, id: String) async {
+        _ = try? await request("api/track/\(id)", method: "DELETE", token: token)
     }
 }

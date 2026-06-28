@@ -104,3 +104,16 @@ export interface TrackStateResponse {
   fix: TrackFix | null
   trail: TrailPoint[]
 }
+
+/** One of the owner's tracking sessions, for the "my sessions" list. */
+export interface TrackSessionSummary {
+  id: string
+  title: string | null
+  status: 'active' | 'ended'
+  startedAt: number
+  expiresAt: number
+}
+
+export interface TrackSessionsResponse {
+  sessions: TrackSessionSummary[]
+}

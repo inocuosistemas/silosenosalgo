@@ -47,7 +47,10 @@ function freshness(updatedAt: number): { label: string; stale: boolean } {
 function deltaLabel(min: number): string {
   const a = Math.abs(Math.round(min))
   if (a === 0) return 'en hora'
-  return `${a} min por ${min < 0 ? 'delante' : 'detrás'}`
+  const h = Math.floor(a / 60)
+  const m = a % 60
+  const t = h > 0 ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`
+  return `${t} por ${min < 0 ? 'delante' : 'detrás'}`
 }
 
 export default function LiveViewer({ token }: { token: string }) {
@@ -111,11 +114,6 @@ export default function LiveViewer({ token }: { token: string }) {
     () => (plan ? plan.track.namedWaypoints.filter((w) => w.pauseMin != null && w.pauseMin > 0).map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! })) : []),
     [plan],
   )
-  const cutoffDates = useMemo(
-    () => (plan ? inferCutoffDatesFromWaypoints(plan.track.namedWaypoints, plan.cutoffWallClocks ?? new Map(), plan.startTime) : new Map<string, Date>()),
-    [plan],
-  )
-
   // Progress = nearest planned-track point to the current live fix.
   const fixLat = state?.fix?.lat ?? null
   const fixLon = state?.fix?.lon ?? null
@@ -137,6 +135,21 @@ export default function LiveViewer({ token }: { token: string }) {
 
   const fix = state.fix
   const ended = state.status === 'ended'
+
+  // Purged after the 24h grace window: nothing left to show, just a final note.
+  if (ended && !fix && trail.length === 0)
+    return <Centered title="Seguimiento finalizado" subtitle="La ruta ya no está disponible." />
+
+  // Anchor all plan times to the ACTUAL session start (not the plan's saved
+  // start time), so passing times, cut-offs and the vs-plan delta reflect THIS
+  // run regardless of when the plan was created.
+  const sessionStart = new Date(state.startedAt)
+  const cutoffDates = plan
+    ? inferCutoffDatesFromWaypoints(plan.track.namedWaypoints, plan.cutoffWallClocks ?? new Map(), sessionStart)
+    : new Map<string, Date>()
+
+  // For ended sessions the delta vs plan is frozen at the last known fix.
+  const refNow = ended && fix ? fix.updatedAt : Date.now()
   const fr = fix ? freshness(fix.updatedAt) : null
   const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
   const totalKm = plan?.track.totalDistanceKm ?? 0
@@ -145,13 +158,13 @@ export default function LiveViewer({ token }: { token: string }) {
   // Live delta vs plan (minutes; negative = ahead, positive = behind).
   let deltaMin: number | null = null
   if (plan && progressKm != null) {
-    const planned = estimateArrivalTimeAtKm(plan.track, progressKm, plan.startTime, plan.paceConfig, undefined, pauses)
-    if (planned) deltaMin = (Date.now() - planned.getTime()) / 60_000
+    const planned = estimateArrivalTimeAtKm(plan.track, progressKm, sessionStart, plan.paceConfig, undefined, pauses)
+    if (planned) deltaMin = (refNow - planned.getTime()) / 60_000
   }
   // Fallback delta (no plan): km ahead/behind expected.
   let paceDeltaKm: number | null = null
   if (plan && progressKm != null && deltaMin == null) {
-    const elapsedMin = (Date.now() - plan.startTime.getTime()) / 60_000
+    const elapsedMin = (refNow - sessionStart.getTime()) / 60_000
     if (Number.isFinite(elapsedMin) && elapsedMin > 0) {
       const expectedKm = expectedKmAtElapsed(plan.track, elapsedMin, plan.paceConfig)
       if (Number.isFinite(expectedKm)) paceDeltaKm = progressKm - expectedKm
@@ -171,7 +184,8 @@ export default function LiveViewer({ token }: { token: string }) {
         <p className="font-semibold truncate">{state.title || 'Seguimiento en vivo'}</p>
         <p className="text-xs text-slate-400 truncate">
           {state.username && <>Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span> · </>}
-          {ended ? 'finalizado'
+          {ended
+            ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : 'finalizado')
             : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
             : 'esperando primera posición…'}
         </p>
@@ -186,7 +200,7 @@ export default function LiveViewer({ token }: { token: string }) {
       .slice()
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .map((w) => {
-        const plannedETA = estimateArrivalTimeAtKm(plan.track, w.distanceKm, plan.startTime, plan.paceConfig, undefined, pauses)
+        const plannedETA = estimateArrivalTimeAtKm(plan.track, w.distanceKm, sessionStart, plan.paceConfig, undefined, pauses)
         const cutoff = cutoffDates.get(cutoffWptKey(w.lat, w.lon)) ?? null
         const projectedETA = plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
         const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
@@ -194,7 +208,7 @@ export default function LiveViewer({ token }: { token: string }) {
         return { w, plannedETA, cutoff, projectedETA, marginMin, passed }
       })
     const nextIdx = cards.findIndex((c) => !c.passed)
-    const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, plan.startTime, plan.paceConfig, undefined, pauses)
+    const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses)
     const projFinish = plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
 
     return (
@@ -240,7 +254,6 @@ export default function LiveViewer({ token }: { token: string }) {
               </div>
             </div>
           ))}
-          {ended && <p className="text-center text-sm text-slate-400 pt-2">La persona ha dejado de compartir su ubicación.</p>}
         </div>
       </div>
     )
@@ -258,7 +271,7 @@ export default function LiveViewer({ token }: { token: string }) {
             <Tooltip>{w.name}</Tooltip>
           </CircleMarker>
         ))}
-        {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fr?.stale ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
+        {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : fr?.stale ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
@@ -266,7 +279,7 @@ export default function LiveViewer({ token }: { token: string }) {
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
         <div className="mx-auto max-w-md rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
-          {fix && !ended && (
+          {fix && (
             <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                 {hasPlan && progressKm != null
@@ -282,14 +295,6 @@ export default function LiveViewer({ token }: { token: string }) {
           )}
         </div>
       </div>
-
-      {ended && (
-        <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none">
-          <div className="mx-auto max-w-md rounded-xl bg-slate-900/85 backdrop-blur border border-slate-700 p-3 text-center text-sm text-slate-300 pointer-events-auto">
-            La persona ha dejado de compartir su ubicación.
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -5,9 +5,20 @@ struct TrackingView: View {
     @EnvironmentObject var auth: AuthStore
     @StateObject private var store: TrackingStore
     @State private var title = ""
+    @State private var pendingDelete: TrackSessionSummary?
 
     init(token: String) {
         _store = StateObject(wrappedValue: TrackingStore(token: token))
+    }
+
+    private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
+
+    /// Maps the linear slider position (0…n) to/from the chosen interval.
+    private var intervalIndexBinding: Binding<Double> {
+        Binding(
+            get: { Double(intervalSteps.firstIndex(of: store.intervalSeconds) ?? 2) },
+            set: { store.intervalSeconds = intervalSteps[min(intervalSteps.count - 1, max(0, Int($0.rounded())))] }
+        )
     }
 
     var body: some View {
@@ -28,22 +39,35 @@ struct TrackingView: View {
                     if !store.isSharing {
                         TextField("Nombre (opcional)", text: $title)
                     }
-                    Picker("Intervalo de envío", selection: $store.intervalSeconds) {
-                        Text("5 s").tag(5.0)
-                        Text("10 s").tag(10.0)
-                        Text("15 s").tag(15.0)
-                        Text("30 s").tag(30.0)
-                        Text("1 min").tag(60.0)
-                        Text("2 min").tag(120.0)
-                        Text("3 min").tag(180.0)
-                        Text("5 min").tag(300.0)
-                        Text("10 min").tag(600.0)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Envío cada \(intervalLabel(store.intervalSeconds))")
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Text(batteryLabel(store.intervalSeconds))
+                                .font(.caption).fontWeight(.semibold)
+                                .foregroundStyle(batteryColor(store.intervalSeconds))
+                        }
+                        Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
+                        HStack {
+                            Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
+                            Spacer()
+                            Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
+                        }
+                        if store.intervalSeconds >= 180 {
+                            Text("GPS menos preciso para ahorrar batería. Ideal para ultras.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
                     }
-                    Text(store.intervalSeconds >= 180
-                        ? "Ahorro de batería: GPS menos preciso. Ideal para ultras."
-                        : "Más frecuente = más preciso, pero más batería.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.slate400)
+                    .padding(.vertical, 4)
+                    Picker("Conservar al finalizar", selection: $store.retainHours) {
+                        Text("6 h").tag(6.0)
+                        Text("12 h").tag(12.0)
+                        Text("24 h").tag(24.0)
+                        Text("48 h").tag(48.0)
+                        Text("72 h").tag(72.0)
+                        Text("1 semana").tag(168.0)
+                    }
                 } header: {
                     Text("Ajustes").foregroundStyle(Theme.slate400)
                 }
@@ -64,6 +88,23 @@ struct TrackingView: View {
                         }
                     } header: {
                         Text("Ruta").foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
+                if !store.isSharing {
+                    Section {
+                        if store.sessions.isEmpty {
+                            Text("No tienes seguimientos.")
+                                .font(.caption)
+                                .foregroundStyle(Theme.slate400)
+                        } else {
+                            ForEach(store.sessions) { session in
+                                sessionRow(session)
+                            }
+                        }
+                    } header: {
+                        Text("Mis seguimientos").foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
                 }
@@ -144,13 +185,34 @@ struct TrackingView: View {
                     .foregroundStyle(.white)
                     .cornerRadius(12)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+
+                    if !store.isSharing {
+                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 24 h para poder consultarlo.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.slate400)
+                    }
                 }
                 .listRowBackground(Color.clear)
+            }
+            .alert("Eliminar seguimiento", isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ), presenting: pendingDelete) { session in
+                Button("Eliminar", role: .destructive) {
+                    pendingDelete = nil
+                    Task { await store.deleteSession(session.id) }
+                }
+                Button("Cancelar", role: .cancel) { pendingDelete = nil }
+            } message: { session in
+                Text("Se borrará por completo \"\(session.title ?? "Sin nombre")\". Esta acción no se puede deshacer.")
             }
             .scrollContentBackground(.hidden)
             .background(Theme.slate950)
             .tint(Theme.sky500)
-            .task { await store.loadPlans() }
+            .task {
+                await store.loadPlans()
+                await store.loadSessions()
+            }
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -164,5 +226,70 @@ struct TrackingView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sessionRow(_ session: TrackSessionSummary) -> some View {
+        let active = store.isActive(session)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.title ?? "Sin nombre")
+                    .foregroundStyle(Theme.slate100)
+                HStack(spacing: 8) {
+                    Text(active ? "Activo" : "Finalizado")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background((active ? Color.green : Theme.slate700).opacity(0.25))
+                        .foregroundStyle(active ? .green : Theme.slate400)
+                        .clipShape(Capsule())
+                    Text(startedLabel(session.startedAt))
+                        .font(.caption)
+                        .foregroundStyle(Theme.slate400)
+                }
+            }
+            Spacer(minLength: 8)
+            if active {
+                Button("Continuar") { store.continueSession(session.id) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.sky500)
+            }
+            Button {
+                pendingDelete = session
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.red)
+        }
+    }
+
+    /// Formats an epoch-MILLISECONDS instant as a short relative time
+    /// (e.g. "hace 5 min"), falling back to HH:MM for older sessions.
+    private func startedLabel(_ epochMs: Double) -> String {
+        let date = Date(timeIntervalSince1970: epochMs / 1000)
+        if Date().timeIntervalSince(date) < 24 * 3600 {
+            return date.formatted(.relative(presentation: .named))
+        }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func intervalLabel(_ s: Double) -> String {
+        if s < 60 { return "\(Int(s)) s" }
+        if s < 3600 { return "\(Int(s / 60)) min" }
+        return "\(Int(s / 3600)) h"
+    }
+
+    private func batteryLabel(_ s: Double) -> String {
+        if s <= 15 { return "Consumo alto" }
+        if s <= 120 { return "Consumo medio" }
+        return "Ahorro batería"
+    }
+
+    private func batteryColor(_ s: Double) -> Color {
+        if s <= 15 { return .orange }
+        if s <= 120 { return .yellow }
+        return .green
     }
 }
