@@ -39,6 +39,7 @@ struct PlanSummary: Codable, Identifiable, Equatable {
     let name: String
     let routeName: String?
     let distanceKm: Double?
+    let startTime: String?   // ISO; the plan's planned departure
 }
 
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.

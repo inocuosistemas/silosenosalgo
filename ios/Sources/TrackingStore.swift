@@ -32,9 +32,11 @@ final class TrackingStore: ObservableObject {
     @Published var lastLocation: CLLocation?
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var plans: [PlanSummary] = []
-    @Published var selectedPlanId: String? = nil
-    /// Planned departure time = reference for paces/predictions. Default now;
-    /// keep it at the real start even if tracking is activated later.
+    @Published var selectedPlanId: String? = nil {
+        didSet { applyPlanStart() }
+    }
+    /// Planned departure time = reference for paces/predictions. Defaults to the
+    /// selected plan's start (so predictions follow the plan), else now.
     @Published var startAt: Date = Date()
     var startAtTouched = false
     @Published var sessions: [TrackSessionSummary] = []
@@ -70,7 +72,28 @@ final class TrackingStore: ObservableObject {
         // Best-effort: if it fails we simply offer "Sin ruta"; never crash.
         if let result = try? await API.listPlans(token: token) {
             plans = result
+            applyPlanStart() // if a plan was already selected, pick up its start
         }
+    }
+
+    /// When a plan is selected, default the departure to the PLAN's start so all
+    /// paces/predictions follow the plan (not the activation moment). Adjustable.
+    private func applyPlanStart() {
+        guard let id = selectedPlanId,
+              let p = plans.first(where: { $0.id == id }),
+              let iso = p.startTime,
+              let d = Self.parseISO(iso) else { return }
+        startAt = d
+        startAtTouched = true
+    }
+
+    private static func parseISO(_ s: String) -> Date? {
+        let f1 = ISO8601DateFormatter()
+        f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f1.date(from: s) { return d }
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime]
+        return f2.date(from: s)
     }
 
     func loadSessions() async {

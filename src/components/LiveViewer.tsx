@@ -104,6 +104,16 @@ function heroTone(marginMin: number): string {
   return 'border-emerald-700 bg-emerald-950/40 text-emerald-100'
 }
 
+function formatCountdown(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`
+}
+
 const PROFILE_W = 100
 const PROFILE_H = 28
 interface SegProfile { line: string; area: string; fromKm: number; span: number }
@@ -293,6 +303,8 @@ export default function LiveViewer({ token }: { token: string }) {
 
   // For ended sessions the delta vs plan is frozen at the last known fix.
   const refNow = ended && fix ? fix.updatedAt : Date.now()
+  // Activated before the planned start → show a countdown, not projections.
+  const preStart = !ended && sessionStart.getTime() > refNow
   const fr = fix ? freshness(fix.updatedAt) : null
   const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
   const totalKm = plan?.track.totalDistanceKm ?? 0
@@ -300,7 +312,7 @@ export default function LiveViewer({ token }: { token: string }) {
 
   // Live delta vs plan (minutes; negative = ahead, positive = behind).
   let deltaMin: number | null = null
-  if (plan && progressKm != null) {
+  if (plan && progressKm != null && !preStart) {
     const planned = estimateArrivalTimeAtKm(plan.track, progressKm, sessionStart, plan.paceConfig, undefined, pauses)
     if (planned) deltaMin = (refNow - planned.getTime()) / 60_000
   }
@@ -374,6 +386,16 @@ export default function LiveViewer({ token }: { token: string }) {
     </div>
   )
 
+  const countdownHero = preStart && (
+    <div className="rounded-xl border border-sky-700 bg-sky-950/40 text-sky-100 p-3 text-center">
+      <p className="text-[11px] uppercase tracking-wide opacity-80">Salida prevista · {clockDay(sessionStart, new Date())}</p>
+      <p className="text-3xl font-extrabold leading-tight tabular-nums">Salida en {formatCountdown(sessionStart.getTime() - refNow)}</p>
+    </div>
+  )
+
+  // Pre-start → countdown; otherwise → the next-cut-off banner.
+  const topHero = preStart ? countdownHero : cutoffHero
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -401,7 +423,7 @@ export default function LiveViewer({ token }: { token: string }) {
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
         <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">{header}</div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {cutoffHero}
+          {topHero}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -480,7 +502,7 @@ export default function LiveViewer({ token }: { token: string }) {
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
         <div className="mx-auto max-w-md rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
-          {cutoffHero && <div className="mt-2">{cutoffHero}</div>}
+          {topHero && <div className="mt-2">{topHero}</div>}
           {fix && (
             <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
