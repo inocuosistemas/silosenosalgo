@@ -12,12 +12,20 @@ struct TrackingView: View {
     }
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
+    private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
 
     /// Maps the linear slider position (0…n) to/from the chosen interval.
     private var intervalIndexBinding: Binding<Double> {
         Binding(
             get: { Double(intervalSteps.firstIndex(of: store.intervalSeconds) ?? 2) },
             set: { store.intervalSeconds = intervalSteps[min(intervalSteps.count - 1, max(0, Int($0.rounded())))] }
+        )
+    }
+
+    private var distanceIndexBinding: Binding<Double> {
+        Binding(
+            get: { Double(distanceSteps.firstIndex(of: store.distanceMeters) ?? 2) },
+            set: { store.distanceMeters = distanceSteps[min(distanceSteps.count - 1, max(0, Int($0.rounded())))] }
         )
     }
 
@@ -39,22 +47,41 @@ struct TrackingView: View {
                     if !store.isSharing {
                         TextField("Nombre (opcional)", text: $title)
                     }
+                    Picker("Enviar", selection: $store.sendMode) {
+                        Text("Por tiempo").tag(SendMode.time)
+                        Text("Por distancia").tag(SendMode.distance)
+                    }
+                    .pickerStyle(.segmented)
+
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Envío cada \(intervalLabel(store.intervalSeconds))")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Text(batteryLabel(store.intervalSeconds))
-                                .font(.caption).fontWeight(.semibold)
-                                .foregroundStyle(batteryColor(store.intervalSeconds))
+                        if store.sendMode == .time {
+                            HStack {
+                                Text("Cada \(intervalLabel(store.intervalSeconds))").fontWeight(.semibold)
+                                Spacer()
+                                Text(batteryLabel(store.intervalSeconds))
+                                    .font(.caption).fontWeight(.semibold)
+                                    .foregroundStyle(batteryColor(store.intervalSeconds))
+                            }
+                            Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
+                        } else {
+                            HStack {
+                                Text("Cada \(distanceLabel(store.distanceMeters))").fontWeight(.semibold)
+                                Spacer()
+                                Text(batteryLabelDist(store.distanceMeters))
+                                    .font(.caption).fontWeight(.semibold)
+                                    .foregroundStyle(batteryColorDist(store.distanceMeters))
+                            }
+                            Slider(value: distanceIndexBinding, in: 0...Double(distanceSteps.count - 1), step: 1)
                         }
-                        Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
                         HStack {
                             Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
                             Spacer()
                             Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
                         }
-                        if store.intervalSeconds >= 180 {
+                        if store.sendMode == .distance {
+                            Text("Parado, igualmente se emite cada pocos minutos para que no parezcas sin señal.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        } else if store.intervalSeconds >= 180 {
                             Text("GPS menos preciso para ahorrar batería. Ideal para ultras.")
                                 .font(.caption).foregroundStyle(Theme.slate400)
                         }
@@ -294,6 +321,22 @@ struct TrackingView: View {
     private func batteryColor(_ s: Double) -> Color {
         if s <= 15 { return .orange }
         if s <= 120 { return .yellow }
+        return .green
+    }
+
+    private func distanceLabel(_ m: Double) -> String {
+        m < 1000 ? "\(Int(m)) m" : String(format: "%.1f km", m / 1000)
+    }
+
+    private func batteryLabelDist(_ m: Double) -> String {
+        if m <= 50 { return "Consumo alto" }
+        if m <= 250 { return "Consumo medio" }
+        return "Ahorro batería"
+    }
+
+    private func batteryColorDist(_ m: Double) -> Color {
+        if m <= 50 { return .orange }
+        if m <= 250 { return .yellow }
         return .green
     }
 }

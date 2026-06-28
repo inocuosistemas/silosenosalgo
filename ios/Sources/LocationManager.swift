@@ -45,6 +45,13 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Distance-based mode: only deliver a fix after moving `meters`. Accuracy
+    /// relaxes with distance to save battery.
+    func configureDistance(_ meters: Double) {
+        manager.distanceFilter = meters
+        manager.desiredAccuracy = meters <= 100 ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyHundredMeters
+    }
+
     func start() {
         enableBackgroundIfAuthorized()
         manager.startUpdatingLocation()

@@ -1,6 +1,9 @@
 import Foundation
 import CoreLocation
 
+/// How position uploads are paced.
+enum SendMode: String { case time, distance }
+
 /// Orchestrates a live-sharing session: creates it on the backend, then pings
 /// the latest GPS fix at the chosen interval. Location updates arrive
 /// continuously (foreground + background); we upload only once per interval.
@@ -8,8 +11,15 @@ import CoreLocation
 final class TrackingStore: ObservableObject {
     @Published var isSharing = false
     @Published var sessionToken: String?
+    @Published var sendMode: SendMode = .time {
+        didSet { applyLocationConfig() }
+    }
     @Published var intervalSeconds: Double = 15 {
-        didSet { location.configure(interval: intervalSeconds) }
+        didSet { applyLocationConfig() }
+    }
+    /// Distance-mode threshold in metres (send every X m moved).
+    @Published var distanceMeters: Double = 100 {
+        didSet { applyLocationConfig() }
     }
     @Published var lastSentAt: Date?
     @Published var pingCount = 0
@@ -101,7 +111,7 @@ final class TrackingStore: ObservableObject {
             lastSendAttempt = .distantPast
             pending = []
             persistPending()
-            location.configure(interval: intervalSeconds)
+            applyLocationConfig()
             location.start()
             startFlushTimer()
         } catch {
@@ -133,10 +143,19 @@ final class TrackingStore: ObservableObject {
     private func handleLocation(_ loc: CLLocation) {
         lastLocation = loc
         guard isSharing, sessionToken != nil else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastSendAttempt) >= intervalSeconds else { return }
-        lastSendAttempt = now
+        // Time mode: throttle by interval. Distance mode: the GPS distanceFilter
+        // already gates callbacks, so we record every one.
+        if sendMode == .time {
+            guard Date().timeIntervalSince(lastSendAttempt) >= intervalSeconds else { return }
+        }
+        recordFix(from: loc)
+        Task { await flush() }
+    }
 
+    /// Build a fix from a location and queue it (recorded locally first; the
+    /// upload is a separate, retried step so nothing is lost without coverage).
+    private func recordFix(from loc: CLLocation) {
+        lastSendAttempt = Date()
         let fix = Fix(
             lat: loc.coordinate.latitude,
             lon: loc.coordinate.longitude,
@@ -147,12 +166,9 @@ final class TrackingStore: ObservableObject {
             altitude: loc.verticalAccuracy >= 0 ? loc.altitude : nil,
             fixAt: loc.timestamp.timeIntervalSince1970 * 1000
         )
-        // Always record locally first; uploading is a separate, retried step so
-        // positions captured without coverage are never lost.
         pending.append(fix)
         if pending.count > 10_000 { pending.removeFirst(pending.count - 10_000) }
         persistPending()
-        Task { await flush() }
     }
 
     /// Upload the whole buffered backlog in one batch. On failure (no coverage)
@@ -199,12 +215,35 @@ final class TrackingStore: ObservableObject {
         pendingCount = pending.count
     }
 
+    /// Distance-mode heartbeat: still emit at least this often when stationary,
+    /// so followers don't see a frozen "lost signal".
+    private let heartbeatSeconds: TimeInterval = 150
+
+    private func applyLocationConfig() {
+        if sendMode == .time {
+            location.configure(interval: intervalSeconds)
+        } else {
+            location.configureDistance(distanceMeters)
+        }
+    }
+
+    /// In distance mode, force a fix if we've been still longer than the heartbeat.
+    private func heartbeatTick() {
+        guard isSharing, sendMode == .distance, let loc = lastLocation else { return }
+        if Date().timeIntervalSince(lastSendAttempt) >= heartbeatSeconds {
+            recordFix(from: loc)
+        }
+    }
+
     /// Periodic retry so a backlog flushes when coverage returns even if the
-    /// runner is stationary (no new GPS callbacks to drive an upload).
+    /// runner is stationary, plus the distance-mode heartbeat.
     private func startFlushTimer() {
         flushTimer?.invalidate()
         flushTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.flush() }
+            Task { @MainActor in
+                self?.heartbeatTick()
+                await self?.flush()
+            }
         }
     }
 }
