@@ -57,6 +57,16 @@ struct TrackingView: View {
                         Label("Detenido", systemImage: "pause.circle")
                             .foregroundStyle(Theme.slate400)
                     }
+                    if store.isSharing {
+                        if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
+                            Label(plan.name, systemImage: "map.fill")
+                                .font(.subheadline)
+                        } else {
+                            Label("Sin ruta · trazado en vivo", systemImage: "scribble.variable")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.slate400)
+                        }
+                    }
                     if store.isSharing, store.batteryLevel >= 0 {
                         batteryRow
                     }
