@@ -17,7 +17,7 @@ import type { CutoffWallClock } from './cutoffInference'
  * `SHARE_PAYLOAD_VERSION` and add a migrator in `reviveSharePayload` when the
  * shape changes.
  */
-export const SHARE_PAYLOAD_VERSION = 1
+export const SHARE_PAYLOAD_VERSION = 2
 
 /** A track point with `time` as an ISO string (JSON-safe; revived to Date). */
 interface SharePoint {
@@ -28,7 +28,7 @@ interface SharePoint {
 }
 
 export interface SharePayloadV1 {
-  v: 1
+  v: 1 | 2
   track: {
     name: string
     points: SharePoint[]
@@ -44,6 +44,9 @@ export interface SharePayloadV1 {
   sampling: SamplingConfig
   /** Cut-offs keyed by "lat.toFixed(6),lon.toFixed(6)" — Map flattened to object. */
   cutoffWallClocks: Record<string, { hour: number; minute: number }>
+  /** v2+: strategy margin (minutes before cut-offs) + per-segment objective times. */
+  strategyMargin?: number
+  segmentTargets?: { km: number; timeISO: string }[]
   createdAt: string
 }
 
@@ -53,6 +56,8 @@ export interface ShareInput {
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
+  strategyMargin?: number
+  segmentTargets?: Map<number, Date>
 }
 
 export interface RevivedShare {
@@ -61,6 +66,8 @@ export interface RevivedShare {
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
+  strategyMargin?: number
+  segmentTargets?: Map<number, Date>
 }
 
 /** Error thrown by `reviveSharePayload` for malformed / unsupported payloads. */
@@ -78,6 +85,9 @@ export function buildSharePayload(input: ShareInput): SharePayloadV1 {
   for (const [k, v] of input.cutoffWallClocks) {
     cutoffWallClocks[k] = { hour: v.hour, minute: v.minute }
   }
+  const segmentTargets = input.segmentTargets
+    ? [...input.segmentTargets].map(([km, d]) => ({ km, timeISO: d.toISOString() }))
+    : undefined
   return {
     v: SHARE_PAYLOAD_VERSION,
     track: {
@@ -98,6 +108,8 @@ export function buildSharePayload(input: ShareInput): SharePayloadV1 {
     paceConfig: input.paceConfig,
     sampling: input.sampling,
     cutoffWallClocks,
+    strategyMargin: input.strategyMargin,
+    segmentTargets,
     createdAt: new Date().toISOString(),
   }
 }
@@ -113,7 +125,7 @@ export function buildSharePayload(input: ShareInput): SharePayloadV1 {
 export function reviveSharePayload(raw: unknown): RevivedShare {
   if (!raw || typeof raw !== 'object') throw new SharePayloadError('malformed')
   const obj = raw as Partial<SharePayloadV1>
-  if (obj.v !== SHARE_PAYLOAD_VERSION) throw new SharePayloadError('unsupported_version')
+  if (obj.v !== 1 && obj.v !== 2) throw new SharePayloadError('unsupported_version')
   const t = obj.track
   if (!t || !Array.isArray(t.points) || t.points.length === 0 || !obj.startTimeISO) {
     throw new SharePayloadError('malformed')
@@ -143,11 +155,24 @@ export function reviveSharePayload(raw: unknown): RevivedShare {
     }
   }
 
+  let segmentTargets: Map<number, Date> | undefined
+  if (Array.isArray(obj.segmentTargets)) {
+    segmentTargets = new Map()
+    for (const t of obj.segmentTargets) {
+      if (t && typeof t.km === 'number' && typeof t.timeISO === 'string') {
+        const d = new Date(t.timeISO)
+        if (!Number.isNaN(d.getTime())) segmentTargets.set(t.km, d)
+      }
+    }
+  }
+
   return {
     track,
     startTime: new Date(obj.startTimeISO),
     paceConfig: obj.paceConfig as PaceConfig,
     sampling: obj.sampling as SamplingConfig,
     cutoffWallClocks,
+    strategyMargin: typeof obj.strategyMargin === 'number' ? obj.strategyMargin : undefined,
+    segmentTargets,
   }
 }

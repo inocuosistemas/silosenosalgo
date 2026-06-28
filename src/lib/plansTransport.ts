@@ -50,6 +50,16 @@ export async function createPlan(payload: SharePayloadV1, name: string): Promise
   return (await res.json()) as PlanMeta
 }
 
+/** Overwrite an existing plan's payload + metadata (and name) in place. */
+export async function updatePlan(id: string, payload: SharePayloadV1, name: string): Promise<void> {
+  const gz = await gzipBytes(JSON.stringify(payload))
+  if (gz.byteLength > MAX_PLAN_BYTES) throw new PlansError('too_large')
+  const res = await fetchSafe(`/api/plans/${encodeURIComponent(id)}`, {
+    method: 'PUT', credentials: 'same-origin', headers: planHeaders(payload, name), body: new Blob([gz]),
+  })
+  if (!res.ok) throw errFrom(res)
+}
+
 /** Fetch + gunzip + revive a plan into in-memory shapes. */
 export async function getPlan(id: string): Promise<RevivedShare> {
   const res = await fetchSafe(`/api/plans/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' })

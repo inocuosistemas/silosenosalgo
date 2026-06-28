@@ -4,14 +4,17 @@ import { useAuth } from '../lib/AuthContext'
 import type { SharePayloadV1, RevivedShare } from '../lib/sharePayload'
 import type { PlanMeta } from '../../shared/wireTypes'
 import {
-  listPlans, createPlan, getPlan, renamePlan, deletePlan,
+  listPlans, createPlan, updatePlan, getPlan, renamePlan, deletePlan,
   suggestPlanName, plansErrorMessage, PlansError,
 } from '../lib/plansTransport'
 
+type Current = { id: string; name: string } | null
+
 /**
- * Self-contained "Mis previsiones" control for the header (only visible when
- * logged in). App passes the current-state payload builder and the load
- * callback, so this component stays decoupled from the big App state.
+ * "Mis previsiones" header control (logged-in only). Tracks the currently
+ * loaded/saved plan so it can offer "Actualizar «X»" (overwrite in place) vs
+ * "Guardar como nueva". State lives here (the button stays mounted) so it
+ * survives opening/closing the modal.
  */
 export function MyPlansPanel({
   getPayload, hasTrack, onLoad,
@@ -22,6 +25,7 @@ export function MyPlansPanel({
 }) {
   const { user, status } = useAuth()
   const [open, setOpen] = useState(false)
+  const [current, setCurrent] = useState<Current>(null)
   if (status !== 'ready' || !user) return null
 
   return (
@@ -35,7 +39,14 @@ export function MyPlansPanel({
       </button>
       {open && (
         <Modal title="Mis previsiones" onClose={() => setOpen(false)}>
-          <PlansBody getPayload={getPayload} hasTrack={hasTrack} onLoad={(r) => { onLoad(r); setOpen(false) }} />
+          <PlansBody
+            getPayload={getPayload}
+            hasTrack={hasTrack}
+            current={current}
+            onSaved={(id, name) => setCurrent({ id, name })}
+            onLoaded={(id, name, revived) => { setCurrent({ id, name }); onLoad(revived); setOpen(false) }}
+            onDeleted={(id) => setCurrent((c) => (c && c.id === id ? null : c))}
+          />
         </Modal>
       )}
     </>
@@ -43,11 +54,14 @@ export function MyPlansPanel({
 }
 
 function PlansBody({
-  getPayload, hasTrack, onLoad,
+  getPayload, hasTrack, current, onSaved, onLoaded, onDeleted,
 }: {
   getPayload: () => SharePayloadV1
   hasTrack: boolean
-  onLoad: (revived: RevivedShare) => void
+  current: Current
+  onSaved: (id: string, name: string) => void
+  onLoaded: (id: string, name: string, revived: RevivedShare) => void
+  onDeleted: (id: string) => void
 }) {
   const [plans, setPlans] = useState<PlanMeta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,26 +75,39 @@ function PlansBody({
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // Prefill the save name from the current route the first time it's available.
+  // Prefill the name: the loaded plan's name, else a suggestion from the route.
   useEffect(() => {
+    if (current) { setName(current.name); return }
     if (hasTrack && !name) {
       try { setName(suggestPlanName(getPayload())) } catch { /* no track yet */ }
     }
-  }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [current, hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function save() {
+  async function saveNew() {
     if (!hasTrack || !name.trim()) return
     setBusy(true); setError(null)
     try {
-      await createPlan(getPayload(), name.trim())
+      const meta = await createPlan(getPayload(), name.trim())
+      onSaved(meta.id, meta.name)
       await refresh()
     } catch (e) { setError(plansErrorMessage(codeOf(e))) }
     finally { setBusy(false) }
   }
 
-  async function load(id: string) {
+  async function update() {
+    if (!hasTrack || !current || !name.trim()) return
     setBusy(true); setError(null)
-    try { onLoad(await getPlan(id)) }
+    try {
+      await updatePlan(current.id, getPayload(), name.trim())
+      onSaved(current.id, name.trim())
+      await refresh()
+    } catch (e) { setError(plansErrorMessage(codeOf(e))) }
+    finally { setBusy(false) }
+  }
+
+  async function load(p: PlanMeta) {
+    setBusy(true); setError(null)
+    try { onLoaded(p.id, p.name, await getPlan(p.id)) }
     catch (e) { setError(plansErrorMessage(codeOf(e))); setBusy(false) }
   }
 
@@ -88,7 +115,7 @@ function PlansBody({
     const next = window.prompt('Nuevo nombre de la previsión', p.name)?.trim()
     if (!next || next === p.name) return
     setBusy(true); setError(null)
-    try { await renamePlan(p.id, next); await refresh() }
+    try { await renamePlan(p.id, next); if (current?.id === p.id) onSaved(p.id, next); await refresh() }
     catch (e) { setError(plansErrorMessage(codeOf(e))) }
     finally { setBusy(false) }
   }
@@ -96,37 +123,51 @@ function PlansBody({
   async function remove(p: PlanMeta) {
     if (!window.confirm(`¿Borrar "${p.name}"? No se puede deshacer.`)) return
     setBusy(true); setError(null)
-    try { await deletePlan(p.id); await refresh() }
+    try { await deletePlan(p.id); onDeleted(p.id); await refresh() }
     catch (e) { setError(plansErrorMessage(codeOf(e))) }
     finally { setBusy(false) }
   }
 
   return (
     <div className="space-y-3">
-      {/* Save current */}
+      {/* Save / update current */}
       <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-        <p className="text-xs text-slate-400 mb-2">Guardar la ruta actual en tu cuenta</p>
+        <p className="text-xs text-slate-400 mb-2">
+          {current ? <>Editando <span className="text-slate-200 font-medium">«{current.name}»</span></> : 'Guardar la ruta actual en tu cuenta'}
+        </p>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={hasTrack ? 'Nombre de la previsión' : 'Carga una ruta primero'}
+          disabled={!hasTrack || busy}
+          className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50 mb-2"
+        />
         <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={hasTrack ? 'Nombre de la previsión' : 'Carga una ruta primero'}
-            disabled={!hasTrack || busy}
-            className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50"
-          />
+          {current && (
+            <button
+              onClick={() => void update()}
+              disabled={!hasTrack || !name.trim() || busy}
+              className="flex-1 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 transition-colors"
+            >
+              Actualizar
+            </button>
+          )}
           <button
-            onClick={() => void save()}
+            onClick={() => void saveNew()}
             disabled={!hasTrack || !name.trim() || busy}
-            className="rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 transition-colors"
+            className={`flex-1 rounded-lg text-sm font-medium py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              current
+                ? 'bg-slate-800 border border-slate-700 text-slate-200 hover:border-sky-700'
+                : 'bg-sky-600 hover:bg-sky-500 text-white'
+            }`}
           >
-            Guardar
+            {current ? 'Guardar como nueva' : 'Guardar'}
           </button>
         </div>
       </div>
 
       {error && <p className="text-red-400 text-xs">{error}</p>}
 
-      {/* List */}
       <div className="space-y-2 max-h-72 overflow-y-auto">
         {plans === null ? (
           <p className="text-xs text-slate-500">Cargando…</p>
@@ -134,14 +175,16 @@ function PlansBody({
           <p className="text-xs text-slate-500">Aún no tienes previsiones guardadas.</p>
         ) : (
           plans.map((p) => (
-            <div key={p.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 text-xs">
-              <p className="font-medium text-slate-200 truncate">{p.name}</p>
+            <div key={p.id} className={`rounded-lg border bg-slate-950/60 p-2.5 text-xs ${current?.id === p.id ? 'border-sky-700' : 'border-slate-800'}`}>
+              <p className="font-medium text-slate-200 truncate">
+                {p.name}{current?.id === p.id && <span className="text-sky-400 font-normal"> · actual</span>}
+              </p>
               <p className="text-slate-500 truncate">
                 {[p.routeName, p.distanceKm != null ? `${p.distanceKm.toFixed(p.distanceKm < 100 ? 1 : 0)} km` : null, fmtDate(p.updatedAt)]
                   .filter(Boolean).join(' · ')}
               </p>
               <div className="mt-2 flex gap-2">
-                <RowBtn onClick={() => void load(p.id)} disabled={busy} primary>Cargar</RowBtn>
+                <RowBtn onClick={() => void load(p)} disabled={busy} primary>Cargar</RowBtn>
                 <RowBtn onClick={() => void rename(p)} disabled={busy}>Renombrar</RowBtn>
                 <RowBtn onClick={() => void remove(p)} disabled={busy} danger>Borrar</RowBtn>
               </div>

@@ -1096,8 +1096,8 @@ export default function App() {
   // ── Compartir salida: build the snapshot from current state ───────────────
   const buildCurrentSharePayload = useCallback((): SharePayloadV1 => {
     if (!track) throw new Error('no track')
-    return buildSharePayload({ track, startTime, paceConfig, sampling, cutoffWallClocks })
-  }, [track, startTime, paceConfig, sampling, cutoffWallClocks])
+    return buildSharePayload({ track, startTime, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets })
+  }, [track, startTime, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
 
   // Inject a revived share/plan into app state — shared by the ?s= open flow and
   // "Cargar" in Mis previsiones, so both paths behave identically.
@@ -1108,6 +1108,8 @@ export default function App() {
     if (revived.sampling) setSampling(revived.sampling)
     setCutoffWallClocksState(revived.cutoffWallClocks)
     saveCutoffWallClocks(revived.track.name, revived.cutoffWallClocks)
+    if (typeof revived.strategyMargin === 'number') setStrategyMargin(revived.strategyMargin)
+    if (revived.segmentTargets) setSegmentTargets(revived.segmentTargets)
     setSavedSession(null)
   }
 
