@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { isChunkLoadError, reloadOnceForChunkError } from '../lib/chunkReload'
 
 interface Props {
   children: ReactNode
@@ -6,6 +7,8 @@ interface Props {
 
 interface State {
   error: Error | null
+  /** True while we're auto-reloading after a stale-chunk error (blank, no card). */
+  reloading: boolean
 }
 
 /**
@@ -15,19 +18,33 @@ interface State {
  * class components; this is the only one in the codebase.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null }
+  state: State = { error: null, reloading: false }
 
   static getDerivedStateFromError(error: Error): State {
-    return { error }
+    // Optimistically blank the screen for a stale-chunk error so the recovery
+    // card never flashes before the reload kicks in (see componentDidCatch).
+    return { error, reloading: isChunkLoadError(error) }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (isChunkLoadError(error)) {
+      // A chunk failed to load — almost always a tab left open across a deploy.
+      // Reload once to fetch the new build; if that's on cooldown (we already
+      // retried and it's still failing), reveal the recovery card instead.
+      if (!reloadOnceForChunkError()) this.setState({ reloading: false })
+      return
+    }
     // Keep the stack in the console for debugging; the UI stays friendly.
     console.error('Unhandled error caught by ErrorBoundary:', error, info)
   }
 
   render() {
     if (!this.state.error) return this.props.children
+
+    // Reload imminent — match the Suspense fallback so there's no scary flash.
+    if (this.state.reloading) {
+      return <div style={{ minHeight: '100vh', background: '#020617' }} />
+    }
 
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
