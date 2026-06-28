@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import UIKit
 
 /// How position uploads are paced.
 enum SendMode: String { case time, distance }
@@ -48,6 +49,18 @@ final class TrackingStore: ObservableObject {
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
 
+    // MARK: Battery telemetry (measured, not theoretical)
+    /// Current charge 0…1, or -1 if unknown (e.g. simulator).
+    @Published var batteryLevel: Double = -1
+    @Published var isCharging = false
+    /// Real measured drain over a rolling window (% per hour); nil until enough
+    /// has elapsed to be meaningful or while charging.
+    @Published var batteryDrainPerHour: Double?
+    /// Estimated autonomy at the current measured drain (hours); nil if unknown.
+    @Published var estimatedHoursRemaining: Double?
+    /// Recent (time, level) samples since the last unplug, for the drain estimate.
+    private var batterySamples: [(t: Date, level: Double)] = []
+
     private let token: String
     private let location = LocationManager()
     private var lastSendAttempt: Date = .distantPast
@@ -57,6 +70,7 @@ final class TrackingStore: ObservableObject {
 
     init(token: String) {
         self.token = token
+        UIDevice.current.isBatteryMonitoringEnabled = true
         authStatus = location.authorizationStatus
         location.onLocation = { [weak self] loc in
             Task { @MainActor in self?.handleLocation(loc) }
@@ -288,6 +302,38 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /// Sample the battery and update the measured drain + autonomy estimate.
+    /// Battery level on iOS is coarse (~5% steps), so we average over a rolling
+    /// window and smooth, and only publish a rate once it's meaningful. While
+    /// charging we reset the baseline (drain isn't meaningful plugged in).
+    private func sampleBattery() {
+        let device = UIDevice.current
+        let level = Double(device.batteryLevel) // -1 if unknown
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        batteryLevel = level
+        isCharging = charging
+        guard level >= 0 else { batteryDrainPerHour = nil; estimatedHoursRemaining = nil; return }
+        let now = Date()
+        if charging {
+            batterySamples = [(now, level)]
+            batteryDrainPerHour = nil
+            estimatedHoursRemaining = nil
+            return
+        }
+        batterySamples.append((now, level))
+        let cutoff = now.addingTimeInterval(-45 * 60) // rolling 45-min window
+        batterySamples.removeAll { $0.t < cutoff }
+        guard let first = batterySamples.first, batterySamples.count >= 2 else { return }
+        let hours = now.timeIntervalSince(first.t) / 3600
+        let dropPct = (first.level - level) * 100
+        // Need ≥10 min and a measurable drop, else the coarse steps give noise.
+        guard hours >= 10.0 / 60.0, dropPct >= 1 else { return }
+        let rate = dropPct / hours
+        let smoothed = batteryDrainPerHour.map { $0 * 0.6 + rate * 0.4 } ?? rate
+        batteryDrainPerHour = smoothed
+        estimatedHoursRemaining = smoothed > 0 ? (level * 100) / smoothed : nil
+    }
+
     /// Apply a user-facing preset; `.custom` leaves the manual values untouched.
     func selectProfile(_ p: SendProfile) {
         profile = p
@@ -319,11 +365,14 @@ final class TrackingStore: ObservableObject {
     /// runner is stationary, plus the distance-mode heartbeat.
     private func startFlushTimer() {
         flushTimer?.invalidate()
+        batterySamples = []
+        sampleBattery() // seed an immediate baseline reading
         flushTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 // Primary trigger to leave standby when stationary at the start
                 // line (coarse location may deliver no callbacks while still).
                 self?.maybeBeginFromStandby()
+                self?.sampleBattery()
                 self?.heartbeatTick()
                 await self?.flush()
             }

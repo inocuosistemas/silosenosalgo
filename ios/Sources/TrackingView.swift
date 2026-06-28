@@ -57,6 +57,9 @@ struct TrackingView: View {
                         Label("Detenido", systemImage: "pause.circle")
                             .foregroundStyle(Theme.slate400)
                     }
+                    if store.isSharing, store.batteryLevel >= 0 {
+                        batteryRow
+                    }
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -285,6 +288,57 @@ struct TrackingView: View {
                 }
             }
         }
+    }
+
+    /// Live battery readout with the MEASURED drain and estimated autonomy.
+    @ViewBuilder
+    private var batteryRow: some View {
+        let pct = Int((store.batteryLevel * 100).rounded())
+        HStack(spacing: 8) {
+            Image(systemName: store.isCharging ? "battery.100.bolt" : batteryIcon(store.batteryLevel))
+                .foregroundStyle(store.isCharging ? .green : batteryTint(store.batteryLevel))
+            if store.isCharging {
+                Text("Cargando · \(pct)%").foregroundStyle(.green)
+            } else if let drain = store.batteryDrainPerHour {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(pct)% · gasto real ~\(String(format: "%.1f", drain))%/h")
+                        .fontWeight(.semibold)
+                    if let h = store.estimatedHoursRemaining {
+                        Text("Autonomía estimada ~\(autonomyLabel(h))")
+                            .font(.caption).foregroundStyle(autonomyTint(h))
+                    }
+                }
+            } else {
+                Text("\(pct)% · calculando consumo…")
+                    .foregroundStyle(Theme.slate400)
+            }
+        }
+    }
+
+    private func batteryIcon(_ level: Double) -> String {
+        switch level {
+        case ..<0.1: return "battery.0"
+        case ..<0.4: return "battery.25"
+        case ..<0.7: return "battery.50"
+        case ..<0.95: return "battery.75"
+        default: return "battery.100"
+        }
+    }
+
+    private func batteryTint(_ level: Double) -> Color {
+        level < 0.15 ? .red : (level < 0.30 ? .orange : .green)
+    }
+
+    /// "~18 h" or "~5 h 30 min" for shorter estimates.
+    private func autonomyLabel(_ hours: Double) -> String {
+        if hours >= 10 { return "\(Int(hours.rounded())) h" }
+        let h = Int(hours)
+        let m = Int((hours - Double(h)) * 60)
+        return m > 0 ? "\(h) h \(m) min" : "\(h) h"
+    }
+
+    private func autonomyTint(_ hours: Double) -> Color {
+        hours < 3 ? .red : (hours < 6 ? .orange : Theme.slate400)
     }
 
     @ViewBuilder
