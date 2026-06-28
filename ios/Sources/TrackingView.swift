@@ -131,6 +131,11 @@ struct TrackingView: View {
                 }
                 .listRowBackground(Theme.slate900)
 
+                Section {
+                    lowPowerTip
+                }
+                .listRowBackground(Theme.slate900)
+
                 if !store.isSharing {
                     Section {
                         Picker("Ruta (previsión)", selection: $store.selectedPlanId) {
@@ -285,6 +290,29 @@ struct TrackingView: View {
                         }
                     }
                     .tint(Theme.sky500)
+                }
+            }
+        }
+    }
+
+    /// Race tip: enabling iOS Low Power Mode extends autonomy and does NOT break
+    /// GPS or uploads. Reflects whether it's currently on.
+    @ViewBuilder
+    private var lowPowerTip: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: store.lowPowerMode ? "checkmark.circle.fill" : "lightbulb.fill")
+                .foregroundStyle(store.lowPowerMode ? .green : .yellow)
+            VStack(alignment: .leading, spacing: 2) {
+                if store.lowPowerMode {
+                    Text("Modo de Bajo Consumo activo")
+                        .fontWeight(.semibold).foregroundStyle(.green)
+                    Text("Perfecto: alarga la batería y no afecta al GPS ni al envío de tu ubicación.")
+                        .font(.caption).foregroundStyle(Theme.slate400)
+                } else {
+                    Text("Consejo para ultras")
+                        .fontWeight(.semibold)
+                    Text("Activa el Modo de Bajo Consumo (Ajustes › Batería). Alarga mucho la autonomía y NO afecta al GPS ni al envío de tu posición.")
+                        .font(.caption).foregroundStyle(Theme.slate400)
                 }
             }
         }

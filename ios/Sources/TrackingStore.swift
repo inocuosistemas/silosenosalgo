@@ -48,6 +48,9 @@ final class TrackingStore: ObservableObject {
     @Published var retainHours: Double = 24
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
+    /// Whether iOS Low Power Mode is on (reflected live). It extends autonomy and
+    /// does NOT disable our active background location session or uploads.
+    @Published var lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
 
     // MARK: Battery telemetry (measured, not theoretical)
     /// Current charge 0…1, or -1 if unknown (e.g. simulator).
@@ -75,6 +78,11 @@ final class TrackingStore: ObservableObject {
     init(token: String) {
         self.token = token
         UIDevice.current.isBatteryMonitoringEnabled = true
+        NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled }
+        }
         authStatus = location.authorizationStatus
         location.onLocation = { [weak self] loc in
             Task { @MainActor in self?.handleLocation(loc) }
