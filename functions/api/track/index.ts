@@ -54,11 +54,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const now = Date.now()
   // Reference start = the PLANNED departure time (settable), so the broadcaster
-  // can activate tracking later and keep paces/predictions anchored to the real
-  // start. Defaults to now; clamped to ±24 h to reject bad values.
-  const startedAt = typeof body.startAt === 'number' && Math.abs(body.startAt - now) <= 24 * 60 * 60 * 1000
-    ? body.startAt
-    : now
+  // can activate tracking before the start (a few minutes — or days — early) and
+  // keep paces/predictions anchored to the real start, with a countdown until it.
+  // Accept a generous window (up to 14 days ahead, 24 h behind) so a plan whose
+  // race is days away is honoured; bad/wild values fall back to now.
+  const FUTURE_START_MAX = 14 * 24 * 60 * 60 * 1000
+  const PAST_START_MAX = 24 * 60 * 60 * 1000
+  const startedAt =
+    typeof body.startAt === 'number' && body.startAt <= now + FUTURE_START_MAX && body.startAt >= now - PAST_START_MAX
+      ? body.startAt
+      : now
   // One active session per user: end any prior active ones (stop accumulation).
   // Keep their data so they stay viewable for 24 h, then they're lazy-purged.
   await env.DB.prepare(
@@ -66,7 +71,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   ).bind(now, now + KEEP_AFTER_END_MS, user.id).run()
 
   const id = genId(16)
-  const expiresAt = now + ttl
+  // Expiry anchored to the LATER of now / planned start, so a session activated
+  // before the race survives through it (and the retention window after).
+  const expiresAt = Math.max(now, startedAt) + ttl
   await env.DB.prepare(
     "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, status, started_at, expires_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
   ).bind(id, user.id, title, planShareId, startedAt, expiresAt).run()
