@@ -42,7 +42,8 @@ struct PlanSummary: Codable, Identifiable, Equatable {
 }
 
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.
-struct Fix {
+/// Codable so unsent fixes can be persisted to disk and flushed later.
+struct Fix: Codable {
     var lat: Double
     var lon: Double
     var trackKm: Double?
@@ -162,6 +163,23 @@ enum API {
         if let v = fix.altitude { body["altitude"] = v }
         if let v = fix.fixAt { body["fixAt"] = v }
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: body)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+    }
+
+    /// Upload several buffered fixes at once (offline backlog flush). The server
+    /// orders them by their fixAt and uses the most recent as the live position.
+    static func pingBatch(token: String, id: String, fixes: [Fix]) async throws {
+        let arr: [[String: Any]] = fixes.map { f in
+            var d: [String: Any] = ["lat": f.lat, "lon": f.lon]
+            if let v = f.trackKm { d["trackKm"] = v }
+            if let v = f.speed { d["speed"] = v }
+            if let v = f.heading { d["heading"] = v }
+            if let v = f.accuracy { d["accuracy"] = v }
+            if let v = f.altitude { d["altitude"] = v }
+            if let v = f.fixAt { d["fixAt"] = v }
+            return d
+        }
+        let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: ["fixes": arr])
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 

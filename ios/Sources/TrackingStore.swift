@@ -21,10 +21,15 @@ final class TrackingStore: ObservableObject {
     @Published var sessions: [TrackSessionSummary] = []
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
     @Published var retainHours: Double = 24
+    /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
+    @Published var pendingCount = 0
 
     private let token: String
     private let location = LocationManager()
     private var lastSendAttempt: Date = .distantPast
+    private var pending: [Fix] = []
+    private var isFlushing = false
+    private var flushTimer: Timer?
 
     init(token: String) {
         self.token = token
@@ -67,9 +72,11 @@ final class TrackingStore: ObservableObject {
         pingCount = 0
         lastSentAt = nil
         lastSendAttempt = .distantPast
+        loadPending(id)
         location.configure(interval: intervalSeconds)
         location.requestAuthorization()
         location.start()
+        startFlushTimer()
     }
 
     func deleteSession(_ id: String) async {
@@ -92,26 +99,40 @@ final class TrackingStore: ObservableObject {
             pingCount = 0
             lastSentAt = nil
             lastSendAttempt = .distantPast
+            pending = []
+            persistPending()
             location.configure(interval: intervalSeconds)
             location.start()
+            startFlushTimer()
         } catch {
             lastError = (error as? APIError)?.errorDescription ?? "No se pudo iniciar el seguimiento."
         }
     }
 
     func stopSharing() async {
+        flushTimer?.invalidate()
+        flushTimer = nil
         location.stop()
-        if let t = sessionToken { await API.end(token: token, id: t, retainHours: retainHours) }
         isSharing = false
+        let t = sessionToken
         sessionToken = nil
-        // The backend keeps the just-ended session for 24h; refresh so it
-        // appears in "Mis seguimientos".
+        if let t {
+            // Best-effort: push any remaining backlog before ending (direct, so
+            // it can't recurse through flush()).
+            if !pending.isEmpty { try? await API.pingBatch(token: token, id: t, fixes: pending) }
+            await API.end(token: token, id: t, retainHours: retainHours)
+            UserDefaults.standard.removeObject(forKey: pendingKey(t))
+        }
+        pending = []
+        pendingCount = 0
+        // The backend keeps the just-ended session for the chosen retention;
+        // refresh so it appears in "Mis seguimientos".
         await loadSessions()
     }
 
     private func handleLocation(_ loc: CLLocation) {
         lastLocation = loc
-        guard isSharing, let id = sessionToken else { return }
+        guard isSharing, sessionToken != nil else { return }
         let now = Date()
         guard now.timeIntervalSince(lastSendAttempt) >= intervalSeconds else { return }
         lastSendAttempt = now
@@ -126,21 +147,64 @@ final class TrackingStore: ObservableObject {
             altitude: loc.verticalAccuracy >= 0 ? loc.altitude : nil,
             fixAt: loc.timestamp.timeIntervalSince1970 * 1000
         )
-        Task { await send(fix, id: id) }
+        // Always record locally first; uploading is a separate, retried step so
+        // positions captured without coverage are never lost.
+        pending.append(fix)
+        if pending.count > 10_000 { pending.removeFirst(pending.count - 10_000) }
+        persistPending()
+        Task { await flush() }
     }
 
-    private func send(_ fix: Fix, id: String) async {
+    /// Upload the whole buffered backlog in one batch. On failure (no coverage)
+    /// the backlog is KEPT and retried; on success only the sent prefix is removed
+    /// (fixes appended during the upload stay queued).
+    private func flush() async {
+        guard isSharing, let id = sessionToken, !isFlushing, !pending.isEmpty else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+        let batch = pending
         do {
-            try await API.ping(token: token, id: id, fix: fix)
+            try await API.pingBatch(token: token, id: id, fixes: batch)
+            if pending.count >= batch.count { pending.removeFirst(batch.count) } else { pending.removeAll() }
+            persistPending()
             lastSentAt = Date()
-            pingCount += 1
+            pingCount += batch.count
             lastError = nil
         } catch {
             if let e = error as? APIError, e.status == 410 {
                 await stopSharing() // session ended/expired on the server
             } else {
-                lastError = (error as? APIError)?.errorDescription ?? "Fallo al enviar la posición."
+                lastError = "Sin cobertura: \(pending.count) posiciones en cola; se enviarán al recuperarla."
             }
+        }
+    }
+
+    private func pendingKey(_ token: String) -> String { "pendingFixes-\(token)" }
+
+    private func persistPending() {
+        pendingCount = pending.count
+        guard let t = sessionToken else { return }
+        if let data = try? JSONEncoder().encode(pending) {
+            UserDefaults.standard.set(data, forKey: pendingKey(t))
+        }
+    }
+
+    private func loadPending(_ token: String) {
+        if let data = UserDefaults.standard.data(forKey: pendingKey(token)),
+           let arr = try? JSONDecoder().decode([Fix].self, from: data) {
+            pending = arr
+        } else {
+            pending = []
+        }
+        pendingCount = pending.count
+    }
+
+    /// Periodic retry so a backlog flushes when coverage returns even if the
+    /// runner is stationary (no new GPS callbacks to drive an upload).
+    private func startFlushTimer() {
+        flushTimer?.invalidate()
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.flush() }
         }
     }
 }

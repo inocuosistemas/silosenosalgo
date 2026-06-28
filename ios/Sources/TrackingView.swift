@@ -130,6 +130,10 @@ struct TrackingView: View {
                         if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
                             LabeledContent("Precisión GPS", value: String(format: "± %.0f m", loc.horizontalAccuracy))
                         }
+                        if store.pendingCount > 0 {
+                            LabeledContent("En cola (sin cobertura)", value: "\(store.pendingCount)")
+                                .foregroundStyle(.orange)
+                        }
                     } header: {
                         Text("Estado").foregroundStyle(Theme.slate400)
                     }
