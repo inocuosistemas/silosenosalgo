@@ -52,6 +52,17 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = meters <= 100 ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyHundredMeters
     }
 
+    /// Ultra-low-power "armed" mode used before a planned start: keep a location
+    /// session alive — so iOS doesn't suspend the app and it can auto-begin at
+    /// the start time — but at minimal cost (network/cell positioning, no GPS).
+    /// The store uploads nothing while in this mode; it exists only to keep the
+    /// app running and let a timer detect when the start arrives.
+    func configureStandby() {
+        manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+        manager.distanceFilter = 3000
+        manager.pausesLocationUpdatesAutomatically = false
+    }
+
     func start() {
         enableBackgroundIfAuthorized()
         manager.startUpdatingLocation()

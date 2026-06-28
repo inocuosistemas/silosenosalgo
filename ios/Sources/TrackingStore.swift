@@ -13,6 +13,9 @@ enum SendProfile: String { case balanced, saver, precision, custom }
 @MainActor
 final class TrackingStore: ObservableObject {
     @Published var isSharing = false
+    /// Armed-but-idle: the session exists and counts down, but we keep location
+    /// in ultra-low-power standby and upload nothing until ~the planned start.
+    @Published var isStandby = false
     @Published var sessionToken: String?
     /// User-facing preset (default = the recommended balanced profile).
     @Published var profile: SendProfile = .balanced
@@ -146,7 +149,16 @@ final class TrackingStore: ObservableObject {
             lastSendAttempt = .distantPast
             pending = []
             persistPending()
-            applyLocationConfig()
+            // If the planned start is still ahead (beyond the lead margin), arm
+            // in low-power standby: keep the app alive with coarse location but
+            // upload nothing until ~2 min before the start, to save battery.
+            if start.timeIntervalSinceNow > startLeadSeconds {
+                isStandby = true
+                location.configureStandby()
+            } else {
+                isStandby = false
+                applyLocationConfig()
+            }
             location.start()
             startFlushTimer()
         } catch {
@@ -159,6 +171,7 @@ final class TrackingStore: ObservableObject {
         flushTimer = nil
         location.stop()
         isSharing = false
+        isStandby = false
         let t = sessionToken
         sessionToken = nil
         if let t {
@@ -178,6 +191,9 @@ final class TrackingStore: ObservableObject {
     private func handleLocation(_ loc: CLLocation) {
         lastLocation = loc
         guard isSharing, sessionToken != nil else { return }
+        // Armed standby: don't record/upload anything; just check if it's time to
+        // wake into live tracking (a coarse fix arrived, use it as the trigger).
+        if isStandby { maybeBeginFromStandby(); return }
         // Time mode: throttle by interval. Distance mode: the GPS distanceFilter
         // already gates callbacks, so we record every one.
         if sendMode == .time {
@@ -254,6 +270,24 @@ final class TrackingStore: ObservableObject {
     /// so followers don't see a frozen "lost signal".
     private let heartbeatSeconds: TimeInterval = 150
 
+    /// How early (before the planned start) standby switches to live tracking.
+    /// A small margin absorbs clock drift between the phone and the organisation.
+    private let startLeadSeconds: TimeInterval = 120
+
+    /// While armed, switch to live tracking once we're within the lead margin of
+    /// the planned start: apply the real profile and push an immediate first fix.
+    private func maybeBeginFromStandby() {
+        guard isStandby else { return }
+        guard Date() >= startAt.addingTimeInterval(-startLeadSeconds) else { return }
+        isStandby = false
+        applyLocationConfig()           // full profile (GPS + interval/distance)
+        lastSendAttempt = .distantPast  // don't throttle the first live fix
+        if let loc = lastLocation {
+            recordFix(from: loc)
+            Task { await flush() }
+        }
+    }
+
     /// Apply a user-facing preset; `.custom` leaves the manual values untouched.
     func selectProfile(_ p: SendProfile) {
         profile = p
@@ -275,7 +309,7 @@ final class TrackingStore: ObservableObject {
 
     /// In distance mode, force a fix if we've been still longer than the heartbeat.
     private func heartbeatTick() {
-        guard isSharing, sendMode == .distance, let loc = lastLocation else { return }
+        guard isSharing, !isStandby, sendMode == .distance, let loc = lastLocation else { return }
         if Date().timeIntervalSince(lastSendAttempt) >= heartbeatSeconds {
             recordFix(from: loc)
         }
@@ -287,6 +321,9 @@ final class TrackingStore: ObservableObject {
         flushTimer?.invalidate()
         flushTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             Task { @MainActor in
+                // Primary trigger to leave standby when stationary at the start
+                // line (coarse location may deliver no callbacks while still).
+                self?.maybeBeginFromStandby()
                 self?.heartbeatTick()
                 await self?.flush()
             }

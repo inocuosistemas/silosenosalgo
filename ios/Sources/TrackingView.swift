@@ -43,7 +43,14 @@ struct TrackingView: View {
         NavigationStack {
             Form {
                 Section {
-                    if store.isSharing {
+                    if store.isStandby {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("Armado · ahorrando batería", systemImage: "moon.zzz.fill")
+                                .foregroundStyle(.yellow)
+                            Text("Empieza solo hacia las \(store.startAt.formatted(date: .omitted, time: .shortened)). Deja la app abierta en segundo plano (no la cierres).")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
+                    } else if store.isSharing {
                         Label("Compartiendo en directo", systemImage: "dot.radiowaves.left.and.right")
                             .foregroundStyle(.green)
                     } else {
