@@ -8,6 +8,7 @@ import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment, formatTime, type PausePoint } from '../lib/timing'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
+import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 
 const POLL_MS = 10_000
 const STALE_MS = 35_000
@@ -76,6 +77,25 @@ function bandIcon(band: DaylightBand): string {
 
 function formatDist(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
+}
+
+function poiIcon(w: { sym?: string; type?: string; name?: string }): string {
+  const s = `${w.sym ?? ''} ${w.type ?? ''} ${w.name ?? ''}`.toLowerCase()
+  if (/avitualla|aid|water|agua|food|comida|fuente/.test(s)) return '🥤'
+  if (/cima|summit|peak|pico|puerto|\bcol\b|alto\b/.test(s)) return '⛰️'
+  if (/refug|lodge|\bhut\b|albergue|cabaña/.test(s)) return '🏠'
+  if (/meta|finish|llegada/.test(s)) return '🏁'
+  if (/salida|start|inicio/.test(s)) return '🚩'
+  if (/control|check/.test(s)) return '✓'
+  return '📍'
+}
+
+/** min/km as M:SS/km. */
+function paceLabel(minPerKm: number): string {
+  if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '—'
+  const m = Math.floor(minPerKm)
+  const s = Math.round((minPerKm - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')}/km`
 }
 
 export default function LiveViewer({ token }: { token: string }) {
@@ -171,13 +191,27 @@ export default function LiveViewer({ token }: { token: string }) {
     if (!plan) return null
     const epoch = new Date(0)
     const sorted = plan.track.namedWaypoints.slice().sort((a, b) => a.distanceKm - b.distanceKm)
+    let cumGainM = 0
     return sorted.map((w, i) => {
       const prevKm = i > 0 ? sorted[i - 1].distanceKm : 0
       const seg = elevationStatsForSegment(plan.track, prevKm, w.distanceKm, plan.paceConfig)
+      cumGainM += seg.elevGainM
       const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
-      return { w, seg, plannedElapsedMs: eta0 ? eta0.getTime() : null }
+      return { w, seg, cumGainM, plannedElapsedMs: eta0 ? eta0.getTime() : null }
     })
   }, [plan, pauses])
+
+  // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
+  // projected ETA at render time.
+  const [weather, setWeather] = useState<(PoiHourly | null)[] | null>(null)
+  const weatherFetchedRef = useRef(false)
+  useEffect(() => {
+    if (!planRows || planRows.length === 0 || weatherFetchedRef.current) return
+    weatherFetchedRef.current = true
+    let alive = true
+    void fetchPoiWeather(planRows.map((r) => ({ lat: r.w.lat, lon: r.w.lon }))).then((w) => { if (alive) setWeather(w) })
+    return () => { alive = false }
+  }, [planRows])
 
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
@@ -249,14 +283,22 @@ export default function LiveViewer({ token }: { token: string }) {
 
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
-    const cards = (planRows ?? []).map((r) => {
+    const cards = (planRows ?? []).map((r, i) => {
       const plannedETA = r.plannedElapsedMs != null ? new Date(sessionStart.getTime() + r.plannedElapsedMs) : null
       const cutoff = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon)) ?? null
       const projectedETA = plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
       const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
       const passed = progressKm != null && r.w.distanceKm <= progressKm + 0.05
       const band: DaylightBand | null = projectedETA ? bandAt(projectedETA, r.w.lat, r.w.lon) : null
-      return { w: r.w, seg: r.seg, plannedETA, cutoff, projectedETA, marginMin, passed, band }
+      // Pace needed from the current position to reach this cut-off in time.
+      let reqPace: number | null = null
+      if (cutoff && progressKm != null && !passed) {
+        const remDist = r.w.distanceKm - progressKm
+        const availMin = (cutoff.getTime() - Date.now()) / 60_000
+        reqPace = availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null
+      }
+      const wx = projectedETA && weather ? weatherAt(weather[i], projectedETA) : null
+      return { w: r.w, seg: r.seg, cumGainM: r.cumGainM, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
     const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses)
@@ -289,22 +331,33 @@ export default function LiveViewer({ token }: { token: string }) {
               <div className="flex items-baseline justify-between gap-2">
                 <p className="font-semibold truncate">
                   {i === nextIdx && <span className="text-sky-400">▶ </span>}
-                  {c.band && <span>{bandIcon(c.band)} </span>}
-                  {c.w.name}
+                  {poiIcon(c.w)}{c.band ? ` ${bandIcon(c.band)}` : ''} {c.w.name}
                 </p>
                 <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              {c.w.desc && <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{c.w.desc}</p>}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
                 {c.cutoff && (
                   <span className={marginTone(c.marginMin)}>
                     Corte {clockDay(c.cutoff, sessionStart)}
                     {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
+                    {c.reqPace != null && <> · {c.reqPace === Infinity ? 'vencido' : `necesitas ${paceLabel(c.reqPace)}`}</>}
                   </span>
                 )}
-                <span className="text-slate-500">↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m</span>
-                {c.w.pauseMin != null && c.w.pauseMin > 0 && <span className="text-slate-500">⏸ {c.w.pauseMin} min</span>}
               </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                <span>↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min</span>
+                {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
+                {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
+              </div>
+              {c.wx && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
+                  <span>🌡️ {Math.round(c.wx.temp)}°</span>
+                  <span>💧 {Math.round(c.wx.precip)}%</span>
+                  <span>💨 {Math.round(c.wx.wind)} km/h</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
