@@ -14,6 +14,7 @@ const POLL_MS = 10_000
 const STALE_MS = 35_000
 const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as not moving
 const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
+const STOP_REPORTING_MS = 360_000  // still "reporting" if updated within ~6 min (heartbeat ~150 s; tolerates one missed beat) — beyond this it's lost signal, not "parado"
 
 type ViewMode = 'map' | 'cards'
 
@@ -379,10 +380,15 @@ export default function LiveViewer({ token }: { token: string }) {
   // Activated before the planned start → show a countdown, not projections.
   const preStart = !ended && sessionStart.getTime() > refNow
   const fr = fix ? freshness(fix.updatedAt) : null
-  // "Parado": still reporting (fresh fix, not ended/pre-start) but the position
-  // hasn't moved for a while. Measured to refNow so the counter ticks up live.
+  // "Parado": the position hasn't moved for a while while the beacon is still
+  // reporting. A stationary beacon only pings via the heartbeat (~150 s), well
+  // past the 35 s "stale" mark, so we gate on a wider "still reporting" window
+  // (STOP_REPORTING_MS) — not fr.stale, which would hide the badge for most of
+  // each heartbeat cycle. Beyond that window it's lost signal, not parado.
+  // stoppedMs is measured to refNow so the counter ticks up live.
   const stoppedMs = stoppedSince != null ? refNow - stoppedSince : 0
-  const isStopped = !!fix && !ended && !preStart && !fr?.stale && stoppedMs >= STOP_MIN_MS
+  const reportingMs = fix ? refNow - fix.updatedAt : Infinity
+  const isStopped = !!fix && !ended && !preStart && reportingMs <= STOP_REPORTING_MS && stoppedMs >= STOP_MIN_MS
   const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
   const totalKm = plan?.track.totalDistanceKm ?? 0
   const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
