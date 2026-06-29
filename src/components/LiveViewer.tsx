@@ -389,7 +389,9 @@ export default function LiveViewer({ token }: { token: string }) {
   const stoppedMs = stoppedSince != null ? refNow - stoppedSince : 0
   const reportingMs = fix ? refNow - fix.updatedAt : Infinity
   const isStopped = !!fix && !ended && !preStart && reportingMs <= STOP_REPORTING_MS && stoppedMs >= STOP_MIN_MS
-  const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
+  // When parado, force 0: a heartbeat resends the last fix with its old (moving)
+  // speed, which would otherwise read e.g. "21 km/h" next to "parado".
+  const speedKmh = isStopped ? 0 : fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
   const totalKm = plan?.track.totalDistanceKm ?? 0
   const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
 
