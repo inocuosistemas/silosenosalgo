@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { TrackStateResponse } from '../../shared/wireTypes'
@@ -195,6 +195,9 @@ export default function LiveViewer({ token }: { token: string }) {
   const [plan, setPlan] = useState<RevivedShare | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
+  const advDragStartY = useRef<number | null>(null)
+  const advDraggedRef = useRef(false)
 
   useEffect(() => {
     let alive = true
@@ -701,40 +704,56 @@ export default function LiveViewer({ token }: { token: string }) {
                 <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
               )}
               <button
-                onClick={() => setShowAdvanced((v) => !v)}
-                aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados'}
-                className="mt-1 w-full flex justify-center items-center gap-1 py-1.5 group"
+                onClick={() => { if (advDraggedRef.current) { advDraggedRef.current = false; return } setShowAdvanced((v) => !v) }}
+                onTouchStart={(e) => { advDragStartY.current = e.touches[0].clientY; advDraggedRef.current = false }}
+                onTouchMove={(e) => {
+                  if (advDragStartY.current == null) return
+                  const dy = e.touches[0].clientY - advDragStartY.current
+                  if (Math.abs(dy) > 24) { advDraggedRef.current = true; setShowAdvanced(dy > 0) }
+                }}
+                onTouchEnd={() => { advDragStartY.current = null }}
+                aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca o arrastra)'}
+                className="mt-1 w-full flex justify-center items-center gap-1 py-2 group touch-none"
               >
                 {[0, 1, 2].map((i) => (
                   <span key={i} className={`h-1 w-1 rounded-full transition-colors ${showAdvanced ? 'bg-slate-300' : 'bg-slate-600 group-hover:bg-slate-400'}`} />
                 ))}
               </button>
               {showAdvanced && (
-                <div className="mt-1 border-t border-slate-800 pt-2 space-y-2">
+                <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
                   {hasPlan && fullProfile && (
                     <div>
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">Perfil del recorrido</p>
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500"><span className="text-xs">📈</span>Perfil del recorrido</p>
                       <SegmentProfile profile={fullProfile} posKm={progressKm} />
                       <div className="flex justify-between text-[10px] text-slate-500">
                         <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2 text-center">
-                    <Stat label="V. actual" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
+                  <MetricSection icon="💨" title="Velocidad" cols={3}>
+                    <Stat label="Actual" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
                     <Stat label="Media total" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
                     <Stat label="Media en mov." value={movingAvgKmh != null ? `${movingAvgKmh.toFixed(1)} km/h` : '—'} />
-                    <Stat label="Tiempo" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
-                    {advStats && (
-                      <>
+                  </MetricSection>
+                  {advStats ? (
+                    <>
+                      <MetricSection icon="⏱️" title="Tiempo y meta" cols={3}>
+                        <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
                         <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
+                        <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                      </MetricSection>
+                      <MetricSection icon="⛰️" title="Desnivel" cols={3}>
                         <Stat label="D+ hecho" value={`${Math.round(advStats.done.elevGainM)}/${Math.round(advStats.totalGainM)} m`} />
                         <Stat label="D+ restante" value={`${Math.round(advStats.rem.elevGainM)} m`} />
                         <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
-                        <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
-                      </>
-                    )}
-                  </div>
+                      </MetricSection>
+                    </>
+                  ) : (
+                    <MetricSection icon="⏱️" title="Tiempo" cols={2}>
+                      <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
+                      <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
+                    </MetricSection>
+                  )}
                 </div>
               )}
             </>
@@ -767,6 +786,17 @@ function marginTone(marginMin: number | null): string {
   if (marginMin < 0) return 'text-red-400 font-medium'
   if (marginMin < 15) return 'text-amber-400'
   return 'text-emerald-400'
+}
+
+function MetricSection({ icon, title, cols, children }: { icon: string; title: string; cols: 2 | 3; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+        <span className="text-xs">{icon}</span>{title}
+      </p>
+      <div className={`grid ${cols === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-2 text-center`}>{children}</div>
+    </div>
+  )
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
