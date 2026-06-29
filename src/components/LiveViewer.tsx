@@ -423,10 +423,9 @@ export default function LiveViewer({ token }: { token: string }) {
   // stoppedMs is measured to refNow so the counter ticks up live.
   const stoppedMs = stoppedSince != null ? refNow - stoppedSince : 0
   const reportingMs = fix ? refNow - fix.updatedAt : Infinity
+  // While stopped, speed is always 0, so the speed box shows the stopped
+  // duration instead (no value in showing "0 km/h" in that state).
   const isStopped = !!fix && !ended && !preStart && reportingMs <= STOP_REPORTING_MS && stoppedMs >= STOP_MIN_MS
-  // While stopped, speed is always 0, so the speed box alternates (~every 3 s)
-  // between the speed and the stopped duration instead of needing its own line.
-  const stoppedPhase = isStopped && Math.floor(refNow / 3000) % 2 === 1
   // When parado, force 0: a heartbeat resends the last fix with its old (moving)
   // speed, which would otherwise read e.g. "21 km/h" next to "parado".
   const speedKmh = isStopped ? 0 : fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
@@ -654,9 +653,9 @@ export default function LiveViewer({ token }: { token: string }) {
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat
-                  label={stoppedPhase ? 'Parado' : 'Velocidad'}
-                  value={stoppedPhase ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'}
-                  tone={stoppedPhase ? 'amber' : undefined}
+                  label={isStopped ? 'Parado' : 'Velocidad'}
+                  value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'}
+                  tone={isStopped ? 'amber' : undefined}
                 />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
