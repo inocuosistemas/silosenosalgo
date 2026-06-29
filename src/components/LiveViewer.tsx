@@ -654,9 +654,12 @@ export default function LiveViewer({ token }: { token: string }) {
               )}
               <button
                 onClick={() => setShowAdvanced((v) => !v)}
-                className="mt-2 w-full text-center text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+                aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados'}
+                className="mt-1 w-full flex justify-center items-center gap-1 py-1.5 group"
               >
-                {showAdvanced ? '▴ Menos datos' : '▾ Datos avanzados'}
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className={`h-1 w-1 rounded-full transition-colors ${showAdvanced ? 'bg-slate-300' : 'bg-slate-600 group-hover:bg-slate-400'}`} />
+                ))}
               </button>
               {showAdvanced && (
                 <div className="mt-1 border-t border-slate-800 pt-2 space-y-2">
