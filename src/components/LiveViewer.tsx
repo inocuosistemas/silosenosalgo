@@ -174,6 +174,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const [, force] = useState(0)
   const [plan, setPlan] = useState<RevivedShare | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -341,6 +342,13 @@ export default function LiveViewer({ token }: { token: string }) {
     })
   }, [plan, pauses])
 
+  // Full-route elevation sparkline (overview), computed once per plan; the live
+  // position is overlaid at render time. Used by the advanced data panel.
+  const fullProfile = useMemo(
+    () => (plan ? buildSegmentProfile(plan.track, 0, plan.track.totalDistanceKm) : null),
+    [plan],
+  )
+
   // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
   // projected ETA at render time.
   const [weather, setWeather] = useState<(PoiHourly | null)[] | null>(null)
@@ -434,6 +442,27 @@ export default function LiveViewer({ token }: { token: string }) {
     }
   }
 
+  // Elapsed since the session start, and overall average speed (covered distance
+  // / elapsed, stops included). Uses on-route km when available, else trail km.
+  const elapsedMin = !preStart ? (refNow - sessionStart.getTime()) / 60_000 : 0
+  const coveredKm = progressKm ?? distanceKm
+  const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
+
+  // Projected finish = planned finish shifted by the live vs-plan delta.
+  const plannedFinish = plan ? estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses) : null
+  const projFinish = plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
+
+  // Advanced metrics (computed only while the panel is open, on the live km):
+  // elevation gained/lost so far and what remains to the finish.
+  const advStats = showAdvanced && plan && progressKm != null
+    ? {
+        done: elevationStatsForSegment(plan.track, 0, progressKm, plan.paceConfig),
+        rem: elevationStatsForSegment(plan.track, progressKm, totalKm, plan.paceConfig),
+        remDist: Math.max(0, totalKm - progressKm),
+        totalGainM: plan.track.elevGainM,
+      }
+    : null
+
   const hasPlan = !!plan
   const center: [number, number] = fix ? [fix.lat, fix.lon]
     : trail.length ? [trail[trail.length - 1].lat, trail[trail.length - 1].lon]
@@ -449,7 +478,7 @@ export default function LiveViewer({ token }: { token: string }) {
           {state.username && <>Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span> · </>}
           {ended
             ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : 'finalizado')
-            : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span>{isStopped && <> · <span className="text-amber-400">⏸️ parado {hhmm(stoppedMs / 60_000)}</span></>}</>
+            : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
             : 'esperando primera posición…'}
         </p>
       </div>
@@ -501,8 +530,6 @@ export default function LiveViewer({ token }: { token: string }) {
       return { w: r.w, seg: r.seg, cumGainM: r.cumGainM, profile: r.profile, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
-    const plannedFinish = estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses)
-    const projFinish = plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
 
     return (
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
@@ -511,11 +538,13 @@ export default function LiveViewer({ token }: { token: string }) {
           {topHero}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-2 gap-2 text-center">
               <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
               <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
               <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+              <Stat label="Vel. media" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
             </div>
+            {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium text-center">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
           </div>
           {offRoute && (
             <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-2.5 text-xs text-amber-300">
@@ -590,18 +619,53 @@ export default function LiveViewer({ token }: { token: string }) {
           {topHero && <div className="mt-2">{topHero}</div>}
           {fix && (
             <>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div className="mt-2 grid grid-cols-2 gap-2 text-center">
                 {hasPlan && progressKm != null
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat label="Velocidad" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
+                <Stat label="Vel. media" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
+              {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
               {deltaMin != null && (
                 <p className={`mt-2 text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</p>
               )}
               {hasPlan && offRoute && nearest && (
                 <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
+              )}
+              <button
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="mt-2 w-full text-center text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                {showAdvanced ? '▴ Menos datos' : '▾ Datos avanzados'}
+              </button>
+              {showAdvanced && (
+                <div className="mt-1 border-t border-slate-800 pt-2 space-y-2">
+                  {hasPlan && fullProfile && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">Perfil del recorrido</p>
+                      <SegmentProfile profile={fullProfile} posKm={progressKm} />
+                      <div className="flex justify-between text-[10px] text-slate-500">
+                        <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <Stat label="Tiempo" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
+                    {advStats ? (
+                      <>
+                        <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
+                        <Stat label="D+ hecho" value={`${Math.round(advStats.done.elevGainM)}/${Math.round(advStats.totalGainM)} m`} />
+                        <Stat label="D+ restante" value={`${Math.round(advStats.rem.elevGainM)} m`} />
+                        <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
+                        <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                      </>
+                    ) : (
+                      <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
+                    )}
+                  </div>
+                </div>
               )}
             </>
           )}
