@@ -499,18 +499,24 @@ export default function LiveViewer({ token }: { token: string }) {
     : plan ? [plan.track.points[0].lat, plan.track.points[0].lon]
     : [40.4168, -3.7038]
 
+  // Live status (en directo / visto / finalizado / esperando). Shown full-width,
+  // not in the truncated header — as a bottom pill over the map, and as its own
+  // line in the cards view.
+  const statusLine = ended
+    ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : <>finalizado</>)
+    : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
+    : <>esperando primera posición…</>
+
   const header = (
     <div className="flex items-center gap-2">
       <span className="text-lg">🌧️</span>
       <div className="min-w-0 flex-1">
         <p className="font-semibold truncate">{state.title || 'Seguimiento en vivo'}</p>
-        <p className="text-xs text-slate-400 truncate">
-          {state.username && <>Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span> · </>}
-          {ended
-            ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : 'finalizado')
-            : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
-            : 'esperando primera posición…'}
-        </p>
+        {state.username && (
+          <p className="text-xs text-slate-400 truncate">
+            Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span>
+          </p>
+        )}
       </div>
       {hasPlan && <ViewToggle mode={viewMode} setMode={setViewMode} />}
     </div>
@@ -563,7 +569,10 @@ export default function LiveViewer({ token }: { token: string }) {
 
     return (
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
-        <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">{header}</div>
+        <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+          {header}
+          <p className="mt-1 text-xs text-slate-400">{statusLine}</p>
+        </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {topHero}
           {/* Summary */}
@@ -704,6 +713,13 @@ export default function LiveViewer({ token }: { token: string }) {
               )}
             </>
           )}
+        </div>
+      </div>
+
+      {/* Live status pill — full text, not truncated, over the bottom of the map. */}
+      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
+        <div className="rounded-full bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto whitespace-nowrap">
+          {statusLine}
         </div>
       </div>
     </div>
