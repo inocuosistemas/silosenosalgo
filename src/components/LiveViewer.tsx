@@ -5,13 +5,15 @@ import type { TrackStateResponse } from '../../shared/wireTypes'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
-import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment, formatTime, type PausePoint } from '../lib/timing'
+import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment, formatTime, ACTIVITY_MAX_SPEED_KMH, type PausePoint } from '../lib/timing'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 
 const POLL_MS = 10_000
 const STALE_MS = 35_000
+const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as not moving
+const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
 
 type ViewMode = 'map' | 'cards'
 
@@ -218,6 +220,21 @@ export default function LiveViewer({ token }: { token: string }) {
     return d
   }, [trail])
 
+  // When did the current stop begin? Walk the trail backwards from the newest
+  // point while it stays within STOP_RADIUS_KM; the earliest such point's time
+  // is when the runner went stationary. null when there's no trail. Combined
+  // with a fresh fix (still reporting) this tells "parado" apart from "offline".
+  const stoppedSince = useMemo(() => {
+    if (trail.length === 0) return null
+    const last = trail[trail.length - 1]
+    let sinceT = last.t
+    for (let i = trail.length - 2; i >= 0; i--) {
+      if (haversineKm(last.lat, last.lon, trail[i].lat, trail[i].lon) > STOP_RADIUS_KM) break
+      sinceT = trail[i].t
+    }
+    return sinceT
+  }, [trail])
+
   const planLatLng = useMemo(
     () => (plan ? plan.track.points.map((p) => [p.lat, p.lon] as [number, number]) : []),
     [plan],
@@ -226,21 +243,75 @@ export default function LiveViewer({ token }: { token: string }) {
     () => (plan ? plan.track.namedWaypoints.filter((w) => w.pauseMin != null && w.pauseMin > 0).map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! })) : []),
     [plan],
   )
-  // Snap the live fix to the nearest planned-track point: km along route + how
-  // far the fix actually is from the route.
+  // Snap the live fix to the planned route: km along route + how far the fix is
+  // from it. A naive global nearest-point flips between the outbound and return
+  // legs of an out-and-back course wherever they overlap (the iOS app only sends
+  // position, never the km). To disambiguate we map-match the recorded trail
+  // from the start, constraining each step to a plausibility window (max
+  // realistic speed for the route's activity × elapsed time), then project the
+  // live fix anchored to that progression. The trail is what resolves cold
+  // starts — opening the link mid-route still anchors km from the actual path.
   const fixLat = state?.fix?.lat ?? null
   const fixLon = state?.fix?.lon ?? null
+  const fixAt = state?.fix?.fixAt ?? null
+  const fixUpdatedAt = state?.fix?.updatedAt ?? null
   const nearest = useMemo(() => {
     if (!plan || fixLat == null || fixLon == null) return null
     const pts = plan.track.points
-    let bestIdx = 0
-    let bestDist = Infinity
-    for (let i = 0; i < pts.length; i++) {
-      const d = haversineKm(fixLat, fixLon, pts[i].lat, pts[i].lon)
-      if (d < bestDist) { bestDist = d; bestIdx = i }
+    const cumKm = plan.track.cumKm
+    const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
+
+    // Nearest point overall (no temporal context) — used to seed and as fallback.
+    const globalNearest = (lat: number, lon: number) => {
+      let bi = 0, bd = Infinity
+      for (let i = 0; i < pts.length; i++) {
+        const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
+        if (d < bd) { bd = d; bi = i }
+      }
+      return { idx: bi, dist: bd }
     }
-    return { km: plan.track.cumKm[bestIdx] ?? 0, distKm: bestDist }
-  }, [plan, fixLat, fixLon])
+
+    // Nearest point within the plausibility window around prevKm; if the window
+    // excludes everything (long GPS gap / genuinely off-route) fall back global.
+    const windowNearest = (lat: number, lon: number, prevKm: number, dtSec: number) => {
+      const maxJumpKm = (maxSpeedKmh / 3600) * Math.max(0, dtSec) + 0.05
+      let bi = -1, bd = Infinity
+      for (let i = 0; i < pts.length; i++) {
+        if (Math.abs(cumKm[i] - prevKm) > maxJumpKm) continue
+        const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
+        if (d < bd) { bd = d; bi = i }
+      }
+      return bi === -1 ? globalNearest(lat, lon) : { idx: bi, dist: bd }
+    }
+
+    // Walk the recorded trail (oldest → newest, seeded at the start) to build a
+    // temporally-consistent anchor that stays on the correct leg through overlaps.
+    let anchorKm = 0
+    let anchorTs: number | null = null
+    let seeded = false
+    for (const p of trail) {
+      if (!seeded) {
+        anchorKm = cumKm[globalNearest(p.lat, p.lon).idx] ?? 0
+        anchorTs = p.t
+        seeded = true
+      } else {
+        const dtSec = anchorTs != null ? (p.t - anchorTs) / 1000 : Infinity
+        anchorKm = cumKm[windowNearest(p.lat, p.lon, anchorKm, dtSec).idx] ?? anchorKm
+        anchorTs = p.t
+      }
+    }
+
+    // Project the live fix: constrained to the trail anchor when we have one,
+    // otherwise the plain global nearest (no trail yet → nothing to anchor to).
+    if (!seeded) {
+      const g = globalNearest(fixLat, fixLon)
+      return { km: cumKm[g.idx] ?? 0, distKm: g.dist }
+    }
+    const fixTs = fixAt ?? fixUpdatedAt
+    const dtSec = fixTs != null && anchorTs != null ? (fixTs - anchorTs) / 1000 : 0
+    const w = windowNearest(fixLat, fixLon, anchorKm, dtSec)
+    return { km: cumKm[w.idx] ?? anchorKm, distKm: w.dist }
+  }, [plan, fixLat, fixLon, fixAt, fixUpdatedAt, trail])
 
   // Off-route with hysteresis (no flicker at the boundary): off at >250 m from
   // the route, back on at <120 m. Avoids snapping to a bogus "progress" when the
@@ -308,6 +379,10 @@ export default function LiveViewer({ token }: { token: string }) {
   // Activated before the planned start → show a countdown, not projections.
   const preStart = !ended && sessionStart.getTime() > refNow
   const fr = fix ? freshness(fix.updatedAt) : null
+  // "Parado": still reporting (fresh fix, not ended/pre-start) but the position
+  // hasn't moved for a while. Measured to refNow so the counter ticks up live.
+  const stoppedMs = stoppedSince != null ? refNow - stoppedSince : 0
+  const isStopped = !!fix && !ended && !preStart && !fr?.stale && stoppedMs >= STOP_MIN_MS
   const speedKmh = fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
   const totalKm = plan?.track.totalDistanceKm ?? 0
   const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
@@ -366,7 +441,7 @@ export default function LiveViewer({ token }: { token: string }) {
           {state.username && <>Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span> · </>}
           {ended
             ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : 'finalizado')
-            : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
+            : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span>{isStopped && <> · <span className="text-amber-400">⏸️ parado {hhmm(stoppedMs / 60_000)}</span></>}</>
             : 'esperando primera posición…'}
         </p>
       </div>

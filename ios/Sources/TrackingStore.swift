@@ -381,12 +381,18 @@ final class TrackingStore: ObservableObject {
         }
     }
 
-    /// In distance mode, force a fix if we've been still longer than the heartbeat.
+    /// In distance mode, force a FRESH fix if we've been still longer than the
+    /// heartbeat. We request a one-shot reading (not a resend of `lastLocation`):
+    /// while stationary the distance filter delivers no callbacks, so the last
+    /// known point can sit up to `distanceMeters` behind the real spot. The fresh
+    /// fix arrives via `handleLocation` (which records it). `lastSendAttempt` is
+    /// stamped optimistically so the 20 s timer doesn't re-fire every tick while
+    /// the fix is in flight; a failed request simply retries at the next heartbeat.
     private func heartbeatTick() {
-        guard isSharing, !isStandby, sendMode == .distance, let loc = lastLocation else { return }
-        if Date().timeIntervalSince(lastSendAttempt) >= heartbeatSeconds {
-            recordFix(from: loc)
-        }
+        guard isSharing, !isStandby, sendMode == .distance else { return }
+        guard Date().timeIntervalSince(lastSendAttempt) >= heartbeatSeconds else { return }
+        lastSendAttempt = Date()
+        location.requestOneShot()
     }
 
     /// Periodic retry so a backlog flushes when coverage returns even if the

@@ -73,6 +73,16 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.allowsBackgroundLocationUpdates = false
     }
 
+    /// Request a single fresh fix on demand, ignoring the active distance filter.
+    /// Used by the stationary heartbeat: while stopped, the distance filter
+    /// delivers no callbacks, so the last known point can sit up to `distanceFilter`
+    /// metres behind the real spot. This forces the current position; it arrives
+    /// via the normal `didUpdateLocations` path and coexists with the continuous
+    /// session already running.
+    func requestOneShot() {
+        manager.requestLocation()
+    }
+
     private func enableBackgroundIfAuthorized() {
         let s = manager.authorizationStatus
         if s == .authorizedAlways || s == .authorizedWhenInUse {
