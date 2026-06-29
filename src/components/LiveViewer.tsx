@@ -11,7 +11,13 @@ import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 
 const POLL_MS = 10_000
-const STALE_MS = 35_000
+// Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
+// cadence, clamped. Keeps precision mode strict and distance/heartbeat tolerant.
+const STALE_K = 2               // stale past ~2× the observed cadence
+const STALE_MARGIN_MS = 8_000   // slack for latency / poll jitter
+const STALE_MIN_MS = 30_000     // floor (fast modes still flag a ~30 s gap)
+const STALE_MAX_MS = 360_000    // ceiling (beyond ~6 min it's clearly lost)
+const STALE_DEFAULT_MS = 180_000 // used until we've measured ≥1 interval
 const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as not moving
 const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
 const STOP_REPORTING_MS = 360_000  // still "reporting" if updated within ~6 min (heartbeat ~150 s; tolerates one missed beat) — beyond this it's lost signal, not "parado"
@@ -43,9 +49,10 @@ function FitPlan({ positions }: { positions: [number, number][] }) {
   return null
 }
 
-function freshness(updatedAt: number): { label: string; stale: boolean } {
-  const s = Math.max(0, Math.round((Date.now() - updatedAt) / 1000))
-  const stale = Date.now() - updatedAt > STALE_MS
+function freshness(updatedAt: number, staleMs: number): { label: string; stale: boolean } {
+  const now = Date.now()
+  const s = Math.max(0, Math.round((now - updatedAt) / 1000))
+  const stale = now - updatedAt > staleMs
   if (s < 60) return { label: `hace ${s} s`, stale }
   const m = Math.floor(s / 60)
   return { label: `hace ${m} min`, stale }
@@ -209,6 +216,25 @@ export default function LiveViewer({ token }: { token: string }) {
     const id = window.setInterval(() => force((n) => n + 1), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  // Adaptive staleness: learn the reporting cadence from gaps between distinct
+  // updatedAt values; the stale threshold = clamp(maxRecentGap × K + margin).
+  const lastUpdatedAtRef = useRef<number | null>(null)
+  const intervalsRef = useRef<number[]>([])
+  const staleMsRef = useRef(STALE_DEFAULT_MS)
+  const liveUpdatedAt = state?.fix?.updatedAt ?? null
+  useEffect(() => {
+    if (liveUpdatedAt == null) return
+    const prev = lastUpdatedAtRef.current
+    if (prev != null && liveUpdatedAt > prev) {
+      const arr = intervalsRef.current
+      arr.push(liveUpdatedAt - prev)
+      if (arr.length > 4) arr.shift()
+      const cadence = Math.max(...arr)
+      staleMsRef.current = Math.min(STALE_MAX_MS, Math.max(STALE_MIN_MS, cadence * STALE_K + STALE_MARGIN_MS))
+    }
+    lastUpdatedAtRef.current = liveUpdatedAt
+  }, [liveUpdatedAt])
 
   // Load the planned route once, the first time a planShareId shows up.
   const planShareId = state?.planShareId ?? null
@@ -414,7 +440,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const refNow = ended && fix ? fix.updatedAt : Date.now()
   // Activated before the planned start → show a countdown, not projections.
   const preStart = !ended && sessionStart.getTime() > refNow
-  const fr = fix ? freshness(fix.updatedAt) : null
+  const fr = fix ? freshness(fix.updatedAt, staleMsRef.current) : null
   // "Parado": the position hasn't moved for a while while the beacon is still
   // reporting. A stationary beacon only pings via the heartbeat (~150 s), well
   // past the 35 s "stale" mark, so we gate on a wider "still reporting" window
