@@ -16,6 +16,7 @@ const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as 
 const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
 const STOP_REPORTING_MS = 360_000  // still "reporting" if updated within ~6 min (heartbeat ~150 s; tolerates one missed beat) — beyond this it's lost signal, not "parado"
 const MOVING_MIN_KMH = 1.5    // trail segments slower than this count as stopped (for the moving-average speed)
+const ELE_MIN_SPAN_M = 400    // minimum vertical span (m) for the route profile, so a near-flat route doesn't look exaggerated (same trick as the main web chart)
 
 type ViewMode = 'map' | 'cards'
 
@@ -125,7 +126,7 @@ const PROFILE_H = 28
 interface SegProfile { line: string; area: string; fromKm: number; span: number }
 
 /** Build an SVG elevation sparkline for the segment [fromKm, toKm]. Computed once. */
-function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[] }, fromKm: number, toKm: number): SegProfile | null {
+function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[] }, fromKm: number, toKm: number, minSpanM = 0): SegProfile | null {
   const { points, cumKm } = track
   const idx: number[] = []
   for (let i = 0; i < points.length; i++) {
@@ -137,6 +138,13 @@ function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[]
   if (sel[sel.length - 1] !== idx[idx.length - 1]) sel.push(idx[idx.length - 1])
   let minE = Infinity, maxE = -Infinity
   for (const i of sel) { const e = points[i].ele; if (e < minE) minE = e; if (e > maxE) maxE = e }
+  // Clamp the vertical span to a minimum so a near-flat route reads as flat
+  // instead of being stretched to fill the height (the main web chart's trick).
+  if (minSpanM > 0 && maxE - minE < minSpanM) {
+    const mid = (minE + maxE) / 2
+    minE = mid - minSpanM / 2
+    maxE = mid + minSpanM / 2
+  }
   const span = toKm - fromKm || 1
   const eleSpan = maxE - minE || 1
   const x = (km: number) => ((km - fromKm) / span) * PROFILE_W
@@ -364,7 +372,7 @@ export default function LiveViewer({ token }: { token: string }) {
   // Full-route elevation sparkline (overview), computed once per plan; the live
   // position is overlaid at render time. Used by the advanced data panel.
   const fullProfile = useMemo(
-    () => (plan ? buildSegmentProfile(plan.track, 0, plan.track.totalDistanceKm) : null),
+    () => (plan ? buildSegmentProfile(plan.track, 0, plan.track.totalDistanceKm, ELE_MIN_SPAN_M) : null),
     [plan],
   )
 
@@ -416,6 +424,9 @@ export default function LiveViewer({ token }: { token: string }) {
   const stoppedMs = stoppedSince != null ? refNow - stoppedSince : 0
   const reportingMs = fix ? refNow - fix.updatedAt : Infinity
   const isStopped = !!fix && !ended && !preStart && reportingMs <= STOP_REPORTING_MS && stoppedMs >= STOP_MIN_MS
+  // While stopped, speed is always 0, so the speed box alternates (~every 3 s)
+  // between the speed and the stopped duration instead of needing its own line.
+  const stoppedPhase = isStopped && Math.floor(refNow / 3000) % 2 === 1
   // When parado, force 0: a heartbeat resends the last fix with its old (moving)
   // speed, which would otherwise read e.g. "21 km/h" next to "parado".
   const speedKmh = isStopped ? 0 : fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
@@ -642,10 +653,13 @@ export default function LiveViewer({ token }: { token: string }) {
                 {hasPlan && progressKm != null
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
-                <Stat label="Velocidad" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
+                <Stat
+                  label={stoppedPhase ? 'Parado' : 'Velocidad'}
+                  value={stoppedPhase ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'}
+                  tone={stoppedPhase ? 'amber' : undefined}
+                />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
-              {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
               {deltaMin != null && (
                 <p className={`mt-2 text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</p>
               )}
@@ -714,10 +728,10 @@ function marginTone(marginMin: number | null): string {
   return 'text-emerald-400'
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
   return (
     <div className="rounded-lg bg-slate-800/70 py-1.5 px-1">
-      <p className="text-sm font-semibold truncate">{value}</p>
+      <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : ''}`}>{value}</p>
       <p className="text-[10px] uppercase tracking-wide text-slate-500 truncate">{label}</p>
     </div>
   )
