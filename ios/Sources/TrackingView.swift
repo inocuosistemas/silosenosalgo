@@ -411,6 +411,10 @@ struct TrackingView: View {
                 Button("Continuar") { store.continueSession(session.id) }
                     .buttonStyle(.borderless)
                     .foregroundStyle(Theme.sky500)
+            } else {
+                Button("Reanudar") { store.resumeSession(session.id) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.sky500)
             }
             Button {
                 pendingDelete = session

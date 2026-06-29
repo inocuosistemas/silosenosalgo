@@ -156,6 +156,21 @@ final class TrackingStore: ObservableObject {
         startFlushTimer()
     }
 
+    /// Re-activate an ended session on the backend, then resume broadcasting to
+    /// it (same link). Lets the user "dejar de compartir y volver a compartir".
+    func resumeSession(_ id: String) {
+        lastError = nil
+        Task {
+            do {
+                _ = try await API.reopen(token: token, id: id)
+                await loadSessions()        // refresh status + route name
+                continueSession(id)
+            } catch {
+                lastError = (error as? APIError)?.errorDescription ?? "No se pudo reanudar el seguimiento."
+            }
+        }
+    }
+
     func deleteSession(_ id: String) async {
         await API.deleteSession(token: token, id: id)
         if id == sessionToken {

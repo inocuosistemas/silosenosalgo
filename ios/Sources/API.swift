@@ -186,6 +186,13 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
+    /// Re-activate an ended session (same link) so sharing can resume.
+    static func reopen(token: String, id: String) async throws -> CreateTrackResponse {
+        let (data, http) = try await request("api/track/\(id)/reopen", method: "POST", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(CreateTrackResponse.self, from: data)
+    }
+
     static func end(token: String, id: String, retainHours: Double? = nil) async {
         var body: [String: Any]? = nil
         if let retainHours { body = ["retainHours": retainHours] }
