@@ -28,8 +28,10 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let title: String?
     let planName: String?   // linked route name, if any (shown on continue)
     let status: String
-    let startedAt: Double
+    let startedAt: Double    // reference start (planned departure for plan sessions)
     let expiresAt: Double
+    let updatedAt: Double?   // last fix received (epoch ms), nil if none
+    let endedAt: Double?     // when ended (epoch ms), nil if active
 }
 
 /// A saved race plan ("previsión") belonging to the user. The server returns

@@ -95,10 +95,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const { results } = await env.DB.prepare(
-    `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt
+    `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt,
+            updated_at AS updatedAt, ended_at AS endedAt
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
-    id: string; title: string | null; planName: string | null; status: string; startedAt: number; expiresAt: number
+    id: string; title: string | null; planName: string | null; status: string
+    startedAt: number; expiresAt: number; updatedAt: number | null; endedAt: number | null
   }>()
 
   const now = Date.now()
@@ -109,6 +111,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     status: r.status === 'active' && now <= r.expiresAt ? 'active' : 'ended',
     startedAt: r.startedAt,
     expiresAt: r.expiresAt,
+    updatedAt: r.updatedAt,
+    // A lazily/forced-ended session keeps status 'active' in the row but is past
+    // expiry; surface that as ended-at-expiry so the list reads correctly.
+    endedAt: r.endedAt ?? (r.status === 'active' && now > r.expiresAt ? r.expiresAt : null),
   }))
 
   const res: TrackSessionsResponse = { sessions }

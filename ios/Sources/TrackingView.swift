@@ -401,8 +401,13 @@ struct TrackingView: View {
                         .background((active ? Color.green : Theme.slate700).opacity(0.25))
                         .foregroundStyle(active ? .green : Theme.slate400)
                         .clipShape(Capsule())
-                    Text(startedLabel(session.startedAt))
+                    Text("Salida \(startedLabel(session.startedAt))")
                         .font(.caption)
+                        .foregroundStyle(Theme.slate400)
+                }
+                if let activity = activityLabel(session, active: active) {
+                    Text(activity)
+                        .font(.caption2)
                         .foregroundStyle(Theme.slate400)
                 }
             }
@@ -434,6 +439,18 @@ struct TrackingView: View {
             return date.formatted(.relative(presentation: .named))
         }
         return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// Distinguishing per-session activity: when it was last seen / when it ended.
+    /// This is what separates two sessions that share the same planned departure.
+    private func activityLabel(_ s: TrackSessionSummary, active: Bool) -> String? {
+        if active {
+            if let u = s.updatedAt { return "visto \(startedLabel(u))" }
+            return nil
+        }
+        if let e = s.endedAt { return "finalizada \(startedLabel(e))" }
+        if let u = s.updatedAt { return "última pos. \(startedLabel(u))" }
+        return nil
     }
 
     private func intervalLabel(_ s: Double) -> String {

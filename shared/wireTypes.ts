@@ -112,8 +112,13 @@ export interface TrackSessionSummary {
   /** Display name of the linked plan/route, if any (for continued sessions). */
   planName: string | null
   status: 'active' | 'ended'
+  /** Reference start (planned departure for plan-linked sessions). */
   startedAt: number
   expiresAt: number
+  /** Last fix received (epoch ms), or null if no position was ever sent. */
+  updatedAt: number | null
+  /** When the session was ended (epoch ms), or null if still active. */
+  endedAt: number | null
 }
 
 export interface TrackSessionsResponse {
