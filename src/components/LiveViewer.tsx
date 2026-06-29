@@ -681,7 +681,7 @@ export default function LiveViewer({ token }: { token: string }) {
       </MapContainer>
 
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
-        <div className="mx-auto max-w-md rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
+        <div className="mx-auto max-w-md max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
           {topHero && <div className="mt-2">{topHero}</div>}
           {fix && (
