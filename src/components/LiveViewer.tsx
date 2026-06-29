@@ -15,6 +15,7 @@ const STALE_MS = 35_000
 const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as not moving
 const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
 const STOP_REPORTING_MS = 360_000  // still "reporting" if updated within ~6 min (heartbeat ~150 s; tolerates one missed beat) — beyond this it's lost signal, not "parado"
+const MOVING_MIN_KMH = 1.5    // trail segments slower than this count as stopped (for the moving-average speed)
 
 type ViewMode = 'map' | 'cards'
 
@@ -153,18 +154,22 @@ function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[]
 function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm: number | null }) {
   if (!profile) return null
   const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
-  const px = inSeg ? ((posKm! - profile.fromKm) / profile.span) * PROFILE_W : null
+  // The SVG stretches with preserveAspectRatio="none", which would deform an SVG
+  // <circle> into an oval. Draw the position marker as an HTML overlay instead so
+  // the dot stays perfectly round regardless of the horizontal scaling.
+  const leftPct = inSeg ? ((posKm! - profile.fromKm) / profile.span) * 100 : null
   return (
-    <svg viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" className="mt-1.5 w-full h-8">
-      <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
-      <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      {px != null && (
-        <>
-          <line x1={px} y1={0} x2={px} y2={PROFILE_H} stroke="#ffffff" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          <circle cx={px} cy={2} r={2} fill="#ffffff" />
-        </>
+    <div className="relative mt-1.5 w-full h-8">
+      <svg viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" className="block w-full h-full">
+        <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
+        <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      </svg>
+      {leftPct != null && (
+        <div className="absolute inset-y-0 w-px bg-white/80" style={{ left: `${leftPct}%` }}>
+          <span className="absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-white shadow" />
+        </div>
       )}
-    </svg>
+    </div>
   )
 }
 
@@ -235,6 +240,20 @@ export default function LiveViewer({ token }: { token: string }) {
       sinceT = trail[i].t
     }
     return sinceT
+  }, [trail])
+
+  // Time actually in motion: sum of trail intervals whose speed clears
+  // MOVING_MIN_KMH. Heartbeat duplicates (dt=0) and stationary jitter excluded.
+  // Used for the moving-average speed (vs the overall average that includes stops).
+  const movingMs = useMemo(() => {
+    let ms = 0
+    for (let i = 1; i < trail.length; i++) {
+      const dt = trail[i].t - trail[i - 1].t
+      if (dt <= 0) continue
+      const d = haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
+      if (d / (dt / 3_600_000) >= MOVING_MIN_KMH) ms += dt
+    }
+    return ms
   }, [trail])
 
   const planLatLng = useMemo(
@@ -447,6 +466,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const elapsedMin = !preStart ? (refNow - sessionStart.getTime()) / 60_000 : 0
   const coveredKm = progressKm ?? distanceKm
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
+  const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
 
   // Projected finish = planned finish shifted by the live vs-plan delta.
   const plannedFinish = plan ? estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses) : null
@@ -538,11 +558,10 @@ export default function LiveViewer({ token }: { token: string }) {
           {topHero}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-            <div className="grid grid-cols-2 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-2 text-center">
               <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
               <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
               <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
-              <Stat label="Vel. media" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
             </div>
             {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium text-center">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
           </div>
@@ -619,12 +638,11 @@ export default function LiveViewer({ token }: { token: string }) {
           {topHero && <div className="mt-2">{topHero}</div>}
           {fix && (
             <>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                 {hasPlan && progressKm != null
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat label="Velocidad" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
-                <Stat label="Vel. media" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
               {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
@@ -652,8 +670,11 @@ export default function LiveViewer({ token }: { token: string }) {
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2 text-center">
+                    <Stat label="V. actual" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
+                    <Stat label="Media total" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
+                    <Stat label="Media en mov." value={movingAvgKmh != null ? `${movingAvgKmh.toFixed(1)} km/h` : '—'} />
                     <Stat label="Tiempo" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
-                    {advStats ? (
+                    {advStats && (
                       <>
                         <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
                         <Stat label="D+ hecho" value={`${Math.round(advStats.done.elevGainM)}/${Math.round(advStats.totalGainM)} m`} />
@@ -661,8 +682,6 @@ export default function LiveViewer({ token }: { token: string }) {
                         <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
                         <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
                       </>
-                    ) : (
-                      <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
                     )}
                   </div>
                 </div>
