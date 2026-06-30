@@ -34,7 +34,11 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     /// coarser accuracy + a distance filter — the real saver for ultras.
     func configure(interval: TimeInterval) {
         if interval <= 30 {
-            manager.desiredAccuracy = kCLLocationAccuracyBest
+            // Precision tier: push the GPS as hard as it goes. BestForNavigation
+            // adds sensor fusion over plain Best and is the only software lever
+            // that gets below ~10 m in the open — at a higher battery cost, which
+            // is acceptable here since this is already the high-power profile.
+            manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
             manager.distanceFilter = kCLDistanceFilterNone
         } else if interval <= 120 {
             manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
