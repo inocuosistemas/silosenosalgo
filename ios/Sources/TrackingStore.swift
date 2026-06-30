@@ -131,8 +131,16 @@ final class TrackingStore: ObservableObject {
     func loadSessions() async {
         // Best-effort: if it fails we keep whatever we had; never crash.
         if let result = try? await API.listSessions(token: token) {
-            sessions = result
+            sessions = result.sorted { Self.finishKey($0) > Self.finishKey($1) }
         }
+    }
+
+    /// Recency key for ordering "Mis seguimientos": most recently finished first.
+    /// Active (ongoing) sessions have no end yet, so they float to the top; ended
+    /// ones sort by when they finished, falling back to last position / planned start.
+    private static func finishKey(_ s: TrackSessionSummary) -> Double {
+        if s.status == "active" { return .greatestFiniteMagnitude }
+        return s.endedAt ?? s.updatedAt ?? s.startedAt
     }
 
     func isActive(_ s: TrackSessionSummary) -> Bool { s.status == "active" }

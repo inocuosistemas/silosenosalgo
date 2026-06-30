@@ -63,7 +63,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // Merge into the trail, ordered by GPS time, then downsample to bound size.
   let trail: TrailPoint[] = []
   if (row.trail) { try { trail = JSON.parse(row.trail) as TrailPoint[] } catch { trail = [] } }
-  for (const f of incoming) trail.push({ t: f.t, lat: f.lat, lon: f.lon })
+  for (const f of incoming) {
+    const p: TrailPoint = { t: f.t, lat: f.lat, lon: f.lon }
+    // Carry horizontal accuracy (rounded) so the viewer can colour the trail by
+    // GPS precision. Omitted when absent, to keep stored points compact.
+    if (f.accuracy != null) p.a = Math.round(f.accuracy)
+    trail.push(p)
+  }
   trail.sort((a, b) => a.t - b.t)
   while (trail.length > PATH_MAX) {
     const latest = trail[trail.length - 1]

@@ -9,6 +9,7 @@ import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment,
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
+import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 
 const POLL_MS = 10_000
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
@@ -257,7 +258,29 @@ export default function LiveViewer({ token }: { token: string }) {
   }, [planShareId])
 
   const trail = state?.trail ?? []
-  const trailLatLng = useMemo(() => trail.map((p) => [p.lat, p.lon] as [number, number]), [trail])
+  const hasAccuracyData = useMemo(() => trail.some((p) => p.a != null), [trail])
+  // Split the trail into runs of constant colour so GPS precision shows on the
+  // line itself (this is what explains a track that "wanders": red = poor fix).
+  // A segment takes the worse of its two endpoints' accuracy; consecutive
+  // same-colour segments coalesce into one polyline. Neutral sky for legacy
+  // points without accuracy, so a session with no data looks exactly as before.
+  const trailSegments = useMemo(() => {
+    if (trail.length < 2) return [] as { color: string; positions: [number, number][] }[]
+    const runs: { color: string; positions: [number, number][] }[] = []
+    let cur: { color: string; positions: [number, number][] } | null = null
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1].a, b = trail[i].a
+      const acc = a == null ? (b ?? null) : b == null ? a : Math.max(a, b)
+      const color = accuracyToColor(acc)
+      if (!cur || cur.color !== color) {
+        cur = { color, positions: [[trail[i - 1].lat, trail[i - 1].lon], [trail[i].lat, trail[i].lon]] }
+        runs.push(cur)
+      } else {
+        cur.positions.push([trail[i].lat, trail[i].lon])
+      }
+    }
+    return runs
+  }, [trail])
   const distanceKm = useMemo(() => {
     let d = 0
     for (let i = 1; i < trail.length; i++) d += haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
@@ -669,7 +692,9 @@ export default function LiveViewer({ token }: { token: string }) {
       <MapContainer center={center} zoom={fix || trail.length ? 14 : plan ? 13 : 6} className="absolute inset-0" zoomControl={false}>
         <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
-        {trailLatLng.length > 1 && <Polyline positions={trailLatLng} pathOptions={{ color: '#0ea5e9', weight: 4, opacity: 0.85 }} />}
+        {trailSegments.map((s, i) => (
+          <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: 4, opacity: 0.85 }} />
+        ))}
         {plan?.track.namedWaypoints.map((w, i) => (
           <CircleMarker key={`poi-${i}`} center={[w.lat, w.lon]} radius={5} pathOptions={{ color: '#fff', weight: 1, fillColor: '#f59e0b', fillOpacity: 0.9 }}>
             <Tooltip>{w.name}</Tooltip>
@@ -735,6 +760,12 @@ export default function LiveViewer({ token }: { token: string }) {
                     <Stat label="Media total" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
                     <Stat label="Media en mov." value={movingAvgKmh != null ? `${movingAvgKmh.toFixed(1)} km/h` : '—'} />
                   </MetricSection>
+                  {fix.accuracy != null && (
+                    <MetricSection icon="📡" title="Señal GPS" cols={2}>
+                      <Stat label="Precisión" value={`± ${Math.round(fix.accuracy)} m`} tone={fix.accuracy > 25 ? 'amber' : undefined} />
+                      <Stat label="Calidad" value={accuracyLabel(fix.accuracy) ?? '—'} tone={fix.accuracy > 25 ? 'amber' : undefined} />
+                    </MetricSection>
+                  )}
                   {advStats ? (
                     <>
                       <MetricSection icon="⏱️" title="Tiempo y meta" cols={3}>
@@ -760,6 +791,23 @@ export default function LiveViewer({ token }: { token: string }) {
           )}
         </div>
       </div>
+
+      {/* Precision legend — explains the trail colours (poor GPS = the track wanders). */}
+      {hasAccuracyData && (
+        <div className="absolute bottom-14 left-3 z-[1000] pointer-events-none">
+          <div className="rounded-lg bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-2.5 py-1.5 text-[10px] text-slate-300">
+            <p className="mb-1 uppercase tracking-wide text-slate-500">Precisión GPS</p>
+            <div className="flex items-center gap-2">
+              {ACCURACY_LEGEND.map((b) => (
+                <span key={b.label} className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
+                  {b.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Live status pill — full text, not truncated, over the bottom of the map. */}
       <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">

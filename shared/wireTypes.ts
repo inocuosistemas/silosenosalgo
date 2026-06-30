@@ -82,6 +82,10 @@ export interface TrailPoint {
   t: number
   lat: number
   lon: number
+  /** Horizontal GPS accuracy at this point, meters (rounded). Omitted when the
+   *  broadcaster didn't report one (legacy points / web). Drives the precision
+   *  colour-coding of the trail in the viewer. */
+  a?: number | null
 }
 
 export interface CreateTrackResponse {

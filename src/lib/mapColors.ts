@@ -28,6 +28,33 @@ export function gradeToColor(grade: number): string {
   return '#b91c1c'
 }
 
+/** GPS horizontal accuracy (m) → colour. Good green → poor red; null/unknown
+ *  stays neutral sky (matches the legacy single-colour trail). */
+export function accuracyToColor(acc: number | null | undefined): string {
+  if (acc == null) return '#0ea5e9'
+  if (acc <= 10) return '#22c55e'
+  if (acc <= 25) return '#eab308'
+  if (acc <= 50) return '#f97316'
+  return '#ef4444'
+}
+
+/** GPS accuracy (m) → short qualitative label, or null when unknown. */
+export function accuracyLabel(acc: number | null | undefined): string | null {
+  if (acc == null) return null
+  if (acc <= 10) return 'Buena'
+  if (acc <= 25) return 'Media'
+  if (acc <= 50) return 'Baja'
+  return 'Mala'
+}
+
+/** Bands shown in the viewer's precision legend (best → worst). */
+export const ACCURACY_LEGEND: { color: string; label: string }[] = [
+  { color: '#22c55e', label: '≤10 m' },
+  { color: '#eab308', label: '≤25' },
+  { color: '#f97316', label: '≤50' },
+  { color: '#ef4444', label: '>50' },
+]
+
 /** Temperature (°C) → colour. Cold blue → hot red. Shared by map + profile. */
 export function tempToColor(t: number): string {
   if (t <= 0) return '#1d4ed8'
