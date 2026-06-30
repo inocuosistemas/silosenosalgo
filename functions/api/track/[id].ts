@@ -24,7 +24,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
             ts.lat AS lat, ts.lon AS lon, ts.track_km AS trackKm, ts.speed AS speed,
             ts.heading AS heading, ts.accuracy AS accuracy, ts.altitude AS altitude,
             ts.fix_at AS fixAt, ts.updated_at AS updatedAt, ts.trail AS trail,
-            u.username AS username
+            ts.pinned AS pinned, u.username AS username
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
@@ -33,20 +33,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
     fixAt: number | null; updatedAt: number | null; trail: string | null
-    username: string | null
+    pinned: number | null; username: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
   const now = Date.now()
   let status: 'active' | 'ended' = row.status === 'active' ? 'active' : 'ended'
-  // Lazy purge for ANY status: past expires_at the data is cleared and the link
-  // goes dark (so 24 h after an end, the route disappears too).
+  // Past expires_at the session is over. Normally we lazy-purge the data (the
+  // link goes dark, so 24 h after an end the route disappears too). Pinned
+  // sessions ("chincheta") are exempt: they read as ended but keep their data
+  // viewable indefinitely.
   if (now > row.expiresAt) {
     status = 'ended'
-    await env.DB.prepare(
-      "UPDATE tracking_sessions SET status='ended', ended_at=COALESCE(ended_at, ?), lat=NULL, lon=NULL, trail=NULL WHERE id=?",
-    ).bind(now, id).run()
-    row.lat = null; row.lon = null; row.trail = null; row.endedAt = row.endedAt ?? now
+    if (!row.pinned) {
+      await env.DB.prepare(
+        "UPDATE tracking_sessions SET status='ended', ended_at=COALESCE(ended_at, ?), lat=NULL, lon=NULL, trail=NULL WHERE id=?",
+      ).bind(now, id).run()
+      row.lat = null; row.lon = null; row.trail = null; row.endedAt = row.endedAt ?? now
+    }
   }
 
   // Keep showing the last known fix + trail whenever present, for active AND

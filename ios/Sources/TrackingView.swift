@@ -390,8 +390,15 @@ struct TrackingView: View {
         let active = store.isActive(session)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(session.title ?? "Sin nombre")
-                    .foregroundStyle(Theme.slate100)
+                HStack(spacing: 5) {
+                    if session.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.sky500)
+                    }
+                    Text(session.title ?? "Sin nombre")
+                        .foregroundStyle(Theme.slate100)
+                }
                 HStack(spacing: 8) {
                     Text(active ? "Activo" : "Finalizado")
                         .font(.caption2)
@@ -421,6 +428,14 @@ struct TrackingView: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle(Theme.sky500)
             }
+            Button {
+                Task { await store.setPinned(session.id, !session.isPinned) }
+            } label: {
+                Image(systemName: session.isPinned ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(session.isPinned ? Theme.sky500 : Theme.slate400)
+            .accessibilityLabel(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta")
             Button {
                 pendingDelete = session
             } label: {

@@ -131,7 +131,11 @@ final class TrackingStore: ObservableObject {
     func loadSessions() async {
         // Best-effort: if it fails we keep whatever we had; never crash.
         if let result = try? await API.listSessions(token: token) {
-            sessions = result.sorted { Self.finishKey($0) > Self.finishKey($1) }
+            // Pinned ("chincheta") sessions first, then most recently finished.
+            sessions = result.sorted {
+                if $0.isPinned != $1.isPinned { return $0.isPinned }
+                return Self.finishKey($0) > Self.finishKey($1)
+            }
         }
     }
 
@@ -141,6 +145,13 @@ final class TrackingStore: ObservableObject {
     private static func finishKey(_ s: TrackSessionSummary) -> Double {
         if s.status == "active" { return .greatestFiniteMagnitude }
         return s.endedAt ?? s.updatedAt ?? s.startedAt
+    }
+
+    /// Toggle the "chincheta" so a session is kept indefinitely (or released back
+    /// to the normal time-based expiry). Refreshes the list to reflect the change.
+    func setPinned(_ id: String, _ pinned: Bool) async {
+        await API.setPinned(token: token, id: id, pinned: pinned)
+        await loadSessions()
     }
 
     func isActive(_ s: TrackSessionSummary) -> Bool { s.status == "active" }

@@ -123,6 +123,8 @@ export interface TrackSessionSummary {
   updatedAt: number | null
   /** When the session was ended (epoch ms), or null if still active. */
   endedAt: number | null
+  /** Pinned ("chincheta"): kept indefinitely, exempt from the time-based purge. */
+  pinned: boolean
 }
 
 export interface TrackSessionsResponse {

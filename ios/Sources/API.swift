@@ -32,6 +32,10 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let expiresAt: Double
     let updatedAt: Double?   // last fix received (epoch ms), nil if none
     let endedAt: Double?     // when ended (epoch ms), nil if active
+    let pinned: Bool?        // "chincheta": kept indefinitely; nil on old servers
+
+    /// Pinned state with a safe default for responses predating the field.
+    var isPinned: Bool { pinned ?? false }
 }
 
 /// A saved race plan ("previsión") belonging to the user. The server returns
@@ -203,5 +207,10 @@ enum API {
 
     static func deleteSession(token: String, id: String) async {
         _ = try? await request("api/track/\(id)", method: "DELETE", token: token)
+    }
+
+    /// Pin/unpin a session ("chincheta"): pinned sessions are kept indefinitely.
+    static func setPinned(token: String, id: String, pinned: Bool) async {
+        _ = try? await request("api/track/\(id)/pin", method: "POST", token: token, body: ["pinned": pinned])
     }
 }

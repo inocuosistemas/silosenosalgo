@@ -96,26 +96,34 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const { results } = await env.DB.prepare(
     `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt,
-            updated_at AS updatedAt, ended_at AS endedAt
+            updated_at AS updatedAt, ended_at AS endedAt, pinned
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; title: string | null; planName: string | null; status: string
     startedAt: number; expiresAt: number; updatedAt: number | null; endedAt: number | null
+    pinned: number | null
   }>()
 
   const now = Date.now()
-  const sessions: TrackSessionSummary[] = (results || []).map((r) => ({
-    id: r.id,
-    title: r.title,
-    planName: r.planName,
-    status: r.status === 'active' && now <= r.expiresAt ? 'active' : 'ended',
-    startedAt: r.startedAt,
-    expiresAt: r.expiresAt,
-    updatedAt: r.updatedAt,
-    // A lazily/forced-ended session keeps status 'active' in the row but is past
-    // expiry; surface that as ended-at-expiry so the list reads correctly.
-    endedAt: r.endedAt ?? (r.status === 'active' && now > r.expiresAt ? r.expiresAt : null),
-  }))
+  const sessions: TrackSessionSummary[] = (results || []).map((r) => {
+    const pinned = !!r.pinned
+    // A pinned session is never force-expired (kept indefinitely); otherwise a
+    // row still marked 'active' but past expiry reads as ended.
+    const expired = !pinned && now > r.expiresAt
+    return {
+      id: r.id,
+      title: r.title,
+      planName: r.planName,
+      status: r.status === 'active' && !expired ? 'active' : 'ended',
+      startedAt: r.startedAt,
+      expiresAt: r.expiresAt,
+      updatedAt: r.updatedAt,
+      // A lazily/forced-ended session keeps status 'active' in the row but is past
+      // expiry; surface that as ended-at-expiry so the list reads correctly.
+      endedAt: r.endedAt ?? (r.status === 'active' && expired ? r.expiresAt : null),
+      pinned,
+    }
+  })
 
   const res: TrackSessionsResponse = { sessions }
   return json(res, 200, { 'Cache-Control': 'no-store' })
