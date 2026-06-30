@@ -792,12 +792,14 @@ export default function LiveViewer({ token }: { token: string }) {
         </div>
       </div>
 
-      {/* Precision legend — explains the trail colours (poor GPS = the track wanders). */}
-      {hasAccuracyData && (
-        <div className="absolute bottom-14 left-3 z-[1000] pointer-events-none">
-          <div className="rounded-lg bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-2.5 py-1.5 text-[10px] text-slate-300">
-            <p className="mb-1 uppercase tracking-wide text-slate-500">Precisión GPS</p>
-            <div className="flex items-center gap-2">
+      {/* Live status pill — status + (when there's data) the GPS-precision legend,
+          in one bottom card so the trail colours read alongside "en directo". */}
+      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
+        <div className={`${hasAccuracyData ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
+          <div className="whitespace-nowrap">{statusLine}</div>
+          {hasAccuracyData && (
+            <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+              <span className="uppercase tracking-wide text-slate-500">Precisión</span>
               {ACCURACY_LEGEND.map((b) => (
                 <span key={b.label} className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
@@ -805,14 +807,7 @@ export default function LiveViewer({ token }: { token: string }) {
                 </span>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Live status pill — full text, not truncated, over the bottom of the map. */}
-      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
-        <div className="rounded-full bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto whitespace-nowrap">
-          {statusLine}
+          )}
         </div>
       </div>
     </div>
