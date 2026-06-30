@@ -563,7 +563,7 @@ export default function LiveViewer({ token }: { token: string }) {
     <div className="flex items-center gap-2">
       <span className="text-lg">🌧️</span>
       <div className="min-w-0 flex-1">
-        <p className="font-semibold truncate">{state.title || 'Seguimiento en vivo'}</p>
+        <p className="font-semibold truncate">{state.title || 'SiLoSeNoSalgo - Baliza'}</p>
         {state.username && (
           <p className="text-xs text-slate-400 truncate">
             Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span>
