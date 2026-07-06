@@ -13,6 +13,12 @@ struct TrackingView: View {
     @State private var showLiveMap = false
     /// Present the in-app viewer online for a finished session in the list.
     @State private var mapSession: TrackSessionSummary?
+    /// Offline-map download reachable BEFORE sharing (prepare the map the night
+    /// before), driven by the selected plan.
+    @State private var showMapDownload = false
+    @State private var downloadPolyline: [(lat: Double, lon: Double)]?
+    @State private var downloadRouteName: String?
+    @State private var resolvingRoute = false
 
     init(token: String) {
         _store = StateObject(wrappedValue: TrackingStore(token: token))
@@ -153,9 +159,24 @@ struct TrackingView: View {
                             Text("Tus seguidores verán la ruta planificada y tu progreso.")
                                 .font(.caption)
                                 .foregroundStyle(Theme.slate400)
+                            Button {
+                                openMapDownloadForSelectedPlan()
+                            } label: {
+                                HStack {
+                                    Label("Descargar mapa offline", systemImage: "arrow.down.circle")
+                                    if resolvingRoute { Spacer(); ProgressView().tint(Theme.sky500) }
+                                }
+                            }
+                            .foregroundStyle(Theme.sky500)
+                            .disabled(resolvingRoute)
                         }
                     } header: {
                         Text("Ruta").foregroundStyle(Theme.slate400)
+                    } footer: {
+                        if store.selectedPlanId != nil {
+                            Text("Prepara el mapa la víspera (con conexión) para verlo sin cobertura durante la salida.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
                     }
                     .listRowBackground(Theme.slate900)
                 }
@@ -321,6 +342,9 @@ struct TrackingView: View {
                 if let url = URL(string: store.shareLink(for: session.id)) {
                     LiveMapView(source: .online(url: url), offlineToken: nil)
                 }
+            }
+            .sheet(isPresented: $showMapDownload) {
+                MapDownloadView(routeName: downloadRouteName, polyline: downloadPolyline)
             }
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
@@ -604,6 +628,19 @@ struct TrackingView: View {
         if s < 3600 { return "\(Int(s / 60)) min" }
         let h = Int(s / 3600); let m = Int((s - Double(h) * 3600) / 60)
         return m > 0 ? "\(h) h \(m) min" : "\(h) h"
+    }
+
+    /// Resolve the selected plan's route (fetches + decodes its geometry) and open
+    /// the offline-map screen — usable before sharing, to prepare the map ahead.
+    private func openMapDownloadForSelectedPlan() {
+        guard let id = store.selectedPlanId else { return }
+        resolvingRoute = true
+        downloadRouteName = store.plans.first(where: { $0.id == id })?.name
+        Task {
+            downloadPolyline = await store.planPolyline(for: id)
+            resolvingRoute = false
+            showMapDownload = true
+        }
     }
 
     private func batteryLabelDist(_ m: Double) -> String {

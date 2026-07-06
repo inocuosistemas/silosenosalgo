@@ -33,7 +33,8 @@ struct LiveMapView: View {
                     }
                 }
                 .sheet(isPresented: $showDownload) {
-                    MapDownloadView(token: offlineToken)
+                    MapDownloadView(routeName: nil,
+                                    polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
                 }
         }
     }

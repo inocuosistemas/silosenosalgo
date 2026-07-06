@@ -414,6 +414,14 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /// Fetch + decode a saved plan's route polyline so its map corridor can be
+    /// pre-downloaded BEFORE sharing (the night before). Needs connectivity; nil
+    /// offline or on error.
+    func planPolyline(for planId: String) async -> [(lat: Double, lon: Double)]? {
+        guard let bytes = try? await API.fetchPlanPayload(token: token, planId: planId) else { return nil }
+        return PlanGeometry.polyline(fromGzip: bytes)
+    }
+
     /// Best-effort: fetch the linked plan's gzipped bytes once (online) and cache
     /// them so the offline viewer can overlay the planned route. Never blocks
     /// sharing; if offline it simply won't be available until refetched.

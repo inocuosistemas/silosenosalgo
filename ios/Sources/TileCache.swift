@@ -181,6 +181,31 @@ final class TileCache {
 
     func clear() { try? FileManager.default.removeItem(at: root) }
 
+    /// Whether a specific tile is already on disk (drives the coverage layer).
+    func isCached(_ z: Int, _ x: Int, _ y: Int) -> Bool { hasTile(z, x, y) }
+
+    /// How many of `tiles` are already on disk (drives the "M de N" status).
+    func cachedTiles(in tiles: Set<TileKey>) -> Int {
+        var n = 0
+        for t in tiles where hasTile(t.z, t.x, t.y) { n += 1 }
+        return n
+    }
+
+    /// Cached tiles at zoom `z` within the route's bounding box (+ ~5 km margin) —
+    /// the green squares drawn on the preview map to show what's downloaded. z 12
+    /// keeps the count small (and z 12 is always part of a downloaded corridor).
+    func cachedCoverage(polyline: [(lat: Double, lon: Double)], z: Int = 12) -> [TileKey] {
+        guard !polyline.isEmpty else { return [] }
+        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
+        for p in polyline {
+            minLat = min(minLat, p.lat); maxLat = max(maxLat, p.lat)
+            minLon = min(minLon, p.lon); maxLon = max(maxLon, p.lon)
+        }
+        let cand = Self.tilesCovering(minLat: minLat - 0.05, maxLat: maxLat + 0.05,
+                                      minLon: minLon - 0.05, maxLon: maxLon + 0.05, z: z)
+        return cand.filter { hasTile($0.z, $0.x, $0.y) }
+    }
+
     // MARK: Slippy-map math
 
     static func tileXY(lat: Double, lon: Double, z: Int) -> (x: Int, y: Int) {
@@ -194,6 +219,35 @@ final class TileCache {
     /// Ground width (m) of one tile at `lat`/`z` — drives the corridor radius.
     static func tileMeters(lat: Double, z: Int) -> Double {
         256.0 * 156543.03392 * cos(lat * .pi / 180.0) / pow(2.0, Double(z))
+    }
+
+    /// NW corner (lat, lon) of a tile — inverse slippy map.
+    static func tileNW(x: Int, y: Int, z: Int) -> (lat: Double, lon: Double) {
+        let n = pow(2.0, Double(z))
+        let lon = Double(x) / n * 360.0 - 180.0
+        let latRad = atan(sinh(.pi * (1 - 2 * Double(y) / n)))
+        return (latRad * 180.0 / .pi, lon)
+    }
+
+    /// Geographic bounds of a tile (SW + NE corners), for drawing it as a polygon.
+    static func tileBounds(_ z: Int, _ x: Int, _ y: Int) -> (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        let nw = tileNW(x: x, y: y, z: z)
+        let se = tileNW(x: x + 1, y: y + 1, z: z)
+        return (min(nw.lat, se.lat), max(nw.lat, se.lat), min(nw.lon, se.lon), max(nw.lon, se.lon))
+    }
+
+    /// All tiles at `z` whose grid covers the given bounding box.
+    static func tilesCovering(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, z: Int) -> [TileKey] {
+        let nw = tileXY(lat: maxLat, lon: minLon, z: z)
+        let se = tileXY(lat: minLat, lon: maxLon, z: z)
+        let lim = (1 << z) - 1
+        var out: [TileKey] = []
+        for x in max(0, min(nw.x, se.x))...min(lim, max(nw.x, se.x)) {
+            for y in max(0, min(nw.y, se.y))...min(lim, max(nw.y, se.y)) {
+                out.append(TileKey(z: z, x: x, y: y))
+            }
+        }
+        return out
     }
 
     static func haversineMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {

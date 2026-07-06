@@ -11,35 +11,54 @@ final class CancelBox {
     }
 }
 
-/// Offline map management: pre-download a corridor of tiles around the route at a
-/// chosen detail, and inspect/clear the tile cache.
+/// Offline map management: pre-download a corridor of tiles around a route at a
+/// chosen detail, SEE what's already cached (green layer on a preview map + a
+/// count), and inspect/clear the cache. Reachable before sharing (from the route
+/// picker) so you can prepare the map the night before.
 struct MapDownloadView: View {
-    /// Session whose route to follow; nil → download unavailable (cache mgmt only).
-    let token: String?
+    let routeName: String?
+    /// Route to follow; nil → download unavailable (cache management only).
+    let polyline: [(lat: Double, lon: Double)]?
 
     @Environment(\.dismiss) private var dismiss
     private let zMin = 11
     @State private var zMax = 15
     @State private var corridorMeters: Double = 800
     @State private var tileCount = 0
+    @State private var cachedCount = 0
+    @State private var coverage: [TileKey] = []
     @State private var downloading = false
     @State private var done = 0
     @State private var total = 0
     @State private var cacheBytes: Int64 = 0
     @State private var cancel = CancelBox()
 
-    private var polyline: [(lat: Double, lon: Double)]? {
-        token.flatMap { PlanGeometry.routePolyline(forSession: $0) }
-    }
+    private var complete: Bool { tileCount > 0 && cachedCount >= tileCount }
+    private var remaining: Int { max(0, tileCount - cachedCount) }
 
     var body: some View {
         NavigationStack {
             Form {
+                if let poly = polyline {
+                    Section {
+                        CoverageMap(polyline: poly, coverage: coverage)
+                            .frame(height: 200)
+                            .listRowInsets(EdgeInsets())
+                    } footer: {
+                        Text("Verde = mapa ya descargado (offline). La línea azul es tu ruta.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
                 Section {
                     if polyline == nil {
-                        Text("Aún no hay ruta con datos que descargar. Selecciona una previsión al compartir, o graba algo de recorrido.")
+                        Text("No hay ruta que descargar. Elige una previsión (con conexión) para preparar su mapa.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     } else {
+                        if let n = routeName {
+                            LabeledContent("Ruta", value: n)
+                        }
                         Picker("Detalle (zoom máx.)", selection: $zMax) {
                             ForEach([13, 14, 15, 16], id: \.self) { Text(zoomLabel($0)).tag($0) }
                         }
@@ -51,16 +70,22 @@ struct MapDownloadView: View {
                             }
                             Slider(value: $corridorMeters, in: 250...2000, step: 50)
                         }
-                        Text("≈ \(tileCount) tiles · ≈ \(sizeLabel(TileCache.estimatedBytes(tileCount: tileCount)))")
-                            .font(.caption).foregroundStyle(Theme.slate400)
+                        if complete {
+                            Label("Corredor descargado · \(tileCount) tiles", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        } else {
+                            Text("≈ \(tileCount) tiles · ≈ \(sizeLabel(TileCache.estimatedBytes(tileCount: tileCount))) · en caché: \(cachedCount) de \(tileCount)")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
                         if downloading {
-                            ProgressView(value: Double(done), total: Double(max(1, total)))
-                                .tint(Theme.sky500)
+                            ProgressView(value: Double(done), total: Double(max(1, total))).tint(Theme.sky500)
                             Text("\(done) / \(total)").font(.caption).foregroundStyle(Theme.slate400)
                             Button("Cancelar", role: .destructive) { cancel.flag = true }
                         } else {
-                            Button("Descargar corredor") { startDownload() }
-                                .disabled(tileCount == 0)
+                            Button(complete ? "Volver a descargar" : (remaining > 0 && remaining < tileCount ? "Descargar (faltan \(remaining))" : "Descargar corredor")) {
+                                startDownload()
+                            }
+                            .disabled(tileCount == 0)
                         }
                     }
                 } header: {
@@ -71,7 +96,7 @@ struct MapDownloadView: View {
                 Section {
                     LabeledContent("Ocupa", value: sizeLabel(cacheBytes))
                     Button("Vaciar caché de mapas", role: .destructive) {
-                        TileCache.shared.clear(); refreshCache()
+                        TileCache.shared.clear(); refreshCache(); refreshEstimate()
                     }
                 } header: {
                     Text("Caché de mapas").foregroundStyle(Theme.slate400)
@@ -103,17 +128,20 @@ struct MapDownloadView: View {
                 progress: { d, t in Task { @MainActor in done = d; total = t } },
                 isCancelled: { box.flag }
             )
-            await MainActor.run { downloading = false; refreshCache() }
+            await MainActor.run { downloading = false; refreshCache(); refreshEstimate() }
         }
     }
 
-    /// Estimate tile count off the main thread (the set build can be sizeable).
+    /// Recompute the corridor size, how much is already cached, and the coverage
+    /// layer — off the main thread (the set build + disk checks can be sizeable).
     private func refreshEstimate() {
-        guard let poly = polyline else { tileCount = 0; return }
+        guard let poly = polyline else { tileCount = 0; cachedCount = 0; coverage = []; return }
         let (w, zx, zn) = (corridorMeters, zMax, zMin)
         Task.detached {
-            let n = TileCache.corridorTiles(polyline: poly, corridorMeters: w, zMin: zn, zMax: zx).count
-            await MainActor.run { tileCount = n }
+            let set = TileCache.corridorTiles(polyline: poly, corridorMeters: w, zMin: zn, zMax: zx)
+            let cached = TileCache.shared.cachedTiles(in: set)
+            let cov = TileCache.shared.cachedCoverage(polyline: poly)
+            await MainActor.run { tileCount = set.count; cachedCount = cached; coverage = cov }
         }
     }
 

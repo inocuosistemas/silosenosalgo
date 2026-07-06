@@ -26,11 +26,9 @@ enum Gzip {
 /// Extracts the planned-route polyline from a session's cached plan blob, so the
 /// offline map can pre-download tiles along the route.
 enum PlanGeometry {
-    /// `[(lat, lon)]` of the planned route for `token`, or nil if there's no cached
-    /// plan or it can't be parsed.
-    static func polyline(forSession token: String) -> [(lat: Double, lon: Double)]? {
-        guard let gz = try? Data(contentsOf: LocalStore.planURL(token)),
-              let json = Gzip.inflate(gz),
+    /// `[(lat, lon)]` of the route encoded in a gzipped SharePayload blob.
+    static func polyline(fromGzip gz: Data) -> [(lat: Double, lon: Double)]? {
+        guard let json = Gzip.inflate(gz),
               let obj = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
               let track = obj["track"] as? [String: Any],
               let pts = track["points"] as? [[String: Any]] else { return nil }
@@ -39,6 +37,12 @@ enum PlanGeometry {
             return (lat, lon)
         }
         return poly.isEmpty ? nil : poly
+    }
+
+    /// Planned route for `token` from its cached plan blob, or nil if none.
+    static func polyline(forSession token: String) -> [(lat: Double, lon: Double)]? {
+        guard let gz = try? Data(contentsOf: LocalStore.planURL(token)) else { return nil }
+        return polyline(fromGzip: gz)
     }
 
     /// Route to pre-download tiles along: the planned route if cached, otherwise the
