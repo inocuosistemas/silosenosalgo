@@ -6,13 +6,14 @@ import { TOKEN_RE } from '../../../../shared/validate'
 
 /**
  * POST /api/track/:id/end — owner stops sharing. Keeps the route + last known
- * position so the viewer can still show them for 24 h; only the status flips to
- * 'ended' and expires_at is reset to now + 24 h (a lazy purge clears the data on
- * the first read past that point). Ownership is checked with a SELECT (not
- * meta.changes, which is unreliable on production D1).
+ * position so the viewer can still show them for the retention window (48 h by
+ * default); only the status flips to 'ended' and expires_at is reset to now +
+ * retention (past that, a lazy purge clears the data and the public link goes
+ * dead). Ownership is checked with a SELECT (not meta.changes, which is
+ * unreliable on production D1).
  */
 
-const DEFAULT_RETAIN_HOURS = 24 // viewable after end, then lazy-purged
+const DEFAULT_RETAIN_HOURS = 48 // viewable after end, then lazy-purged
 const MAX_RETAIN_HOURS = 24 * 30 // 30 days
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {

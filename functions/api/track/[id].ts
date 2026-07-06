@@ -7,11 +7,14 @@ import type { TrackStateResponse, TrackFix, TrailPoint } from '../../../shared/w
 
 /**
  * GET /api/track/:id — public, no auth. Returns the last known fix + short
- * trail for BOTH active and ended sessions (so a route stays viewable for 24 h
- * after the share ends). Never cached (must reflect a live position). Projects
- * only non-PII fields — never owner_user_id / username. Lazily purges the
- * session on first read past `expires_at`, whatever its status (D1 has no
- * native TTL): the data is nulled and the link goes dark.
+ * trail for BOTH active and ended sessions (so a route stays viewable for the
+ * retention window after the share ends, 48 h by default). Never cached (must
+ * reflect a live position). Projects only non-PII fields — never
+ * owner_user_id / username. Past `expires_at` (D1 has no native TTL) a
+ * non-pinned session is lazily purged and its public link returns 404: a purged
+ * session has no route left to show, so it reads as a dead link rather than an
+ * empty "finished" page. Pinned ("chincheta") sessions are exempt — their data
+ * is kept and the link stays live indefinitely.
  */
 
 export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
@@ -39,17 +42,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
 
   const now = Date.now()
   let status: 'active' | 'ended' = row.status === 'active' ? 'active' : 'ended'
-  // Past expires_at the session is over. Normally we lazy-purge the data (the
-  // link goes dark, so 24 h after an end the route disappears too). Pinned
-  // sessions ("chincheta") are exempt: they read as ended but keep their data
-  // viewable indefinitely.
+  // Past expires_at the session is over. Unless it's pinned ("chincheta", kept
+  // indefinitely), purge its data AND treat the public link as dead: a purged
+  // session has no route to show, so it returns 404 (the viewer shows "enlace
+  // caducado") instead of a hollow "finished" page. The owner's authenticated
+  // list still keeps the row (to reopen/rename/delete it) — this only affects
+  // the public follower link.
   if (now > row.expiresAt) {
     status = 'ended'
     if (!row.pinned) {
       await env.DB.prepare(
         "UPDATE tracking_sessions SET status='ended', ended_at=COALESCE(ended_at, ?), lat=NULL, lon=NULL, trail=NULL WHERE id=?",
       ).bind(now, id).run()
-      row.lat = null; row.lon = null; row.trail = null; row.endedAt = row.endedAt ?? now
+      return json({ error: 'not_found' }, 404)
     }
   }
 

@@ -19,7 +19,7 @@ import type { CreateTrackResponse } from '../../../../shared/wireTypes'
  */
 
 const TTL_MS = 1000 * 60 * 60 * 16 // 16 h, same window as create
-const KEEP_AFTER_END_MS = 24 * 60 * 60 * 1000
+const KEEP_AFTER_END_MS = 48 * 60 * 60 * 1000
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)

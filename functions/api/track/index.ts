@@ -13,7 +13,7 @@ import type { CreateTrackResponse, TrackSessionsResponse, TrackSessionSummary } 
  */
 
 const MAX_TTL_MS = 1000 * 60 * 60 * 16 // 16 h — covers an ultra; lazy-expired on read.
-const KEEP_AFTER_END_MS = 24 * 60 * 60 * 1000 // ended sessions stay viewable 24 h, then lazy-purged.
+const KEEP_AFTER_END_MS = 48 * 60 * 60 * 1000 // ended sessions stay viewable 48 h, then lazy-purged.
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -67,7 +67,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ? body.startAt
       : now
   // One active session per user: end any prior active ones (stop accumulation).
-  // Keep their data so they stay viewable for 24 h, then they're lazy-purged.
+  // Keep their data so they stay viewable for 48 h, then they're lazy-purged.
   await env.DB.prepare(
     "UPDATE tracking_sessions SET status='ended', ended_at=?, expires_at=? WHERE owner_user_id=? AND status='active'",
   ).bind(now, now + KEEP_AFTER_END_MS, user.id).run()
