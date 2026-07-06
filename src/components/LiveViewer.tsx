@@ -189,6 +189,52 @@ function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm:
   )
 }
 
+/** Beyond this, a windowed match is "off the route" — the trigger to check for
+ *  anchor drift. Below it (out-and-back overlaps, normal tracking) we never touch
+ *  the temporally-consistent match, so leg disambiguation is unaffected. */
+const RESNAP_KM = 0.08
+/** Global-nearest must beat the windowed match by at least this to re-anchor (no
+ *  flapping when they're comparable). */
+const RESNAP_MARGIN_KM = 0.02
+
+/**
+ * Nearest-point matchers for a planned route.
+ *  - `globalNearest`: closest route vertex, no temporal context (seed / fallback).
+ *  - `windowNearest`: closest vertex within a plausibility window around the prior
+ *    km — keeps the match on the temporally-consistent leg of an out-and-back.
+ *    Self-corrects anchor drift: if the windowed match is far off the route AND a
+ *    globally-nearest vertex is clearly closer, the anchor slipped past the true
+ *    position (long coverage gap / heavy trail decimation), so we re-anchor to it.
+ *    This only fires when the windowed match is already far, so overlaps — where
+ *    the correct leg is close — are never re-anchored.
+ */
+function makeRouteMatcher(pts: { lat: number; lon: number }[], cumKm: number[], maxSpeedKmh: number) {
+  const globalNearest = (lat: number, lon: number) => {
+    let bi = 0, bd = Infinity
+    for (let i = 0; i < pts.length; i++) {
+      const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
+      if (d < bd) { bd = d; bi = i }
+    }
+    return { idx: bi, dist: bd }
+  }
+  const windowNearest = (lat: number, lon: number, prevKm: number, dtSec: number) => {
+    const maxJumpKm = (maxSpeedKmh / 3600) * Math.max(0, dtSec) + 0.05
+    let bi = -1, bd = Infinity
+    for (let i = 0; i < pts.length; i++) {
+      if (Math.abs(cumKm[i] - prevKm) > maxJumpKm) continue
+      const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
+      if (d < bd) { bd = d; bi = i }
+    }
+    if (bi === -1) return globalNearest(lat, lon)
+    if (bd > RESNAP_KM) {
+      const g = globalNearest(lat, lon)
+      if (g.dist < bd - RESNAP_MARGIN_KM) return g // drifted → recover onto the true nearest leg
+    }
+    return { idx: bi, dist: bd }
+  }
+  return { globalNearest, windowNearest }
+}
+
 export default function LiveViewer({ token }: { token: string }) {
   const [state, setState] = useState<TrackStateResponse | null>(null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -199,6 +245,10 @@ export default function LiveViewer({ token }: { token: string }) {
   // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
   const advDragStartY = useRef<number | null>(null)
   const advDraggedRef = useRef(false)
+  // Embedded in the native app (served under the appweb:// scheme): route map
+  // tiles through the app's on-disk cache (`/_tile/...`) so the map works offline.
+  const embedded = new URLSearchParams(window.location.search).get('embedded') === '1'
+  const tileUrl = embedded ? '/_tile/{z}/{x}/{y}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 
   useEffect(() => {
     let alive = true
@@ -259,28 +309,84 @@ export default function LiveViewer({ token }: { token: string }) {
 
   const trail = state?.trail ?? []
   const hasAccuracyData = useMemo(() => trail.some((p) => p.a != null), [trail])
+
+  // Map-match every trail point onto the planned route, temporally (seeded at the
+  // start, each step constrained to a plausibility window) so the out-and-back
+  // legs never cross — same technique the live-fix anchor uses below. Per point:
+  // nearest route-vertex index, its km, and how far off-route it is. null w/o plan.
+  const planPts = plan?.track.points
+  const trailSnaps = useMemo(() => {
+    if (!plan || !planPts || trail.length < 2) return null
+    const cumKm = plan.track.cumKm
+    const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
+    const { globalNearest, windowNearest } = makeRouteMatcher(planPts, cumKm, maxSpeedKmh)
+    const snaps: { idx: number; km: number; dist: number }[] = []
+    let anchorKm = 0, anchorTs: number | null = null, seeded = false
+    for (const p of trail) {
+      let m: { idx: number; dist: number }
+      if (!seeded) { m = globalNearest(p.lat, p.lon); seeded = true }
+      else {
+        const dtSec = anchorTs != null ? (p.t - anchorTs) / 1000 : Infinity
+        m = windowNearest(p.lat, p.lon, anchorKm, dtSec)
+      }
+      anchorKm = cumKm[m.idx] ?? anchorKm
+      anchorTs = p.t
+      snaps.push({ idx: m.idx, km: anchorKm, dist: m.dist })
+    }
+    return snaps
+  }, [plan, planPts, trail])
+
   // Split the trail into runs of constant colour so GPS precision shows on the
   // line itself (this is what explains a track that "wanders": red = poor fix).
   // A segment takes the worse of its two endpoints' accuracy; consecutive
   // same-colour segments coalesce into one polyline. Neutral sky for legacy
   // points without accuracy, so a session with no data looks exactly as before.
+  //
+  // When a plan is attached and two consecutive points both sit ON the route, the
+  // segment is drawn ALONG the route geometry (its intermediate vertices) instead
+  // of a straight chord — so low sampling no longer cuts across curves. Off-route
+  // segments (or no plan) stay as raw GPS chords.
+  const SNAP_KM = 0.03 // ≤30 m from the route ⇒ treat the point as on-route (within GPS error)
   const trailSegments = useMemo(() => {
     if (trail.length < 2) return [] as { color: string; positions: [number, number][] }[]
+    const cumKm = plan?.track.cumKm
+    const onRoute = (i: number) => !!(trailSnaps && planPts && trailSnaps[i].dist < SNAP_KM)
+    // A point's rendered position: snapped onto its nearest route vertex when
+    // on-route (the displacement is within GPS error), else the raw GPS point.
+    const posAt = (i: number): [number, number] =>
+      onRoute(i) && planPts ? [planPts[trailSnaps![i].idx].lat, planPts[trailSnaps![i].idx].lon]
+                            : [trail[i].lat, trail[i].lon]
+
     const runs: { color: string; positions: [number, number][] }[] = []
     let cur: { color: string; positions: [number, number][] } | null = null
+    let prev = posAt(0)
     for (let i = 1; i < trail.length; i++) {
       const a = trail[i - 1].a, b = trail[i].a
       const acc = a == null ? (b ?? null) : b == null ? a : Math.max(a, b)
       const color = accuracyToColor(acc)
+      // Intermediate route vertices when both ends are on-route, unless the route
+      // slice is an implausible jump vs the chord (turn-around / bad match).
+      let mids: [number, number][] = []
+      if (planPts && cumKm && trailSnaps && onRoute(i - 1) && onRoute(i)) {
+        const iA = trailSnaps[i - 1].idx, iB = trailSnaps[i].idx
+        const chord = haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
+        const sliceKm = Math.abs((cumKm[iB] ?? 0) - (cumKm[iA] ?? 0))
+        if (sliceKm <= chord * 4 + 0.3) {
+          if (iA <= iB) for (let k = iA + 1; k < iB; k++) mids.push([planPts[k].lat, planPts[k].lon])
+          else for (let k = iA - 1; k > iB; k--) mids.push([planPts[k].lat, planPts[k].lon])
+        }
+      }
+      const step: [number, number][] = [...mids, posAt(i)]
       if (!cur || cur.color !== color) {
-        cur = { color, positions: [[trail[i - 1].lat, trail[i - 1].lon], [trail[i].lat, trail[i].lon]] }
+        cur = { color, positions: [prev, ...step] }
         runs.push(cur)
       } else {
-        cur.positions.push([trail[i].lat, trail[i].lon])
+        cur.positions.push(...step)
       }
+      prev = posAt(i)
     }
     return runs
-  }, [trail])
+  }, [trail, plan, planPts, trailSnaps])
   const distanceKm = useMemo(() => {
     let d = 0
     for (let i = 1; i < trail.length; i++) d += haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
@@ -341,29 +447,7 @@ export default function LiveViewer({ token }: { token: string }) {
     const pts = plan.track.points
     const cumKm = plan.track.cumKm
     const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
-
-    // Nearest point overall (no temporal context) — used to seed and as fallback.
-    const globalNearest = (lat: number, lon: number) => {
-      let bi = 0, bd = Infinity
-      for (let i = 0; i < pts.length; i++) {
-        const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
-        if (d < bd) { bd = d; bi = i }
-      }
-      return { idx: bi, dist: bd }
-    }
-
-    // Nearest point within the plausibility window around prevKm; if the window
-    // excludes everything (long GPS gap / genuinely off-route) fall back global.
-    const windowNearest = (lat: number, lon: number, prevKm: number, dtSec: number) => {
-      const maxJumpKm = (maxSpeedKmh / 3600) * Math.max(0, dtSec) + 0.05
-      let bi = -1, bd = Infinity
-      for (let i = 0; i < pts.length; i++) {
-        if (Math.abs(cumKm[i] - prevKm) > maxJumpKm) continue
-        const d = haversineKm(lat, lon, pts[i].lat, pts[i].lon)
-        if (d < bd) { bd = d; bi = i }
-      }
-      return bi === -1 ? globalNearest(lat, lon) : { idx: bi, dist: bd }
-    }
+    const { globalNearest, windowNearest } = makeRouteMatcher(pts, cumKm, maxSpeedKmh)
 
     // Walk the recorded trail (oldest → newest, seeded at the start) to build a
     // temporally-consistent anchor that stays on the correct leg through overlaps.
@@ -446,6 +530,14 @@ export default function LiveViewer({ token }: { token: string }) {
 
   const fix = state.fix
   const ended = state.status === 'ended'
+
+  // Embedded offline view only: the last position uploaded to the server (what
+  // followers see). While in a dead zone it lags behind the real `fix`, so we draw
+  // the gap. Hidden when synced (< 50 m) to avoid clutter.
+  const reported = embedded ? state.reportedFix ?? null : null
+  const reportedGapKm = reported && fix ? haversineKm(reported.lat, reported.lon, fix.lat, fix.lon) : 0
+  const showGap = !!reported && !!fix && reportedGapKm > 0.05
+  const reportedStaleMin = reported ? Math.max(0, Math.round((Date.now() - reported.updatedAt) / 60_000)) : 0
 
   // Purged after the 24h grace window: nothing left to show, just a final note.
   if (ended && !fix && trail.length === 0)
@@ -690,7 +782,7 @@ export default function LiveViewer({ token }: { token: string }) {
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-100">
       <MapContainer center={center} zoom={fix || trail.length ? 14 : plan ? 13 : 6} className="absolute inset-0" zoomControl={false}>
-        <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
         {trailSegments.map((s, i) => (
           <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: 4, opacity: 0.85 }} />
@@ -700,6 +792,16 @@ export default function LiveViewer({ token }: { token: string }) {
             <Tooltip>{w.name}</Tooltip>
           </CircleMarker>
         ))}
+        {showGap && reported && fix && (
+          <>
+            <Polyline positions={[[reported.lat, reported.lon], [fix.lat, fix.lon]]} pathOptions={{ color: '#f59e0b', weight: 2, opacity: 0.85, dashArray: '4 6' }} />
+            <CircleMarker center={[reported.lat, reported.lon]} radius={7} pathOptions={{ color: '#f59e0b', weight: 2, fillColor: '#0f172a', fillOpacity: 0.95 }}>
+              <Tooltip permanent direction="top" offset={[0, -6]}>
+                Seguidores te ven aquí · {formatDist(reportedGapKm)}{reportedStaleMin >= 1 ? ` · hace ${reportedStaleMin} min` : ''} atrás
+              </Tooltip>
+            </CircleMarker>
+          </>
+        )}
         {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}

@@ -107,6 +107,10 @@ export interface TrackStateResponse {
   planShareId: string | null
   fix: TrackFix | null
   trail: TrailPoint[]
+  /** Embedded native viewer ONLY: the last position actually uploaded to the
+   *  server — i.e. what followers currently see. Undefined on the public API; the
+   *  embedded app sets it so the map can show the offline gap vs the real `fix`. */
+  reportedFix?: TrackFix | null
 }
 
 /** One of the owner's tracking sessions, for the "my sessions" list. */
