@@ -2,7 +2,9 @@ name: SiLoSeNoSalgoTracker
 options:
   bundleIdPrefix: app.silosenosalgo
   deploymentTarget:
-    iOS: "16.0"
+    # 16.4: the embedded viewer gunzips the plan overlay with DecompressionStream,
+    # which WKWebView only ships from iOS 16.4+.
+    iOS: "16.4"
   createIntermediateGroups: true
 settings:
   base:
@@ -15,9 +17,14 @@ targets:
   SiLoSeNoSalgoTracker:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "16.4"
     sources:
       - path: Sources
+      # Built web viewer (from repo-root `dist/`, copied by scripts/copy-webdist.sh).
+      # A folder reference preserves the /assets/ layout the SPA loads by absolute path.
+      - path: WebDist
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.silosenosalgo.tracker

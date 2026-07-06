@@ -62,6 +62,17 @@ struct Fix: Codable {
     var fixAt: Double? // epoch ms
 }
 
+/// One breadcrumb of the retained local trail, mirroring the server's `TrailPoint`
+/// (shared/wireTypes.ts): `t` = epoch ms, `a` = horizontal accuracy (m, rounded),
+/// omitted when unknown. Persisted on disk so the in-app offline viewer can render
+/// the full route even for fixes already uploaded (and dropped from the send queue).
+struct TrailPoint: Codable {
+    var t: Double
+    var lat: Double
+    var lon: Double
+    var a: Int?
+}
+
 struct APIError: LocalizedError {
     let status: Int
     let code: String
@@ -144,6 +155,16 @@ enum API {
         return try JSONDecoder().decode(Wrapper.self, from: data).plans
     }
 
+    /// Raw gzipped SharePayload bytes for one of the owner's plans, byte-identical
+    /// to what the public `/api/share/:id` serves. Cached locally so the embedded
+    /// offline viewer can overlay the planned route without connectivity. Returns
+    /// the bytes verbatim (NOT JSON-decoded).
+    static func fetchPlanPayload(token: String, planId: String) async throws -> Data {
+        let (data, http) = try await request("api/plans/\(planId)", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return data
+    }
+
     // MARK: Tracking
 
     static func listSessions(token: String) async throws -> [TrackSessionSummary] {
@@ -212,5 +233,11 @@ enum API {
     /// Pin/unpin a session ("chincheta"): pinned sessions are kept indefinitely.
     static func setPinned(token: String, id: String, pinned: Bool) async {
         _ = try? await request("api/track/\(id)/pin", method: "POST", token: token, body: ["pinned": pinned])
+    }
+
+    /// Rename a session's label so it's identifiable later. An empty/nil title
+    /// clears the name back to "Sin nombre".
+    static func rename(token: String, id: String, title: String?) async {
+        _ = try? await request("api/track/\(id)/rename", method: "POST", token: token, body: ["title": title ?? ""])
     }
 }

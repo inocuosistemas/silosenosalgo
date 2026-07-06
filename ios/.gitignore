@@ -5,6 +5,9 @@
 build/
 DerivedData/
 
+# Bundled web viewer (copied from repo-root dist/ by scripts/copy-webdist.sh)
+WebDist/
+
 # Xcode user state
 *.xcuserstate
 xcuserdata/

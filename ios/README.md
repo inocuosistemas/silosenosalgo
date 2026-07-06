@@ -19,14 +19,21 @@ intervalo que elijas, también con la app en **segundo plano**.
   - `Keychain.swift` — guarda el token de sesión.
   - `AuthStore.swift` — estado de sesión (login/registro/logout, `/api/auth/me`).
   - `LocationManager.swift` — `CLLocationManager` con actualizaciones continuas en segundo plano.
-  - `TrackingStore.swift` — crea la sesión y envía la posición al intervalo elegido.
+  - `TrackingStore.swift` — crea la sesión, envía la posición y **retiene la traza completa** en disco para el visor offline.
   - `App.swift` / `ContentView.swift` / `LoginView.swift` / `TrackingView.swift` — UI.
+  - **Visor offline** (ver sección más abajo): `ViewerDataProvider.swift`, `AppWebSchemeHandler.swift`, `TileCache.swift`, `PlanGeometry.swift`, `WebView.swift`, `LiveMapView.swift`, `MapDownloadView.swift`.
+- `WebDist/` — visor web construido (copiado de `../dist` por `scripts/copy-webdist.sh`; git-ignored).
 
 ## Primer arranque
 
-Requisitos: macOS con Xcode y `xcodegen` (`brew install xcodegen`).
+Requisitos: macOS con Xcode y `xcodegen` (`brew install xcodegen`). Target mínimo **iOS 16.4**.
 
 ```sh
+# 1) construir el visor web y empaquetarlo en la app (ver "Visor offline")
+npm run build                 # en la raíz del repo
+ios/scripts/copy-webdist.sh   # copia dist/ → ios/WebDist/
+
+# 2) generar y abrir el proyecto
 cd ios
 xcodegen generate
 open SiLoSeNoSalgoTracker.xcodeproj
@@ -66,3 +73,48 @@ para que los seguidores noten cualquier corte.
 4. Mientras llega el visor web, comprueba la posición consultando la API:
    `GET https://silosenosalgo.pages.dev/api/track/<token>` → JSON con el último `fix`.
 5. En el simulador puedes simular movimiento: **Features → Location → Freeway Drive**.
+
+## Visor offline (mapa incrustado)
+
+Mientras transmites, **"Ver mi ruta en el mapa (offline)"** abre dentro de la app
+el **mismo visor "live"** que ven los seguidores, pero servido **localmente**, así
+que funciona **sin cobertura** (el problema que motivó esto: no poder ver tu propia
+previsión de paso ni tu posición en zona sin red).
+
+Cómo funciona (sin reescribir el visor):
+
+- El SPA construido se empaqueta en `WebDist/` y se sirve bajo un esquema propio
+  `appweb://` mediante `AppWebSchemeHandler` (un `WKURLSchemeHandler` no puede
+  interceptar https, por eso el esquema propio).
+- Las peticiones del visor se resuelven en local:
+  - `/api/track/<token>` → `ViewerDataProvider` sintetiza el estado con la **traza
+    completa** que `TrackingStore` graba y persiste (`Application Support/trails/`).
+  - `/api/share/<id>` → bytes gzip del plan cacheados (`Application Support/plans/`,
+    descargados una vez de `GET /api/plans/:id`).
+  - `/_tile/z/x/y.png` → `TileCache` (disco → red si hay conexión → placeholder).
+- `LiveViewer.tsx` detecta `?embedded=1` y enruta los tiles a `/_tile/...` para que
+  pasen por la caché. El resto (plan de paso, cortes, perfil, colores) ya se calcula
+  en cliente. El tiempo/radar (Open-Meteo) degradan con gracia sin conexión.
+
+**Mapa offline:** desde el visor, el botón de descarga abre `MapDownloadView`, que
+pre-descarga un **corredor de tiles** alrededor de la ruta (ancho y zoom máx.
+elegibles, con estimación de tamaño) y además cachea de forma incremental lo que
+veas con conexión. Respeta la política de tiles de OSM (User-Agent descriptivo,
+≤2 conexiones, throttle, tope). La URL de tiles es intercambiable en `Config.swift`.
+
+**Tras cualquier cambio en `src/`** hay que reconstruir y re-empaquetar el bundle:
+`npm run build && ios/scripts/copy-webdist.sh` (y `xcodegen generate` si cambió
+`project.yml`). Si no, la app embarca un visor obsoleto.
+
+### Verificar offline
+
+1. Inicia sesión, selecciona una **previsión** y **Compartir**. Simula movimiento
+   (**Features → Location → Freeway Drive**) y observa que la traza crece.
+2. Abre **"Ver mi ruta (offline)"**: ruta punteada + posición + traza coloreada
+   sobre tiles OSM (online).
+3. Pulsa descargar y baja el corredor (empieza con zoom bajo). Comprueba el tamaño
+   de caché.
+4. Fuerza sin red (**Network Link Conditioner** al 100% de pérdida, o dispositivo
+   en modo avión) y reabre: el mapa sigue con tiles de disco, el overlay del plan y
+   la posición/traza locales, y **no** salta "Sin conexión".
+5. **Vaciar caché de mapas** → el tamaño baja a 0; offline aparecen placeholders.

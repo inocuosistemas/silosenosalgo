@@ -1,11 +1,18 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 struct TrackingView: View {
     @EnvironmentObject var auth: AuthStore
     @StateObject private var store: TrackingStore
     @State private var title = ""
     @State private var pendingDelete: TrackSessionSummary?
+    @State private var pendingRename: TrackSessionSummary?
+    @State private var renameText = ""
+    /// Present the in-app "live" viewer for the current (offline) session.
+    @State private var showLiveMap = false
+    /// Present the in-app viewer online for a finished session in the list.
+    @State private var mapSession: TrackSessionSummary?
 
     init(token: String) {
         _store = StateObject(wrappedValue: TrackingStore(token: token))
@@ -46,6 +53,20 @@ struct TrackingView: View {
                     statusContent
                 }
                 .listRowBackground(Theme.slate900)
+
+                if store.isSharing {
+                    Section {
+                        Button { showLiveMap = true } label: {
+                            Label("Ver mi ruta en el mapa (offline)", systemImage: "map.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .foregroundStyle(Theme.sky500)
+                    } footer: {
+                        Text("Tu previsión de paso y posición, con mapa descargable — funciona sin cobertura.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
 
                 Section {
                     if !store.isSharing {
@@ -181,8 +202,19 @@ struct TrackingView: View {
                             LabeledContent("En cola (sin cobertura)", value: "\(store.pendingCount)")
                                 .foregroundStyle(.orange)
                         }
+                        if let gap = store.followerGapMeters {
+                            let stale = store.lastSentAt.map { Date().timeIntervalSince($0) } ?? 0
+                            let behind = store.pendingCount > 0 || gap > 150
+                            LabeledContent("Seguidores te ven a", value: "\(distanceLabel(gap)) · hace \(gapTimeLabel(stale))")
+                                .foregroundStyle(behind ? .orange : Theme.slate400)
+                        }
                     } header: {
                         Text("Estado").foregroundStyle(Theme.slate400)
+                    } footer: {
+                        if let gap = store.followerGapMeters, store.pendingCount > 0 || gap > 150 {
+                            Text("Sin cobertura: tu posición real va por delante de la que ven tus seguidores. Se pondrá al día al recuperar señal.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
                     }
                     .listRowBackground(Theme.slate900)
                 }
@@ -238,7 +270,7 @@ struct TrackingView: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
 
                     if !store.isSharing {
-                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 24 h para poder consultarlo.")
+                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 48 h para poder consultarlo (o para siempre si lo fijas con la chincheta).")
                             .font(.caption)
                             .foregroundStyle(Theme.slate400)
                     }
@@ -257,12 +289,38 @@ struct TrackingView: View {
             } message: { session in
                 Text("Se borrará por completo \"\(session.title ?? "Sin nombre")\". Esta acción no se puede deshacer.")
             }
+            .alert("Renombrar seguimiento", isPresented: Binding(
+                get: { pendingRename != nil },
+                set: { if !$0 { pendingRename = nil } }
+            ), presenting: pendingRename) { session in
+                TextField("Nombre", text: $renameText)
+                Button("Guardar") {
+                    let id = session.id
+                    let name = renameText.trimmingCharacters(in: .whitespaces)
+                    pendingRename = nil
+                    Task { await store.rename(id, name.isEmpty ? nil : name) }
+                }
+                Button("Cancelar", role: .cancel) { pendingRename = nil }
+            } message: { _ in
+                Text("Ponle un nombre para identificar este seguimiento más tarde.")
+            }
             .scrollContentBackground(.hidden)
             .background(Theme.slate950)
             .tint(Theme.sky500)
             .task {
+                store.viewerUsername = auth.user?.username
                 await store.loadPlans()
                 await store.loadSessions()
+            }
+            .fullScreenCover(isPresented: $showLiveMap) {
+                if let t = store.sessionToken {
+                    LiveMapView(source: .offline(token: t), offlineToken: t)
+                }
+            }
+            .fullScreenCover(item: $mapSession) { session in
+                if let url = URL(string: store.shareLink(for: session.id)) {
+                    LiveMapView(source: .online(url: url), offlineToken: nil)
+                }
             }
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
@@ -388,6 +446,9 @@ struct TrackingView: View {
     @ViewBuilder
     private func sessionRow(_ session: TrackSessionSummary) -> some View {
         let active = store.isActive(session)
+        // Purged = route already gone server-side (unpinned + past retention). Its
+        // public link is dead, so we flag it "Caducado" and drop link-sharing.
+        let purged = !active && store.isPurged(session)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
@@ -400,19 +461,23 @@ struct TrackingView: View {
                         .foregroundStyle(Theme.slate100)
                 }
                 HStack(spacing: 8) {
-                    Text(active ? "Activo" : "Finalizado")
+                    Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background((active ? Color.green : Theme.slate700).opacity(0.25))
-                        .foregroundStyle(active ? .green : Theme.slate400)
+                        .background((active ? Color.green : (purged ? Color.orange : Theme.slate700)).opacity(0.25))
+                        .foregroundStyle(active ? .green : (purged ? .orange : Theme.slate400))
                         .clipShape(Capsule())
                     Text("Salida \(startedLabel(session.startedAt))")
                         .font(.caption)
                         .foregroundStyle(Theme.slate400)
                 }
-                if let activity = activityLabel(session, active: active) {
+                if purged {
+                    Text("Ruta ya no disponible")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if let activity = activityLabel(session, active: active) {
                     Text(activity)
                         .font(.caption2)
                         .foregroundStyle(Theme.slate400)
@@ -423,27 +488,70 @@ struct TrackingView: View {
                 Button("Continuar") { store.continueSession(session.id) }
                     .buttonStyle(.borderless)
                     .foregroundStyle(Theme.sky500)
-            } else {
+            } else if !purged {
+                // Reanudar keeps the original started_at, so it only makes sense for
+                // a recently-ended session with data intact ("stop & re-share").
+                // A purged one would resume with a stale start and no route — start
+                // a new session instead — so it offers no primary action.
                 Button("Reanudar") { store.resumeSession(session.id) }
                     .buttonStyle(.borderless)
                     .foregroundStyle(Theme.sky500)
             }
-            Button {
-                Task { await store.setPinned(session.id, !session.isPinned) }
-            } label: {
-                Image(systemName: session.isPinned ? "pin.fill" : "pin")
+            // A purged session can't be preserved (its data is already gone), so
+            // the chincheta is meaningless — hide it.
+            if !purged {
+                Button {
+                    Task { await store.setPinned(session.id, !session.isPinned) }
+                } label: {
+                    Image(systemName: session.isPinned ? "pin.fill" : "pin")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(session.isPinned ? Theme.sky500 : Theme.slate400)
+                .accessibilityLabel(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(session.isPinned ? Theme.sky500 : Theme.slate400)
-            .accessibilityLabel(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta")
+            sessionMenu(session, purged: purged)
+        }
+    }
+
+    /// Secondary actions for a session: rename it so it's identifiable later, and
+    /// recover its follower link to consult the route (no need to reanudar), plus
+    /// delete. Consolidated in a "⋯" menu to keep the row uncluttered. A purged
+    /// session's link is dead, so link-sharing is dropped for it.
+    @ViewBuilder
+    private func sessionMenu(_ session: TrackSessionSummary, purged: Bool) -> some View {
+        let link = store.shareLink(for: session.id)
+        Menu {
             Button {
+                renameText = session.title ?? ""
+                pendingRename = session
+            } label: {
+                Label("Renombrar", systemImage: "pencil")
+            }
+            if !purged {
+                Button { mapSession = session } label: {
+                    Label("Ver mapa", systemImage: "map")
+                }
+                Button {
+                    UIPasteboard.general.string = link
+                } label: {
+                    Label("Copiar enlace", systemImage: "link")
+                }
+                ShareLink(item: link) {
+                    Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
                 pendingDelete = session
             } label: {
-                Image(systemName: "trash")
+                Label("Eliminar", systemImage: "trash")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.red)
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Theme.slate400)
+        .accessibilityLabel("Más opciones")
     }
 
     /// Formats an epoch-MILLISECONDS instant as a short relative time
@@ -488,6 +596,14 @@ struct TrackingView: View {
 
     private func distanceLabel(_ m: Double) -> String {
         m < 1000 ? "\(Int(m)) m" : String(format: "%.1f km", m / 1000)
+    }
+
+    /// Compact elapsed label for the follower-gap staleness ("hace 8 min").
+    private func gapTimeLabel(_ s: TimeInterval) -> String {
+        if s < 60 { return "\(Int(s)) s" }
+        if s < 3600 { return "\(Int(s / 60)) min" }
+        let h = Int(s / 3600); let m = Int((s - Double(h) * 3600) / 60)
+        return m > 0 ? "\(h) h \(m) min" : "\(h) h"
     }
 
     private func batteryLabelDist(_ m: Double) -> String {

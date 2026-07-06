@@ -48,7 +48,7 @@ final class TrackingStore: ObservableObject {
     var startAtTouched = false
     @Published var sessions: [TrackSessionSummary] = []
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
-    @Published var retainHours: Double = 24
+    @Published var retainHours: Double = 48
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
     /// Whether iOS Low Power Mode is on (reflected live). It extends autonomy and
@@ -77,6 +77,27 @@ final class TrackingStore: ObservableObject {
     private var pending: [Fix] = []
     private var isFlushing = false
     private var flushTimer: Timer?
+
+    /// Full recorded trail of the CURRENT session (sent + unsent), retained locally
+    /// so the embedded offline viewer can draw the whole route even for fixes that
+    /// were already uploaded and dropped from `pending`. Bounded like the server.
+    private var trail: [TrailPoint] = []
+    private let trailMax = 2000 // mirror PATH_MAX in functions/api/track/[id]/ping.ts
+    /// The most recent fix recorded locally (the REAL position, known even offline).
+    private var lastRecordedFix: Fix?
+    /// The most recent fix actually UPLOADED to the server — i.e. what followers
+    /// currently see. Frozen while offline; catches up when the backlog flushes.
+    private var lastReportedFix: TrackFixWire?
+    /// Follower display name for the local viewer (set from the auth user).
+    var viewerUsername: String? { didSet { ViewerDataProvider.shared.setUsername(viewerUsername) } }
+
+    /// Straight-line gap (metres) between the real current position and the last
+    /// position uploaded to the server (what followers see). nil until both exist.
+    /// Grows while in a no-coverage zone; collapses to ~0 once the backlog flushes.
+    var followerGapMeters: Double? {
+        guard let loc = lastLocation, let r = lastReportedFix else { return nil }
+        return CLLocation(latitude: r.lat, longitude: r.lon).distance(from: loc)
+    }
 
     init(token: String) {
         self.token = token
@@ -136,6 +157,11 @@ final class TrackingStore: ObservableObject {
                 if $0.isPinned != $1.isPinned { return $0.isPinned }
                 return Self.finishKey($0) > Self.finishKey($1)
             }
+            // Drop local trail/plan files for sessions the server no longer lists
+            // (keep the current one even if it hasn't surfaced in the list yet).
+            var keep = Set(result.map { $0.id })
+            if let t = sessionToken { keep.insert(t) }
+            LocalStore.prune(keep: keep)
         }
     }
 
@@ -154,7 +180,27 @@ final class TrackingStore: ObservableObject {
         await loadSessions()
     }
 
+    /// Rename a finished/pinned session so it's identifiable later in the list
+    /// (pass nil/empty to clear it). Refreshes to reflect the new label.
+    func rename(_ id: String, _ title: String?) async {
+        await API.rename(token: token, id: id, title: title)
+        await loadSessions()
+    }
+
+    /// Public follower link for a session, so the owner can recover it and open
+    /// the route later without having to reanudar (the viewer serves finished
+    /// and pinned sessions too).
+    func shareLink(for id: String) -> String { Config.shareLink(for: id) }
+
     func isActive(_ s: TrackSessionSummary) -> Bool { s.status == "active" }
+
+    /// A session whose route has already been purged server-side: not pinned and
+    /// past its retention window. Its public link is dead (the viewer returns a
+    /// "caducado" page), so the app hides link-sharing and flags it as expired.
+    /// Pinned sessions are exempt — they're kept indefinitely.
+    func isPurged(_ s: TrackSessionSummary) -> Bool {
+        !s.isPinned && Date().timeIntervalSince1970 * 1000 > s.expiresAt
+    }
 
     /// Resume broadcasting to an EXISTING active session without creating a new
     /// one. The ping endpoint already accepts an owned, active session.
@@ -163,12 +209,22 @@ final class TrackingStore: ObservableObject {
         sessionToken = id
         // A continued session keeps its route name from the backend summary
         // (selectedPlanId isn't known for a session we didn't just create).
-        activePlanName = sessions.first(where: { $0.id == id })?.planName
+        let summary = sessions.first(where: { $0.id == id })
+        activePlanName = summary?.planName
         isSharing = true
         pingCount = 0
         lastSentAt = nil
         lastSendAttempt = .distantPast
         loadPending(id)
+        // Re-hydrate the full trail from disk so the offline viewer shows the whole
+        // route (and last position) immediately, before the next fix arrives.
+        loadTrail(id)
+        ViewerDataProvider.shared.register(token: id, title: summary?.title, startedAt: summary?.startedAt ?? Date().timeIntervalSince1970 * 1000, expiresAt: summary?.expiresAt ?? 0, status: "active")
+        let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
+        // The reported position is unknown for a continued session until the next
+        // successful upload; the offline gap simply won't show until then.
+        lastReportedFix = nil
+        ViewerDataProvider.shared.update(token: id, fix: lastFix, reportedFix: nil, trail: trail)
         location.configure(interval: intervalSeconds)
         location.requestAuthorization()
         location.start()
@@ -192,6 +248,7 @@ final class TrackingStore: ObservableObject {
 
     func deleteSession(_ id: String) async {
         await API.deleteSession(token: token, id: id)
+        LocalStore.remove(id) // drop the local trail + cached plan for good
         if id == sessionToken {
             location.stop()
             isSharing = false
@@ -216,6 +273,14 @@ final class TrackingStore: ObservableObject {
             lastSendAttempt = .distantPast
             pending = []
             persistPending()
+            // Fresh local trail for the in-app offline viewer, and register the
+            // session so the embedded viewer can read it with no connectivity.
+            trail = []
+            lastRecordedFix = nil
+            lastReportedFix = nil
+            persistTrail()
+            ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
+            cachePlanBytes(for: res.id, planId: selectedPlanId)
             // If the planned start is still ahead (beyond the lead margin), arm
             // in low-power standby: keep the app alive with coarse location but
             // upload nothing until ~2 min before the start, to save battery.
@@ -240,6 +305,9 @@ final class TrackingStore: ObservableObject {
         isSharing = false
         isStandby = false
         activePlanName = nil
+        // Keep serving the just-finished session to a still-open offline viewer,
+        // now flagged as ended (its trail file is kept for later review).
+        ViewerDataProvider.shared.updateStatus("ended")
         let t = sessionToken
         sessionToken = nil
         if let t {
@@ -288,6 +356,74 @@ final class TrackingStore: ObservableObject {
         pending.append(fix)
         if pending.count > 10_000 { pending.removeFirst(pending.count - 10_000) }
         persistPending()
+        appendTrail(fix)
+    }
+
+    /// Append the fix to the retained full trail (bounded like the server), persist
+    /// it, and push the fresh snapshot to the local offline viewer.
+    private func appendTrail(_ fix: Fix) {
+        lastRecordedFix = fix
+        trail.append(TrailPoint(
+            t: fix.fixAt ?? Date().timeIntervalSince1970 * 1000,
+            lat: fix.lat, lon: fix.lon,
+            a: fix.accuracy.map { Int($0.rounded()) }
+        ))
+        downsampleTrail()
+        persistTrail()
+        publishToViewer()
+    }
+
+    /// Halve the trail keeping the newest point, mirroring the server's downsample
+    /// (functions/api/track/[id]/ping.ts) so the local route matches followers'.
+    private func downsampleTrail() {
+        while trail.count > trailMax {
+            let latest = trail.last
+            trail = trail.enumerated().filter { $0.offset % 2 == 0 }.map { $0.element }
+            if let l = latest, trail.last?.t != l.t { trail.append(l) }
+        }
+    }
+
+    private func wireFix(_ f: Fix) -> TrackFixWire {
+        TrackFixWire(
+            lat: f.lat, lon: f.lon, trackKm: f.trackKm, speed: f.speed,
+            heading: f.heading, accuracy: f.accuracy, altitude: f.altitude,
+            fixAt: f.fixAt, updatedAt: f.fixAt ?? Date().timeIntervalSince1970 * 1000
+        )
+    }
+
+    /// Push the real position, the last reported position, and the full trail to
+    /// the local viewer (so the map can show the offline gap between the two).
+    private func publishToViewer() {
+        guard let t = sessionToken else { return }
+        ViewerDataProvider.shared.update(token: t, fix: lastRecordedFix.map(wireFix), reportedFix: lastReportedFix, trail: trail)
+    }
+
+    private func persistTrail() {
+        guard let t = sessionToken else { return }
+        if let data = try? JSONEncoder().encode(trail) {
+            try? data.write(to: LocalStore.trailURL(t), options: .atomic)
+        }
+    }
+
+    private func loadTrail(_ token: String) {
+        if let data = try? Data(contentsOf: LocalStore.trailURL(token)),
+           let arr = try? JSONDecoder().decode([TrailPoint].self, from: data) {
+            trail = arr
+        } else {
+            trail = []
+        }
+    }
+
+    /// Best-effort: fetch the linked plan's gzipped bytes once (online) and cache
+    /// them so the offline viewer can overlay the planned route. Never blocks
+    /// sharing; if offline it simply won't be available until refetched.
+    private func cachePlanBytes(for sessionId: String, planId: String?) {
+        guard let planId else { return }
+        Task {
+            if let bytes = try? await API.fetchPlanPayload(token: token, planId: planId) {
+                try? bytes.write(to: LocalStore.planURL(sessionId), options: .atomic)
+            }
+        }
     }
 
     /// Upload the whole buffered backlog in one batch. On failure (no coverage)
@@ -305,6 +441,13 @@ final class TrackingStore: ObservableObject {
             lastSentAt = Date()
             pingCount += batch.count
             lastError = nil
+            // The newest fix in the delivered batch is now what followers see.
+            if let last = batch.last {
+                var rf = wireFix(last)
+                rf.updatedAt = Date().timeIntervalSince1970 * 1000
+                lastReportedFix = rf
+                publishToViewer()
+            }
         } catch {
             if let e = error as? APIError, e.status == 410 {
                 await stopSharing() // session ended/expired on the server
