@@ -71,7 +71,11 @@ final class TrackingStore: ObservableObject {
     private let batterySampleInterval: TimeInterval = 120
     private var lastBatterySampleAt: Date = .distantPast
 
-    private let token: String
+    /// App-level singleton so a headless background relaunch (iOS reviving the app
+    /// for a significant-location-change) can resume the beacon with no UI.
+    static let shared = TrackingStore()
+    /// The auth bearer token, set once known (login / relaunch from Keychain).
+    private(set) var token: String = ""
     private let location = LocationManager()
     private var lastSendAttempt: Date = .distantPast
     private var pending: [Fix] = []
@@ -99,8 +103,11 @@ final class TrackingStore: ObservableObject {
         return CLLocation(latitude: r.lat, longitude: r.lon).distance(from: loc)
     }
 
-    init(token: String) {
-        self.token = token
+    /// Set the auth token once it's known (login, or restored from the Keychain at
+    /// launch). Safe to call repeatedly with the same token.
+    func configure(token: String) { self.token = token }
+
+    private init() {
         UIDevice.current.isBatteryMonitoringEnabled = true
         NotificationCenter.default.addObserver(
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main

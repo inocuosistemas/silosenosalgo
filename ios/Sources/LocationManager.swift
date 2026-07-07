@@ -70,10 +70,17 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     func start() {
         enableBackgroundIfAuthorized()
         manager.startUpdatingLocation()
+        // Safety net: significant-location-change monitoring lets iOS RELAUNCH the
+        // app in the background if it was killed (needs "Always"). We only use it as
+        // a relaunch trigger — on wake we restart precise updates. Very low power.
+        if manager.authorizationStatus == .authorizedAlways {
+            manager.startMonitoringSignificantLocationChanges()
+        }
     }
 
     func stop() {
         manager.stopUpdatingLocation()
+        manager.stopMonitoringSignificantLocationChanges()
         manager.allowsBackgroundLocationUpdates = false
     }
 

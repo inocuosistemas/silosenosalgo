@@ -4,7 +4,7 @@ import UIKit
 
 struct TrackingView: View {
     @EnvironmentObject var auth: AuthStore
-    @StateObject private var store: TrackingStore
+    @ObservedObject private var store = TrackingStore.shared
     @State private var title = ""
     @State private var pendingDelete: TrackSessionSummary?
     @State private var pendingRename: TrackSessionSummary?
@@ -19,10 +19,6 @@ struct TrackingView: View {
     @State private var downloadPolyline: [(lat: Double, lon: Double)]?
     @State private var downloadRouteName: String?
     @State private var resolvingRoute = false
-
-    init(token: String) {
-        _store = StateObject(wrappedValue: TrackingStore(token: token))
-    }
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
@@ -329,6 +325,7 @@ struct TrackingView: View {
             .background(Theme.slate950)
             .tint(Theme.sky500)
             .task {
+                store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
                 await store.loadPlans()

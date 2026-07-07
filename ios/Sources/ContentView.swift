@@ -14,8 +14,8 @@ struct ContentView: View {
             case .anonymous:
                 LoginView()
             case .authed:
-                if let token = auth.token {
-                    TrackingView(token: token)
+                if auth.token != nil {
+                    TrackingView()
                 } else {
                     LoginView()
                 }
