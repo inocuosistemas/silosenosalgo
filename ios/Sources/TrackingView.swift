@@ -330,6 +330,7 @@ struct TrackingView: View {
             .tint(Theme.sky500)
             .task {
                 store.viewerUsername = auth.user?.username
+                store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
                 await store.loadPlans()
                 await store.loadSessions()
             }

@@ -225,10 +225,11 @@ final class TrackingStore: ObservableObject {
         // successful upload; the offline gap simply won't show until then.
         lastReportedFix = nil
         ViewerDataProvider.shared.update(token: id, fix: lastFix, reportedFix: nil, trail: trail)
-        location.configure(interval: intervalSeconds)
+        applyLocationConfig()
         location.requestAuthorization()
         location.start()
         startFlushTimer()
+        persistActive()
     }
 
     /// Re-activate an ended session on the backend, then resume broadcasting to
@@ -253,6 +254,7 @@ final class TrackingStore: ObservableObject {
             location.stop()
             isSharing = false
             sessionToken = nil
+            clearActive()
         }
         await loadSessions()
     }
@@ -293,6 +295,7 @@ final class TrackingStore: ObservableObject {
             }
             location.start()
             startFlushTimer()
+            persistActive() // remember the "last known state" so a relaunch resumes it
         } catch {
             lastError = (error as? APIError)?.errorDescription ?? "No se pudo iniciar el seguimiento."
         }
@@ -305,6 +308,7 @@ final class TrackingStore: ObservableObject {
         isSharing = false
         isStandby = false
         activePlanName = nil
+        clearActive() // explicit stop (or server-ended): don't resume on relaunch
         // Keep serving the just-finished session to a still-open offline viewer,
         // now flagged as ended (its trail file is kept for later review).
         ViewerDataProvider.shared.updateStatus("ended")
@@ -432,6 +436,93 @@ final class TrackingStore: ObservableObject {
                 try? bytes.write(to: LocalStore.planURL(sessionId), options: .atomic)
             }
         }
+    }
+
+    // MARK: Resume-on-relaunch ("last known state")
+
+    /// The "last known state" of an active beacon, persisted so a relaunch (app
+    /// killed by iOS, phone restart, cold start with no coverage) resumes it — the
+    /// beacon must survive without the user re-doing anything. Cleared only on an
+    /// explicit stop / delete.
+    private struct ActiveSessionState: Codable {
+        let token: String
+        let sendMode: String
+        let intervalSeconds: Double
+        let distanceMeters: Double
+        let profile: String
+        let retainHours: Double
+        let startAtMs: Double
+        let planName: String?
+        let savedAtMs: Double
+    }
+
+    private let activeKey = "activeSession"
+    private var lastActivePersistAt: Date = .distantPast
+
+    private func persistActive() {
+        guard isSharing, let t = sessionToken else { return }
+        lastActivePersistAt = Date()
+        let s = ActiveSessionState(
+            token: t, sendMode: sendMode.rawValue, intervalSeconds: intervalSeconds,
+            distanceMeters: distanceMeters, profile: profile.rawValue, retainHours: retainHours,
+            startAtMs: startAt.timeIntervalSince1970 * 1000, planName: activePlanName,
+            savedAtMs: Date().timeIntervalSince1970 * 1000)
+        if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: activeKey) }
+    }
+
+    /// Keep `savedAt` fresh through a long outing (so the staleness guard doesn't
+    /// drop a genuinely long race). Cheap; throttled well below the flush cadence.
+    private func persistActiveIfDue() {
+        guard isSharing, Date().timeIntervalSince(lastActivePersistAt) >= 120 else { return }
+        persistActive()
+    }
+
+    private func clearActive() { UserDefaults.standard.removeObject(forKey: activeKey) }
+
+    /// On launch, resume the last active beacon (if it wasn't explicitly stopped),
+    /// restoring cadence/mode/route and reconnecting to the SAME session. Offline
+    /// it buffers; if the server already ended the session a ping's 410 stops it.
+    func restoreActiveSession() {
+        guard !isSharing, sessionToken == nil else { return } // don't clobber a live one
+        guard let data = UserDefaults.standard.data(forKey: activeKey),
+              let s = try? JSONDecoder().decode(ActiveSessionState.self, from: data) else { return }
+        // Past any plausible outing → drop it (avoids resuming a days-old session).
+        if Date().timeIntervalSince1970 * 1000 - s.savedAtMs > 20 * 3600 * 1000 { clearActive(); return }
+
+        // Restore the exact cadence/mode it was running with.
+        sendMode = SendMode(rawValue: s.sendMode) ?? .distance
+        intervalSeconds = s.intervalSeconds
+        distanceMeters = s.distanceMeters
+        profile = SendProfile(rawValue: s.profile) ?? .custom
+        retainHours = s.retainHours
+        startAt = Date(timeIntervalSince1970: s.startAtMs / 1000)
+        startAtTouched = true
+        activePlanName = s.planName
+
+        sessionToken = s.token
+        isSharing = true
+        pingCount = 0
+        lastSentAt = nil
+        lastSendAttempt = .distantPast
+        lastReportedFix = nil
+        loadPending(s.token)   // offline backlog recorded before the relaunch
+        loadTrail(s.token)     // full route for the offline viewer
+        ViewerDataProvider.shared.register(token: s.token, title: nil, startedAt: s.startAtMs, expiresAt: 0, status: "active")
+        let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
+        ViewerDataProvider.shared.update(token: s.token, fix: lastFix, reportedFix: nil, trail: trail)
+
+        // Re-arm standby if the planned start is still ahead; else resume live.
+        if startAt.timeIntervalSinceNow > startLeadSeconds {
+            isStandby = true
+            location.configureStandby()
+        } else {
+            isStandby = false
+            applyLocationConfig()
+        }
+        location.requestAuthorization()
+        location.start()
+        startFlushTimer()
+        persistActive()
     }
 
     /// Upload the whole buffered backlog in one batch. On failure (no coverage)
@@ -593,6 +684,7 @@ final class TrackingStore: ObservableObject {
                 self?.maybeBeginFromStandby()
                 self?.sampleBatteryIfDue()
                 self?.heartbeatTick()
+                self?.persistActiveIfDue()
                 await self?.flush()
             }
         }
