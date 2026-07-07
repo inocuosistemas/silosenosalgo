@@ -10,6 +10,7 @@ import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInfere
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
+import { detectForm } from '../lib/formCalibration'
 
 const POLL_MS = 10_000
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
@@ -454,6 +455,22 @@ export default function LiveViewer({ token }: { token: string }) {
     return d
   }, [trail])
 
+  // On-route (km, time) samples for the live form detection.
+  const formSamples = useMemo(() => {
+    if (!trailSnaps) return [] as { km: number; t: number }[]
+    const out: { km: number; t: number }[] = []
+    for (let i = 0; i < trail.length; i++) {
+      if (trailSnaps[i].dist < SNAP_KM) out.push({ km: trailSnaps[i].km, t: trail[i].t })
+    }
+    return out
+  }, [trail, trailSnaps])
+  // Detected form (overall + subida/bajada/llano + fatiga). Observational only —
+  // shown in both views; the runner confirms it to move the forecast.
+  const detected = useMemo(
+    () => (plan && formSamples.length >= 4 ? detectForm(plan.track, formSamples, plan.paceConfig) : null),
+    [plan, formSamples],
+  )
+
   // When did the current stop begin? Walk the trail backwards from the newest
   // point while it stays within STOP_RADIUS_KM; the earliest such point's time
   // is when the runner went stationary. null when there's no trail. Combined
@@ -647,10 +664,14 @@ export default function LiveViewer({ token }: { token: string }) {
     ? expectedMinutesForSegment(plan.track, 0, progressKm, plan.paceConfig)
     : null
   const observedMovingMin = movingMs / 60_000
-  const liveFactor = embedded && !preStart && !ended && !offRoute
+  // Detected overall factor (shown to BOTH runner and followers, unconfirmed):
+  // the recency-weighted component detection when there's enough data, else the
+  // simple cumulative moving-time ratio (available a bit earlier).
+  const liveFactor = !preStart && !ended && !offRoute
     && plannedMovingToNow != null && plannedMovingToNow > 5 && observedMovingMin > 3
     ? Math.max(0.5, Math.min(2.2, observedMovingMin / plannedMovingToNow))
     : null
+  const detectedFactor = detected?.overall ?? liveFactor
   // The CONFIRMED factor everyone's forecast uses: the runner's own local
   // confirmation (embedded), else what the runner pushed to the server (followers,
   // and the runner after a relaunch before re-confirming).
@@ -659,9 +680,9 @@ export default function LiveViewer({ token }: { token: string }) {
   const confirmedFactor = embedded ? (approvedFactor !== 1 ? approvedFactor : serverFactor) : serverFactor
   const usesFactor = plan != null && progressKm != null && !preStart
   const factor = usesFactor ? confirmedFactor : 1
-  const factorDrift = liveFactor != null ? liveFactor / confirmedFactor - 1 : 0
-  const snoozed = snoozeFactor != null && liveFactor != null && Math.abs(liveFactor - snoozeFactor) < 0.05
-  const suggestFactor = liveFactor != null && Math.abs(factorDrift) > FORM_SUGGEST_THRESHOLD && !snoozed
+  const factorDrift = detectedFactor != null ? detectedFactor / confirmedFactor - 1 : 0
+  const snoozed = snoozeFactor != null && detectedFactor != null && Math.abs(detectedFactor - snoozeFactor) < 0.05
+  const suggestFactor = embedded && detectedFactor != null && Math.abs(factorDrift) > FORM_SUGGEST_THRESHOLD && !snoozed
 
   /** Projected ETA at a route km: the remaining MODELLED moving time scaled by
    *  the form factor, plus the plan's remaining pauses (unscaled). With f = 1 this
@@ -674,16 +695,16 @@ export default function LiveViewer({ token }: { token: string }) {
   }
 
   const approveFactor = () => {
-    if (liveFactor == null) return
-    setApprovedFactor(liveFactor)
-    saveFormFactor(token, liveFactor)
+    if (detectedFactor == null) return
+    setApprovedFactor(detectedFactor)
+    saveFormFactor(token, detectedFactor)
     setSnoozeFactor(null)
     // Propagate so followers/crew see the confirmed forecast (query params: the
     // embedded scheme handler doesn't receive POST bodies). Best-effort.
     const kmParam = progressKm != null ? progressKm.toFixed(2) : ''
-    void fetch(`/api/track/${encodeURIComponent(token)}/form?factor=${liveFactor.toFixed(3)}&km=${kmParam}`, { method: 'POST' }).catch(() => {})
+    void fetch(`/api/track/${encodeURIComponent(token)}/form?factor=${detectedFactor.toFixed(3)}&km=${kmParam}`, { method: 'POST' }).catch(() => {})
   }
-  const dismissFactor = () => setSnoozeFactor(liveFactor)
+  const dismissFactor = () => setSnoozeFactor(detectedFactor)
 
   // Live delta vs plan (minutes; negative = ahead, positive = behind).
   let deltaMin: number | null = null
@@ -806,12 +827,12 @@ export default function LiveViewer({ token }: { token: string }) {
   // Runner-only: surface the detected form change and let the runner CONFIRM the
   // new forecast (they know if the slowdown was circumstantial). The card shows
   // the detected % and its consequences (new finish, next cut-off margin).
-  const recalibrationCard = embedded && suggestFactor && liveFactor != null ? (() => {
-    const pctNum = Math.round((liveFactor - 1) * 100)
+  const recalibrationCard = embedded && suggestFactor && detectedFactor != null ? (() => {
+    const pctNum = Math.round((detectedFactor - 1) * 100)
     const slower = pctNum >= 0
-    const newFinish = projectedETAAt(totalKm, liveFactor)
+    const newFinish = projectedETAAt(totalKm, detectedFactor)
     const vsPlanMin = plannedFinish && newFinish ? (newFinish.getTime() - plannedFinish.getTime()) / 60_000 : null
-    const suggMargin = nextCutoff ? (nextCutoff.cutoff.getTime() - (projectedETAAt(nextCutoff.km, liveFactor)?.getTime() ?? 0)) / 60_000 : null
+    const suggMargin = nextCutoff ? (nextCutoff.cutoff.getTime() - (projectedETAAt(nextCutoff.km, detectedFactor)?.getTime() ?? 0)) / 60_000 : null
     return (
       <div className={`rounded-xl border p-3 ${slower ? 'border-amber-600 bg-amber-950/50 text-amber-100' : 'border-emerald-700 bg-emerald-950/40 text-emerald-100'}`}>
         <p className="text-sm font-semibold">
@@ -835,25 +856,43 @@ export default function LiveViewer({ token }: { token: string }) {
 
   // Status + chart of the runner's CONFIRMED form — shown in BOTH views once a
   // change is confirmed, so followers understand when it changed and its impact.
-  const formStatusPanel = usesFactor && (Math.abs(confirmedFactor - 1) > 0.005 || formLog.length > 0) ? (() => {
-    const pctNum = Math.round((confirmedFactor - 1) * 100)
-    const slower = pctNum >= 0
+  const formStatusPanel = usesFactor && (detectedFactor != null || Math.abs(confirmedFactor - 1) > 0.005 || formLog.length > 0) ? (() => {
+    const confPct = Math.round((confirmedFactor - 1) * 100)
+    const confSlower = confPct >= 0
+    const detPct = detectedFactor != null ? Math.round((detectedFactor - 1) * 100) : null
+    const detSlower = (detPct ?? 0) >= 0
     const last = formLog.length ? formLog[formLog.length - 1] : null
     const vsPlanMin = plannedFinish && projFinish ? (projFinish.getTime() - plannedFinish.getTime()) / 60_000 : null
+    const canUpdate = embedded && detectedFactor != null && Math.abs(detectedFactor - confirmedFactor) > 0.03
+    const compPct = (r: number | null | undefined) => (r == null ? null : Math.round((r - 1) * 100))
+    const up = compPct(detected?.subida), down = compPct(detected?.bajada), flat = compPct(detected?.llano)
+    const fmt = (v: number | null) => (v == null ? null : `${v >= 0 ? '+' : '−'}${Math.abs(v)}%`)
+    const fat = detected?.fatigue ?? null
     return (
       <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold text-slate-200">📊 Estado de forma</p>
-          <span className={`text-xs font-semibold ${slower ? 'text-amber-400' : 'text-emerald-400'}`}>{slower ? '+' : '−'}{Math.abs(pctNum)}% vs plan</span>
+        <p className="text-xs font-semibold text-slate-200">📊 Estado de forma</p>
+        {detPct != null && (
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-400">Detectado en vivo{!confSlower && confPct === 0 ? '' : ''} · sin confirmar</span>
+            <span className={`text-xs font-semibold ${detSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{detSlower ? '+' : '−'}{Math.abs(detPct)}% vs plan</span>
+          </div>
+        )}
+        {(up != null || down != null || flat != null) && (
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {up != null && <>↑ subida {fmt(up)}   </>}
+            {down != null && <>↓ bajada {fmt(down)}   </>}
+            {flat != null && <>llano {fmt(flat)}</>}
+            {fat != null && Math.abs(fat) > 0.05 && <> · fatiga: {fat > 0 ? `apagándote (+${Math.round(fat * 100)}%)` : 'remontando'}</>}
+          </p>
+        )}
+        <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
+          <span className="text-[11px] text-slate-400">{confPct === 0 && formLog.length === 0 ? 'Según el plan' : embedded ? 'Confirmado (tu previsión)' : 'Confirmado por el corredor'}</span>
+          <span className={`text-xs font-semibold ${confPct === 0 ? 'text-slate-300' : confSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{confPct === 0 ? 'según plan' : `${confSlower ? '+' : '−'}${Math.abs(confPct)}% vs plan`}</span>
         </div>
-        <p className="mt-0.5 text-[11px] text-slate-400">
-          {embedded ? 'Tu previsión confirmada' : 'El corredor ajustó su ritmo'}
-          {last?.km != null && <> · km {last.km.toFixed(1)}</>}
-          {last && <> · {agoLabel(last.t)}</>}
-        </p>
+        {last && <p className="mt-0.5 text-[11px] text-slate-500">confirmado{last.km != null && <> · km {last.km.toFixed(1)}</>} · {agoLabel(last.t)}</p>}
         {formLog.length > 0 && (
           <div className="mt-1.5">
-            <FormTimeline log={formLog} totalKm={totalKm} currentKm={progressKm} currentFactor={confirmedFactor} color={slower ? '#f59e0b' : '#34d399'} />
+            <FormTimeline log={formLog} totalKm={totalKm} currentKm={progressKm} currentFactor={confirmedFactor} color={confSlower ? '#f59e0b' : '#34d399'} />
             <div className="flex justify-between text-[10px] text-slate-500"><span>salida</span><span>meta</span></div>
           </div>
         )}
@@ -862,6 +901,11 @@ export default function LiveViewer({ token }: { token: string }) {
           {vsPlanMin != null && <> · {deltaLabel(vsPlanMin)}</>}
           {nextCutoff && <> · corte {nextCutoff.name} {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}{nextCutoff.marginMin < 15 ? ' ⚠️' : ''}</>}
         </p>
+        {canUpdate && (
+          <button onClick={approveFactor} className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white">
+            Confirmar lo detectado ({(detPct ?? 0) >= 0 ? '+' : '−'}{Math.abs(detPct ?? 0)}%)
+          </button>
+        )}
       </div>
     )
   })() : null
