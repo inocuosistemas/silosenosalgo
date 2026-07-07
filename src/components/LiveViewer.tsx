@@ -189,6 +189,47 @@ function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm:
   )
 }
 
+function agoLabel(t: number): string {
+  const m = Math.max(0, Math.round((Date.now() - t) / 60_000))
+  if (m < 1) return 'ahora'
+  if (m < 60) return `hace ${m} min`
+  return `hace ${Math.floor(m / 60)}h ${(m % 60).toString().padStart(2, '0')}min`
+}
+
+/** Sparkline of the runner's confirmed form factor (% vs plan) along the route —
+ *  a step line (holds each factor until the next confirmation) with a dot per
+ *  confirmation, so followers see WHEN form changed. */
+function FormTimeline({ log, totalKm, currentKm, currentFactor, color }: {
+  log: { km: number | null; factor: number }[]
+  totalKm: number
+  currentKm: number | null
+  currentFactor: number
+  color: string
+}) {
+  const W = 100, H = 30
+  const pts = log.filter((e): e is { km: number; factor: number } => e.km != null && Number.isFinite(e.km))
+  const series: { km: number; pct: number }[] = [{ km: 0, pct: 0 }]
+  let prev = 1
+  for (const e of pts) {
+    series.push({ km: e.km, pct: (prev - 1) * 100 })
+    series.push({ km: e.km, pct: (e.factor - 1) * 100 })
+    prev = e.factor
+  }
+  const endKm = Math.max(currentKm ?? 0, series[series.length - 1].km, 0.001)
+  series.push({ km: endKm, pct: (currentFactor - 1) * 100 })
+  const maxAbs = Math.max(12, ...series.map((s) => Math.abs(s.pct)))
+  const x = (km: number) => (totalKm > 0 ? Math.min(1, km / totalKm) : 0) * W
+  const y = (pct: number) => H / 2 - (pct / maxAbs) * (H / 2 - 2)
+  const path = 'M' + series.map((s) => `${x(s.km).toFixed(1)},${y(s.pct).toFixed(1)}`).join('L')
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block w-full h-8">
+      <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="#475569" strokeWidth={0.5} strokeDasharray="2 2" />
+      <path d={path} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+      {pts.map((e, i) => <circle key={i} cx={x(e.km)} cy={y((e.factor - 1) * 100)} r={1.6} fill="#fff" />)}
+    </svg>
+  )
+}
+
 /** Beyond this, a windowed match is "off the route" — the trigger to check for
  *  anchor drift. Below it (out-and-back overlaps, normal tracking) we never touch
  *  the temporally-consistent match, so leg disambiguation is unaffected. */
@@ -610,9 +651,15 @@ export default function LiveViewer({ token }: { token: string }) {
     && plannedMovingToNow != null && plannedMovingToNow > 5 && observedMovingMin > 3
     ? Math.max(0.5, Math.min(2.2, observedMovingMin / plannedMovingToNow))
     : null
-  const usesFactor = embedded && plan != null && progressKm != null && !preStart
-  const factor = usesFactor ? approvedFactor : 1
-  const factorDrift = liveFactor != null ? liveFactor / approvedFactor - 1 : 0
+  // The CONFIRMED factor everyone's forecast uses: the runner's own local
+  // confirmation (embedded), else what the runner pushed to the server (followers,
+  // and the runner after a relaunch before re-confirming).
+  const serverFactor = typeof state.formFactor === 'number' && state.formFactor > 0.4 && state.formFactor < 2.5 ? state.formFactor : 1
+  const formLog = state.formLog ?? []
+  const confirmedFactor = embedded ? (approvedFactor !== 1 ? approvedFactor : serverFactor) : serverFactor
+  const usesFactor = plan != null && progressKm != null && !preStart
+  const factor = usesFactor ? confirmedFactor : 1
+  const factorDrift = liveFactor != null ? liveFactor / confirmedFactor - 1 : 0
   const snoozed = snoozeFactor != null && liveFactor != null && Math.abs(liveFactor - snoozeFactor) < 0.05
   const suggestFactor = liveFactor != null && Math.abs(factorDrift) > FORM_SUGGEST_THRESHOLD && !snoozed
 
@@ -631,6 +678,10 @@ export default function LiveViewer({ token }: { token: string }) {
     setApprovedFactor(liveFactor)
     saveFormFactor(token, liveFactor)
     setSnoozeFactor(null)
+    // Propagate so followers/crew see the confirmed forecast (query params: the
+    // embedded scheme handler doesn't receive POST bodies). Best-effort.
+    const kmParam = progressKm != null ? progressKm.toFixed(2) : ''
+    void fetch(`/api/track/${encodeURIComponent(token)}/form?factor=${liveFactor.toFixed(3)}&km=${kmParam}`, { method: 'POST' }).catch(() => {})
   }
   const dismissFactor = () => setSnoozeFactor(liveFactor)
 
@@ -782,6 +833,39 @@ export default function LiveViewer({ token }: { token: string }) {
     )
   })() : null
 
+  // Status + chart of the runner's CONFIRMED form — shown in BOTH views once a
+  // change is confirmed, so followers understand when it changed and its impact.
+  const formStatusPanel = usesFactor && (Math.abs(confirmedFactor - 1) > 0.005 || formLog.length > 0) ? (() => {
+    const pctNum = Math.round((confirmedFactor - 1) * 100)
+    const slower = pctNum >= 0
+    const last = formLog.length ? formLog[formLog.length - 1] : null
+    const vsPlanMin = plannedFinish && projFinish ? (projFinish.getTime() - plannedFinish.getTime()) / 60_000 : null
+    return (
+      <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-slate-200">📊 Estado de forma</p>
+          <span className={`text-xs font-semibold ${slower ? 'text-amber-400' : 'text-emerald-400'}`}>{slower ? '+' : '−'}{Math.abs(pctNum)}% vs plan</span>
+        </div>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          {embedded ? 'Tu previsión confirmada' : 'El corredor ajustó su ritmo'}
+          {last?.km != null && <> · km {last.km.toFixed(1)}</>}
+          {last && <> · {agoLabel(last.t)}</>}
+        </p>
+        {formLog.length > 0 && (
+          <div className="mt-1.5">
+            <FormTimeline log={formLog} totalKm={totalKm} currentKm={progressKm} currentFactor={confirmedFactor} color={slower ? '#f59e0b' : '#34d399'} />
+            <div className="flex justify-between text-[10px] text-slate-500"><span>salida</span><span>meta</span></div>
+          </div>
+        )}
+        <p className="mt-1.5 text-[11px] text-slate-300">
+          Meta estimada <span className="font-semibold">{projFinish ? clockDay(projFinish, sessionStart) : '—'}</span>
+          {vsPlanMin != null && <> · {deltaLabel(vsPlanMin)}</>}
+          {nextCutoff && <> · corte {nextCutoff.name} {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}{nextCutoff.marginMin < 15 ? ' ⚠️' : ''}</>}
+        </p>
+      </div>
+    )
+  })() : null
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -813,6 +897,7 @@ export default function LiveViewer({ token }: { token: string }) {
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {topHero}
           {recalibrationCard}
+          {formStatusPanel}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -906,6 +991,7 @@ export default function LiveViewer({ token }: { token: string }) {
           {header}
           {topHero && <div className="mt-2">{topHero}</div>}
           {recalibrationCard && <div className="mt-2">{recalibrationCard}</div>}
+          {formStatusPanel && <div className="mt-2">{formStatusPanel}</div>}
           {fix && (
             <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
