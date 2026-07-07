@@ -19,6 +19,7 @@ struct TrackingView: View {
     @State private var downloadPolyline: [(lat: Double, lon: Double)]?
     @State private var downloadRouteName: String?
     @State private var resolvingRoute = false
+    @State private var pendingLogout = false
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
@@ -344,16 +345,24 @@ struct TrackingView: View {
             .sheet(isPresented: $showMapDownload) {
                 MapDownloadView(routeName: downloadRouteName, polyline: downloadPolyline)
             }
+            .alert("Salir de la cuenta", isPresented: $pendingLogout) {
+                Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {
+                    Task {
+                        await store.stopSharing()
+                        await auth.logout()
+                    }
+                }
+                Button("Cancelar", role: .cancel) { }
+            } message: {
+                Text(store.isSharing
+                     ? "Estás compartiendo tu ubicación. Al salir se detiene el seguimiento y se cierra la sesión."
+                     : "Se cerrará tu sesión en este dispositivo.")
+            }
             .navigationTitle(auth.user?.username ?? "Seguimiento")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Salir") {
-                        Task {
-                            await store.stopSharing()
-                            await auth.logout()
-                        }
-                    }
-                    .tint(Theme.sky500)
+                    Button("Salir") { pendingLogout = true }
+                        .tint(Theme.sky500)
                 }
             }
         }
