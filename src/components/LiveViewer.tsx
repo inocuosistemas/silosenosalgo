@@ -5,7 +5,7 @@ import type { TrackStateResponse } from '../../shared/wireTypes'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
-import { expectedKmAtElapsed, estimateArrivalTimeAtKm, elevationStatsForSegment, formatTime, ACTIVITY_MAX_SPEED_KMH, type PausePoint } from '../lib/timing'
+import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, ACTIVITY_MAX_SPEED_KMH, type PausePoint } from '../lib/timing'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
@@ -235,6 +235,21 @@ function makeRouteMatcher(pts: { lat: number; lon: number }[], cumKm: number[], 
   return { globalNearest, windowNearest }
 }
 
+// ── Live form recalibration (runner-confirmed) ────────────────────────────────
+// The confirmed "form factor" persists per session so the projection survives
+// polls/reloads. 1 = the plan (and, provably, identical to the old additive
+// projection). >1 = confirmed slower; <1 = confirmed faster.
+const FORM_SUGGEST_THRESHOLD = 0.06 // surface a suggestion past ±6% drift
+function loadFormFactor(token: string): number {
+  try {
+    const v = parseFloat(localStorage.getItem(`formFactor:${token}`) || '')
+    return v > 0.4 && v < 2.5 ? v : 1
+  } catch { return 1 }
+}
+function saveFormFactor(token: string, f: number): void {
+  try { localStorage.setItem(`formFactor:${token}`, String(f)) } catch { /* private mode / disabled */ }
+}
+
 export default function LiveViewer({ token }: { token: string }) {
   const [state, setState] = useState<TrackStateResponse | null>(null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -242,6 +257,11 @@ export default function LiveViewer({ token }: { token: string }) {
   const [plan, setPlan] = useState<RevivedShare | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
+  // and the drift level the runner last dismissed (so a "was circumstantial"
+  // dismissal doesn't nag until form drifts further).
+  const [approvedFactor, setApprovedFactor] = useState(() => loadFormFactor(token))
+  const [snoozeFactor, setSnoozeFactor] = useState<number | null>(null)
   // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
   const advDragStartY = useRef<number | null>(null)
   const advDraggedRef = useRef(false)
@@ -576,6 +596,44 @@ export default function LiveViewer({ token }: { token: string }) {
   const totalKm = plan?.track.totalDistanceKm ?? 0
   const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
 
+  // ── Live form recalibration (embedded/runner only) ──────────────────────────
+  // Your ACTUAL moving time vs the plan's MODELLED moving time so far → a "form
+  // factor". The forecast uses the last factor the runner CONFIRMED (they know if
+  // a slowdown was circumstantial — fog, wrong turn — vs a real energy drop); a
+  // suggestion surfaces when the live factor drifts from it. Pauses are excluded
+  // from the factor and added unscaled to projections. Off-route freezes it.
+  const plannedMovingToNow = plan && progressKm != null && progressKm > 0
+    ? expectedMinutesForSegment(plan.track, 0, progressKm, plan.paceConfig)
+    : null
+  const observedMovingMin = movingMs / 60_000
+  const liveFactor = embedded && !preStart && !ended && !offRoute
+    && plannedMovingToNow != null && plannedMovingToNow > 5 && observedMovingMin > 3
+    ? Math.max(0.5, Math.min(2.2, observedMovingMin / plannedMovingToNow))
+    : null
+  const usesFactor = embedded && plan != null && progressKm != null && !preStart
+  const factor = usesFactor ? approvedFactor : 1
+  const factorDrift = liveFactor != null ? liveFactor / approvedFactor - 1 : 0
+  const snoozed = snoozeFactor != null && liveFactor != null && Math.abs(liveFactor - snoozeFactor) < 0.05
+  const suggestFactor = liveFactor != null && Math.abs(factorDrift) > FORM_SUGGEST_THRESHOLD && !snoozed
+
+  /** Projected ETA at a route km: the remaining MODELLED moving time scaled by
+   *  the form factor, plus the plan's remaining pauses (unscaled). With f = 1 this
+   *  is provably identical to the old `plannedETA + deltaMin` projection. */
+  const projectedETAAt = (targetKm: number, f: number = factor): Date | null => {
+    if (!plan || progressKm == null) return null
+    const movingRemain = expectedMinutesForSegment(plan.track, progressKm, targetKm, plan.paceConfig)
+    const pauseRemain = pauses.filter((p) => p.km > progressKm! && p.km <= targetKm).reduce((s, p) => s + p.minutes, 0)
+    return new Date(refNow + (movingRemain * f + pauseRemain) * 60_000)
+  }
+
+  const approveFactor = () => {
+    if (liveFactor == null) return
+    setApprovedFactor(liveFactor)
+    saveFormFactor(token, liveFactor)
+    setSnoozeFactor(null)
+  }
+  const dismissFactor = () => setSnoozeFactor(liveFactor)
+
   // Live delta vs plan (minutes; negative = ahead, positive = behind).
   let deltaMin: number | null = null
   if (plan && progressKm != null && !preStart) {
@@ -593,7 +651,7 @@ export default function LiveViewer({ token }: { token: string }) {
   }
 
   // Next cut-off ahead — the headline "are you OK?" info.
-  let nextCutoff: { name: string; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number } | null = null
+  let nextCutoff: { name: string; km: number; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number } | null = null
   if (plan && planRows && progressKm != null && !offRoute && deltaMin != null) {
     for (const r of planRows) {
       if (r.w.distanceKm <= progressKm + 0.05) continue
@@ -601,11 +659,12 @@ export default function LiveViewer({ token }: { token: string }) {
       if (!cutoff) continue
       const plannedETA = r.plannedElapsedMs != null ? new Date(sessionStart.getTime() + r.plannedElapsedMs) : null
       if (!plannedETA) continue
-      const projectedETA = new Date(plannedETA.getTime() + deltaMin * 60_000)
+      const projectedETA = usesFactor ? projectedETAAt(r.w.distanceKm)! : new Date(plannedETA.getTime() + deltaMin * 60_000)
       const remDist = r.w.distanceKm - progressKm
       const availMin = (cutoff.getTime() - Date.now()) / 60_000
       nextCutoff = {
         name: r.w.name,
+        km: r.w.distanceKm,
         cutoff,
         marginMin: (cutoff.getTime() - projectedETA.getTime()) / 60_000,
         reqPace: availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null,
@@ -622,9 +681,12 @@ export default function LiveViewer({ token }: { token: string }) {
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
 
-  // Projected finish = planned finish shifted by the live vs-plan delta.
+  // Projected finish: with a confirmed form factor (embedded) the remaining
+  // modelled effort is scaled by it; otherwise the planned finish shifted by the
+  // live vs-plan delta (identical when factor = 1).
   const plannedFinish = plan ? estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses) : null
-  const projFinish = plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
+  const projFinish = usesFactor ? projectedETAAt(totalKm)
+    : plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
 
   // Advanced metrics (computed only while the panel is open, on the live km):
   // elevation gained/lost so far and what remains to the finish.
@@ -690,14 +752,45 @@ export default function LiveViewer({ token }: { token: string }) {
   // Pre-start → countdown; otherwise → the next-cut-off banner.
   const topHero = preStart ? countdownHero : cutoffHero
 
+  // Runner-only: surface the detected form change and let the runner CONFIRM the
+  // new forecast (they know if the slowdown was circumstantial). The card shows
+  // the detected % and its consequences (new finish, next cut-off margin).
+  const recalibrationCard = embedded && suggestFactor && liveFactor != null ? (() => {
+    const pctNum = Math.round((liveFactor - 1) * 100)
+    const slower = pctNum >= 0
+    const newFinish = projectedETAAt(totalKm, liveFactor)
+    const vsPlanMin = plannedFinish && newFinish ? (newFinish.getTime() - plannedFinish.getTime()) / 60_000 : null
+    const suggMargin = nextCutoff ? (nextCutoff.cutoff.getTime() - (projectedETAAt(nextCutoff.km, liveFactor)?.getTime() ?? 0)) / 60_000 : null
+    return (
+      <div className={`rounded-xl border p-3 ${slower ? 'border-amber-600 bg-amber-950/50 text-amber-100' : 'border-emerald-700 bg-emerald-950/40 text-emerald-100'}`}>
+        <p className="text-sm font-semibold">
+          {slower ? '📉' : '📈'} Ritmo detectado: {slower ? '+' : '−'}{Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
+        </p>
+        {newFinish && (
+          <p className="mt-0.5 text-xs opacity-95">
+            Meta estimada → <span className="font-semibold">{clockDay(newFinish, sessionStart)}</span>
+            {vsPlanMin != null && <> · {deltaLabel(vsPlanMin)}</>}
+            {suggMargin != null && nextCutoff && <> · corte {nextCutoff.name} {suggMargin < 0 ? '−' : '+'}{hhmm(suggMargin)}{suggMargin < 15 ? ' ⚠️' : ''}</>}
+          </p>
+        )}
+        <p className="mt-1 text-[11px] opacity-70">¿Tu nuevo estado de forma, o algo puntual (niebla, pérdida…)?</p>
+        <div className="mt-2 flex gap-2">
+          <button onClick={approveFactor} className="flex-1 rounded-lg bg-sky-600 py-1.5 text-xs font-semibold text-white">Actualizar previsión</button>
+          <button onClick={dismissFactor} className="flex-1 rounded-lg bg-slate-700/70 py-1.5 text-xs text-slate-200">Fue puntual</button>
+        </div>
+      </div>
+    )
+  })() : null
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
       const plannedETA = r.plannedElapsedMs != null ? new Date(sessionStart.getTime() + r.plannedElapsedMs) : null
       const cutoff = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon)) ?? null
-      const projectedETA = plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
-      const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
       const passed = progressKm != null && r.w.distanceKm <= progressKm + 0.05
+      const projectedETA = usesFactor && !passed ? projectedETAAt(r.w.distanceKm)
+        : plannedETA && deltaMin != null ? new Date(plannedETA.getTime() + deltaMin * 60_000) : plannedETA
+      const marginMin = cutoff && projectedETA ? (cutoff.getTime() - projectedETA.getTime()) / 60_000 : null
       const band: DaylightBand | null = projectedETA ? bandAt(projectedETA, r.w.lat, r.w.lon) : null
       // Pace needed from the current position to reach this cut-off in time.
       let reqPace: number | null = null
@@ -719,6 +812,7 @@ export default function LiveViewer({ token }: { token: string }) {
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {topHero}
+          {recalibrationCard}
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -811,6 +905,7 @@ export default function LiveViewer({ token }: { token: string }) {
         <div className="mx-auto max-w-md max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
           {topHero && <div className="mt-2">{topHero}</div>}
+          {recalibrationCard && <div className="mt-2">{recalibrationCard}</div>}
           {fix && (
             <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
