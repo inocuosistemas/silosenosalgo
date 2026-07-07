@@ -93,6 +93,14 @@ export interface CreateTrackResponse {
   expiresAt: number
 }
 
+/** One runner-confirmed change of form: when (epoch ms), where (route km, or null
+ *  if unknown) and the factor confirmed (1 = the plan). */
+export interface FormLogEntry {
+  t: number
+  km: number | null
+  factor: number
+}
+
 export type TrackStatus = 'active' | 'ended'
 
 export interface TrackStateResponse {
@@ -111,6 +119,12 @@ export interface TrackStateResponse {
    *  server — i.e. what followers currently see. Undefined on the public API; the
    *  embedded app sets it so the map can show the offline gap vs the real `fix`. */
   reportedFix?: TrackFix | null
+  /** Runner-confirmed form factor (1 = the plan). Scales the projected remaining
+   *  time so everyone's forecast agrees. */
+  formFactor?: number
+  /** History of the runner's confirmed form changes, for the "estado de forma"
+   *  chart (when it changed along the route). */
+  formLog?: FormLogEntry[]
 }
 
 /** One of the owner's tracking sessions, for the "my sessions" list. */
