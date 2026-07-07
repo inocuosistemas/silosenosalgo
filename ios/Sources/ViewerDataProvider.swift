@@ -18,17 +18,21 @@ enum LocalStore {
     /// Gzipped SharePayload bytes for a session's linked plan (verbatim from the API).
     static func planURL(_ token: String) -> URL { dir("plans").appendingPathComponent("\(token).gz") }
 
+    /// Runner-confirmed form factor + change log (JSON), so it survives relaunch.
+    static func formURL(_ token: String) -> URL { dir("form").appendingPathComponent("\(token).json") }
+
     static func hasPlan(_ token: String) -> Bool { fm.fileExists(atPath: planURL(token).path) }
 
     /// Delete both artifacts for a session (on hard-delete).
     static func remove(_ token: String) {
         try? fm.removeItem(at: trailURL(token))
         try? fm.removeItem(at: planURL(token))
+        try? fm.removeItem(at: formURL(token))
     }
 
     /// Prune trail/plan files whose session id isn't in `keep` (the owner's live list).
     static func prune(keep: Set<String>) {
-        for sub in ["trails", "plans"] {
+        for sub in ["trails", "plans", "form"] {
             let d = dir(sub)
             guard let items = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) else { continue }
             for url in items {
@@ -56,6 +60,13 @@ struct TrackFixWire: Codable {
     var updatedAt: Double
 }
 
+/// One runner-confirmed form change (mirrors shared/wireTypes `FormLogEntry`).
+struct FormLogWire: Codable {
+    var t: Double
+    var km: Double?
+    var factor: Double
+}
+
 /// `TrackStateResponse` shape the web viewer polls from `/api/track/:id`.
 struct TrackStateWire: Codable {
     var status: String
@@ -71,6 +82,9 @@ struct TrackStateWire: Codable {
     /// followers see). The public API never sets this; the embedded viewer draws
     /// the offline gap between it and `fix`.
     var reportedFix: TrackFixWire?
+    /// Runner-confirmed form factor (1 = the plan) + its change log.
+    var formFactor: Double?
+    var formLog: [FormLogWire]?
 }
 
 /// Thread-safe bridge that lets the embedded WKWebView viewer read the CURRENT
@@ -94,6 +108,8 @@ final class ViewerDataProvider {
     private var fix: TrackFixWire?
     private var reportedFix: TrackFixWire?
     private var trail: [TrailPoint] = []
+    private var formFactor: Double = 1
+    private var formLog: [FormLogWire] = []
 
     /// Follower display name — set by the view layer (which holds the auth user).
     func setUsername(_ name: String?) { lock.lock(); username = name; lock.unlock() }
@@ -105,6 +121,31 @@ final class ViewerDataProvider {
         lock.lock()
         self.token = token; self.title = title; self.startedAt = startedAt
         self.expiresAt = expiresAt; self.status = status
+        // Re-hydrate any confirmed form factor/log for this session (survives relaunch).
+        if let data = try? Data(contentsOf: LocalStore.formURL(token)),
+           let saved = try? JSONDecoder().decode(SavedForm.self, from: data) {
+            self.formFactor = saved.factor; self.formLog = saved.log
+        } else {
+            self.formFactor = 1; self.formLog = []
+        }
+        lock.unlock()
+    }
+
+    private struct SavedForm: Codable { var factor: Double; var log: [FormLogWire] }
+
+    /// The runner confirmed a form change (from the embedded viewer, routed here by
+    /// the scheme handler): update + persist + include in the synthesized state.
+    func setForm(token: String, factor: Double, km: Double?) {
+        lock.lock()
+        if self.token == token {
+            let f = min(2.2, max(0.5, factor))
+            self.formFactor = f
+            self.formLog.append(FormLogWire(t: Date().timeIntervalSince1970 * 1000, km: km, factor: f))
+            if self.formLog.count > 40 { self.formLog.removeFirst(self.formLog.count - 40) }
+            if let data = try? JSONEncoder().encode(SavedForm(factor: f, log: self.formLog)) {
+                try? data.write(to: LocalStore.formURL(token), options: .atomic)
+            }
+        }
         lock.unlock()
     }
 
@@ -136,7 +177,9 @@ final class ViewerDataProvider {
             planShareId: LocalStore.hasPlan(token) ? token : nil,   // resolves to LocalStore.planURL(token)
             fix: fix,
             trail: trail,
-            reportedFix: reportedFix
+            reportedFix: reportedFix,
+            formFactor: formFactor,
+            formLog: formLog
         )
         return try? JSONEncoder().encode(state)
     }

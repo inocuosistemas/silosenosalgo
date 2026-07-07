@@ -48,6 +48,20 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        // Runner confirms a form change: update the local synthesized state AND
+        // forward to the real backend (best-effort) so followers get it too.
+        if path.hasPrefix("/api/track/") && path.hasSuffix("/form") {
+            let token = String(path.dropFirst("/api/track/".count).dropLast("/form".count))
+            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let factor = Double(q.first(where: { $0.name == "factor" })?.value ?? "")
+            let km = Double(q.first(where: { $0.name == "km" })?.value ?? "")
+            if let factor {
+                ViewerDataProvider.shared.setForm(token: token, factor: factor, km: km)
+                forwardForm(token: token, factor: factor, km: km)
+            }
+            return respond(task, url: url, data: Data(), mime: "application/json", noStore: true)
+        }
+
         // Local API routes (synchronous).
         if path.hasPrefix("/api/track/") {
             let token = String(path.dropFirst("/api/track/".count))
@@ -104,6 +118,23 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
         guard isLive(task) else { return }
         task.didFinish()
         markDone(task)
+    }
+
+    /// Forward a confirmed form change to the real backend so followers see it.
+    /// Fire-and-forget; the local synthesized state already reflects it offline.
+    private func forwardForm(token: String, factor: Double, km: Double?) {
+        guard let auth = Keychain.load() else { return }
+        var comps = URLComponents(url: Config.baseURL.appendingPathComponent("api/track/\(token)/form"),
+                                  resolvingAgainstBaseURL: false)
+        var items = [URLQueryItem(name: "factor", value: String(factor))]
+        if let km { items.append(URLQueryItem(name: "km", value: String(km))) }
+        comps?.queryItems = items
+        guard let url = comps?.url else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
+        req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        URLSession.shared.dataTask(with: req).resume()
     }
 
     // MARK: Bundle serving
