@@ -332,6 +332,12 @@ struct TrackingView: View {
                 await store.loadPlans()
                 await store.loadSessions()
             }
+            .refreshable {
+                // Pull down to pick up changes made elsewhere (e.g. a route just
+                // created on the web) without leaving the screen.
+                await store.loadPlans()
+                await store.loadSessions()
+            }
             .fullScreenCover(isPresented: $showLiveMap) {
                 if let t = store.sessionToken {
                     LiveMapView(source: .offline(token: t), offlineToken: t)
