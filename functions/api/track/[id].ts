@@ -2,6 +2,7 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
+import { recordViewer, countViewers } from '../../lib/presence'
 import { TOKEN_RE } from '../../../shared/validate'
 import type { TrackStateResponse, TrackFix, TrailPoint } from '../../../shared/wireTypes'
 
@@ -17,9 +18,11 @@ import type { TrackStateResponse, TrackFix, TrailPoint } from '../../../shared/w
  * is kept and the link stays live indefinitely.
  */
 
-export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ params, env, request }) => {
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
+  // Anonymous per-viewer id (from the follower's browser) → presence heartbeat.
+  const viewerId = new URL(request.url).searchParams.get('v')
 
   const row = await env.DB.prepare(
     `SELECT ts.status AS status, ts.title AS title, ts.plan_share_id AS planShareId,
@@ -80,10 +83,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
     try { formLog = JSON.parse(row.formLog) } catch { formLog = undefined }
   }
 
+  // Live presence: only meaningful while the session is active. Record this
+  // viewer's heartbeat and report how many followers are currently watching.
+  let viewers: number | undefined
+  if (status === 'active') {
+    if (viewerId) await recordViewer(env, id, viewerId)
+    viewers = await countViewers(env, id)
+  }
+
   const body: TrackStateResponse = {
     status, username: row.username, title: row.title, startedAt: row.startedAt, expiresAt: row.expiresAt,
     endedAt: row.endedAt, planShareId: row.planShareId, fix, trail,
-    formFactor: row.formFactor ?? 1, formLog,
+    formFactor: row.formFactor ?? 1, formLog, viewers,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

@@ -2,8 +2,9 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { countViewers } from '../../../lib/presence'
 import { TOKEN_RE } from '../../../../shared/validate'
-import type { TrailPoint } from '../../../../shared/wireTypes'
+import type { TrailPoint, PingResponse } from '../../../../shared/wireTypes'
 
 /**
  * POST /api/track/:id/ping — owner pushes GPS fixes. Accepts a single fix
@@ -89,5 +90,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), id,
   ).run()
 
-  return new Response(null, { status: 204 })
+  // Report how many followers are watching, so the beacon can show it live.
+  const viewers = await countViewers(env, id)
+  return json({ viewers } satisfies PingResponse, 200)
 }

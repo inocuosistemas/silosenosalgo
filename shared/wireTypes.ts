@@ -119,12 +119,21 @@ export interface TrackStateResponse {
    *  server — i.e. what followers currently see. Undefined on the public API; the
    *  embedded app sets it so the map can show the offline gap vs the real `fix`. */
   reportedFix?: TrackFix | null
+  /** Active followers currently watching this session (presence heartbeat count).
+   *  Only set for active sessions; undefined once ended. */
+  viewers?: number
   /** Runner-confirmed form factor (1 = the plan). Scales the projected remaining
    *  time so everyone's forecast agrees. */
   formFactor?: number
   /** History of the runner's confirmed form changes, for the "estado de forma"
    *  chart (when it changed along the route). */
   formLog?: FormLogEntry[]
+}
+
+/** Response to a broadcaster's ping, so the beacon can surface live presence. */
+export interface PingResponse {
+  /** Active followers currently watching this session. */
+  viewers: number
 }
 
 /** One of the owner's tracking sessions, for the "my sessions" list. */

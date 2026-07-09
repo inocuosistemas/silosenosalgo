@@ -11,10 +11,29 @@ export class LiveTrackError extends Error {
   }
 }
 
+/** A stable, anonymous per-browser id so the backend can count active followers
+ *  (presence) without any account. Persisted across reloads; falls back to an
+ *  in-memory id when storage is unavailable (private mode / embedded viewer). */
+let memoViewerId: string | null = null
+function viewerId(): string {
+  const fresh = () =>
+    (globalThis.crypto?.randomUUID?.() ?? `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .slice(0, 64)
+  try {
+    const KEY = 'slsns-viewer-id'
+    let id = localStorage.getItem(KEY)
+    if (!id) { id = fresh(); localStorage.setItem(KEY, id) }
+    return id
+  } catch {
+    return (memoViewerId ??= fresh())
+  }
+}
+
 export async function fetchTrackState(token: string): Promise<TrackStateResponse> {
   let res: Response
   try {
-    res = await fetch(`/api/track/${encodeURIComponent(token)}`, { cache: 'no-store' })
+    res = await fetch(`/api/track/${encodeURIComponent(token)}?v=${viewerId()}`, { cache: 'no-store' })
   } catch {
     throw new LiveTrackError('network')
   }
