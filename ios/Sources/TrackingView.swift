@@ -209,9 +209,22 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
 
                     Section {
+                        if let viewers = store.activeViewers {
+                            LabeledContent("Seguidores activos") {
+                                Label("\(viewers)", systemImage: "eye.fill")
+                                    .foregroundStyle(viewers > 0 ? .green : Theme.slate400)
+                            }
+                        }
                         LabeledContent("Posiciones enviadas", value: "\(store.pingCount)")
                         if let last = store.lastSentAt {
-                            LabeledContent("Último envío", value: last.formatted(date: .omitted, time: .standard))
+                            // Show the clock time AND how long ago it was, colour-coded
+                            // by freshness so a glance tells whether followers are
+                            // getting live updates (green) or falling behind (red).
+                            let elapsed = Date().timeIntervalSince(last)
+                            LabeledContent("Último envío") {
+                                Text("\(last.formatted(date: .omitted, time: .shortened)) · hace \(gapTimeLabel(elapsed))")
+                                    .foregroundStyle(sendFreshnessTint(elapsed))
+                            }
                         }
                         if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
                             LabeledContent("Precisión GPS", value: String(format: "± %.0f m", loc.horizontalAccuracy))
@@ -519,6 +532,21 @@ struct TrackingView: View {
                         .font(.caption2)
                         .foregroundStyle(Theme.slate400)
                 }
+                // Retention countdown: how long a finished session stays viewable
+                // before its route is purged. Pinned ones are kept indefinitely
+                // (the chincheta says so); active ones keep extending, so neither
+                // shows a countdown.
+                if !active && !purged {
+                    if session.isPinned {
+                        Text("Sin caducidad (fijado)")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.slate400)
+                    } else if let exp = expiryRemainingLabel(session.expiresAt) {
+                        Text("Caduca \(exp)")
+                            .font(.caption2)
+                            .foregroundStyle(expiryTint(session.expiresAt))
+                    }
+                }
             }
             Spacer(minLength: 8)
             if active {
@@ -641,6 +669,31 @@ struct TrackingView: View {
         if s < 3600 { return "\(Int(s / 60)) min" }
         let h = Int(s / 3600); let m = Int((s - Double(h) * 3600) / 60)
         return m > 0 ? "\(h) h \(m) min" : "\(h) h"
+    }
+
+    /// Time left before a finished, unpinned session's route is purged
+    /// ("en 25 min", "en 8 h", "en 2 d"). nil once already past — the row then
+    /// shows "Caducado" instead. `expiresAtMs` is epoch MILLISECONDS.
+    private func expiryRemainingLabel(_ expiresAtMs: Double) -> String? {
+        let remaining = expiresAtMs / 1000 - Date().timeIntervalSince1970
+        if remaining <= 0 { return nil }
+        if remaining < 3600 { return "en \(max(1, Int(remaining / 60))) min" }
+        if remaining < 24 * 3600 { return "en \(Int(remaining / 3600)) h" }
+        return "en \(Int(remaining / (24 * 3600))) d"
+    }
+
+    /// Amber when the retention window is nearly up, so it reads as a warning.
+    private func expiryTint(_ expiresAtMs: Double) -> Color {
+        let remaining = expiresAtMs / 1000 - Date().timeIntervalSince1970
+        return remaining < 6 * 3600 ? .orange : Theme.slate400
+    }
+
+    /// Colour for the "last upload" freshness: green while followers are getting
+    /// live updates, amber as it lags, red once clearly behind (e.g. no coverage).
+    private func sendFreshnessTint(_ elapsed: TimeInterval) -> Color {
+        if elapsed < 120 { return .green }
+        if elapsed < 360 { return .orange }
+        return .red
     }
 
     /// Resolve the selected plan's route (fetches + decodes its geometry) and open

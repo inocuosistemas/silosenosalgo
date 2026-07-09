@@ -20,7 +20,7 @@ struct LiveMapView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cerrar") { dismiss() }.tint(Theme.sky500)
+                        Button("Volver") { dismiss() }.tint(Theme.sky500)
                     }
                     if offlineToken != nil {
                         ToolbarItem(placement: .navigationBarTrailing) {

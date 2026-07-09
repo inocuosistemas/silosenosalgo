@@ -21,6 +21,12 @@ struct CreateTrackResponse: Codable {
     let expiresAt: Double
 }
 
+/// Reply to a ping: how many followers are watching right now (optional so an
+/// older server replying 204 with no body decodes to nil).
+struct PingResponse: Codable {
+    let viewers: Int?
+}
+
 /// One of the user's tracking sessions, as listed by GET /api/track.
 /// `startedAt`/`expiresAt` are epoch MILLISECONDS; `status` is "active" or "ended".
 struct TrackSessionSummary: Codable, Identifiable, Equatable {
@@ -198,7 +204,10 @@ enum API {
 
     /// Upload several buffered fixes at once (offline backlog flush). The server
     /// orders them by their fixAt and uses the most recent as the live position.
-    static func pingBatch(token: String, id: String, fixes: [Fix]) async throws {
+    /// Returns the current active-follower count (nil against an old server that
+    /// replies 204 without a body).
+    @discardableResult
+    static func pingBatch(token: String, id: String, fixes: [Fix]) async throws -> Int? {
         let arr: [[String: Any]] = fixes.map { f in
             var d: [String: Any] = ["lat": f.lat, "lon": f.lon]
             if let v = f.trackKm { d["trackKm"] = v }
@@ -211,6 +220,7 @@ enum API {
         }
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: ["fixes": arr])
         guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers
     }
 
     /// Re-activate an ended session (same link) so sharing can resume.

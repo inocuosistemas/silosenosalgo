@@ -51,6 +51,9 @@ final class TrackingStore: ObservableObject {
     @Published var retainHours: Double = 48
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
+    /// Active followers currently watching (from the ping response); nil until the
+    /// first successful upload, or against a server that doesn't report it.
+    @Published var activeViewers: Int?
     /// Whether iOS Low Power Mode is on (reflected live). It extends autonomy and
     /// does NOT disable our active background location session or uploads.
     @Published var lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -278,6 +281,7 @@ final class TrackingStore: ObservableObject {
             activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true
             pingCount = 0
+            activeViewers = nil
             lastSentAt = nil
             lastSendAttempt = .distantPast
             pending = []
@@ -330,6 +334,7 @@ final class TrackingStore: ObservableObject {
         }
         pending = []
         pendingCount = 0
+        activeViewers = nil
         // The backend keeps the just-ended session for the chosen retention;
         // refresh so it appears in "Mis seguimientos".
         await loadSessions()
@@ -541,11 +546,12 @@ final class TrackingStore: ObservableObject {
         defer { isFlushing = false }
         let batch = pending
         do {
-            try await API.pingBatch(token: token, id: id, fixes: batch)
+            let viewers = try await API.pingBatch(token: token, id: id, fixes: batch)
             if pending.count >= batch.count { pending.removeFirst(batch.count) } else { pending.removeAll() }
             persistPending()
             lastSentAt = Date()
             pingCount += batch.count
+            activeViewers = viewers
             lastError = nil
             // The newest fix in the delivered batch is now what followers see.
             if let last = batch.last {
