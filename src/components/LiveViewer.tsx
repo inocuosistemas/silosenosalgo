@@ -11,6 +11,7 @@ import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
+import { sanitizeTrail } from '../lib/trailSmoothing'
 
 const POLL_MS = 10_000
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
@@ -57,7 +58,10 @@ function freshness(updatedAt: number, staleMs: number): { label: string; stale: 
   const stale = now - updatedAt > staleMs
   if (s < 60) return { label: `hace ${s} s`, stale }
   const m = Math.floor(s / 60)
-  return { label: `hace ${m} min`, stale }
+  if (m < 60) return { label: `hace ${m} min`, stale }
+  // Past an hour, minutes stop being readable → switch to H:MM.
+  const h = Math.floor(m / 60)
+  return { label: `hace ${h}:${String(m % 60).padStart(2, '0')} h`, stale }
 }
 
 /** Format a minutes magnitude as H:MM h (or "M min" under an hour). */
@@ -299,6 +303,10 @@ export default function LiveViewer({ token }: { token: string }) {
   const [plan, setPlan] = useState<RevivedShare | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  // Trail smoothing: hide the wild "desvíos imposibles" a bad GPS signal produces
+  // (see lib/trailSmoothing). On by default; the map's advanced panel can turn it
+  // off to inspect the raw trace with its precision colours.
+  const [smooth, setSmooth] = useState(true)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -369,7 +377,11 @@ export default function LiveViewer({ token }: { token: string }) {
     return () => { alive = false }
   }, [planShareId])
 
-  const trail = state?.trail ?? []
+  const rawTrail = state?.trail ?? []
+  // Everything downstream (segments, distance, km anchor, stats) runs on the
+  // smoothed trail when smoothing is on, so both the drawn line and the numbers
+  // stop being distorted by bad-signal spikes.
+  const trail = useMemo(() => (smooth ? sanitizeTrail(rawTrail) : rawTrail), [rawTrail, smooth])
   const hasAccuracyData = useMemo(() => trail.some((p) => p.a != null), [trail])
 
   // Map-match every trail point onto the planned route, temporally (seeded at the
@@ -1073,6 +1085,23 @@ export default function LiveViewer({ token }: { token: string }) {
               </button>
               {showAdvanced && (
                 <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
+                  {rawTrail.length >= 2 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
+                        <p className="text-[10px] text-slate-500">Oculta saltos por mala señal GPS</p>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={smooth}
+                        aria-label="Suavizar traza"
+                        onClick={() => setSmooth((v) => !v)}
+                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      >
+                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${smooth ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                  )}
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500"><span className="text-xs">📈</span>Perfil del recorrido</p>
