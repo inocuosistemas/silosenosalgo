@@ -20,7 +20,15 @@ struct LiveMapView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Volver") { dismiss() }.tint(Theme.sky500)
+                        Button { dismiss() } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .font(.body.weight(.semibold))
+                                Text("Volver")
+                            }
+                        }
+                        .tint(Theme.sky500)
+                        .accessibilityLabel("Volver")
                     }
                     if offlineToken != nil {
                         ToolbarItem(placement: .navigationBarTrailing) {
