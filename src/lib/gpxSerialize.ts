@@ -74,14 +74,31 @@ function serializeWpt(
   const i3 = indent(level + 2)
 
   // GPX 1.1 child order inside <wpt>: ele, time, ..., name, cmt, desc, src, link, sym, type, ..., extensions
-  // We emit the snapped track-point coords (not the interpolated ones we use
-  // internally). Garmin Connect only associates a <wpt> with a course point
-  // when its lat/lon exactly matches a <trkpt>; without this it lists every
-  // POI at "0,00 km".
+  // By default we emit the snapped track-point coords: Garmin Connect only
+  // associates a <wpt> with a course point when its lat/lon exactly matches a
+  // <trkpt>; without this it lists every POI at "0,00 km". Field notes opt out
+  // (keepExactCoords) because their true captured spot can be legitimately
+  // off-route and losing it to the nearest vertex would misplace the POI.
+  const outLat = wpt.keepExactCoords ? wpt.lat : snapPoint.lat
+  const outLon = wpt.keepExactCoords ? wpt.lon : snapPoint.lon
+  const outEle = wpt.keepExactCoords ? wpt.ele : snapPoint.ele
   const parts: string[] = []
-  if (wpt.ele != null) parts.push(`${i2}<ele>${snapPoint.ele}</ele>`)
+  if (outEle != null) parts.push(`${i2}<ele>${outEle}</ele>`)
+  if (wpt.time) parts.push(`${i2}<time>${wpt.time.toISOString()}</time>`)
   parts.push(`${i2}<name>${escapeXml(wpt.name)}</name>`)
   if (wpt.desc) parts.push(`${i2}<desc>${escapeXml(wpt.desc)}</desc>`)
+  // <link> (media: photo/audio) — after <desc>, before <sym> per GPX 1.1 order.
+  for (const link of wpt.links ?? []) {
+    if (!link.href) continue
+    const kids = [
+      link.text ? `${i3}<text>${escapeXml(link.text)}</text>` : '',
+      link.type ? `${i3}<type>${escapeXml(link.type)}</type>` : '',
+    ].filter(Boolean).join('\n')
+    parts.push(
+      `${i2}<link href="${escapeXml(link.href)}">` +
+      (kids ? `\n${kids}\n${i2}</link>` : `</link>`),
+    )
+  }
   if (wpt.sym)  parts.push(`${i2}<sym>${escapeXml(wpt.sym)}</sym>`)
   if (wpt.type) parts.push(`${i2}<type>${escapeXml(wpt.type)}</type>`)
 
@@ -107,7 +124,7 @@ function serializeWpt(
     `${i2}</extensions>`,
   )
 
-  return `${i}<wpt lat="${snapPoint.lat}" lon="${snapPoint.lon}">\n${parts.join('\n')}\n${i}</wpt>`
+  return `${i}<wpt lat="${outLat}" lon="${outLon}">\n${parts.join('\n')}\n${i}</wpt>`
 }
 
 /**

@@ -4,7 +4,7 @@ import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
 import { TOKEN_RE } from '../../../shared/validate'
-import type { TrackStateResponse, TrackFix, TrailPoint } from '../../../shared/wireTypes'
+import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote } from '../../../shared/wireTypes'
 
 /**
  * GET /api/track/:id — public, no auth. Returns the last known fix + short
@@ -83,6 +83,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     try { formLog = JSON.parse(row.formLog) } catch { formLog = undefined }
   }
 
+  // Field notes anchored during the session (public per the followers-see-all
+  // decision). Oldest→newest so the viewer's feed reads in chronological order.
+  // Guarded: if migration 0008 hasn't run yet the table is missing — degrade to
+  // "no notes" rather than 500-ing the entire track view (decouples deploy order).
+  let notes: TrackNote[] | undefined
+  try {
+    const noteRows = await env.DB.prepare(
+      `SELECT id, created_at AS createdAt, fix_at AS fixAt, lat, lon, accuracy, altitude,
+              track_km AS trackKm, dist_m AS distM, title, body,
+              poi_type AS poiType, poi_sym AS poiSym, audio_key AS audioKey, photo_key AS photoKey
+         FROM track_notes WHERE session_id=? ORDER BY created_at`,
+    ).bind(id).all<TrackNote>()
+    notes = noteRows.results.length ? noteRows.results : undefined
+  } catch { notes = undefined }
+
   // Live presence: only meaningful while the session is active. Record this
   // viewer's heartbeat and report how many followers are currently watching.
   let viewers: number | undefined
@@ -94,7 +109,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   const body: TrackStateResponse = {
     status, username: row.username, title: row.title, startedAt: row.startedAt, expiresAt: row.expiresAt,
     endedAt: row.endedAt, planShareId: row.planShareId, fix, trail,
-    formFactor: row.formFactor ?? 1, formLog, viewers,
+    formFactor: row.formFactor ?? 1, formLog, viewers, notes,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

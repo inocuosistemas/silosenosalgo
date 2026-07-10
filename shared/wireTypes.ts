@@ -101,6 +101,58 @@ export interface FormLogEntry {
   factor: number
 }
 
+/** A field note anchored to a live GPS fix during a tracking session. Notes
+ *  accumulate into the session (durable rows, unlike the bounded `trail`) and
+ *  are exported as GPX <wpt> POIs. `poiType` is a slug from shared/poiTypes.ts. */
+export interface TrackNote {
+  /** stable id, genId(16) — POIs are coordinate-keyed and collide; notes need identity */
+  id: string
+  /** wall-clock capture time, epoch ms → GPX <time> */
+  createdAt: number
+  /** device GPS timestamp, epoch ms (mirrors TrackFix.fixAt) */
+  fixAt: number | null
+  /** TRUE captured coords (not snapped to the route) */
+  lat: number
+  lon: number
+  /** horizontal accuracy at capture, m */
+  accuracy: number | null
+  /** elevation at capture, m */
+  altitude: number | null
+  /** km along the planned route, if projectable (else derived at export) */
+  trackKm: number | null
+  /** cumulative distance travelled at capture, m */
+  distM: number | null
+  /** short name → GPX <name>; falls back to the poiType label when absent */
+  title: string | null
+  /** typed body → GPX <desc> */
+  body: string | null
+  /** taxonomy slug (shared/poiTypes.ts), e.g. 'water' | 'summit' | 'generic' */
+  poiType: string
+  /** Garmin <sym> override; when null, derived from poiType at export */
+  poiSym: string | null
+  /** R2 object key of an attached voice memo (phase 2), else null */
+  audioKey: string | null
+  /** R2 object key of an attached photo (phase 3), else null */
+  photoKey: string | null
+}
+
+/** POST body to create a note (native → JSON). Server stamps `id`; the rest
+ *  mirror TrackNote with sensible optionals. */
+export interface NoteCreate {
+  createdAt: number
+  fixAt?: number | null
+  lat: number
+  lon: number
+  accuracy?: number | null
+  altitude?: number | null
+  trackKm?: number | null
+  distM?: number | null
+  title?: string | null
+  body?: string | null
+  poiType: string
+  poiSym?: string | null
+}
+
 export type TrackStatus = 'active' | 'ended'
 
 export interface TrackStateResponse {
@@ -128,6 +180,9 @@ export interface TrackStateResponse {
   /** History of the runner's confirmed form changes, for the "estado de forma"
    *  chart (when it changed along the route). */
   formLog?: FormLogEntry[]
+  /** Field notes anchored during the session, oldest→newest. Visible to
+   *  followers (public payload). Undefined when the session has none. */
+  notes?: TrackNote[]
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */

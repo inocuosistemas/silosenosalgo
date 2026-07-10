@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
+import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { TrackStateResponse } from '../../shared/wireTypes'
+import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
+import { downloadGpx } from '../lib/gpxSerialize'
+import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
@@ -103,14 +107,28 @@ function formatDist(km: number): string {
 }
 
 function poiIcon(w: { sym?: string; type?: string; name?: string }): string {
-  const s = `${w.sym ?? ''} ${w.type ?? ''} ${w.name ?? ''}`.toLowerCase()
-  if (/avitualla|aid|water|agua|food|comida|fuente/.test(s)) return '🥤'
-  if (/cima|summit|peak|pico|puerto|\bcol\b|alto\b/.test(s)) return '⛰️'
-  if (/refug|lodge|\bhut\b|albergue|cabaña/.test(s)) return '🏠'
-  if (/meta|finish|llegada/.test(s)) return '🏁'
-  if (/salida|start|inicio/.test(s)) return '🚩'
-  if (/control|check/.test(s)) return '✓'
-  return '📍'
+  // A note carries a canonical taxonomy slug in `type`; foreign/legacy GPX POIs
+  // don't, so fall back to guessing from the free-text sym/type/name.
+  if (isPoiType(w.type)) return poiEmoji(w.type)
+  return poiEmoji(guessPoiType(`${w.sym ?? ''} ${w.type ?? ''} ${w.name ?? ''}`))
+}
+
+/** Leaflet div-icon for a note marker: the taxonomy emoji in a dark pin. Cached
+ *  per poiType (15 possible), so we don't rebuild an icon on every render. */
+const noteIconCache = new Map<string, L.DivIcon>()
+function noteDivIcon(poiType: string): L.DivIcon {
+  let icon = noteIconCache.get(poiType)
+  if (!icon) {
+    icon = L.divIcon({
+      className: '',
+      html: `<div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:15px;background:#0f172a;border:2px solid #38bdf8;border-radius:50% 50% 50% 2px;box-shadow:0 1px 3px rgba(0,0,0,.55)">${poiEmoji(poiType)}</div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 24],
+      popupAnchor: [0, -22],
+    })
+    noteIconCache.set(poiType, icon)
+  }
+  return icon
 }
 
 /** min/km as M:SS/km. */
@@ -647,6 +665,7 @@ export default function LiveViewer({ token }: { token: string }) {
   if (!state) return <Centered title="Cargando…" />
 
   const fix = state.fix
+  const notes = state.notes ?? []
   const ended = state.status === 'ended'
 
   // Embedded offline view only: the last position uploaded to the server (what
@@ -1062,6 +1081,22 @@ export default function LiveViewer({ token }: { token: string }) {
             <Tooltip>{w.name}</Tooltip>
           </CircleMarker>
         ))}
+        {notes.map((n) => {
+          const t = poiTypeFor(n.poiType)
+          return (
+            <Marker key={`note-${n.id}`} position={[n.lat, n.lon]} icon={noteDivIcon(n.poiType)}>
+              <Popup>
+                <div style={{ minWidth: 140, maxWidth: 220 }}>
+                  <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
+                  {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+                    {formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
         {showGap && reported && fix && (
           <>
             <Polyline positions={[[reported.lat, reported.lon], [fix.lat, fix.lon]]} pathOptions={{ color: '#f59e0b', weight: 2, opacity: 0.85, dashArray: '4 6' }} />
@@ -1186,6 +1221,35 @@ export default function LiveViewer({ token }: { token: string }) {
                         <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
                       </MetricSection>
                     </>
+                  )}
+                  {notes.length > 0 && (
+                    <div className="border-t border-slate-800 pt-2">
+                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span className="text-xs">📝</span>Notas · {notes.length}
+                      </p>
+                      <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                        {[...notes].reverse().map((n) => {
+                          const t = poiTypeFor(n.poiType)
+                          return (
+                            <div key={n.id} className="rounded-lg bg-slate-800/70 px-2 py-1.5">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="min-w-0 truncate text-xs font-medium text-slate-200">{t.emoji} {n.title || t.label}</span>
+                                <span className="shrink-0 text-[10px] text-slate-500">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
+                              </div>
+                              {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {!embedded && plan?.track && (
+                        <button
+                          onClick={() => downloadGpx(withNoteWaypoints(plan.track, notes), plan.cutoffWallClocks ?? new Map(), `${(plan.track.name || 'guia').replace(/[^a-z0-9_-]/gi, '_')}_guia.gpx`)}
+                          className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white"
+                        >
+                          ⬇️ Exportar guía (GPX · {notes.length} POI)
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

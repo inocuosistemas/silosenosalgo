@@ -19,6 +19,15 @@ export interface GpxNamedWaypoint {
   sym?: string
   /** <type> tag content, if present */
   type?: string
+  /** <time> tag content (waypoint timestamp), if present — set for field notes */
+  time?: Date | null
+  /** <link> elements — attached media (photo/audio) for a field note, or any
+   *  links present in a loaded GPX. `href` is the URL; `text`/`type` optional. */
+  links?: { href: string; text?: string; type?: string }[]
+  /** Serialize at the waypoint's own lat/lon/ele instead of snapping to the
+   *  nearest track point. Set for field notes, whose true captured position can
+   *  legitimately be off-route (a viewpoint, a hazard to the side). */
+  keepExactCoords?: boolean
   /** km along the track at the snapped (nearest) track point */
   distanceKm: number
   /** Index into GpxTrack.points of the nearest track point */
@@ -129,6 +138,15 @@ export function parseGpx(xml: string): GpxTrack {
       const desc = el.querySelector('desc')?.textContent?.trim() || undefined
       const sym = el.querySelector('sym')?.textContent?.trim() || undefined
       const type = el.querySelector('type')?.textContent?.trim() || undefined
+      const timeStr = el.querySelector('time')?.textContent?.trim()
+      const time = timeStr ? new Date(timeStr) : undefined
+      const links = Array.from(el.querySelectorAll('link'))
+        .map((l) => ({
+          href: l.getAttribute('href')?.trim() || '',
+          text: l.querySelector('text')?.textContent?.trim() || undefined,
+          type: l.querySelector('type')?.textContent?.trim() || undefined,
+        }))
+        .filter((l) => l.href)
       const cutoffWallClock = readCutoffWallClockFromExtensions(el) ?? undefined
       const persistedKm = readDistanceKmFromExtensions(el)
       const custom = readCustomFlagFromExtensions(el)
@@ -155,7 +173,8 @@ export function parseGpx(xml: string): GpxTrack {
         distanceKm = cumKm[nearestTrackIndex]
       }
 
-      return { lat, lon, ele, name, desc, sym, type, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined, pauseMin: pauseMin ?? undefined }
+      const validTime = time && !Number.isNaN(time.getTime()) ? time : undefined
+      return { lat, lon, ele, name, desc, sym, type, time: validTime, links: links.length ? links : undefined, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined, pauseMin: pauseMin ?? undefined }
     })
 
   return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints, cumKm }
