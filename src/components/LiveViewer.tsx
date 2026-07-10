@@ -72,6 +72,11 @@ function hhmm(min: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`
 }
 
+/** Sampling interval as a short "cada N s / N min" cadence. */
+function sampleLabel(sec: number): string {
+  return sec < 90 ? `cada ${Math.round(sec)} s` : `cada ${Math.round(sec / 60)} min`
+}
+
 function deltaLabel(min: number): string {
   if (Math.abs(Math.round(min)) === 0) return 'en hora'
   return `${hhmm(min)} por ${min < 0 ? 'delante' : 'detrás'}`
@@ -498,19 +503,42 @@ export default function LiveViewer({ token }: { token: string }) {
     return sinceT
   }, [trail])
 
-  // Time actually in motion: sum of trail intervals whose speed clears
-  // MOVING_MIN_KMH. Heartbeat duplicates (dt=0) and stationary jitter excluded.
-  // Used for the moving-average speed (vs the overall average that includes stops).
-  const movingMs = useMemo(() => {
-    let ms = 0
+  // Split the recorded time into moving vs stopped, classifying each trail interval
+  // by its straight-line speed (heartbeat duplicates dt=0 and stationary jitter fall
+  // below MOVING_MIN_KMH → stopped). Coverage gaps (no fix for longer than a
+  // heartbeat window) have no intermediate data, so we infer from the displacement
+  // across them: if the runner clearly moved they count as moving, if they ended
+  // where they started they count as stopped — the best guess with nothing in
+  // between. noCoverageMs tracks how much of the split rests on that inference so the
+  // UI can caveat it. movingMs feeds the moving-average speed (vs the overall
+  // average, which includes stops).
+  const timeSplit = useMemo(() => {
+    let movingMs = 0, stoppedMs = 0, noCoverageMs = 0
     for (let i = 1; i < trail.length; i++) {
       const dt = trail[i].t - trail[i - 1].t
       if (dt <= 0) continue
       const d = haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
-      if (d / (dt / 3_600_000) >= MOVING_MIN_KMH) ms += dt
+      if (dt > STOP_REPORTING_MS) noCoverageMs += dt
+      if (d / (dt / 3_600_000) >= MOVING_MIN_KMH) movingMs += dt
+      else stoppedMs += dt
     }
-    return ms
+    return { movingMs, stoppedMs, noCoverageMs }
   }, [trail])
+  const movingMs = timeSplit.movingMs
+
+  // Typical sampling cadence of incoming fixes: median interval over the recent raw
+  // points, excluding heartbeat duplicates (dt≤0) and coverage gaps. Uses rawTrail
+  // (what actually arrived), not the smoothed trail which may drop points.
+  const sampleSec = useMemo(() => {
+    const dts: number[] = []
+    for (let i = Math.max(1, rawTrail.length - 30); i < rawTrail.length; i++) {
+      const dt = rawTrail[i].t - rawTrail[i - 1].t
+      if (dt > 0 && dt <= STOP_REPORTING_MS) dts.push(dt)
+    }
+    if (dts.length === 0) return null
+    dts.sort((a, b) => a - b)
+    return dts[Math.floor(dts.length / 2)] / 1000
+  }, [rawTrail])
 
   const planLatLng = useMemo(
     () => (plan ? plan.track.points.map((p) => [p.lat, p.lon] as [number, number]) : []),
@@ -764,6 +792,13 @@ export default function LiveViewer({ token }: { token: string }) {
   const coveredKm = progressKm ?? distanceKm
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
+  // Moving/stopped split for display. Flag the coverage-gap caveat only when the
+  // inferred stretch is a real chunk (≥3 min and ≥8% of the split), not a blip.
+  const movingMin = timeSplit.movingMs / 60_000
+  const stoppedMin = timeSplit.stoppedMs / 60_000
+  const noCoverageMin = timeSplit.noCoverageMs / 60_000
+  const splitMin = movingMin + stoppedMin
+  const showNoCoverage = noCoverageMin >= 3 && splitMin > 0 && timeSplit.noCoverageMs >= 0.08 * (timeSplit.movingMs + timeSplit.stoppedMs)
 
   // Projected finish: with a confirmed form factor (embedded) the remaining
   // modelled effort is scaled by it; otherwise the planned finish shifted by the
@@ -1042,6 +1077,13 @@ export default function LiveViewer({ token }: { token: string }) {
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
 
+      {/* Tapping the map outside the card collapses the advanced panel (like a sheet
+          backdrop). Sits below the top overlay (z-1000) so taps on the card don't
+          reach it. */}
+      {showAdvanced && (
+        <div className="absolute inset-0 z-[999]" onClick={() => setShowAdvanced(false)} aria-hidden="true" />
+      )}
+
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
         <div className="mx-auto max-w-md max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
           {header}
@@ -1096,9 +1138,9 @@ export default function LiveViewer({ token }: { token: string }) {
                         aria-checked={smooth}
                         aria-label="Suavizar traza"
                         onClick={() => setSmooth((v) => !v)}
-                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
+                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
                       >
-                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${smooth ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${smooth ? 'translate-x-5' : 'translate-x-0'}`} />
                       </button>
                     </div>
                   )}
@@ -1117,15 +1159,24 @@ export default function LiveViewer({ token }: { token: string }) {
                     <Stat label="Media en mov." value={movingAvgKmh != null ? `${movingAvgKmh.toFixed(1)} km/h` : '—'} />
                   </MetricSection>
                   {fix.accuracy != null && (
-                    <MetricSection icon="📡" title="Señal GPS" cols={2}>
+                    <MetricSection icon="📡" title="Señal GPS" cols={3}>
                       <Stat label="Precisión" value={`± ${Math.round(fix.accuracy)} m`} tone={fix.accuracy > 25 ? 'amber' : undefined} />
                       <Stat label="Calidad" value={accuracyLabel(fix.accuracy) ?? '—'} tone={fix.accuracy > 25 ? 'amber' : undefined} />
+                      <Stat label="Frecuencia" value={sampleSec != null ? sampleLabel(sampleSec) : '—'} />
                     </MetricSection>
                   )}
-                  {advStats ? (
+                  <MetricSection icon="⏱️" title="Tiempo" cols={2}>
+                    <Stat label="Inicio" value={formatTime(sessionStart)} />
+                    <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
+                    <Stat label="En movimiento" value={movingMin > 0 ? hhmm(movingMin) : '—'} />
+                    <Stat label="Parado" value={splitMin > 0 ? hhmm(stoppedMin) : '—'} />
+                  </MetricSection>
+                  {showNoCoverage && (
+                    <p className="-mt-1.5 text-[10px] text-slate-500">Incluye {hhmm(noCoverageMin)} sin cobertura, repartido según el desplazamiento.</p>
+                  )}
+                  {advStats && (
                     <>
-                      <MetricSection icon="⏱️" title="Tiempo y meta" cols={3}>
-                        <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
+                      <MetricSection icon="🏁" title="Meta" cols={2}>
                         <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
                         <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
                       </MetricSection>
@@ -1135,11 +1186,6 @@ export default function LiveViewer({ token }: { token: string }) {
                         <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
                       </MetricSection>
                     </>
-                  ) : (
-                    <MetricSection icon="⏱️" title="Tiempo" cols={2}>
-                      <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
-                      <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
-                    </MetricSection>
                   )}
                 </div>
               )}
