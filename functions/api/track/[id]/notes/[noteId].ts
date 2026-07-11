@@ -69,8 +69,11 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   ).bind(noteId, id).first<{ owner: string }>()
   if (!row || row.owner !== user.id) return json({ error: 'not_found' }, 404)
 
-  // TODO(media): best-effort delete of audio_key/photo_key from R2 (NOTE_MEDIA)
-  // when the media phase lands — see the media endpoint.
+  // Best-effort purge of the note's media from KV (see media.ts key scheme).
+  await Promise.all([
+    env.SHARE_KV.delete(`notemedia:${id}:${noteId}:audio`),
+    env.SHARE_KV.delete(`notemedia:${id}:${noteId}:photo`),
+  ])
 
   await env.DB.prepare('DELETE FROM track_notes WHERE id=? AND owner_user_id=?')
     .bind(noteId, user.id).run()

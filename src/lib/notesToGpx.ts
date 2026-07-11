@@ -27,9 +27,10 @@ function snapToTrack(track: GpxTrack, lat: number, lon: number): { idx: number; 
 }
 
 export interface NoteToGpxOpts {
-  /** Base URL that turns an R2 media key into a <link href> (media phase). When
-   *  omitted, media links are skipped (text-only export). No trailing slash. */
-  mediaBase?: string
+  /** Builds a public URL for a note's media, so an exported <link> resolves in
+   *  external tools. Given the note id + kind; returns null to skip. When omitted,
+   *  media links are dropped (text-only export). */
+  mediaUrl?: (noteId: string, kind: 'audio' | 'photo') => string | null
 }
 
 export function noteToWaypoint(note: TrackNote, track: GpxTrack, opts: NoteToGpxOpts = {}): GpxNamedWaypoint {
@@ -37,8 +38,14 @@ export function noteToWaypoint(note: TrackNote, track: GpxTrack, opts: NoteToGpx
   const snap = track.points.length ? snapToTrack(track, note.lat, note.lon) : { idx: 0, km: note.trackKm ?? 0 }
 
   const links: NonNullable<GpxNamedWaypoint['links']> = []
-  if (opts.mediaBase && note.photoKey) links.push({ href: `${opts.mediaBase}/${note.photoKey}`, text: 'Foto', type: 'image/jpeg' })
-  if (opts.mediaBase && note.audioKey) links.push({ href: `${opts.mediaBase}/${note.audioKey}`, text: 'Audio', type: 'audio/mp4' })
+  if (opts.mediaUrl && note.photoKey) {
+    const u = opts.mediaUrl(note.id, 'photo')
+    if (u) links.push({ href: u, text: 'Foto', type: 'image/jpeg' })
+  }
+  if (opts.mediaUrl && note.audioKey) {
+    const u = opts.mediaUrl(note.id, 'audio')
+    if (u) links.push({ href: u, text: 'Audio', type: 'audio/mp4' })
+  }
 
   return {
     lat: note.lat,

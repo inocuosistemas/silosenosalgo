@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { TrackStateResponse } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
+import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
 import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
@@ -1089,6 +1090,12 @@ export default function LiveViewer({ token }: { token: string }) {
                 <div style={{ minWidth: 140, maxWidth: 220 }}>
                   <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
                   {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
+                  {!embedded && n.photoKey && (
+                    <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ marginTop: 6, width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
+                  )}
+                  {!embedded && n.audioKey && (
+                    <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
+                  )}
                   <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
                     {formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}
                   </div>
@@ -1237,13 +1244,19 @@ export default function LiveViewer({ token }: { token: string }) {
                                 <span className="shrink-0 text-[10px] text-slate-500">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
                               </div>
                               {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
+                              {!embedded && n.photoKey && (
+                                <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" className="mt-1 max-h-40 w-full rounded-md object-cover" />
+                              )}
+                              {!embedded && n.audioKey && (
+                                <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} className="mt-1 w-full" />
+                              )}
                             </div>
                           )
                         })}
                       </div>
                       {!embedded && plan?.track && (
                         <button
-                          onClick={() => downloadGpx(withNoteWaypoints(plan.track, notes), plan.cutoffWallClocks ?? new Map(), `${(plan.track.name || 'guia').replace(/[^a-z0-9_-]/gi, '_')}_guia.gpx`)}
+                          onClick={() => downloadGpx(withNoteWaypoints(plan.track, notes, { mediaUrl: (nid, kind) => `${PUBLIC_BASE_URL}/api/track/${token}/notes/${nid}/media?kind=${kind}` }), plan.cutoffWallClocks ?? new Map(), `${(plan.track.name || 'guia').replace(/[^a-z0-9_-]/gi, '_')}_guia.gpx`)}
                           className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white"
                         >
                           ⬇️ Exportar guía (GPX · {notes.length} POI)

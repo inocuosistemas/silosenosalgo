@@ -130,6 +130,13 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
     .bind(id).first<{ owner: string }>()
   if (!row || row.owner !== user.id) return json({ error: 'not_found' }, 404)
 
+  // Purge any note media from KV first (D1 CASCADE removes the note rows, but not
+  // the KV blobs keyed notemedia:<id>:*). Best-effort.
+  try {
+    const listed = await env.SHARE_KV.list({ prefix: `notemedia:${id}:` })
+    await Promise.all(listed.keys.map((k) => env.SHARE_KV.delete(k.name)))
+  } catch { /* best-effort */ }
+
   await env.DB.prepare('DELETE FROM tracking_sessions WHERE id=? AND owner_user_id=?')
     .bind(id, user.id).run()
   return new Response(null, { status: 204 })

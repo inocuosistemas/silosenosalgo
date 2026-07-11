@@ -24,6 +24,16 @@ enum LocalStore {
     /// Field notes anchored during a session (JSON `[Note]`), for the offline viewer.
     static func notesURL(_ token: String) -> URL { dir("notes").appendingPathComponent("\(token).json") }
 
+    /// Per-session directory holding not-yet-uploaded note media (audio/photo).
+    /// Named by the token so `prune`/`remove` (which key on the last path component)
+    /// clean it like the other artifacts.
+    static func mediaDir(_ token: String) -> URL {
+        let d = dir("media").appendingPathComponent(token, isDirectory: true)
+        try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+    static func mediaFileURL(_ token: String, _ name: String) -> URL { mediaDir(token).appendingPathComponent(name) }
+
     static func hasPlan(_ token: String) -> Bool { fm.fileExists(atPath: planURL(token).path) }
 
     /// Delete all artifacts for a session (on hard-delete).
@@ -32,11 +42,12 @@ enum LocalStore {
         try? fm.removeItem(at: planURL(token))
         try? fm.removeItem(at: formURL(token))
         try? fm.removeItem(at: notesURL(token))
+        try? fm.removeItem(at: dir("media").appendingPathComponent(token))
     }
 
-    /// Prune trail/plan/form/notes files whose session id isn't in `keep`.
+    /// Prune per-session files/dirs whose session id isn't in `keep`.
     static func prune(keep: Set<String>) {
-        for sub in ["trails", "plans", "form", "notes"] {
+        for sub in ["trails", "plans", "form", "notes", "media"] {
             let d = dir(sub)
             guard let items = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) else { continue }
             for url in items {

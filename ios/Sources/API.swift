@@ -268,6 +268,31 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
+    /// Upload a note's media (voice memo / photo) as the raw request body. The
+    /// shared `request()` is JSON-only, so this uses URLSession.upload directly.
+    /// `kind` is "audio" | "photo"; `contentType` is audio/mp4 | image/jpeg.
+    static func uploadNoteMedia(token: String, sessionId: String, noteId: String, kind: String, data: Data, contentType: String) async throws {
+        let base = Config.baseURL.appendingPathComponent("api/track/\(sessionId)/notes/\(noteId)/media")
+        guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            throw APIError(status: 0, code: "network")
+        }
+        comps.queryItems = [URLQueryItem(name: "kind", value: kind)]
+        guard let url = comps.url else { throw APIError(status: 0, code: "network") }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (respData, resp): (Data, URLResponse)
+        do {
+            (respData, resp) = try await URLSession.shared.upload(for: req, from: data)
+        } catch {
+            throw APIError(status: 0, code: "network")
+        }
+        guard let http = resp as? HTTPURLResponse else { throw APIError(status: 0, code: "network") }
+        guard ok(http) else { throw decodeError(respData, http.statusCode) }
+    }
+
     /// Re-activate an ended session (same link) so sharing can resume.
     static func reopen(token: String, id: String) async throws -> CreateTrackResponse {
         let (data, http) = try await request("api/track/\(id)/reopen", method: "POST", token: token)
