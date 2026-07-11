@@ -1,4 +1,4 @@
-import { createElement, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { createElement, lazy, memo, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { GpxTimesStats } from './components/GpxTimesStats'
@@ -49,6 +49,10 @@ import { buildSharePayload, reviveSharePayload, SharePayloadError, type SharePay
 import { fetchShare, gunzipToString, ShareTransportError } from './lib/shareTransport'
 import { AuthMenu } from './components/AuthMenu'
 import { MyPlansPanel } from './components/MyPlansPanel'
+import { GuideLoader } from './components/GuideLoader'
+import type { BrowserGuide } from './lib/guidePackage'
+
+const GuideViewer = lazy(() => import('./components/LiveViewer'))
 
 const DEFAULT_PACE: PaceConfig = {
   mode: 'fixed',
@@ -363,6 +367,36 @@ type LoadStatus = 'idle' | 'loading' | 'live-loading' | 'done' | 'error'
 type AppMode = 'plan' | 'live'
 
 export default function App() {
+  const [guide, setGuide] = useState<BrowserGuide | null>(null)
+
+  const openGuide = useCallback((next: BrowserGuide) => {
+    setGuide((current) => {
+      current?.dispose()
+      return next
+    })
+  }, [])
+
+  const closeGuide = useCallback(() => {
+    setGuide((current) => {
+      current?.dispose()
+      return null
+    })
+  }, [])
+
+  useEffect(() => () => guide?.dispose(), [guide])
+
+  if (guide) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+        <GuideViewer guide={guide} onClose={closeGuide} />
+      </Suspense>
+    )
+  }
+
+  return <PlanningApp onGuideLoaded={openGuide} />
+}
+
+function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) => void }) {
   const [track, setTrack] = useState<GpxTrack | null>(null)
   const [startTime, setStartTime] = useState<Date>(() => {
     const d = new Date()
@@ -1965,6 +1999,7 @@ export default function App() {
             const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
             return (
             <div className="ml-auto flex items-center gap-2">
+              <GuideLoader onLoad={onGuideLoaded} />
               <AuthMenu onOpenPlans={() => setPlansOpen(true)} />
               <MyPlansPanel
                 open={plansOpen}

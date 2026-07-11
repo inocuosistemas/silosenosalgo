@@ -17,6 +17,7 @@ import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
 import { sanitizeTrail } from '../lib/trailSmoothing'
+import type { BrowserGuide } from '../lib/guidePackage'
 
 const POLL_MS = 10_000
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
@@ -320,11 +321,17 @@ function saveFormFactor(token: string, f: number): void {
   try { localStorage.setItem(`formFactor:${token}`, String(f)) } catch { /* private mode / disabled */ }
 }
 
-export default function LiveViewer({ token }: { token: string }) {
-  const [state, setState] = useState<TrackStateResponse | null>(null)
+type LiveViewerProps =
+  | { token: string; guide?: never; onClose?: never }
+  | { token?: never; guide: BrowserGuide; onClose: () => void }
+
+export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
+  const localGuide = guide ?? null
+  const storageToken = token ?? `guide-${guide?.state.startedAt ?? 'local'}`
+  const [state, setState] = useState<TrackStateResponse | null>(guide?.state ?? null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
   const [, force] = useState(0)
-  const [plan, setPlan] = useState<RevivedShare | null>(null)
+  const [plan, setPlan] = useState<RevivedShare | null>(guide?.plan ?? null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [photoViewer, setPhotoViewer] = useState<{ src: string; alt: string } | null>(null)
@@ -335,7 +342,7 @@ export default function LiveViewer({ token }: { token: string }) {
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
-  const [approvedFactor, setApprovedFactor] = useState(() => loadFormFactor(token))
+  const [approvedFactor, setApprovedFactor] = useState(() => loadFormFactor(storageToken))
   const [snoozeFactor, setSnoozeFactor] = useState<number | null>(null)
   // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
   const advDragStartY = useRef<number | null>(null)
@@ -346,6 +353,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const tileUrl = embedded ? '/_tile/{z}/{x}/{y}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 
   useEffect(() => {
+    if (!token) return
     let alive = true
     const poll = async () => {
       try {
@@ -389,6 +397,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const planShareId = state?.planShareId ?? null
   const loadedPlanRef = useRef<string | null>(null)
   useEffect(() => {
+    if (localGuide) return
     if (!planShareId || loadedPlanRef.current === planShareId) return
     loadedPlanRef.current = planShareId
     let alive = true
@@ -400,7 +409,7 @@ export default function LiveViewer({ token }: { token: string }) {
       } catch { /* fall back to live-trace-only */ }
     })()
     return () => { alive = false }
-  }, [planShareId])
+  }, [planShareId, localGuide])
 
   const rawTrail = state?.trail ?? []
   // Everything downstream (segments, distance, km anchor, stats) runs on the
@@ -655,12 +664,12 @@ export default function LiveViewer({ token }: { token: string }) {
   const [weather, setWeather] = useState<(PoiHourly | null)[] | null>(null)
   const weatherFetchedRef = useRef(false)
   useEffect(() => {
-    if (!planRows || planRows.length === 0 || weatherFetchedRef.current) return
+    if (localGuide || !planRows || planRows.length === 0 || weatherFetchedRef.current) return
     weatherFetchedRef.current = true
     let alive = true
     void fetchPoiWeather(planRows.map((r) => ({ lat: r.w.lat, lon: r.w.lon }))).then((w) => { if (alive) setWeather(w) })
     return () => { alive = false }
-  }, [planRows])
+  }, [planRows, localGuide])
 
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
@@ -758,12 +767,12 @@ export default function LiveViewer({ token }: { token: string }) {
   const approveFactor = () => {
     if (detectedFactor == null) return
     setApprovedFactor(detectedFactor)
-    saveFormFactor(token, detectedFactor)
+    saveFormFactor(storageToken, detectedFactor)
     setSnoozeFactor(null)
     // Propagate so followers/crew see the confirmed forecast (query params: the
     // embedded scheme handler doesn't receive POST bodies). Best-effort.
     const kmParam = progressKm != null ? progressKm.toFixed(2) : ''
-    void fetch(`/api/track/${encodeURIComponent(token)}/form?factor=${detectedFactor.toFixed(3)}&km=${kmParam}`, { method: 'POST' }).catch(() => {})
+    if (token) void fetch(`/api/track/${encodeURIComponent(token)}/form?factor=${detectedFactor.toFixed(3)}&km=${kmParam}`, { method: 'POST' }).catch(() => {})
   }
   const dismissFactor = () => setSnoozeFactor(detectedFactor)
 
@@ -865,6 +874,9 @@ export default function LiveViewer({ token }: { token: string }) {
         )}
       </div>
       {hasPlan && <ViewToggle mode={viewMode} setMode={setViewMode} />}
+      {onClose && (
+        <button type="button" onClick={onClose} title="Cerrar guía" aria-label="Cerrar guía" className="ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-800 hover:text-white">×</button>
+      )}
     </div>
   )
 
@@ -1091,21 +1103,21 @@ export default function LiveViewer({ token }: { token: string }) {
                 <div style={{ minWidth: 140, maxWidth: 220 }}>
                   <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
                   {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
-                  {n.photoKey && (
+                  {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
                     <button
                       type="button"
                       onClick={() => setPhotoViewer({
-                        src: `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+                        src: localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`,
                         alt: `Foto de ${n.title || t.label}`,
                       })}
                       aria-label="Ver foto en grande"
                       style={{ display: 'block', marginTop: 6, width: '100%', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}
                     >
-                      <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ display: 'block', width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
+                      <img src={localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ display: 'block', width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
                     </button>
                   )}
-                  {n.audioKey && (
-                    <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
+                  {n.audioKey && (localGuide?.mediaUrl(n.id, 'audio') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=audio` : null)) && (
+                    <audio controls preload="none" src={localGuide?.mediaUrl(n.id, 'audio') ?? `/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
                   )}
                   <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
                     {formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}
@@ -1258,27 +1270,27 @@ export default function LiveViewer({ token }: { token: string }) {
                                 <span className="shrink-0 text-[10px] text-slate-500">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
                               </div>
                               {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
-                              {n.photoKey && (
+                              {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
                                 <button
                                   type="button"
                                   onClick={() => setPhotoViewer({
-                                    src: `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+                                    src: localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`,
                                     alt: `Foto de ${n.title || t.label}`,
                                   })}
                                   aria-label="Ver foto en grande"
                                   className="mt-1 block w-full cursor-zoom-in p-0"
                                 >
-                                  <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" className="max-h-40 w-full rounded-md object-cover" />
+                                  <img src={localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" className="max-h-40 w-full rounded-md object-cover" />
                                 </button>
                               )}
-                              {n.audioKey && (
-                                <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} className="mt-1 w-full" />
+                              {n.audioKey && (localGuide?.mediaUrl(n.id, 'audio') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=audio` : null)) && (
+                                <audio controls preload="none" src={localGuide?.mediaUrl(n.id, 'audio') ?? `/api/track/${token}/notes/${n.id}/media?kind=audio`} className="mt-1 w-full" />
                               )}
                             </div>
                           )
                         })}
                       </div>
-                      {!embedded && plan?.track && (
+                      {!embedded && !localGuide && plan?.track && (
                         <button
                           onClick={() => downloadGpx(withNoteWaypoints(plan.track, notes, { mediaUrl: (nid, kind) => `${PUBLIC_BASE_URL}/api/track/${token}/notes/${nid}/media?kind=${kind}` }), plan.cutoffWallClocks ?? new Map(), `${(plan.track.name || 'guia').replace(/[^a-z0-9_-]/gi, '_')}_guia.gpx`)}
                           className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white"
