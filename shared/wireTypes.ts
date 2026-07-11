@@ -136,9 +136,12 @@ export interface TrackNote {
   photoKey: string | null
 }
 
-/** POST body to create a note (native → JSON). Server stamps `id`; the rest
- *  mirror TrackNote with sensible optionals. */
+/** POST body to create a note (native → JSON). A client-generated `id` makes
+ *  the create idempotent (offline retries after a lost response don't duplicate);
+ *  the server falls back to its own id when absent/invalid. The rest mirror
+ *  TrackNote with sensible optionals. */
 export interface NoteCreate {
+  id?: string
   createdAt: number
   fixAt?: number | null
   lat: number

@@ -21,18 +21,22 @@ enum LocalStore {
     /// Runner-confirmed form factor + change log (JSON), so it survives relaunch.
     static func formURL(_ token: String) -> URL { dir("form").appendingPathComponent("\(token).json") }
 
+    /// Field notes anchored during a session (JSON `[Note]`), for the offline viewer.
+    static func notesURL(_ token: String) -> URL { dir("notes").appendingPathComponent("\(token).json") }
+
     static func hasPlan(_ token: String) -> Bool { fm.fileExists(atPath: planURL(token).path) }
 
-    /// Delete both artifacts for a session (on hard-delete).
+    /// Delete all artifacts for a session (on hard-delete).
     static func remove(_ token: String) {
         try? fm.removeItem(at: trailURL(token))
         try? fm.removeItem(at: planURL(token))
         try? fm.removeItem(at: formURL(token))
+        try? fm.removeItem(at: notesURL(token))
     }
 
-    /// Prune trail/plan files whose session id isn't in `keep` (the owner's live list).
+    /// Prune trail/plan/form/notes files whose session id isn't in `keep`.
     static func prune(keep: Set<String>) {
-        for sub in ["trails", "plans", "form"] {
+        for sub in ["trails", "plans", "form", "notes"] {
             let d = dir(sub)
             guard let items = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) else { continue }
             for url in items {
@@ -85,6 +89,8 @@ struct TrackStateWire: Codable {
     /// Runner-confirmed form factor (1 = the plan) + its change log.
     var formFactor: Double?
     var formLog: [FormLogWire]?
+    /// Field notes anchored during the session (same shape as web `TrackNote`).
+    var notes: [Note]?
 }
 
 /// Thread-safe bridge that lets the embedded WKWebView viewer read the CURRENT
@@ -110,6 +116,7 @@ final class ViewerDataProvider {
     private var trail: [TrailPoint] = []
     private var formFactor: Double = 1
     private var formLog: [FormLogWire] = []
+    private var notes: [Note] = []
 
     /// Follower display name — set by the view layer (which holds the auth user).
     func setUsername(_ name: String?) { lock.lock(); username = name; lock.unlock() }
@@ -121,6 +128,7 @@ final class ViewerDataProvider {
         lock.lock()
         self.token = token; self.title = title; self.startedAt = startedAt
         self.expiresAt = expiresAt; self.status = status
+        self.notes = []   // the store pushes the loaded notes via setNotes() after registering
         // Re-hydrate any confirmed form factor/log for this session (survives relaunch).
         if let data = try? Data(contentsOf: LocalStore.formURL(token)),
            let saved = try? JSONDecoder().decode(SavedForm.self, from: data) {
@@ -151,6 +159,13 @@ final class ViewerDataProvider {
 
     func updateStatus(_ status: String) { lock.lock(); self.status = status; lock.unlock() }
 
+    /// Replace the current session's field notes (the store is the single writer).
+    func setNotes(token: String, notes: [Note]) {
+        lock.lock()
+        if self.token == token { self.notes = notes }
+        lock.unlock()
+    }
+
     /// Push the latest real fix, the last reported fix, and the full trail (called
     /// on every recorded fix and on every successful upload).
     func update(token: String, fix: TrackFixWire?, reportedFix: TrackFixWire?, trail: [TrailPoint]) {
@@ -179,7 +194,8 @@ final class ViewerDataProvider {
             trail: trail,
             reportedFix: reportedFix,
             formFactor: formFactor,
-            formLog: formLog
+            formLog: formLog,
+            notes: notes.isEmpty ? nil : notes
         )
         return try? JSONEncoder().encode(state)
     }

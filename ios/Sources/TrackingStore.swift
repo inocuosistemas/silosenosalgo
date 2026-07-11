@@ -51,6 +51,8 @@ final class TrackingStore: ObservableObject {
     @Published var retainHours: Double = 48
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
+    /// Field notes anchored during the current session (count, for the UI).
+    @Published var noteCount = 0
     /// Active followers currently watching (from the ping response); nil until the
     /// first successful upload, or against a server that doesn't report it.
     @Published var activeViewers: Int?
@@ -84,6 +86,14 @@ final class TrackingStore: ObservableObject {
     private var pending: [Fix] = []
     private var isFlushing = false
     private var flushTimer: Timer?
+
+    /// All field notes of the CURRENT session (uploaded + not), retained locally so
+    /// the embedded offline viewer can draw them. Persisted to disk like `trail`.
+    private var notes: [Note] = []
+    /// Notes not yet uploaded (offline backlog), retried on the flush timer. Kept
+    /// separate from `notes` and persisted to UserDefaults like `pending`.
+    private var pendingNotes: [Note] = []
+    private var isFlushingNotes = false
 
     /// Full recorded trail of the CURRENT session (sent + unsent), retained locally
     /// so the embedded offline viewer can draw the whole route even for fixes that
@@ -229,12 +239,15 @@ final class TrackingStore: ObservableObject {
         // Re-hydrate the full trail from disk so the offline viewer shows the whole
         // route (and last position) immediately, before the next fix arrives.
         loadTrail(id)
+        loadNotes(id)
+        loadPendingNotes(id)
         ViewerDataProvider.shared.register(token: id, title: summary?.title, startedAt: summary?.startedAt ?? Date().timeIntervalSince1970 * 1000, expiresAt: summary?.expiresAt ?? 0, status: "active")
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         // The reported position is unknown for a continued session until the next
         // successful upload; the offline gap simply won't show until then.
         lastReportedFix = nil
         ViewerDataProvider.shared.update(token: id, fix: lastFix, reportedFix: nil, trail: trail)
+        ViewerDataProvider.shared.setNotes(token: id, notes: notes)
         applyLocationConfig()
         location.requestAuthorization()
         location.start()
@@ -292,6 +305,11 @@ final class TrackingStore: ObservableObject {
             lastRecordedFix = nil
             lastReportedFix = nil
             persistTrail()
+            notes = []
+            pendingNotes = []
+            noteCount = 0
+            persistNotes()
+            persistPendingNotes()
             ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
             cachePlanBytes(for: res.id, planId: selectedPlanId)
             // If the planned start is still ahead (beyond the lead margin), arm
@@ -329,11 +347,14 @@ final class TrackingStore: ObservableObject {
             // Best-effort: push any remaining backlog before ending (direct, so
             // it can't recurse through flush()).
             if !pending.isEmpty { try? await API.pingBatch(token: token, id: t, fixes: pending) }
+            for note in pendingNotes { try? await API.createNote(token: token, sessionId: t, note: note) }
             await API.end(token: token, id: t, retainHours: retainHours)
             UserDefaults.standard.removeObject(forKey: pendingKey(t))
+            UserDefaults.standard.removeObject(forKey: notesPendingKey(t))
         }
         pending = []
         pendingCount = 0
+        pendingNotes = []
         activeViewers = nil
         // The backend keeps the just-ended session for the chosen retention;
         // refresh so it appears in "Mis seguimientos".
@@ -430,6 +451,124 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    // MARK: Field notes
+
+    /// URL-safe random id (mirrors shared `genId`): 16 random bytes as base64url.
+    /// Client-generated so the note id passes the server regex and the create is
+    /// idempotent across offline retries.
+    private static func genId(_ bytes: Int = 16) -> String {
+        let raw = Data((0..<bytes).map { _ in UInt8.random(in: 0...255) })
+        return raw.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// Cumulative distance travelled so far (metres), summed over the retained trail.
+    private func trailDistanceMeters() -> Double {
+        guard trail.count >= 2 else { return 0 }
+        var d = 0.0
+        for i in 1..<trail.count {
+            let a = CLLocation(latitude: trail[i - 1].lat, longitude: trail[i - 1].lon)
+            let b = CLLocation(latitude: trail[i].lat, longitude: trail[i].lon)
+            d += b.distance(from: a)
+        }
+        return d
+    }
+
+    /// Anchor a note to the CURRENT position and queue it (recorded locally first;
+    /// the upload is retried like fixes, so a note taken with no coverage isn't
+    /// lost). `text` may be empty when the note is just a typed POI (e.g. "Agua").
+    func addNote(text: String, type: String) {
+        guard let t = sessionToken else { return }
+        let loc = lastLocation
+        guard let lat = loc?.coordinate.latitude ?? lastRecordedFix?.lat,
+              let lon = loc?.coordinate.longitude ?? lastRecordedFix?.lon else {
+            lastError = "Aún no hay posición GPS para anclar la nota."
+            return
+        }
+        let acc = loc.flatMap { $0.horizontalAccuracy >= 0 ? $0.horizontalAccuracy : nil } ?? lastRecordedFix?.accuracy
+        let alt = loc.flatMap { $0.verticalAccuracy >= 0 ? $0.altitude : nil } ?? lastRecordedFix?.altitude
+        let note = Note(
+            id: Self.genId(),
+            createdAt: Date().timeIntervalSince1970 * 1000,
+            fixAt: loc.map { $0.timestamp.timeIntervalSince1970 * 1000 } ?? lastRecordedFix?.fixAt,
+            lat: lat, lon: lon,
+            accuracy: acc, altitude: alt,
+            trackKm: nil,
+            distM: trailDistanceMeters(),
+            title: nil,
+            body: text.isEmpty ? nil : text,
+            poiType: type,
+            poiSym: nil,
+            audioKey: nil, photoKey: nil
+        )
+        notes.append(note)
+        pendingNotes.append(note)
+        noteCount = notes.count
+        persistNotes()
+        persistPendingNotes()
+        ViewerDataProvider.shared.setNotes(token: t, notes: notes)
+        Task { await flushNotes() }
+    }
+
+    private func persistNotes() {
+        guard let t = sessionToken else { return }
+        if let data = try? JSONEncoder().encode(notes) {
+            try? data.write(to: LocalStore.notesURL(t), options: .atomic)
+        }
+    }
+
+    private func loadNotes(_ token: String) {
+        if let data = try? Data(contentsOf: LocalStore.notesURL(token)),
+           let arr = try? JSONDecoder().decode([Note].self, from: data) {
+            notes = arr
+        } else {
+            notes = []
+        }
+        noteCount = notes.count
+    }
+
+    private func notesPendingKey(_ token: String) -> String { "pendingNotes-\(token)" }
+
+    private func persistPendingNotes() {
+        guard let t = sessionToken else { return }
+        if let data = try? JSONEncoder().encode(pendingNotes) {
+            UserDefaults.standard.set(data, forKey: notesPendingKey(t))
+        }
+    }
+
+    private func loadPendingNotes(_ token: String) {
+        if let data = UserDefaults.standard.data(forKey: notesPendingKey(token)),
+           let arr = try? JSONDecoder().decode([Note].self, from: data) {
+            pendingNotes = arr
+        } else {
+            pendingNotes = []
+        }
+    }
+
+    /// Upload queued notes one by one; drop each on success, keep the rest on
+    /// failure (no coverage) to retry next tick. A 410 means the session ended.
+    private func flushNotes() async {
+        guard isSharing, let id = sessionToken, !isFlushingNotes, !pendingNotes.isEmpty else { return }
+        isFlushingNotes = true
+        defer { isFlushingNotes = false }
+        let batch = pendingNotes
+        for note in batch {
+            do {
+                try await API.createNote(token: token, sessionId: id, note: note)
+                pendingNotes.removeAll { $0.id == note.id }
+                persistPendingNotes()
+            } catch {
+                if let e = error as? APIError, e.status == 410 {
+                    await stopSharing()
+                    return
+                }
+                break  // no coverage / transient — keep the rest queued
+            }
+        }
+    }
+
     /// Fetch + decode a saved plan's route polyline so its map corridor can be
     /// pre-downloaded BEFORE sharing (the night before). Needs connectivity; nil
     /// offline or on error.
@@ -519,9 +658,12 @@ final class TrackingStore: ObservableObject {
         lastReportedFix = nil
         loadPending(s.token)   // offline backlog recorded before the relaunch
         loadTrail(s.token)     // full route for the offline viewer
+        loadNotes(s.token)
+        loadPendingNotes(s.token)
         ViewerDataProvider.shared.register(token: s.token, title: nil, startedAt: s.startAtMs, expiresAt: 0, status: "active")
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         ViewerDataProvider.shared.update(token: s.token, fix: lastFix, reportedFix: nil, trail: trail)
+        ViewerDataProvider.shared.setNotes(token: s.token, notes: notes)
 
         // Re-arm standby if the planned start is still ahead; else resume live.
         if startAt.timeIntervalSinceNow > startLeadSeconds {
@@ -699,6 +841,7 @@ final class TrackingStore: ObservableObject {
                 self?.heartbeatTick()
                 self?.persistActiveIfDue()
                 await self?.flush()
+                await self?.flushNotes()
             }
         }
     }

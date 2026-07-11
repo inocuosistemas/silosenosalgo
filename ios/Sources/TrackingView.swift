@@ -11,6 +11,8 @@ struct TrackingView: View {
     @State private var renameText = ""
     /// Present the in-app "live" viewer for the current (offline) session.
     @State private var showLiveMap = false
+    /// Present the "add note here" capture sheet (while sharing).
+    @State private var showAddNote = false
     /// Present the in-app viewer online for a finished session in the list.
     @State private var mapSession: TrackSessionSummary?
     /// Offline-map download reachable BEFORE sharing (prepare the map the night
@@ -59,13 +61,22 @@ struct TrackingView: View {
 
                 if store.isSharing {
                     Section {
+                        Button { showAddNote = true } label: {
+                            Label("Añadir nota aquí", systemImage: "square.and.pencil")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .foregroundStyle(Theme.sky500)
+                        .disabled(store.isStandby)
+
                         Button { showLiveMap = true } label: {
                             Label("Ver mi ruta en el mapa (offline)", systemImage: "map.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .foregroundStyle(Theme.sky500)
                     } footer: {
-                        Text("Tu previsión de paso y posición, con mapa descargable — funciona sin cobertura.")
+                        Text(store.noteCount > 0
+                             ? "\(store.noteCount) \(store.noteCount == 1 ? "nota anclada" : "notas ancladas") en esta ruta. Se exportan como POIs en el GPX de la guía."
+                             : "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Se exportan como POIs en el GPX. Tu previsión y mapa funcionan sin cobertura.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
@@ -363,6 +374,9 @@ struct TrackingView: View {
             }
             .sheet(isPresented: $showMapDownload) {
                 MapDownloadView(routeName: downloadRouteName, polyline: downloadPolyline)
+            }
+            .sheet(isPresented: $showAddNote) {
+                AddNoteView()
             }
             .alert("Salir de la cuenta", isPresented: $pendingLogout) {
                 Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {

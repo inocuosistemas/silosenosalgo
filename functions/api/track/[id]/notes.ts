@@ -17,6 +17,7 @@ import type { NoteCreate, TrackNote } from '../../../../shared/wireTypes'
 const NOTES_MAX = 500 // per-session soft cap (abuse guard)
 const TITLE_MAX = 200
 const BODY_MAX = 4000
+const ID_RE = /^[A-Za-z0-9_-]{10,30}$/ // client-generated id (genId-style), for idempotency
 
 function clampStr(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null
@@ -51,7 +52,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (count && count.n >= NOTES_MAX) return json({ error: 'too_many_notes' }, 409)
 
   const note: TrackNote = {
-    id: genId(16),
+    id: typeof b.id === 'string' && ID_RE.test(b.id) ? b.id : genId(16),
     createdAt: numOrNull(b.createdAt) ?? Date.now(),
     fixAt: numOrNull(b.fixAt),
     lat, lon,
@@ -67,8 +68,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     photoKey: null,
   }
 
+  // OR IGNORE: a client retry after a lost response re-sends the same id → no-op
+  // (idempotent), so a note taken offline can't be duplicated on flush.
   await env.DB.prepare(
-    `INSERT INTO track_notes
+    `INSERT OR IGNORE INTO track_notes
        (id, session_id, owner_user_id, created_at, fix_at, lat, lon, accuracy, altitude,
         track_km, dist_m, title, body, poi_type, poi_sym, audio_key, photo_key)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

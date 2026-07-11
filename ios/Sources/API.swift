@@ -79,6 +79,27 @@ struct TrailPoint: Codable {
     var a: Int?
 }
 
+/// A field note anchored to a GPS fix (mirrors shared `TrackNote`). Codable both
+/// to persist unsent notes on disk (flushed like `pending` fixes) and to feed the
+/// embedded offline viewer, whose keys match the web `TrackNote` shape 1:1.
+struct Note: Codable, Identifiable {
+    var id: String
+    var createdAt: Double        // wall-clock capture, epoch ms
+    var fixAt: Double?           // device GPS timestamp, epoch ms
+    var lat: Double
+    var lon: Double
+    var accuracy: Double?
+    var altitude: Double?
+    var trackKm: Double?
+    var distM: Double?
+    var title: String?
+    var body: String?
+    var poiType: String
+    var poiSym: String?
+    var audioKey: String?
+    var photoKey: String?
+}
+
 struct APIError: LocalizedError {
     let status: Int
     let code: String
@@ -221,6 +242,30 @@ enum API {
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: ["fixes": arr])
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers
+    }
+
+    /// Create a field note on the current session. The note carries a
+    /// client-generated `id`, so a retry after a lost response is idempotent
+    /// (the server's INSERT OR IGNORE de-dupes) — a note taken offline can't be
+    /// duplicated when the backlog flushes.
+    static func createNote(token: String, sessionId: String, note: Note) async throws {
+        var body: [String: Any] = [
+            "id": note.id,
+            "createdAt": note.createdAt,
+            "lat": note.lat,
+            "lon": note.lon,
+            "poiType": note.poiType,
+        ]
+        if let v = note.fixAt { body["fixAt"] = v }
+        if let v = note.accuracy { body["accuracy"] = v }
+        if let v = note.altitude { body["altitude"] = v }
+        if let v = note.trackKm { body["trackKm"] = v }
+        if let v = note.distM { body["distM"] = v }
+        if let v = note.title { body["title"] = v }
+        if let v = note.body { body["body"] = v }
+        if let v = note.poiSym { body["poiSym"] = v }
+        let (data, http) = try await request("api/track/\(sessionId)/notes", method: "POST", token: token, body: body)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
     /// Re-activate an ended session (same link) so sharing can resume.
