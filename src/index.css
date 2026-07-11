@@ -4,7 +4,7 @@
    the old one gets poisoned (Cloudflare cached the SPA fallback as text/html for
    the asset URL). A new hash = a URL with no cache history on any edge. See the
    stripCrossorigin plugin in vite.config.ts for the root-cause fix. */
-:root { --asset-salt: 2; }
+:root { --asset-salt: 3; }
 
 @layer base {
   * {

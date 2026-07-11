@@ -8,15 +8,20 @@ struct LiveMapView: View {
     /// Session id whose route to pre-download tiles for; nil hides the map-download
     /// button (online sessions use live tiles directly).
     let offlineToken: String?
+    var allowsEditing = true
+    var title = "En directo"
 
+    @ObservedObject private var store = TrackingStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showDownload = false
+    @State private var showAddNote = false
+    @State private var showNotes = false
 
     var body: some View {
         NavigationStack {
             WebView(source: source)
                 .ignoresSafeArea(edges: .bottom)
-                .navigationTitle("En directo")
+                .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
@@ -31,7 +36,22 @@ struct LiveMapView: View {
                         .accessibilityLabel("Volver")
                     }
                     if offlineToken != nil {
-                        ToolbarItem(placement: .navigationBarTrailing) {
+                        ToolbarItemGroup(placement: .navigationBarTrailing) {
+                            if allowsEditing {
+                                Button { showNotes = true } label: {
+                                    Image(systemName: "list.bullet.rectangle")
+                                }
+                                .tint(Theme.sky500)
+                                .accessibilityLabel("Ver notas, \(store.noteCount)")
+
+                                Button { showAddNote = true } label: {
+                                    Image(systemName: "square.and.pencil")
+                                }
+                                .tint(Theme.sky500)
+                                .disabled(store.isStandby)
+                                .accessibilityLabel("Añadir nota aquí")
+                            }
+
                             Button { showDownload = true } label: {
                                 Image(systemName: "arrow.down.circle")
                             }
@@ -43,6 +63,12 @@ struct LiveMapView: View {
                 .sheet(isPresented: $showDownload) {
                     MapDownloadView(routeName: nil,
                                     polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
+                }
+                .sheet(isPresented: $showAddNote) {
+                    AddNoteView()
+                }
+                .sheet(isPresented: $showNotes) {
+                    NotesListView()
                 }
         }
     }

@@ -24,6 +24,17 @@ intervalo que elijas, también con la app en **segundo plano**.
   - **Visor offline** (ver sección más abajo): `ViewerDataProvider.swift`, `AppWebSchemeHandler.swift`, `TileCache.swift`, `PlanGeometry.swift`, `WebView.swift`, `LiveMapView.swift`, `MapDownloadView.swift`.
 - `WebDist/` — visor web construido (copiado de `../dist` por `scripts/copy-webdist.sh`; git-ignored).
 
+## Guías offline `.slsnsguide`
+
+Un seguimiento con datos locales se puede exportar desde su menú como paquete
+`.slsnsguide`. El ZIP incluye manifiesto, ruta planificada, recorrido real,
+notas, fotos y audios; no incluye teselas. Desde **Guías offline → Importar** se
+puede recuperar el paquete desde Archivos y abrirlo con el visor incrustado en
+modo solo lectura, sin consultar el backend. También se puede abrir directamente
+tocando el archivo en Archivos, incluso sin iniciar sesión. Importarlo no vuelve
+a publicar la ruta. La especificación interoperable del formato está en
+`../docs/slsnsguide-v1.md`.
+
 ## Primer arranque
 
 Requisitos: macOS con Xcode y `xcodegen` (`brew install xcodegen`). Target mínimo **iOS 16.4**.

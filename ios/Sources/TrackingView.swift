@@ -5,14 +5,13 @@ import UIKit
 struct TrackingView: View {
     @EnvironmentObject var auth: AuthStore
     @ObservedObject private var store = TrackingStore.shared
+    @ObservedObject private var guideLibrary = GuideLibrary.shared
     @State private var title = ""
     @State private var pendingDelete: TrackSessionSummary?
     @State private var pendingRename: TrackSessionSummary?
     @State private var renameText = ""
     /// Present the in-app "live" viewer for the current (offline) session.
     @State private var showLiveMap = false
-    /// Present the "add note here" capture sheet (while sharing).
-    @State private var showAddNote = false
     /// Present the in-app viewer online for a finished session in the list.
     @State private var mapSession: TrackSessionSummary?
     /// Offline-map download reachable BEFORE sharing (prepare the map the night
@@ -22,6 +21,11 @@ struct TrackingView: View {
     @State private var downloadRouteName: String?
     @State private var resolvingRoute = false
     @State private var pendingLogout = false
+    @State private var showGuideImporter = false
+    @State private var selectedGuide: LocalGuide?
+    @State private var guideShareItem: GuideShareItem?
+    @State private var guideError: String?
+    @State private var guideWorking = false
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
@@ -61,13 +65,6 @@ struct TrackingView: View {
 
                 if store.isSharing {
                     Section {
-                        Button { showAddNote = true } label: {
-                            Label("Añadir nota aquí", systemImage: "square.and.pencil")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .foregroundStyle(Theme.sky500)
-                        .disabled(store.isStandby)
-
                         Button { showLiveMap = true } label: {
                             Label("Ver mi ruta en el mapa (offline)", systemImage: "map.fill")
                                 .frame(maxWidth: .infinity)
@@ -185,6 +182,47 @@ struct TrackingView: View {
                             Text("Prepara el mapa la víspera (con conexión) para verlo sin cobertura durante la salida.")
                                 .font(.caption).foregroundStyle(Theme.slate400)
                         }
+                    }
+                    .listRowBackground(Theme.slate900)
+
+                    Section {
+                        Button { showGuideImporter = true } label: {
+                            Label("Importar .slsnsguide", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(guideWorking)
+
+                        ForEach(guideLibrary.guides) { guide in
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(guide.title)
+                                        .foregroundStyle(Theme.slate100)
+                                        .lineLimit(1)
+                                    Text("\(guide.noteCount) notas · \(guide.mediaCount) archivos · \(startedLabel(guide.startedAt))")
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.slate400)
+                                }
+                                Spacer()
+                                Button { openGuide(guide) } label: {
+                                    Image(systemName: "map")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Abrir guía offline")
+                                Menu {
+                                    Button(role: .destructive) { guideLibrary.delete(guide) } label: {
+                                        Label("Eliminar guía", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Más opciones de la guía")
+                            }
+                        }
+                    } header: {
+                        Text("Guías offline").foregroundStyle(Theme.slate400)
+                    } footer: {
+                        Text("Incluyen ruta, recorrido real, notas, fotos y audios. No incluyen teselas de mapa.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
                 }
@@ -372,11 +410,42 @@ struct TrackingView: View {
                     LiveMapView(source: .online(url: url), offlineToken: nil)
                 }
             }
+            .fullScreenCover(item: $selectedGuide) { guide in
+                LiveMapView(
+                    source: .offline(token: guide.id), offlineToken: guide.id,
+                    allowsEditing: false, title: "Guía offline"
+                )
+            }
             .sheet(isPresented: $showMapDownload) {
                 MapDownloadView(routeName: downloadRouteName, polyline: downloadPolyline)
             }
-            .sheet(isPresented: $showAddNote) {
-                AddNoteView()
+            .sheet(item: $guideShareItem) { item in
+                GuideShareSheet(url: item.url)
+            }
+            .fileImporter(isPresented: $showGuideImporter, allowedContentTypes: [.slsnsGuide]) { result in
+                guard case .success(let url) = result else {
+                    if case .failure(let error) = result { guideError = error.localizedDescription }
+                    return
+                }
+                guideWorking = true
+                Task {
+                    do {
+                        let guide = try await guideLibrary.importGuide(from: url)
+                        try guideLibrary.prepareForViewing(guide)
+                        selectedGuide = guide
+                    } catch {
+                        guideError = error.localizedDescription
+                    }
+                    guideWorking = false
+                }
+            }
+            .alert("Guías offline", isPresented: Binding(
+                get: { guideError != nil },
+                set: { if !$0 { guideError = nil } }
+            )) {
+                Button("Aceptar", role: .cancel) { guideError = nil }
+            } message: {
+                Text(guideError ?? "")
             }
             .alert("Salir de la cuenta", isPresented: $pendingLogout) {
                 Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {
@@ -619,6 +688,9 @@ struct TrackingView: View {
                     Label("Compartir enlace", systemImage: "square.and.arrow.up")
                 }
             }
+            Button { exportGuide(session) } label: {
+                Label("Exportar guía offline", systemImage: "archivebox")
+            }
             Divider()
             Button(role: .destructive) {
                 pendingDelete = session
@@ -631,6 +703,28 @@ struct TrackingView: View {
         .buttonStyle(.borderless)
         .foregroundStyle(Theme.slate400)
         .accessibilityLabel("Más opciones")
+    }
+
+    private func exportGuide(_ session: TrackSessionSummary) {
+        guideWorking = true
+        Task {
+            do {
+                let url = try await guideLibrary.export(session: session)
+                guideShareItem = GuideShareItem(url: url)
+            } catch {
+                guideError = error.localizedDescription
+            }
+            guideWorking = false
+        }
+    }
+
+    private func openGuide(_ guide: LocalGuide) {
+        do {
+            try guideLibrary.prepareForViewing(guide)
+            selectedGuide = guide
+        } catch {
+            guideError = error.localizedDescription
+        }
     }
 
     /// Formats an epoch-MILLISECONDS instant as a short relative time

@@ -2,9 +2,9 @@
 # reglas de cache/seguridad deben vivir aqui (Vite copia public/ -> dist/).
 # Mantener en sync con netlify.toml por si tambien se despliega en Netlify.
 
-# Assets de Vite con hash en el nombre: inmutables, cachear para siempre.
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
+# Cloudflare Pages ya versiona e invalida los assets de cada deployment. No
+# sobrescribir su cache aqui: con el fallback SPA, una peticion a un hash antiguo
+# podia recibir index.html y quedar cacheada un ano bajo una URL .js/.css.
 
 # index.html debe revalidarse siempre para que los usuarios vean cada deploy.
 /index.html

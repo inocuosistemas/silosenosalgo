@@ -5,6 +5,7 @@ import UIKit
 struct SiLoSeNoSalgoTrackerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var auth = AuthStore()
+    @StateObject private var guideLibrary = GuideLibrary.shared
 
     var body: some Scene {
         WindowGroup {
@@ -13,6 +14,24 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
+                .onOpenURL { url in
+                    guard url.pathExtension.lowercased() == "slsnsguide" else { return }
+                    Task { await guideLibrary.openImportedGuide(from: url) }
+                }
+                .fullScreenCover(item: $guideLibrary.presentedGuide) { guide in
+                    LiveMapView(
+                        source: .offline(token: guide.id), offlineToken: guide.id,
+                        allowsEditing: false, title: "Guía offline"
+                    )
+                }
+                .alert("Guías offline", isPresented: Binding(
+                    get: { guideLibrary.importError != nil },
+                    set: { if !$0 { guideLibrary.importError = nil } }
+                )) {
+                    Button("Aceptar", role: .cancel) { guideLibrary.importError = nil }
+                } message: {
+                    Text(guideLibrary.importError ?? "")
+                }
         }
     }
 }

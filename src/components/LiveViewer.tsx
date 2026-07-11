@@ -327,6 +327,7 @@ export default function LiveViewer({ token }: { token: string }) {
   const [plan, setPlan] = useState<RevivedShare | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [photoViewer, setPhotoViewer] = useState<{ src: string; alt: string } | null>(null)
   // Trail smoothing: hide the wild "desvíos imposibles" a bad GPS signal produces
   // (see lib/trailSmoothing). On by default; the map's advanced panel can turn it
   // off to inspect the raw trace with its precision colours.
@@ -355,9 +356,9 @@ export default function LiveViewer({ token }: { token: string }) {
       }
     }
     void poll()
-    const id = window.setInterval(poll, POLL_MS)
+    const id = window.setInterval(poll, embedded ? 1_000 : POLL_MS)
     return () => { alive = false; window.clearInterval(id) }
-  }, [token])
+  }, [token, embedded])
 
   // Re-render every second so freshness + live deltas stay current.
   useEffect(() => {
@@ -1090,10 +1091,20 @@ export default function LiveViewer({ token }: { token: string }) {
                 <div style={{ minWidth: 140, maxWidth: 220 }}>
                   <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
                   {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
-                  {!embedded && n.photoKey && (
-                    <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ marginTop: 6, width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
+                  {n.photoKey && (
+                    <button
+                      type="button"
+                      onClick={() => setPhotoViewer({
+                        src: `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+                        alt: `Foto de ${n.title || t.label}`,
+                      })}
+                      aria-label="Ver foto en grande"
+                      style={{ display: 'block', marginTop: 6, width: '100%', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}
+                    >
+                      <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ display: 'block', width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
+                    </button>
                   )}
-                  {!embedded && n.audioKey && (
+                  {n.audioKey && (
                     <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
                   )}
                   <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
@@ -1127,13 +1138,16 @@ export default function LiveViewer({ token }: { token: string }) {
       )}
 
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
-        <div className="mx-auto max-w-md max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl p-3 pointer-events-auto">
-          {header}
-          {topHero && <div className="mt-2">{topHero}</div>}
-          {recalibrationCard && <div className="mt-2">{recalibrationCard}</div>}
-          {formStatusPanel && <div className="mt-2">{formStatusPanel}</div>}
-          {fix && (
-            <>
+        <div className="mx-auto flex max-w-md max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl pointer-events-auto">
+          <div className="shrink-0 p-3 pb-2">
+            {header}
+          </div>
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
+            {topHero && <div>{topHero}</div>}
+            {recalibrationCard && <div className="mt-2">{recalibrationCard}</div>}
+            {formStatusPanel && <div className="mt-2">{formStatusPanel}</div>}
+            {fix && (
+              <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                 {hasPlan && progressKm != null
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
@@ -1234,7 +1248,7 @@ export default function LiveViewer({ token }: { token: string }) {
                       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
                         <span className="text-xs">📝</span>Notas · {notes.length}
                       </p>
-                      <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                      <div className="space-y-1.5">
                         {[...notes].reverse().map((n) => {
                           const t = poiTypeFor(n.poiType)
                           return (
@@ -1244,10 +1258,20 @@ export default function LiveViewer({ token }: { token: string }) {
                                 <span className="shrink-0 text-[10px] text-slate-500">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
                               </div>
                               {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
-                              {!embedded && n.photoKey && (
-                                <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" className="mt-1 max-h-40 w-full rounded-md object-cover" />
+                              {n.photoKey && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPhotoViewer({
+                                    src: `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+                                    alt: `Foto de ${n.title || t.label}`,
+                                  })}
+                                  aria-label="Ver foto en grande"
+                                  className="mt-1 block w-full cursor-zoom-in p-0"
+                                >
+                                  <img src={`/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" className="max-h-40 w-full rounded-md object-cover" />
+                                </button>
                               )}
-                              {!embedded && n.audioKey && (
+                              {n.audioKey && (
                                 <audio controls preload="none" src={`/api/track/${token}/notes/${n.id}/media?kind=audio`} className="mt-1 w-full" />
                               )}
                             </div>
@@ -1266,8 +1290,9 @@ export default function LiveViewer({ token }: { token: string }) {
                   )}
                 </div>
               )}
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1289,6 +1314,43 @@ export default function LiveViewer({ token }: { token: string }) {
           )}
         </div>
       </div>
+
+      {photoViewer && (
+        <PhotoViewer src={photoViewer.src} alt={photoViewer.alt} onClose={() => setPhotoViewer(null)} />
+      )}
+    </div>
+  )
+}
+
+function PhotoViewer({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/95 p-3 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Visor de foto"
+      onClick={onClose}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-full max-w-full object-contain [touch-action:pinch-zoom]"
+        onClick={(event) => event.stopPropagation()}
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-2xl text-white shadow-lg ring-1 ring-white/30 hover:bg-black/90 focus:outline-none focus:ring-2 focus:ring-sky-400"
+        aria-label="Cerrar visor"
+      >
+        ×
+      </button>
     </div>
   )
 }

@@ -90,10 +90,14 @@ final class TrackingStore: ObservableObject {
     /// All field notes of the CURRENT session (uploaded + not), retained locally so
     /// the embedded offline viewer can draw them. Persisted to disk like `trail`.
     private var notes: [Note] = []
+    var currentNotes: [Note] { notes.sorted { $0.createdAt > $1.createdAt } }
     /// Notes not yet uploaded (offline backlog), retried on the flush timer. Kept
     /// separate from `notes` and persisted to UserDefaults like `pending`.
     private var pendingNotes: [Note] = []
     private var isFlushingNotes = false
+    /// Note ids deleted locally but not yet confirmed deleted by the backend.
+    private var pendingNoteDeletes: [String] = []
+    private var isFlushingNoteDeletes = false
 
     /// One not-yet-uploaded media file for a note (audio/photo), referencing a file
     /// in the session's media dir. Uploaded once its note row exists server-side.
@@ -186,6 +190,7 @@ final class TrackingStore: ObservableObject {
             // Drop local trail/plan files for sessions the server no longer lists
             // (keep the current one even if it hasn't surfaced in the list yet).
             var keep = Set(result.map { $0.id })
+            keep.formUnion(GuideLibrary.shared.storageIds)
             if let t = sessionToken { keep.insert(t) }
             LocalStore.prune(keep: keep)
         }
@@ -247,6 +252,7 @@ final class TrackingStore: ObservableObject {
         loadTrail(id)
         loadNotes(id)
         loadPendingNotes(id)
+        loadPendingNoteDeletes(id)
         loadPendingMedia(id)
         ViewerDataProvider.shared.register(token: id, title: summary?.title, startedAt: summary?.startedAt ?? Date().timeIntervalSince1970 * 1000, expiresAt: summary?.expiresAt ?? 0, status: "active")
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
@@ -314,10 +320,12 @@ final class TrackingStore: ObservableObject {
             persistTrail()
             notes = []
             pendingNotes = []
+            pendingNoteDeletes = []
             pendingMedia = []
             noteCount = 0
             persistNotes()
             persistPendingNotes()
+            persistPendingNoteDeletes()
             persistPendingMedia()
             ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
             cachePlanBytes(for: res.id, planId: selectedPlanId)
@@ -355,22 +363,27 @@ final class TrackingStore: ObservableObject {
         if let t {
             // Best-effort: push any remaining backlog before ending (direct, so
             // it can't recurse through flush()).
-            if !pending.isEmpty { try? await API.pingBatch(token: token, id: t, fixes: pending) }
-            for note in pendingNotes { try? await API.createNote(token: token, sessionId: t, note: note) }
+            if !pending.isEmpty { _ = try? await API.pingBatch(token: token, id: t, fixes: pending) }
+            for note in pendingNotes { _ = try? await API.createNote(token: token, sessionId: t, note: note) }
+            for noteId in pendingNoteDeletes {
+                _ = try? await API.deleteNote(token: token, sessionId: t, noteId: noteId)
+            }
             for item in pendingMedia {
                 if let data = try? Data(contentsOf: LocalStore.mediaFileURL(t, item.file)) {
                     let ct = item.kind == "audio" ? "audio/mp4" : "image/jpeg"
-                    try? await API.uploadNoteMedia(token: token, sessionId: t, noteId: item.noteId, kind: item.kind, data: data, contentType: ct)
+                    _ = try? await API.uploadNoteMedia(token: token, sessionId: t, noteId: item.noteId, kind: item.kind, data: data, contentType: ct)
                 }
             }
             await API.end(token: token, id: t, retainHours: retainHours)
             UserDefaults.standard.removeObject(forKey: pendingKey(t))
             UserDefaults.standard.removeObject(forKey: notesPendingKey(t))
+            UserDefaults.standard.removeObject(forKey: noteDeletesPendingKey(t))
             UserDefaults.standard.removeObject(forKey: mediaPendingKey(t))
         }
         pending = []
         pendingCount = 0
         pendingNotes = []
+        pendingNoteDeletes = []
         pendingMedia = []
         activeViewers = nil
         // The backend keeps the just-ended session for the chosen retention;
@@ -508,8 +521,11 @@ final class TrackingStore: ObservableObject {
         }
         let acc = loc.flatMap { $0.horizontalAccuracy >= 0 ? $0.horizontalAccuracy : nil } ?? lastRecordedFix?.accuracy
         let alt = loc.flatMap { $0.verticalAccuracy >= 0 ? $0.altitude : nil } ?? lastRecordedFix?.altitude
+        let noteId = Self.genId()
+        let audioKey = audioURL.flatMap { saveMedia(noteId: noteId, kind: "audio", sourceFile: $0, data: nil) }
+        let photoKey = photoData.flatMap { saveMedia(noteId: noteId, kind: "photo", sourceFile: nil, data: $0) }
         let note = Note(
-            id: Self.genId(),
+            id: noteId,
             createdAt: Date().timeIntervalSince1970 * 1000,
             fixAt: loc.map { $0.timestamp.timeIntervalSince1970 * 1000 } ?? lastRecordedFix?.fixAt,
             lat: lat, lon: lon,
@@ -520,25 +536,47 @@ final class TrackingStore: ObservableObject {
             body: text.isEmpty ? nil : text,
             poiType: type,
             poiSym: nil,
-            audioKey: nil, photoKey: nil
+            audioKey: audioKey, photoKey: photoKey
         )
         notes.append(note)
         pendingNotes.append(note)
         noteCount = notes.count
         persistNotes()
         persistPendingNotes()
-        if let audioURL { saveMedia(noteId: note.id, kind: "audio", sourceFile: audioURL, data: nil) }
-        if let photoData { saveMedia(noteId: note.id, kind: "photo", sourceFile: nil, data: photoData) }
         ViewerDataProvider.shared.setNotes(token: t, notes: notes)
         Task { await flushNotes(); await flushMedia() }
+    }
+
+    /// Remove a note immediately from local UI/storage and queue the owner-only
+    /// backend deletion. The tombstone prevents an in-flight offline create from
+    /// making the note reappear when coverage returns.
+    func deleteNote(_ note: Note) async {
+        guard let id = sessionToken else { return }
+        notes.removeAll { $0.id == note.id }
+        pendingNotes.removeAll { $0.id == note.id }
+        pendingMedia.removeAll { $0.noteId == note.id }
+        if !pendingNoteDeletes.contains(note.id) { pendingNoteDeletes.append(note.id) }
+
+        for kind in ["audio", "photo"] {
+            let file = LocalStore.mediaFileURL(id, "\(note.id)_\(kind).\(mediaExt(kind))")
+            try? FileManager.default.removeItem(at: file)
+        }
+
+        noteCount = notes.count
+        persistNotes()
+        persistPendingNotes()
+        persistPendingMedia()
+        persistPendingNoteDeletes()
+        ViewerDataProvider.shared.setNotes(token: id, notes: notes)
+        await flushNoteDeletes()
     }
 
     private func mediaExt(_ kind: String) -> String { kind == "audio" ? "m4a" : "jpg" }
 
     /// Persist a note's media locally and queue it for upload. Audio comes as a
     /// temp file (moved in); photo as in-memory bytes (written out).
-    private func saveMedia(noteId: String, kind: String, sourceFile: URL?, data: Data?) {
-        guard let t = sessionToken else { return }
+    private func saveMedia(noteId: String, kind: String, sourceFile: URL?, data: Data?) -> String? {
+        guard let t = sessionToken else { return nil }
         let name = "\(noteId)_\(kind).\(mediaExt(kind))"
         let dest = LocalStore.mediaFileURL(t, name)
         do {
@@ -549,13 +587,14 @@ final class TrackingStore: ObservableObject {
             } else if let data {
                 try data.write(to: dest, options: .atomic)
             } else {
-                return
+                return nil
             }
         } catch {
-            return  // media failed to save; the note text/type is still queued
+            return nil  // media failed to save; the note text/type is still queued
         }
         pendingMedia.append(MediaUpload(noteId: noteId, kind: kind, file: name))
         persistPendingMedia()
+        return name
     }
 
     private func mediaPendingKey(_ token: String) -> String { "pendingMedia-\(token)" }
@@ -577,8 +616,8 @@ final class TrackingStore: ObservableObject {
     }
 
     /// Upload queued media whose note row already exists server-side (i.e. not in
-    /// pendingNotes). Drop each on success (and delete the local file); keep the
-    /// rest on failure to retry. A 410 means the session ended.
+    /// pendingNotes). Drop each queue item on success, retaining the local file for
+    /// the offline viewer; keep failures to retry. A 410 means the session ended.
     private func flushMedia() async {
         guard isSharing, let id = sessionToken, !isFlushingMedia, !pendingMedia.isEmpty else { return }
         isFlushingMedia = true
@@ -597,7 +636,6 @@ final class TrackingStore: ObservableObject {
                 try await API.uploadNoteMedia(token: token, sessionId: id, noteId: item.noteId, kind: item.kind, data: data, contentType: ct)
                 pendingMedia.removeAll { $0.noteId == item.noteId && $0.kind == item.kind }
                 persistPendingMedia()
-                try? FileManager.default.removeItem(at: fileURL)
             } catch {
                 if let e = error as? APIError, e.status == 410 {
                     await stopSharing()
@@ -640,6 +678,39 @@ final class TrackingStore: ObservableObject {
             pendingNotes = arr
         } else {
             pendingNotes = []
+        }
+    }
+
+    private func noteDeletesPendingKey(_ token: String) -> String { "pendingNoteDeletes-\(token)" }
+
+    private func persistPendingNoteDeletes() {
+        guard let token = sessionToken else { return }
+        UserDefaults.standard.set(pendingNoteDeletes, forKey: noteDeletesPendingKey(token))
+    }
+
+    private func loadPendingNoteDeletes(_ token: String) {
+        pendingNoteDeletes = UserDefaults.standard.stringArray(forKey: noteDeletesPendingKey(token)) ?? []
+    }
+
+    private func flushNoteDeletes() async {
+        guard isSharing, let id = sessionToken,
+              !isFlushingNotes, !isFlushingNoteDeletes, !pendingNoteDeletes.isEmpty else { return }
+        isFlushingNoteDeletes = true
+        defer { isFlushingNoteDeletes = false }
+
+        for noteId in pendingNoteDeletes {
+            do {
+                try await API.deleteNote(token: token, sessionId: id, noteId: noteId)
+                pendingNoteDeletes.removeAll { $0 == noteId }
+                persistPendingNoteDeletes()
+            } catch {
+                if let apiError = error as? APIError, apiError.status == 404 {
+                    pendingNoteDeletes.removeAll { $0 == noteId }
+                    persistPendingNoteDeletes()
+                    continue
+                }
+                break
+            }
         }
     }
 
@@ -756,6 +827,7 @@ final class TrackingStore: ObservableObject {
         loadTrail(s.token)     // full route for the offline viewer
         loadNotes(s.token)
         loadPendingNotes(s.token)
+        loadPendingNoteDeletes(s.token)
         loadPendingMedia(s.token)
         ViewerDataProvider.shared.register(token: s.token, title: nil, startedAt: s.startAtMs, expiresAt: 0, status: "active")
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
@@ -939,6 +1011,7 @@ final class TrackingStore: ObservableObject {
                 self?.persistActiveIfDue()
                 await self?.flush()
                 await self?.flushNotes()
+                await self?.flushNoteDeletes()
                 await self?.flushMedia()
             }
         }

@@ -1,3 +1,3 @@
-# Cloudflare Pages SPA fallback so deep links like /?s=<id> load the app.
-# Pages Functions (/api/*) are matched BEFORE this rule, so the API is unaffected.
-/*  /index.html  200
+# La app no usa rutas por pathname: los enlaces son /?s=<id> y /?t=<id>.
+# No usar fallback SPA global; un asset inexistente debe devolver 404, nunca
+# index.html con MIME text/html.

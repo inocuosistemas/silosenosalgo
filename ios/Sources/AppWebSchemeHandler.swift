@@ -62,6 +62,21 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return respond(task, url: url, data: Data(), mime: "application/json", noStore: true)
         }
 
+        // Locally retained note media, available to the embedded viewer offline.
+        if let media = Self.parseNoteMedia(path),
+           ViewerDataProvider.shared.isCurrent(media.token),
+           let kind = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "kind" })?.value,
+           kind == "audio" || kind == "photo" {
+            let ext = kind == "audio" ? "m4a" : "jpg"
+            let file = LocalStore.mediaFileURL(media.token, "\(media.noteId)_\(kind).\(ext)")
+            if let data = try? Data(contentsOf: file) {
+                let mime = kind == "audio" ? "audio/mp4" : "image/jpeg"
+                return respond(task, url: url, data: data, mime: mime, noStore: true)
+            }
+            return finish404(task, url: url)
+        }
+
         // Local API routes (synchronous).
         if path.hasPrefix("/api/track/") {
             let token = String(path.dropFirst("/api/track/".count))
@@ -176,5 +191,14 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
               let z = Int(parts[0]), let x = Int(parts[1]),
               let y = Int(parts[2].split(separator: ".").first ?? "") else { return nil }
         return (z, x, y)
+    }
+
+    private static func parseNoteMedia(_ path: String) -> (token: String, noteId: String)? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 6,
+              parts[0] == "api", parts[1] == "track", parts[3] == "notes", parts[5] == "media" else {
+            return nil
+        }
+        return (token: parts[2], noteId: parts[4])
     }
 }

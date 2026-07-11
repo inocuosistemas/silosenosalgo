@@ -13,6 +13,10 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.20
 targets:
   SiLoSeNoSalgoTracker:
     type: application
@@ -25,6 +29,8 @@ targets:
       - path: WebDist
         type: folder
         buildPhase: resources
+    dependencies:
+      - package: ZIPFoundation
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.silosenosalgo.tracker
@@ -33,3 +39,25 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
+  SiLoSeNoSalgoTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.4"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SiLoSeNoSalgoTracker
+    settings:
+      base:
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SiLoSeNoSalgo.app/SiLoSeNoSalgo"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  SiLoSeNoSalgoTracker:
+    build:
+      targets:
+        SiLoSeNoSalgoTracker: all
+        SiLoSeNoSalgoTrackerTests: [test]
+    test:
+      targets:
+        - SiLoSeNoSalgoTrackerTests

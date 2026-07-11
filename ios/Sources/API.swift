@@ -268,6 +268,14 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
+    /// Owner-only removal of a field note and its attached server media.
+    static func deleteNote(token: String, sessionId: String, noteId: String) async throws {
+        let (data, http) = try await request(
+            "api/track/\(sessionId)/notes/\(noteId)", method: "DELETE", token: token
+        )
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+    }
+
     /// Upload a note's media (voice memo / photo) as the raw request body. The
     /// shared `request()` is JSON-only, so this uses URLSession.upload directly.
     /// `kind` is "audio" | "photo"; `contentType` is audio/mp4 | image/jpeg.
