@@ -306,6 +306,17 @@ function makeRouteMatcher(pts: { lat: number; lon: number }[], cumKm: number[], 
   return { globalNearest, windowNearest }
 }
 
+/** How close (km) a trail point must map-match to the route to count as "on it".
+ *  Accuracy-aware rather than a fixed band: the route counts as reached when it
+ *  falls within the point's own GPS error, so a poor fix beside an established
+ *  track snaps onto it instead of drawing a red wander off the line. Floored at
+ *  30 m (ordinary GPS error, so good fixes behave exactly as before) and capped
+ *  at 150 m (a fix too uncertain to be glued to a route it may genuinely be off). */
+const SNAP_MIN_KM = 0.03
+const SNAP_MAX_KM = 0.15
+const onRouteTolKm = (accuracyM: number | null | undefined) =>
+  Math.min(SNAP_MAX_KM, Math.max(SNAP_MIN_KM, (accuracyM ?? 0) / 1000))
+
 // ── Live form recalibration (runner-confirmed) ────────────────────────────────
 // The confirmed "form factor" persists per session so the projection survives
 // polls/reloads. 1 = the plan (and, provably, identical to the old additive
@@ -454,11 +465,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // segment is drawn ALONG the route geometry (its intermediate vertices) instead
   // of a straight chord — so low sampling no longer cuts across curves. Off-route
   // segments (or no plan) stay as raw GPS chords.
-  const SNAP_KM = 0.03 // ≤30 m from the route ⇒ treat the point as on-route (within GPS error)
   const trailSegments = useMemo(() => {
     if (trail.length < 2) return [] as { color: string; positions: [number, number][] }[]
     const cumKm = plan?.track.cumKm
-    const onRoute = (i: number) => !!(trailSnaps && planPts && trailSnaps[i].dist < SNAP_KM)
+    const onRoute = (i: number) => !!(trailSnaps && planPts && trailSnaps[i].dist < onRouteTolKm(trail[i].a))
     // A point's rendered position: snapped onto its nearest route vertex when
     // on-route (the displacement is within GPS error), else the raw GPS point.
     const posAt = (i: number): [number, number] =>
@@ -506,7 +516,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     if (!trailSnaps) return [] as { km: number; t: number }[]
     const out: { km: number; t: number }[] = []
     for (let i = 0; i < trail.length; i++) {
-      if (trailSnaps[i].dist < SNAP_KM) out.push({ km: trailSnaps[i].km, t: trail[i].t })
+      if (trailSnaps[i].dist < onRouteTolKm(trail[i].a)) out.push({ km: trailSnaps[i].km, t: trail[i].t })
     }
     return out
   }, [trail, trailSnaps])
