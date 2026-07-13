@@ -14,6 +14,13 @@ struct AddNoteView: View {
     @State private var type = PoiTypes.defaultSlug
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
+    /// Photo capture flow: pick the source (camera / library), then present it.
+    @State private var showPhotoSource = false
+    @State private var showCamera = false
+    @State private var showLibrary = false
+    /// Set when saving the original to the camera roll is refused, so we can hint
+    /// the user (the app copy is kept regardless).
+    @State private var rollSaveDenied = false
 
     var body: some View {
         NavigationStack {
@@ -38,14 +45,23 @@ struct AddNoteView: View {
                         Text("Permiso de micrófono denegado. Actívalo en Ajustes.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    PhotosPicker(selection: $photoItem, matching: .images) {
-                        Label(photoData == nil ? "Añadir foto" : "Foto añadida", systemImage: "photo")
+                    Button { showPhotoSource = true } label: {
+                        Label(photoData == nil ? "Añadir foto" : "Foto añadida",
+                              systemImage: photoData == nil ? "camera" : "checkmark.circle.fill")
                     }
                     if photoData != nil {
                         Button(role: .destructive) { photoData = nil; photoItem = nil } label: {
                             Label("Quitar foto", systemImage: "trash")
                         }
                     }
+                    if rollSaveDenied {
+                        Text("La foto se añadió a la nota, pero no se pudo guardar en el carrete (permiso denegado). Actívalo en Ajustes.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    StorageMeterView()
                 }
 
                 Section {
@@ -83,6 +99,32 @@ struct AddNoteView: View {
                     }
                 }
             }
+            .confirmationDialog("Foto de la nota", isPresented: $showPhotoSource, titleVisibility: .visible) {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("Hacer foto") { showCamera = true }
+                }
+                Button("Elegir de la galería") { showLibrary = true }
+                Button("Cancelar", role: .cancel) {}
+            }
+            .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraPicker { image in
+                    showCamera = false
+                    if let image { handleCameraCapture(image) }
+                }
+                .ignoresSafeArea()
+            }
+        }
+    }
+
+    /// Keep a compact copy for the app and save the full-res original to the
+    /// camera roll (the user asked to preserve original quality there). Saving to
+    /// the roll needs "add" permission; if refused we still keep the app copy and
+    /// surface a hint.
+    private func handleCameraCapture(_ image: UIImage) {
+        photoData = downscaledJPEG(image)
+        PhotoLibrarySaver.saveToCameraRoll(image) { granted in
+            rollSaveDenied = !granted
         }
     }
 
@@ -139,16 +181,28 @@ struct AddNoteView: View {
         return f.string(from: Date())
     }
 
-    /// Downscale + JPEG-compress a picked image so it fits the server's media cap.
+    /// Downscale + JPEG-compress an image to a compact "mobile-sized" copy for the
+    /// app (the camera roll keeps the full-res original). Longest side ≤ 1600 px,
+    /// forcing renderer scale = 1 so the output is genuinely that size in PIXELS
+    /// (the default screen scale would render it 2–3× larger), keeping files small.
+    private func downscaledJPEG(_ image: UIImage) -> Data {
+        let maxDim: CGFloat = 1600
+        let longest = max(image.size.width, image.size.height)
+        let scale = longest > maxDim ? maxDim / longest : 1
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return resized.jpegData(compressionQuality: 0.6)
+            ?? image.jpegData(compressionQuality: 0.6) ?? Data()
+    }
+
+    /// Library images arrive as Data; decode then reuse the shared downscaler.
     private func downscaledJPEG(_ data: Data) -> Data {
         guard let img = UIImage(data: data) else { return data }
-        let maxDim: CGFloat = 1600
-        let longest = max(img.size.width, img.size.height)
-        let scale = longest > maxDim ? maxDim / longest : 1
-        let size = CGSize(width: img.size.width * scale, height: img.size.height * scale)
-        let resized = UIGraphicsImageRenderer(size: size).image { _ in
-            img.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return resized.jpegData(compressionQuality: 0.6) ?? data
+        return downscaledJPEG(img)
     }
 }

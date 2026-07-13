@@ -52,9 +52,14 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
 
   const key = mediaKvKey(id, noteId, kind)
   await env.SHARE_KV.put(key, buf, { expirationTtl: MEDIA_TTL_SECONDS })
+  // Store the key AND the byte size so per-user storage use can be summed cheaply
+  // (GET /api/storage). Re-uploading the same kind overwrites both, so the sum
+  // reflects the current bytes, not the total ever uploaded.
   const col = kind === 'audio' ? 'audio_key' : 'photo_key'
-  await env.DB.prepare(`UPDATE track_notes SET ${col}=? WHERE id=? AND session_id=? AND owner_user_id=?`)
-    .bind(key, noteId, id, user.id).run()
+  const bytesCol = kind === 'audio' ? 'audio_bytes' : 'photo_bytes'
+  await env.DB.prepare(
+    `UPDATE track_notes SET ${col}=?, ${bytesCol}=? WHERE id=? AND session_id=? AND owner_user_id=?`,
+  ).bind(key, buf.byteLength, noteId, id, user.id).run()
   return new Response(null, { status: 204 })
 }
 

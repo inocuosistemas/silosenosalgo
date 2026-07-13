@@ -34,6 +34,34 @@ enum LocalStore {
     }
     static func mediaFileURL(_ token: String, _ name: String) -> URL { mediaDir(token).appendingPathComponent(name) }
 
+    /// Total bytes of a session's locally stored note media (photos + audios).
+    /// This mirrors what the session occupies server-side (the same compact files
+    /// are uploaded), and — unlike the server sum — also counts media queued while
+    /// offline, so it's the honest "size of this session".
+    static func mediaBytes(_ token: String) -> Int64 {
+        contents(token).reduce(Int64(0)) { sum, url in
+            sum + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
+    /// Count a session's local media files by kind (names are `<noteId>_photo.jpg`
+    /// / `<noteId>_audio.m4a`), for the storage summary line.
+    static func mediaCounts(_ token: String) -> (photos: Int, audios: Int) {
+        var photos = 0, audios = 0
+        for url in contents(token) {
+            let name = url.lastPathComponent
+            if name.hasSuffix("_photo.jpg") { photos += 1 }
+            else if name.hasSuffix("_audio.m4a") { audios += 1 }
+        }
+        return (photos, audios)
+    }
+
+    private static func contents(_ token: String) -> [URL] {
+        (try? fm.contentsOfDirectory(
+            at: mediaDir(token), includingPropertiesForKeys: [.fileSizeKey]
+        )) ?? []
+    }
+
     static func hasPlan(_ token: String) -> Bool { fm.fileExists(atPath: planURL(token).path) }
 
     /// Delete all artifacts for a session (on hard-delete).

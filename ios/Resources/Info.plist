@@ -71,5 +71,9 @@
 	<string>Para seguir compartiendo tu posición con la pantalla apagada o la app en segundo plano, permite el acceso a la ubicación "Siempre".</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SiLoSeNoSalgo usa el micrófono para grabar notas de voz ancladas a tu posición.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SiLoSeNoSalgo usa la cámara para hacer una foto y anclarla a una nota de campo.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SiLoSeNoSalgo guarda en tu carrete la foto original a máxima calidad; en la app queda una copia ligera.</string>
 </dict>
 </plist>

@@ -8,4 +8,7 @@
 export interface Env {
   SHARE_KV: KVNamespace
   DB: D1Database
+  /** Per-user media budget in bytes (note photos+audios). Optional string var
+   *  (Pages env vars are strings); defaults to 100 MB when unset/invalid. */
+  MEDIA_QUOTA_BYTES?: string
 }

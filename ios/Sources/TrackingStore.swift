@@ -53,6 +53,10 @@ final class TrackingStore: ObservableObject {
     @Published var pendingCount = 0
     /// Field notes anchored during the current session (count, for the UI).
     @Published var noteCount = 0
+    /// The user's server-side note-media use and per-user budget (bytes), for the
+    /// storage meter. nil until first fetched (or offline); refreshed on demand.
+    @Published var storageUsedBytes: Int64?
+    @Published var storageQuotaBytes: Int64?
     /// Active followers currently watching (from the ping response); nil until the
     /// first successful upload, or against a server that doesn't report it.
     @Published var activeViewers: Int?
@@ -129,6 +133,25 @@ final class TrackingStore: ObservableObject {
     /// Set the auth token once it's known (login, or restored from the Keychain at
     /// launch). Safe to call repeatedly with the same token.
     func configure(token: String) { self.token = token }
+
+    // MARK: Storage meter
+
+    /// Bytes the CURRENT session's media occupies locally (== what it uploads).
+    var sessionMediaBytes: Int64 { sessionToken.map { LocalStore.mediaBytes($0) } ?? 0 }
+    /// Photo/audio counts for the current session (for the storage summary line).
+    var sessionMediaCounts: (photos: Int, audios: Int) {
+        sessionToken.map { LocalStore.mediaCounts($0) } ?? (0, 0)
+    }
+
+    /// Refresh the user's server-side media use vs budget. Best-effort: leaves the
+    /// last known values untouched offline / on error (never crashes, never clears).
+    func refreshStorage() async {
+        guard !token.isEmpty else { return }
+        if let info = try? await API.fetchStorage(token: token) {
+            storageUsedBytes = info.usedBytes
+            storageQuotaBytes = info.quotaBytes
+        }
+    }
 
     private init() {
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -624,6 +647,7 @@ final class TrackingStore: ObservableObject {
         defer { isFlushingMedia = false }
         let notCreated = Set(pendingNotes.map { $0.id })
         let batch = pendingMedia
+        var uploaded = false
         for item in batch where !notCreated.contains(item.noteId) {
             let fileURL = LocalStore.mediaFileURL(id, item.file)
             guard let data = try? Data(contentsOf: fileURL) else {
@@ -636,6 +660,7 @@ final class TrackingStore: ObservableObject {
                 try await API.uploadNoteMedia(token: token, sessionId: id, noteId: item.noteId, kind: item.kind, data: data, contentType: ct)
                 pendingMedia.removeAll { $0.noteId == item.noteId && $0.kind == item.kind }
                 persistPendingMedia()
+                uploaded = true
             } catch {
                 if let e = error as? APIError, e.status == 410 {
                     await stopSharing()
@@ -644,6 +669,8 @@ final class TrackingStore: ObservableObject {
                 break  // no coverage / transient — keep for retry
             }
         }
+        // A completed upload changed our server-side use; refresh the meter once.
+        if uploaded { await refreshStorage() }
     }
 
     private func persistNotes() {

@@ -100,6 +100,13 @@ struct Note: Codable, Identifiable {
     var photoKey: String?
 }
 
+/// The user's note-media storage use vs their per-user budget (GET /api/storage).
+/// Mirrors shared `StorageInfo`; bytes.
+struct StorageInfo: Codable {
+    let usedBytes: Int64
+    let quotaBytes: Int64
+}
+
 struct APIError: LocalizedError {
     let status: Int
     let code: String
@@ -190,6 +197,15 @@ enum API {
         let (data, http) = try await request("api/plans/\(planId)", method: "GET", token: token)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return data
+    }
+
+    // MARK: Storage
+
+    /// The user's note-media use vs their per-user budget (bytes).
+    static func fetchStorage(token: String) async throws -> StorageInfo {
+        let (data, http) = try await request("api/storage", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(StorageInfo.self, from: data)
     }
 
     // MARK: Tracking

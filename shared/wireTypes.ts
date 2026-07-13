@@ -215,3 +215,11 @@ export interface TrackSessionSummary {
 export interface TrackSessionsResponse {
   sessions: TrackSessionSummary[]
 }
+
+/** GET /api/storage — the caller's note-media use vs their per-user budget. */
+export interface StorageInfo {
+  /** Bytes of the user's stored note media (photos + voice memos). */
+  usedBytes: number
+  /** Per-user soft budget in bytes (informational; uploads aren't blocked). */
+  quotaBytes: number
+}

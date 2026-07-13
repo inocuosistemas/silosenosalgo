@@ -27,19 +27,24 @@ struct NotesListView: View {
                     .padding()
                 } else {
                     List {
-                        ForEach(notes) { note in
-                            NavigationLink {
-                                NoteDetailView(note: note, metrics: metrics[note.id], token: store.sessionToken)
-                            } label: {
-                                NoteRow(note: note, metrics: metrics[note.id], token: store.sessionToken)
+                        Section {
+                            StorageMeterView()
+                        }
+                        Section {
+                            ForEach(notes) { note in
+                                NavigationLink {
+                                    NoteDetailView(note: note, metrics: metrics[note.id], token: store.sessionToken)
+                                } label: {
+                                    NoteRow(note: note, metrics: metrics[note.id], token: store.sessionToken)
+                                }
+                            }
+                            .onDelete { offsets in
+                                guard let index = offsets.first, notes.indices.contains(index) else { return }
+                                pendingDelete = notes[index]
                             }
                         }
-                        .onDelete { offsets in
-                            guard let index = offsets.first, notes.indices.contains(index) else { return }
-                            pendingDelete = notes[index]
-                        }
                     }
-                    .listStyle(.plain)
+                    .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle("Notas")
