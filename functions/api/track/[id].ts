@@ -100,10 +100,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
 
   // Live presence: only meaningful while the session is active. Record this
   // viewer's heartbeat and report how many followers are currently watching.
+  // Best-effort: presence must never break the state feed, so swallow failures
+  // and just omit the count (viewers stays undefined).
   let viewers: number | undefined
   if (status === 'active') {
-    if (viewerId) await recordViewer(env, id, viewerId)
-    viewers = await countViewers(env, id)
+    try {
+      if (viewerId) await recordViewer(env, id, viewerId)
+      viewers = await countViewers(env, id)
+    } catch { /* presence is non-critical */ }
   }
 
   const body: TrackStateResponse = {

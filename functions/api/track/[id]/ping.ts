@@ -91,6 +91,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.
-  const viewers = await countViewers(env, id)
+  // Best-effort: the fix is already saved above, so a presence failure must not
+  // fail the ping — fall back to 0 followers.
+  let viewers = 0
+  try { viewers = await countViewers(env, id) } catch { /* presence is non-critical */ }
   return json({ viewers } satisfies PingResponse, 200)
 }

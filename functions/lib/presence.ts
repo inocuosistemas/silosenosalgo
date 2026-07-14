@@ -2,29 +2,38 @@
 import type { Env } from './db'
 
 /**
- * Lightweight "who's watching" presence for a live session, backed by KV TTLs so
- * there's no table to migrate or clean up. Each follower's viewer polls the
- * public state endpoint; that call refreshes a per-viewer key that expires on its
- * own. The active-follower count is just how many of those keys are still alive.
+ * Lightweight "who's watching" presence for a live session, backed by D1. Each
+ * follower's viewer polls the public state endpoint; that call UPSERTs a
+ * per-viewer heartbeat row. The active-follower count is how many heartbeats
+ * landed within the last WINDOW_MS.
  *
- * KV's minimum TTL is 60 s, so a viewer who closes the tab drops off within a
- * minute — fine for a "seguidores activos" indicator. `list` is eventually
- * consistent, so the count can lag a few seconds; that's acceptable here.
+ * Previously this lived in KV (per-viewer keys with a 60 s TTL, counted with
+ * list()). But list() ran on every poll AND every ping, and Cloudflare's free
+ * tier caps KV list at 1000 ops/day — a single ~1 h session with one follower
+ * already blew it. D1 reads/writes are far cheaper on the free tier, so presence
+ * moved here (migrations/0010_session_viewers.sql). Stale rows simply age out of
+ * the time window; ON DELETE CASCADE clears them when the session is deleted.
+ *
+ * Callers treat both functions as best-effort: a failure here must never break
+ * live tracking, so it's wrapped in try/catch at the call sites.
  */
 
-const TTL_SECONDS = 60
+const WINDOW_MS = 60_000
 const VIEWER_RE = /^[A-Za-z0-9_-]{1,64}$/
-
-const prefix = (sessionId: string) => `viewer:${sessionId}:`
 
 /** Refresh this viewer's heartbeat for the session. No-op on a malformed id. */
 export async function recordViewer(env: Env, sessionId: string, viewerId: string): Promise<void> {
   if (!VIEWER_RE.test(viewerId)) return
-  await env.SHARE_KV.put(prefix(sessionId) + viewerId, '1', { expirationTtl: TTL_SECONDS })
+  await env.DB.prepare(
+    `INSERT INTO session_viewers (session_id, viewer_id, last_seen) VALUES (?, ?, ?)
+       ON CONFLICT(session_id, viewer_id) DO UPDATE SET last_seen = excluded.last_seen`,
+  ).bind(sessionId, viewerId, Date.now()).run()
 }
 
-/** Count viewers whose heartbeat hasn't expired (personal scale ⇒ one page). */
+/** Count viewers whose heartbeat landed within the last WINDOW_MS. */
 export async function countViewers(env: Env, sessionId: string): Promise<number> {
-  const res = await env.SHARE_KV.list({ prefix: prefix(sessionId) })
-  return res.keys.length
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM session_viewers WHERE session_id = ? AND last_seen > ?',
+  ).bind(sessionId, Date.now() - WINDOW_MS).first<{ n: number }>()
+  return row?.n ?? 0
 }
