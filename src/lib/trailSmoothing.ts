@@ -52,18 +52,45 @@ const EXCURSION_LEG_M = 60
 /** Speed (m/s) no ground travel sustains but a cell teleport always implies —
  *  ~430 km/h, above any train yet far below a 1–4 km fix jump seconds apart.
  *  Only applied to points that are already excursions, so genuine fast+straight
- *  travel (near-zero detour) is never flagged. */
+ *  travel (near-zero detour) is never flagged. This is the ceiling used when no
+ *  activity is known; a declared activity tightens it (see maxSpeedKmh). */
 const TELEPORT_SPEED_MS = 120
+/** Headroom over the activity's realistic max speed before an excursion counts
+ *  as impossible — absorbs brief bursts and GPS noise without cutting real turns. */
+const ACTIVITY_SPEED_BUFFER = 2
 
-export function sanitizeTrail(trail: TrailPoint[]): TrailPoint[] {
-  if (trail.length < 4) return trail
+export interface SanitizedTrail {
+  /** The cleaned trail (teleports removed, poor-but-real GPS kept). */
+  points: TrailPoint[]
+  /** How many points pass 2 removed as impossible-speed excursions — lets the
+   *  viewer note "N puntos ocultos por velocidad imposible". */
+  droppedForSpeed: number
+}
+
+/**
+ * Clean a raw trail for display. When `maxSpeedKmh` is given (the declared or
+ * inferred activity's realistic ceiling), the teleport test uses the tighter of
+ * that ceiling (× a buffer) and the generic {@link TELEPORT_SPEED_MS} — so an
+ * out-and-back GPS spike that implies a speed impossible FOR THAT ACTIVITY is
+ * hidden (e.g. a walker "teleporting" at 40 km/h), not just the km-scale jumps.
+ */
+export function sanitizeTrail(trail: TrailPoint[], maxSpeedKmh?: number): SanitizedTrail {
+  if (trail.length < 4) return { points: trail, droppedForSpeed: 0 }
+
+  // Impossible-speed ceiling (m/s): the activity's realistic max (× buffer) when
+  // known, never above the generic teleport ceiling.
+  const teleportMs = maxSpeedKmh && maxSpeedKmh > 0
+    ? Math.min(TELEPORT_SPEED_MS, (maxSpeedKmh / 3.6) * ACTIVITY_SPEED_BUFFER)
+    : TELEPORT_SPEED_MS
 
   // Pass 1 — drop only the gross cell/Wi-Fi fallbacks; keep poor-but-real GPS.
   const gated = trail.filter((p) => p.a == null || p.a <= CELL_FALLBACK_M)
   // Whole session in bad signal: keep the raw trail rather than a stub.
-  if (gated.length < Math.max(2, Math.ceil(trail.length * 0.2))) return trail
+  if (gated.length < Math.max(2, Math.ceil(trail.length * 0.2))) return { points: trail, droppedForSpeed: 0 }
 
-  // Pass 2 — drop km-scale teleports (out-and-back excursion at impossible speed).
+  // Pass 2 — drop teleports (out-and-back excursion at a speed impossible for the
+  // activity). Straight fast travel has ~zero detour, so it's never flagged.
+  let droppedForSpeed = 0
   const out: TrailPoint[] = [gated[0]]
   for (let i = 1; i < gated.length - 1; i++) {
     const prev = out[out.length - 1]
@@ -80,12 +107,12 @@ export function sanitizeTrail(trail: TrailPoint[]): TrailPoint[] {
       const dtIn = (c.t - prev.t) / 1000
       const dtOut = (next.t - c.t) / 1000
       const impossible =
-        (dtIn > 0 && dPrevC / dtIn > TELEPORT_SPEED_MS) ||
-        (dtOut > 0 && dCNext / dtOut > TELEPORT_SPEED_MS)
-      if (impossible) continue // teleport — a real turnaround at plausible speed stays
+        (dtIn > 0 && dPrevC / dtIn > teleportMs) ||
+        (dtOut > 0 && dCNext / dtOut > teleportMs)
+      if (impossible) { droppedForSpeed++; continue } // teleport — a real turnaround at plausible speed stays
     }
     out.push(c)
   }
   out.push(gated[gated.length - 1])
-  return out
+  return { points: out, droppedForSpeed }
 }

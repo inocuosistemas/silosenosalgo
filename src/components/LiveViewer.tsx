@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { TrackStateResponse } from '../../shared/wireTypes'
+import type { TrackStateResponse, BeaconActivity } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -10,7 +10,8 @@ import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
-import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, ACTIVITY_MAX_SPEED_KMH, type PausePoint } from '../lib/timing'
+import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
+import { inferActivity } from '../lib/activityInference'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
@@ -423,10 +424,30 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   }, [planShareId, localGuide])
 
   const rawTrail = state?.trail ?? []
+
+  // Activity: the broadcaster's declared movement type, or — when "Automático"
+  // (null) — one inferred from the trail's speeds. Drives the speed unit
+  // (walk/run → min/km pace; bike/transport → km/h), the header icon, and the
+  // realistic max-speed used to hide impossible GPS jumps.
+  const declaredActivity = state?.activity ?? null
+  const inferredActivity = useMemo(
+    () => (declaredActivity ? null : inferActivity(rawTrail)),
+    [declaredActivity, rawTrail],
+  )
+  const effectiveActivity: BeaconActivity | null = declaredActivity ?? inferredActivity
+  const activityIsAuto = declaredActivity == null
+
   // Everything downstream (segments, distance, km anchor, stats) runs on the
   // smoothed trail when smoothing is on, so both the drawn line and the numbers
-  // stop being distorted by bad-signal spikes.
-  const trail = useMemo(() => (smooth ? sanitizeTrail(rawTrail) : rawTrail), [rawTrail, smooth])
+  // stop being distorted by bad-signal spikes. The activity's realistic max speed
+  // tightens the teleport filter so an impossible jump FOR THAT ACTIVITY is cut.
+  const sanitized = useMemo(
+    () => sanitizeTrail(rawTrail, effectiveActivity ? ACTIVITY_MAX_SPEED_KMH[effectiveActivity] : undefined),
+    [rawTrail, effectiveActivity],
+  )
+  const trail = smooth ? sanitized.points : rawTrail
+  // Points hidden as impossible-speed excursions (only meaningful while smoothing).
+  const hiddenForSpeed = smooth ? sanitized.droppedForSpeed : 0
   const hasAccuracyData = useMemo(() => trail.some((p) => p.a != null), [trail])
 
   // Map-match every trail point onto the planned route, temporally (seeded at the
@@ -731,6 +752,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // When parado, force 0: a heartbeat resends the last fix with its old (moving)
   // speed, which would otherwise read e.g. "21 km/h" next to "parado".
   const speedKmh = isStopped ? 0 : fix?.speed != null ? Math.max(0, fix.speed * 3.6) : null
+
+  // How to render a speed for the follower: pace (min/km) for walk/run, else
+  // km/h (bike, transport, or unknown activity → generic). A pace only reads
+  // right while actually moving, so a near-zero speed shows "—".
+  const showPace = effectiveActivity != null && !usesSpeedUnit(effectiveActivity)
+  const speedUnitLabel = showPace ? paceUnitLabel(effectiveActivity ?? undefined) : 'km/h'
+  const fmtSpeed = (kmh: number | null): string => {
+    if (kmh == null || !Number.isFinite(kmh)) return '—'
+    if (!showPace) return `${kmh.toFixed(1)} km/h`
+    if (kmh < 0.5) return '—'
+    return formatPace(60 / kmh, effectiveActivity ?? undefined)
+  }
+
   const totalKm = plan?.track.totalDistanceKm ?? 0
   const pct = progressKm != null && totalKm > 0 ? Math.round((progressKm / totalKm) * 100) : 0
 
@@ -883,6 +917,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           </p>
         )}
       </div>
+      {/* Activity icon: declared by the broadcaster, or inferred from the trail
+          ("auto" mark) when left on Automático. */}
+      {effectiveActivity && (
+        <span
+          title={`${ACTIVITY_LABEL[effectiveActivity].label}${activityIsAuto ? ' · detectado automáticamente' : ''}`}
+          className="shrink-0 inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5"
+        >
+          <span aria-hidden="true" className="text-sm leading-none">{ACTIVITY_LABEL[effectiveActivity].emoji}</span>
+          {activityIsAuto && <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">auto</span>}
+          <span className="sr-only">{ACTIVITY_LABEL[effectiveActivity].label}</span>
+        </span>
+      )}
       {hasPlan && <ViewToggle mode={viewMode} setMode={setViewMode} />}
       {onClose && (
         <button type="button" onClick={onClose} title="Cerrar guía" aria-label="Cerrar guía" className="ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-800 hover:text-white">×</button>
@@ -1175,8 +1221,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat
-                  label={isStopped ? 'Parado' : 'Velocidad'}
-                  value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'}
+                  label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
+                  value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : fmtSpeed(speedKmh)}
                   tone={isStopped ? 'amber' : undefined}
                 />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
@@ -1206,20 +1252,30 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               {showAdvanced && (
                 <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
                   {rawTrail.length >= 2 && (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
-                        <p className="text-[10px] text-slate-500">Oculta saltos por mala señal GPS</p>
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
+                          <p className="text-[10px] text-slate-500">Oculta saltos por mala señal GPS</p>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={smooth}
+                          aria-label="Suavizar traza"
+                          onClick={() => setSmooth((v) => !v)}
+                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
+                        >
+                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${smooth ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
                       </div>
-                      <button
-                        role="switch"
-                        aria-checked={smooth}
-                        aria-label="Suavizar traza"
-                        onClick={() => setSmooth((v) => !v)}
-                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
-                      >
-                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${smooth ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
+                      {/* Impossible-speed notice: points hidden because they imply a
+                          speed unreachable for the (declared or detected) activity. */}
+                      {hiddenForSpeed > 0 && effectiveActivity && (
+                        <p className="mt-1.5 text-[10px] text-amber-400">
+                          ⚠️ {hiddenForSpeed} {hiddenForSpeed === 1 ? 'punto oculto' : 'puntos ocultos'} por velocidad imposible para {ACTIVITY_LABEL[effectiveActivity].label.toLowerCase()}
+                          {activityIsAuto && ' (detectado)'}
+                        </p>
+                      )}
                     </div>
                   )}
                   {hasPlan && fullProfile && (
@@ -1231,10 +1287,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       </div>
                     </div>
                   )}
-                  <MetricSection icon="💨" title="Velocidad" cols={3}>
-                    <Stat label="Actual" value={speedKmh != null ? `${speedKmh.toFixed(1)} km/h` : '—'} />
-                    <Stat label="Media total" value={avgSpeedKmh != null ? `${avgSpeedKmh.toFixed(1)} km/h` : '—'} />
-                    <Stat label="Media en mov." value={movingAvgKmh != null ? `${movingAvgKmh.toFixed(1)} km/h` : '—'} />
+                  <MetricSection icon="💨" title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>
+                    <Stat label="Actual" value={fmtSpeed(speedKmh)} />
+                    <Stat label="Media total" value={fmtSpeed(avgSpeedKmh)} />
+                    <Stat label="Media en mov." value={fmtSpeed(movingAvgKmh)} />
                   </MetricSection>
                   {fix.accuracy != null && (
                     <MetricSection icon="📡" title="Señal GPS" cols={3}>

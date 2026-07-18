@@ -1,6 +1,6 @@
 import type { GpxPoint, GpxTrack } from './gpx'
 
-export type ActivityType = 'walk' | 'run' | 'bike'
+export type ActivityType = 'walk' | 'run' | 'bike' | 'transport'
 export type SmartDescentProfile = 'cautious' | 'balanced' | 'aggressive'
 export type SmartFatigueProfile = 'low' | 'medium' | 'high'
 
@@ -17,17 +17,27 @@ export interface PaceConfig {
   activity: ActivityType
 }
 
-/** Realistic max speed (km/h) per activity — used for GPS plausibility filter */
+/** Realistic max speed (km/h) per activity — used for GPS plausibility filter.
+ *  `transport` (car / bus / train, incl. public transport) is deliberately high
+ *  so only true GPS teleports are cut. */
 export const ACTIVITY_MAX_SPEED_KMH: Record<ActivityType, number> = {
   walk: 12,
   run: 25,
   bike: 80,
+  transport: 200,
 }
 
 export const ACTIVITY_LABEL: Record<ActivityType, { emoji: string; label: string }> = {
   walk: { emoji: '🚶', label: 'Caminar' },
   run: { emoji: '🏃', label: 'Correr' },
   bike: { emoji: '🚴', label: 'Bici' },
+  transport: { emoji: '🚌', label: 'Transporte' },
+}
+
+/** Activities whose speed is shown as km/h (not min/km pace): bike and any
+ *  vehicle/transport. Walk/run (and an unknown activity) use min/km. */
+export function usesSpeedUnit(activity?: ActivityType): boolean {
+  return activity === 'bike' || activity === 'transport'
 }
 
 export type SamplingMode = 'auto' | 'km' | 'time' | 'count'
@@ -733,7 +743,7 @@ export function formatDelta(deltaMin: number): string {
  * Internal storage everywhere is `minPerKm` — only the *display* changes.
  */
 export function formatPace(minPerKm: number, activity?: ActivityType): string {
-  if (activity === 'bike') {
+  if (usesSpeedUnit(activity)) {
     if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '— km/h'
     return `${(60 / minPerKm).toFixed(1)} km/h`
   }
@@ -748,7 +758,7 @@ export function formatPace(minPerKm: number, activity?: ActivityType): string {
  * surrounding JSX).
  */
 export function formatPaceValue(minPerKm: number, activity?: ActivityType): string {
-  if (activity === 'bike') {
+  if (usesSpeedUnit(activity)) {
     if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '—'
     return (60 / minPerKm).toFixed(1)
   }
@@ -759,7 +769,7 @@ export function formatPaceValue(minPerKm: number, activity?: ActivityType): stri
 
 /** The unit string for the activity's pace display: `min/km` or `km/h`. */
 export function paceUnitLabel(activity?: ActivityType): string {
-  return activity === 'bike' ? 'km/h' : 'min/km'
+  return usesSpeedUnit(activity) ? 'km/h' : 'min/km'
 }
 
 /**
@@ -781,7 +791,7 @@ export function formatPaceDelta(
   requiredMinPerKm: number,
   activity?: ActivityType,
 ): string {
-  if (activity === 'bike') {
+  if (usesSpeedUnit(activity)) {
     const cur = 60 / currentMinPerKm
     const req = 60 / requiredMinPerKm
     const delta = cur - req  // positive = current is faster than needed → easier

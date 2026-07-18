@@ -3,7 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
-import { TOKEN_RE } from '../../../shared/validate'
+import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
 import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote } from '../../../shared/wireTypes'
 
 /**
@@ -31,7 +31,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.heading AS heading, ts.accuracy AS accuracy, ts.altitude AS altitude,
             ts.fix_at AS fixAt, ts.updated_at AS updatedAt, ts.trail AS trail,
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
-            u.username AS username
+            ts.activity AS activity, u.username AS username
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
@@ -40,7 +40,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
     fixAt: number | null; updatedAt: number | null; trail: string | null
-    pinned: number | null; formFactor: number | null; formLog: string | null; username: string | null
+    pinned: number | null; formFactor: number | null; formLog: string | null
+    activity: string | null; username: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -112,8 +113,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
 
   const body: TrackStateResponse = {
     status, username: row.username, title: row.title, startedAt: row.startedAt, expiresAt: row.expiresAt,
-    endedAt: row.endedAt, planShareId: row.planShareId, fix, trail,
-    formFactor: row.formFactor ?? 1, formLog, viewers, notes,
+    endedAt: row.endedAt, planShareId: row.planShareId,
+    activity: isBeaconActivity(row.activity) ? row.activity : null,
+    fix, trail, formFactor: row.formFactor ?? 1, formLog, viewers, notes,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

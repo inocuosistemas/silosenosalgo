@@ -119,6 +119,9 @@ struct TrackStateWire: Codable {
     var expiresAt: Double
     var endedAt: Double?
     var planShareId: String?
+    /// Movement type raw value ("walk"/"run"/"bike"/"transport"); nil = Automático
+    /// (the embedded viewer infers it from the trail, like online).
+    var activity: String?
     var fix: TrackFixWire?
     var trail: [TrailPoint]
     /// Embed-only: the last position actually uploaded to the server (what
@@ -150,6 +153,7 @@ final class ViewerDataProvider {
     private var startedAt: Double = 0
     private var expiresAt: Double = 0
     private var status: String = "active"
+    private var activity: String?
     private var fix: TrackFixWire?
     private var reportedFix: TrackFixWire?
     private var trail: [TrailPoint] = []
@@ -167,6 +171,7 @@ final class ViewerDataProvider {
         lock.lock()
         self.token = token; self.title = title; self.startedAt = startedAt
         self.expiresAt = expiresAt; self.status = status
+        self.activity = nil   // the store pushes it via setActivity() after registering
         self.notes = []   // the store pushes the loaded notes via setNotes() after registering
         // Re-hydrate any confirmed form factor/log for this session (survives relaunch).
         if let data = try? Data(contentsOf: LocalStore.formURL(token)),
@@ -197,6 +202,14 @@ final class ViewerDataProvider {
     }
 
     func updateStatus(_ status: String) { lock.lock(); self.status = status; lock.unlock() }
+
+    /// Set the current session's movement type (raw value; nil = Automático), so
+    /// the embedded viewer picks the right speed unit and shows the activity icon.
+    func setActivity(token: String, activity: BeaconActivity?) {
+        lock.lock()
+        if self.token == token { self.activity = activity?.rawValue }
+        lock.unlock()
+    }
 
     /// Replace the current session's field notes (the store is the single writer).
     func setNotes(token: String, notes: [Note]) {
@@ -229,6 +242,7 @@ final class ViewerDataProvider {
             expiresAt: expiresAt,
             endedAt: status == "ended" ? (fix?.updatedAt ?? startedAt) : nil,
             planShareId: LocalStore.hasPlan(token) ? token : nil,   // resolves to LocalStore.planURL(token)
+            activity: activity,
             fix: fix,
             trail: trail,
             reportedFix: reportedFix,

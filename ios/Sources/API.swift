@@ -2,6 +2,44 @@ import Foundation
 
 // MARK: - Wire models (mirror /shared/wireTypes.ts)
 
+/// Movement type a beacon reports (mirrors `BeaconActivity` in wireTypes.ts and
+/// `ActivityType` in src/lib/timing.ts). Chosen by the broadcaster; `nil` on the
+/// session = "Automático" (the viewer infers it from the trail). Drives the
+/// viewer's speed unit (walk/run → min/km; bike/transport → km/h), the activity
+/// icon and the realistic max-speed used to hide impossible GPS jumps.
+enum BeaconActivity: String, Codable, CaseIterable, Identifiable {
+    case walk, run, bike, transport
+    var id: String { rawValue }
+
+    var emoji: String {
+        switch self {
+        case .walk: return "🚶"
+        case .run: return "🏃"
+        case .bike: return "🚴"
+        case .transport: return "🚌"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .walk: return "Caminar"
+        case .run: return "Correr"
+        case .bike: return "Bici"
+        case .transport: return "Transporte"
+        }
+    }
+
+    /// Realistic max speed (km/h), mirroring ACTIVITY_MAX_SPEED_KMH.
+    var maxSpeedKmh: Double {
+        switch self {
+        case .walk: return 12
+        case .run: return 25
+        case .bike: return 80
+        case .transport: return 200
+        }
+    }
+}
+
 struct AuthUser: Codable, Equatable {
     let id: String
     let username: String
@@ -39,6 +77,7 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let updatedAt: Double?   // last fix received (epoch ms), nil if none
     let endedAt: Double?     // when ended (epoch ms), nil if active
     let pinned: Bool?        // "chincheta": kept indefinitely; nil on old servers
+    let activity: BeaconActivity?  // movement type; nil = auto/unset (or old server)
 
     /// Pinned state with a safe default for responses predating the field.
     var isPinned: Bool { pinned ?? false }
@@ -217,11 +256,12 @@ enum API {
         return try JSONDecoder().decode(Wrapper.self, from: data).sessions
     }
 
-    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil) async throws -> CreateTrackResponse {
+    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
         if let planId { body["planId"] = planId }
         if let startAt { body["startAt"] = startAt }
+        if let activity { body["activity"] = activity.rawValue }
         let (data, http) = try await request("api/track", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)
@@ -343,5 +383,11 @@ enum API {
     /// clears the name back to "Sin nombre".
     static func rename(token: String, id: String, title: String?) async {
         _ = try? await request("api/track/\(id)/rename", method: "POST", token: token, body: ["title": title ?? ""])
+    }
+
+    /// Set/clear the beacon's movement type on a live session. A nil activity
+    /// (empty string → unrecognised) stores "Automático" (server infers/none).
+    static func setActivity(token: String, id: String, activity: BeaconActivity?) async {
+        _ = try? await request("api/track/\(id)/activity", method: "POST", token: token, body: ["activity": activity?.rawValue ?? ""])
     }
 }

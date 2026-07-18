@@ -35,6 +35,12 @@ struct TrackingView: View {
         Binding(get: { store.sendMode }, set: { store.sendMode = $0; store.profile = .custom })
     }
 
+    /// Activity selection (nil = Automático). Routes through `setActivity` so a
+    /// change made while sharing also updates the server and the embedded viewer.
+    private var activityBinding: Binding<BeaconActivity?> {
+        Binding(get: { store.activity }, set: { store.setActivity($0) })
+    }
+
     private var intervalIndexBinding: Binding<Double> {
         Binding(
             get: { Double(intervalSteps.firstIndex(of: store.intervalSeconds) ?? 2) },
@@ -78,6 +84,30 @@ struct TrackingView: View {
                     }
                     .listRowBackground(Theme.slate900)
                 }
+
+                Section {
+                    Picker("Actividad", selection: activityBinding) {
+                        Label("Automático", systemImage: "wand.and.stars").tag(BeaconActivity?.none)
+                        ForEach(BeaconActivity.allCases) { a in
+                            Text("\(a.emoji)  \(a.label)").tag(Optional(a))
+                        }
+                    }
+                    if store.activity == nil {
+                        if let inferred = store.effectiveActivity {
+                            Text("Detectado: \(inferred.emoji) \(inferred.label). Se ajusta según tu velocidad.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        } else {
+                            Text("Se detecta según tu velocidad: ritmo (min/km) al caminar o correr; km/h en bici o transporte.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
+                    }
+                } header: {
+                    Text("Actividad").foregroundStyle(Theme.slate400)
+                } footer: {
+                    Text("Define cómo ven tu velocidad quienes te siguen y ayuda a descartar saltos de GPS imposibles.")
+                        .font(.caption).foregroundStyle(Theme.slate400)
+                }
+                .listRowBackground(Theme.slate900)
 
                 Section {
                     if !store.isSharing {
@@ -497,6 +527,14 @@ struct TrackingView: View {
                     .foregroundStyle(Theme.slate400)
             }
         }
+        if store.isSharing, let act = store.effectiveActivity {
+            HStack(spacing: 6) {
+                Text(act.emoji)
+                Text(store.activity == nil ? "\(act.label) · auto" : act.label)
+            }
+            .font(.subheadline)
+            .foregroundStyle(Theme.slate100)
+        }
         if store.isSharing, store.batteryLevel >= 0 {
             batteryRow
         }
@@ -592,6 +630,18 @@ struct TrackingView: View {
                     }
                     Text(session.title ?? "Sin nombre")
                         .foregroundStyle(Theme.slate100)
+                        .lineLimit(1)
+                    if let act = session.activity {
+                        // Movement type this session had (declared, or inferred at the
+                        // moment it last stopped). Compact chip so it reads at a glance.
+                        Text("\(act.emoji) \(act.label)")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.slate400)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Theme.slate800.opacity(0.7))
+                            .clipShape(Capsule())
+                    }
                 }
                 HStack(spacing: 8) {
                     Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))

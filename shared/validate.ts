@@ -3,6 +3,17 @@
  * pre-checks. Dependency-free so both `functions/` and `src/` can import it.
  */
 
+import type { BeaconActivity } from './wireTypes'
+
+/** The movement types a beacon session may declare (see BeaconActivity). */
+export const BEACON_ACTIVITIES = ['walk', 'run', 'bike', 'transport'] as const
+
+/** True when `x` is one of the accepted beacon activities. Used server-side to
+ *  validate the create/update body (anything else → treated as auto/null). */
+export function isBeaconActivity(x: unknown): x is BeaconActivity {
+  return typeof x === 'string' && (BEACON_ACTIVITIES as readonly string[]).includes(x)
+}
+
 export const USERNAME_RE = /^[a-z0-9._-]{3,32}$/
 export const PASSWORD_MIN = 8
 export const PASSWORD_MAX = 128

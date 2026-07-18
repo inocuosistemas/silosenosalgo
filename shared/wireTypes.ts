@@ -10,6 +10,13 @@ export interface AuthUser {
   isAdmin: boolean
 }
 
+/** Kind of movement a beacon reports, chosen by the broadcaster (or `null` =
+ *  auto-inferred from observed speed). Drives the viewer's speed unit
+ *  (walk/run → min/km pace; bike/transport → km/h), the activity icon, and the
+ *  realistic max-speed used to hide "impossible" GPS jumps. `transport` covers
+ *  any vehicle incl. public transport. Mirrors `ActivityType` in src/lib/timing.ts. */
+export type BeaconActivity = 'walk' | 'run' | 'bike' | 'transport'
+
 /** An invitation as shown to an admin in the management panel. */
 export interface InviteInfo {
   code: string
@@ -168,6 +175,10 @@ export interface TrackStateResponse {
   endedAt: number | null
   /** KV id of an attached route snapshot (SharePayload), if any. */
   planShareId: string | null
+  /** Movement type chosen by the broadcaster; `null` = auto (viewer infers it
+   *  from the trail). Drives speed units, the activity icon and the
+   *  impossible-speed filter. Omitted by servers predating the feature. */
+  activity?: BeaconActivity | null
   fix: TrackFix | null
   trail: TrailPoint[]
   /** Embedded native viewer ONLY: the last position actually uploaded to the
@@ -210,6 +221,9 @@ export interface TrackSessionSummary {
   endedAt: number | null
   /** Pinned ("chincheta"): kept indefinitely, exempt from the time-based purge. */
   pinned: boolean
+  /** Movement type of the session, or null when auto/unset (see BeaconActivity).
+   *  Lets the owner's list and the beacon show the activity icon. */
+  activity?: BeaconActivity | null
 }
 
 export interface TrackSessionsResponse {

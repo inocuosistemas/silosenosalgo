@@ -3,8 +3,8 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
-import { PLAN_ID_RE } from '../../../shared/validate'
-import type { CreateTrackResponse, TrackSessionsResponse, TrackSessionSummary } from '../../../shared/wireTypes'
+import { PLAN_ID_RE, isBeaconActivity } from '../../../shared/validate'
+import type { BeaconActivity, CreateTrackResponse, TrackSessionsResponse, TrackSessionSummary } from '../../../shared/wireTypes'
 
 /**
  * POST /api/track — create a live-tracking session (owner only). Returns a
@@ -21,9 +21,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body =
-    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number }>(request)) || {}
+    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown }>(request)) || {}
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
+  // Movement type (nullable): store only a recognised value, else NULL = auto.
+  const activity: BeaconActivity | null = isBeaconActivity(body.activity) ? body.activity : null
 
   // Resolve the plan to overlay on the public viewer (nullable):
   //  - planId: copy the owner's saved plan payload into SHARE_KV under a fresh,
@@ -77,8 +79,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // before the race survives through it (and the retention window after).
   const expiresAt = Math.max(now, startedAt) + ttl
   await env.DB.prepare(
-    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt).run()
+    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at, activity) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
+  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt, activity).run()
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)
@@ -96,12 +98,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const { results } = await env.DB.prepare(
     `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt,
-            updated_at AS updatedAt, ended_at AS endedAt, pinned
+            updated_at AS updatedAt, ended_at AS endedAt, pinned, activity
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; title: string | null; planName: string | null; status: string
     startedAt: number; expiresAt: number; updatedAt: number | null; endedAt: number | null
-    pinned: number | null
+    pinned: number | null; activity: string | null
   }>()
 
   const now = Date.now()
@@ -122,6 +124,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       // expiry; surface that as ended-at-expiry so the list reads correctly.
       endedAt: r.endedAt ?? (r.status === 'active' && expired ? r.expiresAt : null),
       pinned,
+      activity: isBeaconActivity(r.activity) ? r.activity : null,
     }
   })
 

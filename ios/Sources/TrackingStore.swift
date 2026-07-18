@@ -42,6 +42,10 @@ final class TrackingStore: ObservableObject {
     @Published var selectedPlanId: String? = nil {
         didSet { applyPlanStart() }
     }
+    /// Movement type of the beacon (nil = "Automático" → the viewer infers it from
+    /// the trail). Chosen before/while sharing; drives the viewer's speed unit,
+    /// the activity icon and the impossible-speed filter.
+    @Published var activity: BeaconActivity? = nil
     /// Planned departure time = reference for paces/predictions. Defaults to the
     /// selected plan's start (so predictions follow the plan), else now.
     @Published var startAt: Date = Date()
@@ -265,6 +269,7 @@ final class TrackingStore: ObservableObject {
         // (selectedPlanId isn't known for a session we didn't just create).
         let summary = sessions.first(where: { $0.id == id })
         activePlanName = summary?.planName
+        activity = summary?.activity
         isSharing = true
         pingCount = 0
         lastSentAt = nil
@@ -278,6 +283,7 @@ final class TrackingStore: ObservableObject {
         loadPendingNoteDeletes(id)
         loadPendingMedia(id)
         ViewerDataProvider.shared.register(token: id, title: summary?.title, startedAt: summary?.startedAt ?? Date().timeIntervalSince1970 * 1000, expiresAt: summary?.expiresAt ?? 0, status: "active")
+        ViewerDataProvider.shared.setActivity(token: id, activity: summary?.activity)
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         // The reported position is unknown for a continued session until the next
         // successful upload; the offline gap simply won't show until then.
@@ -325,7 +331,7 @@ final class TrackingStore: ObservableObject {
             // If the user didn't set a departure time, use "now" at share time
             // (not the stale value from when the screen opened).
             let start = startAtTouched ? startAt : Date()
-            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000)
+            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity)
             sessionToken = res.id
             activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true
@@ -351,6 +357,7 @@ final class TrackingStore: ObservableObject {
             persistPendingNoteDeletes()
             persistPendingMedia()
             ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
+            ViewerDataProvider.shared.setActivity(token: res.id, activity: activity)
             cachePlanBytes(for: res.id, planId: selectedPlanId)
             // If the planned start is still ahead (beyond the lead margin), arm
             // in low-power standby: keep the app alive with coarse location but
@@ -396,6 +403,12 @@ final class TrackingStore: ObservableObject {
                     let ct = item.kind == "audio" ? "audio/mp4" : "image/jpeg"
                     _ = try? await API.uploadNoteMedia(token: token, sessionId: t, noteId: item.noteId, kind: item.kind, data: data, contentType: ct)
                 }
+            }
+            // Snapshot the activity at stop time: if it was left on "Automático",
+            // persist the type inferred from the trail so "Mis seguimientos" shows
+            // what it was when it last stopped (declared types are already stored).
+            if activity == nil, let inferred = effectiveActivity {
+                await API.setActivity(token: token, id: t, activity: inferred)
             }
             await API.end(token: token, id: t, retainHours: retainHours)
             UserDefaults.standard.removeObject(forKey: pendingKey(t))
@@ -799,6 +812,9 @@ final class TrackingStore: ObservableObject {
         let startAtMs: Double
         let planName: String?
         let savedAtMs: Double
+        /// Movement type (raw value), nil = Automático. Optional so states saved
+        /// before this field decode fine (→ nil).
+        let activity: String?
     }
 
     private let activeKey = "activeSession"
@@ -811,7 +827,7 @@ final class TrackingStore: ObservableObject {
             token: t, sendMode: sendMode.rawValue, intervalSeconds: intervalSeconds,
             distanceMeters: distanceMeters, profile: profile.rawValue, retainHours: retainHours,
             startAtMs: startAt.timeIntervalSince1970 * 1000, planName: activePlanName,
-            savedAtMs: Date().timeIntervalSince1970 * 1000)
+            savedAtMs: Date().timeIntervalSince1970 * 1000, activity: activity?.rawValue)
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: activeKey) }
     }
 
@@ -843,6 +859,7 @@ final class TrackingStore: ObservableObject {
         startAt = Date(timeIntervalSince1970: s.startAtMs / 1000)
         startAtTouched = true
         activePlanName = s.planName
+        activity = s.activity.flatMap(BeaconActivity.init(rawValue:))
 
         sessionToken = s.token
         isSharing = true
@@ -857,6 +874,7 @@ final class TrackingStore: ObservableObject {
         loadPendingNoteDeletes(s.token)
         loadPendingMedia(s.token)
         ViewerDataProvider.shared.register(token: s.token, title: nil, startedAt: s.startAtMs, expiresAt: 0, status: "active")
+        ViewerDataProvider.shared.setActivity(token: s.token, activity: activity)
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         ViewerDataProvider.shared.update(token: s.token, fix: lastFix, reportedFix: nil, trail: trail)
         ViewerDataProvider.shared.setNotes(token: s.token, notes: notes)
@@ -998,6 +1016,48 @@ final class TrackingStore: ObservableObject {
         case .precision: sendMode = .time; intervalSeconds = 10
         case .custom: break
         }
+    }
+
+    // MARK: Activity type
+
+    /// Set/clear the beacon's movement type (works before AND during sharing).
+    /// Persists it, tells the server when live, and refreshes the embedded viewer
+    /// so it reformats the speed and shows the icon immediately.
+    func setActivity(_ newActivity: BeaconActivity?) {
+        activity = newActivity
+        guard isSharing, let t = sessionToken else { return }
+        ViewerDataProvider.shared.setActivity(token: t, activity: newActivity)
+        persistActive()
+        Task { await API.setActivity(token: token, id: t, activity: newActivity) }
+    }
+
+    /// The activity shown in the UI: the declared one, or — when "Automático" —
+    /// one inferred from the recorded trail (nil until there's enough moving data).
+    var effectiveActivity: BeaconActivity? { activity ?? Self.inferActivity(from: trail) }
+
+    /// Best-effort movement type from trail speeds, mirroring
+    /// src/lib/activityInference.ts: p85 of the moving-segment speeds, mapped to
+    /// walk/run/bike/transport bands. Keeps the on-device "auto" icon in step with
+    /// what the viewer would infer.
+    private static func inferActivity(from trail: [TrailPoint]) -> BeaconActivity? {
+        guard trail.count >= 7 else { return nil }
+        var speeds: [Double] = []
+        for i in 1..<trail.count {
+            let dtH = (trail[i].t - trail[i - 1].t) / 3_600_000 // ms → hours
+            guard dtH > 0 else { continue }
+            let a = CLLocation(latitude: trail[i - 1].lat, longitude: trail[i - 1].lon)
+            let b = CLLocation(latitude: trail[i].lat, longitude: trail[i].lon)
+            let kmh = (b.distance(from: a) / 1000) / dtH
+            if kmh < 1.5 || kmh > 430 { continue } // stopped or GPS teleport
+            speeds.append(kmh)
+        }
+        guard speeds.count >= 6 else { return nil }
+        speeds.sort()
+        let p85 = speeds[min(speeds.count - 1, Int(Double(speeds.count) * 0.85))]
+        if p85 < 8 { return .walk }
+        if p85 < 16 { return .run }
+        if p85 < 40 { return .bike }
+        return .transport
     }
 
     private func applyLocationConfig() {
