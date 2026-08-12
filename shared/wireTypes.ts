@@ -121,10 +121,18 @@ export interface TrackCheer {
   trackKm: number | null
 }
 
-/** Lo que envía un seguidor al animar. */
+/** Lo que envía un seguidor al animar.
+ *
+ *  `trackKm` lo calcula el visor proyectando la traza del servidor sobre la ruta
+ *  planificada: la baliza NO sube ese dato (`tracking_sessions.track_km` está
+ *  siempre vacío), así que el servidor no tiene forma de deducirlo sin repetir
+ *  todo el emparejamiento. Viene del cliente, por tanto, y es dato cosmético:
+ *  se valida el rango y, como mucho, alguien puede etiquetar mal su propio
+ *  mensaje. */
 export interface CheerCreate {
   nick?: string | null
   body: string
+  trackKm?: number | null
 }
 
 /** Límites compartidos por cliente y servidor: el contador del formulario y la

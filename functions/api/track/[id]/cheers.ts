@@ -71,10 +71,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   ).bind(id).first<{ n: number }>()
   if ((count?.n ?? 0) >= CHEERS_MAX) return json({ error: 'full' }, 409)
 
-  // El km lo sella el servidor con la última posición conocida, no el cliente:
-  // así el ánimo queda anclado al punto real del recorrido y no a lo que
-  // dijera un navegador desactualizado o manipulado.
-  const trackKm = typeof row.trackKm === 'number' && Number.isFinite(row.trackKm) ? row.trackKm : null
+  // Km del corredor al llegar el ánimo. Se prefiere el del servidor, pero HOY
+  // está siempre vacío: la baliza no sube `tracking_sessions.track_km`, y el
+  // km que se ve en pantalla lo calcula el visor proyectando la traza sobre la
+  // ruta. Deducirlo aquí obligaría a cargar el plan y repetir todo el
+  // emparejamiento en cada mensaje, así que se acepta el del cliente validando
+  // el rango. Es dato cosmético: lo peor que puede pasar es que alguien
+  // etiquete mal su propio mensaje.
+  const clientKm = typeof b.trackKm === 'number' && Number.isFinite(b.trackKm)
+    && b.trackKm >= 0 && b.trackKm < 100_000 ? b.trackKm : null
+  const trackKm = typeof row.trackKm === 'number' && Number.isFinite(row.trackKm) ? row.trackKm : clientKm
   const cheer: TrackCheer = { id: genId(16), createdAt: Date.now(), nick, body, trackKm }
   await env.DB.prepare(
     'INSERT INTO track_cheers (id, session_id, created_at, nick, body, track_km, ip_hash) VALUES (?,?,?,?,?,?,?)',

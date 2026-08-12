@@ -402,6 +402,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [cheerBody, setCheerBody] = useState('')
   const [cheerBusy, setCheerBusy] = useState(false)
   const [cheerError, setCheerError] = useState<string | null>(null)
+  const [composing, setComposing] = useState(false)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -982,7 +983,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const res = await fetch(`/api/track/${token}/cheers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nick: cheerNick.trim() || null, body }),
+        // progressKm es el km que el visor ya muestra en pantalla: sale de
+        // proyectar la traza del servidor sobre la ruta. El servidor no puede
+        // deducirlo (la baliza no lo sube), asi que se envia desde aqui.
+        body: JSON.stringify({ nick: cheerNick.trim() || null, body, trackKm: progressKm ?? null }),
       })
       if (!res.ok) {
         setCheerError(res.status === 429
@@ -999,6 +1003,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       setCheersReadAt(created.createdAt)
       saveCheersRead(storageToken, created.createdAt)
       setCheerBody('')
+      setComposing(false)
       try { localStorage.setItem('cheerNick', cheerNick.trim()) } catch { /* modo privado */ }
     } catch {
       setCheerError('Sin conexión.')
@@ -1551,40 +1556,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                         <span className="text-xs">💬</span>Ánimos{cheers.length > 0 && ` · ${cheers.length}`}
                       </p>
                       {canCheer && (
-                        <div className="mb-2 rounded-lg bg-slate-800/70 p-2">
-                          <div className="flex gap-1.5">
-                            <input
-                              value={cheerNick}
-                              onChange={(e) => setCheerNick(e.target.value.slice(0, CHEER_NICK_MAX))}
-                              placeholder="Tu apodo (opcional)"
-                              aria-label="Tu apodo, opcional"
-                              className="min-w-0 flex-1 rounded-md bg-slate-900/70 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:ring-1 focus:ring-sky-600"
-                            />
-                          </div>
-                          <textarea
-                            value={cheerBody}
-                            onChange={(e) => setCheerBody(e.target.value.slice(0, CHEER_BODY_MAX))}
-                            placeholder="Escribe un mensaje de ánimo…"
-                            aria-label="Mensaje de ánimo"
-                            rows={2}
-                            className="mt-1.5 w-full resize-none rounded-md bg-slate-900/70 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:ring-1 focus:ring-sky-600"
-                          />
-                          <div className="mt-1 flex items-center justify-between gap-2">
-                            <span className="text-[10px] text-slate-600">
-                              {cheerNick.trim() ? `Firmas como ${cheerNick.trim()}` : 'Se enviará como anónimo'}
-                              {cheerBody.length > CHEER_BODY_MAX - 40 && ` · ${CHEER_BODY_MAX - cheerBody.length}`}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={sendCheer}
-                              disabled={!cheerBody.trim() || cheerBusy}
-                              className="shrink-0 rounded-lg bg-sky-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
-                            >
-                              {cheerBusy ? 'Enviando…' : 'Enviar'}
-                            </button>
-                          </div>
-                          {cheerError && <p className="mt-1 text-[10px] text-amber-400">{cheerError}</p>}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setCheerError(null); setComposing(true) }}
+                          className="mb-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white"
+                        >
+                          ✍️ Enviar un ánimo
+                        </button>
                       )}
                       {cheers.length > 0 ? (
                         <div className="space-y-1.5">
@@ -1896,6 +1874,91 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       {photoViewer && (
         <PhotoViewer src={photoViewer.src} alt={photoViewer.alt} onClose={() => setPhotoViewer(null)} />
       )}
+      {composing && (
+        <CheerComposer
+          nick={cheerNick} setNick={setCheerNick}
+          body={cheerBody} setBody={setCheerBody}
+          busy={cheerBusy} error={cheerError}
+          onSend={sendCheer} onClose={() => setComposing(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Ventana para escribir un ánimo.
+ *
+ * En ventana y no en línea dentro del panel: escribir en un formulario metido
+ * en una tarjeta que ya hace scroll y que vive sobre un mapa es un desastre en
+ * el móvil — el teclado tapa el campo, el panel se desplaza solo y el mapa se
+ * lleva gestos que iban para el texto. Aislado deja de competir con nada.
+ *
+ * Los campos van a 16 px A PROPÓSITO: por debajo de eso, Safari en iOS hace
+ * zoom al enfocar y deja la página descuadrada. Es la causa del "hace cosas
+ * raras" con el zoom.
+ */
+function CheerComposer({
+  nick, setNick, body, setBody, busy, error, onSend, onClose,
+}: {
+  nick: string; setNick: (v: string) => void
+  body: string; setBody: (v: string) => void
+  busy: boolean; error: string | null
+  onSend: () => void; onClose: () => void
+}) {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[3000] flex items-end justify-center bg-black/70 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar un ánimo"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm font-semibold text-slate-100">💬 Enviar un ánimo</p>
+        <input
+          value={nick}
+          onChange={(e) => setNick(e.target.value.slice(0, CHEER_NICK_MAX))}
+          placeholder="Tu apodo (opcional)"
+          aria-label="Tu apodo, opcional"
+          className="mt-3 w-full rounded-lg bg-slate-800 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-sky-600"
+        />
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value.slice(0, CHEER_BODY_MAX))}
+          placeholder="Escribe tu mensaje…"
+          aria-label="Mensaje de ánimo"
+          rows={3}
+          autoFocus
+          className="mt-2 w-full resize-none rounded-lg bg-slate-800 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-sky-600"
+        />
+        <p className="mt-1 text-[11px] text-slate-500">
+          {nick.trim() ? `Firmas como ${nick.trim()}` : 'Se enviará como anónimo'} · quedan {CHEER_BODY_MAX - body.length}
+        </p>
+        {error && <p className="mt-1 text-xs text-amber-400">{error}</p>}
+        <div className="mt-3 flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-lg bg-slate-800 py-2 text-sm text-slate-300">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!body.trim() || busy}
+            className="flex-1 rounded-lg bg-sky-600 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            {busy ? 'Enviando…' : 'Enviar'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
