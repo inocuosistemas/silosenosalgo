@@ -39,14 +39,58 @@ const ELE_MIN_SPAN_M = 400    // minimum vertical span (m) for the route profile
 
 type ViewMode = 'map' | 'cards'
 
-/** Follows the latest position, keeping the user's current zoom. */
-function Follow({ lat, lon }: { lat: number; lon: number }) {
+/** Tiempo sin tocar el mapa tras el cual se vuelve a seguir al corredor solo. */
+const AUTO_FOLLOW_IDLE_MS = 60_000
+
+/**
+ * Centra el mapa en el corredor, pero SIN robar el mando.
+ *
+ * Antes recentraba con CADA posicion recibida, asi que era imposible mirar otra
+ * parte de la ruta: a los pocos segundos el mapa se iba solo. Ahora, en cuanto
+ * se arrastra o se hace zoom, el seguimiento automatico se suspende y no vuelve
+ * hasta pasado un minuto sin tocar nada —suficiente para estudiar una zona sin
+ * quedarse anclado ahi para siempre— y el boton de recentrar lo trae de vuelta
+ * al momento.
+ */
+function Follow({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }) {
   const map = useMap()
   const first = useRef(true)
+  const lastUserMove = useRef(0)
+  const pos = useRef({ lat, lon })
+  pos.current = { lat, lon }
+
   useEffect(() => {
-    map.setView([lat, lon], first.current ? 15 : map.getZoom())
-    first.current = false
+    const onUser = () => { lastUserMove.current = Date.now() }
+    // Solo gestos del usuario: un `setView` manteniendo el zoom no dispara
+    // ninguno de los dos, asi que el propio recentrado no cuenta como toque.
+    map.on('dragstart', onUser)
+    map.on('zoomstart', onUser)
+    return () => { map.off('dragstart', onUser); map.off('zoomstart', onUser) }
+  }, [map])
+
+  // Con cada posicion nueva: la primera encuadra; las demas, solo si hace rato
+  // que nadie toca el mapa.
+  useEffect(() => {
+    if (first.current) {
+      map.setView([lat, lon], 15)
+      first.current = false
+      return
+    }
+    if (Date.now() - lastUserMove.current >= AUTO_FOLLOW_IDLE_MS) {
+      map.setView([lat, lon], map.getZoom())
+    }
   }, [lat, lon, map])
+
+  // Recentrado manual. Depende SOLO de `nudge`, a proposito: con lat/lon en las
+  // dependencias volveria a dispararse con cada posicion, que es justo lo que se
+  // quiere evitar. Ademas reanuda el seguimiento automatico.
+  const firstNudge = useRef(true)
+  useEffect(() => {
+    if (firstNudge.current) { firstNudge.current = false; return }
+    lastUserMove.current = 0
+    map.setView([pos.current.lat, pos.current.lon], map.getZoom())
+  }, [nudge, map])
+
   return null
 }
 
@@ -403,6 +447,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [cheerBusy, setCheerBusy] = useState(false)
   const [cheerError, setCheerError] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
+  const [recentre, setRecentre] = useState(0)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -1498,7 +1543,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           )}
           {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
         </Pane>
-        {fix && <Follow lat={fix.lat} lon={fix.lon} />}
+        {fix && <Follow lat={fix.lat} lon={fix.lon} nudge={recentre} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
 
@@ -1868,6 +1913,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         )}
         </div>
       </div>
+
+      {/* Recentrar en el corredor. A la derecha y por encima de la pastilla de
+          estado: donde lo espera cualquiera y donde no tapa la tarjeta de datos. */}
+      {fix && (
+        <button
+          type="button"
+          onClick={() => setRecentre((n) => n + 1)}
+          aria-label="Centrar en el corredor"
+          title="Centrar en el corredor"
+          className="absolute bottom-24 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/85 text-lg shadow-lg backdrop-blur active:scale-95"
+        >
+          <span aria-hidden="true">🎯</span>
+        </button>
+      )}
 
       {/* Live status pill — status + (when there's data) the GPS-precision legend,
           in one bottom card so the trail colours read alongside "en directo". */}
