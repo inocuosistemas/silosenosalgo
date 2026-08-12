@@ -691,6 +691,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     [plan],
   )
 
+  // Circuito de varias vueltas. OJO: tiene que quedar por encima de los `return`
+  // de abajo. Los hooks se ejecutan siempre, en el mismo orden y en el mismo
+  // numero en cada render; uno colocado despues de un return temprano se salta
+  // mientras `state` es null y aparece cuando llegan los datos, y React aborta
+  // con el error #310.
+  const lapInfo = useMemo(() => (plan ? detectLaps(plan.track) : null), [plan])
+
   // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
   // projected ETA at render time.
   const [weather, setWeather] = useState<(PoiHourly | null)[] | null>(null)
@@ -907,10 +914,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
-  // Circuito de varias vueltas: en una ruta asi, "vuelta 2 de 4" dice mucho mas
-  // que un porcentaje, asi que sustituye al % en la casilla de progreso (sin
-  // ocupar mas sitio). En rutas normales no es nada y todo queda como estaba.
-  const lapInfo = useMemo(() => (plan ? detectLaps(plan.track) : null), [plan])
+  // En un circuito, "vuelta 2 de 4" dice mucho mas que un porcentaje, asi que
+  // sustituye al % en la casilla de progreso (sin ocupar mas sitio). En rutas
+  // normales `lapInfo` es null y todo queda como estaba. No es un hook: se
+  // calcula aqui porque `progressKm` no existe hasta este punto.
   const lapNow = lapInfo && progressKm != null ? currentLap(lapInfo, progressKm) : null
 
   // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
