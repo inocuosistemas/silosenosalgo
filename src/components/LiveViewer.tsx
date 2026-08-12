@@ -972,6 +972,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const lapTrend = lastMovDelta == null ? null
     : Math.abs(lastMovDelta) < 0.5 ? 'ritmo estable'
     : lastMovDelta < 0 ? 'mejorando' : 'aflojando'
+  // Hora a la que se cerrara la vuelta en curso. Se escala la duracion prevista
+  // por lo que QUEDA de vuelta, no por el rato que ya se lleva: si esta vuelta
+  // se ha ido larga por una parada, para la hora de cierre importa el trozo que
+  // falta, no el tiempo perdido.
+  const openLap = splits.find((s) => !s.done) ?? null
+  const lapEta = nextLapMin != null && openLap && lapInfo
+    ? new Date(refNow + nextLapMin * Math.max(0, (lapInfo.lapKm - openLap.km) / lapInfo.lapKm) * 60_000)
+    : null
+  // En la ultima vuelta no hay "siguiente": lo que se cierra es la meta.
+  const onFinalLap = !!(openLap && lapInfo && openLap.lap >= lapInfo.laps)
 
   // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
   // la marca queda de rastro al final de la segunda linea. `plan.track.name` cae
@@ -1412,7 +1422,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       </div>
                       {nextLapMin != null && (
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Siguiente vuelta ~{lapTime(nextLapMin)}
+                          {lapEta && (
+                            <>
+                              {onFinalLap ? 'Meta' : `Cierras la V${openLap!.lap}`}
+                              {' ~'}<span className="text-slate-300">{clockDay(lapEta, sessionStart)}</span>
+                            </>
+                          )}
+                          {!onFinalLap && <>{lapEta ? ' · ' : ''}vuelta ~{lapTime(nextLapMin)}</>}
                           {lapTrend && <> · {lapTrend}</>}
                         </p>
                       )}
