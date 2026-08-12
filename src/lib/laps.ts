@@ -70,3 +70,90 @@ export function detectLaps(track: GpxTrack): LapInfo | null {
 export function currentLap(info: LapInfo, progressKm: number): number {
   return Math.min(info.laps, Math.max(1, Math.floor(progressKm / info.lapKm) + 1))
 }
+
+/** Una fila de la tabla de vueltas. */
+export interface LapSplit {
+  /** Numero de vuelta, empezando en 1. */
+  lap: number
+  /** Km recorridos DENTRO de esta vuelta (la de en curso va a medias). */
+  km: number
+  /** Minutos que costo. En la de en curso, los que lleva. */
+  minutes: number
+  /** Diferencia con la vuelta anterior completa; null en la primera. */
+  deltaMin: number | null
+  done: boolean
+}
+
+/**
+ * Reparte el recorrido en vueltas y calcula cuanto costo cada una.
+ *
+ * El cruce de cada linea se interpola entre las dos muestras que la rodean, en
+ * vez de tomar la muestra mas cercana: con posiciones cada pocos minutos, el
+ * error de redondear al punto mas proximo se acumula vuelta a vuelta y los
+ * parciales dejan de cuadrar con el total.
+ *
+ * `samples` son posiciones ya proyectadas sobre la ruta (km recorrido + hora),
+ * de mas antigua a mas reciente.
+ */
+export function lapSplits(
+  info: LapInfo,
+  samples: { km: number; t: number }[],
+  nowMs: number,
+): LapSplit[] {
+  if (samples.length < 2) return []
+
+  // Hora a la que se cruzo el km objetivo, interpolando entre las dos muestras
+  // que lo rodean. null si aun no se ha llegado.
+  const timeAtKm = (target: number): number | null => {
+    for (let i = 1; i < samples.length; i++) {
+      const a = samples[i - 1], b = samples[i]
+      if (b.km < target) continue
+      if (a.km > target) return a.t // ya estaba pasado en la primera muestra
+      const span = b.km - a.km
+      return span <= 0 ? b.t : a.t + ((target - a.km) / span) * (b.t - a.t)
+    }
+    return null
+  }
+
+  const startT = samples[0].t
+  const lastSample = samples[samples.length - 1]
+  const out: LapSplit[] = []
+  let prevT = startT
+  let prevDone: number | null = null
+
+  for (let lap = 1; lap <= info.laps; lap++) {
+    const endT = timeAtKm(lap * info.lapKm)
+    if (endT != null) {
+      const minutes = (endT - prevT) / 60_000
+      out.push({ lap, km: info.lapKm, minutes, deltaMin: prevDone == null ? null : minutes - prevDone, done: true })
+      prevDone = minutes
+      prevT = endT
+      continue
+    }
+    // Vuelta en curso: solo tiene sentido si ya se ha empezado.
+    const km = lastSample.km - (lap - 1) * info.lapKm
+    if (km > 0) {
+      out.push({ lap, km, minutes: (nowMs - prevT) / 60_000, deltaMin: null, done: false })
+    }
+    break
+  }
+
+  return out
+}
+
+/**
+ * Cuanto costara la siguiente vuelta, a partir de las ya completadas, dando mas
+ * peso a las recientes: si el ritmo se esta yendo, la prevision tiene que
+ * seguirlo en vez de quedarse anclada al principio. null con menos de una vuelta.
+ */
+export function projectNextLapMin(splits: LapSplit[]): number | null {
+  const done = splits.filter((s) => s.done)
+  if (done.length === 0) return null
+  let num = 0, den = 0
+  done.forEach((s, i) => {
+    const w = 0.4 + 0.6 * (done.length === 1 ? 1 : i / (done.length - 1))
+    num += s.minutes * w
+    den += w
+  })
+  return den > 0 ? num / den : null
+}

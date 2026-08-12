@@ -17,7 +17,7 @@ import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
-import { detectLaps, currentLap } from '../lib/laps'
+import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
 
@@ -83,6 +83,15 @@ function hhmm(min: number): string {
 /** Sampling interval as a short "cada N s / N min" cadence. */
 function sampleLabel(sec: number): string {
   return sec < 90 ? `cada ${Math.round(sec)} s` : `cada ${Math.round(sec / 60)} min`
+}
+
+/** Tiempo de vuelta. Con segundos: al comparar vueltas, el minuto redondeado se
+ *  come justo la diferencia que se quiere ver. */
+function lapTime(min: number): string {
+  const total = Math.max(0, Math.round(min * 60))
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60
+  const mm = String(m).padStart(2, '0'), ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`
 }
 
 function deltaLabel(min: number): string {
@@ -919,6 +928,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // normales `lapInfo` es null y todo queda como estaba. No es un hook: se
   // calcula aqui porque `progressKm` no existe hasta este punto.
   const lapNow = lapInfo && progressKm != null ? currentLap(lapInfo, progressKm) : null
+  // Sin useMemo a proposito: `refNow` se define despues de los `return` de
+  // arriba, asi que un hook aqui volveria a desordenarlos (el #310 de antes).
+  // El calculo es una pasada corta sobre las muestras y no compensa el riesgo.
+  const splits = lapInfo ? lapSplits(lapInfo, formSamples, refNow) : []
+  const nextLapMin = projectNextLapMin(splits)
+  // Comparando las dos ultimas completas: media vuelta de margen para no llamar
+  // "mejorando" a lo que solo es ruido de GPS.
+  const lastDelta = splits.filter((s) => s.done).slice(-1)[0]?.deltaMin ?? null
+  const lapTrend = lastDelta == null ? null
+    : Math.abs(lastDelta) < 0.5 ? 'ritmo estable'
+    : lastDelta < 0 ? 'mejorando' : 'aflojando'
 
   // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
   // la marca queda de rastro al final de la segunda linea. `plan.track.name` cae
@@ -1316,6 +1336,38 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
                   {recalibrationCard}
                   {formStatusPanel}
+                  {lapInfo && splits.length > 0 && (
+                    <div>
+                      {/* Los km por vuelta van en la cabecera y no en cada fila:
+                          son iguales por definicion (asi se detecta el circuito),
+                          repetirlos gastaria el ancho que necesita el tiempo. */}
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span className="text-xs">🔁</span>Vueltas · {lapInfo.lapKm.toFixed(1)} km cada una
+                      </p>
+                      <div className="space-y-0.5 tabular-nums">
+                        {splits.map((s) => (
+                          <div key={s.lap} className="flex items-baseline gap-2 text-xs">
+                            <span className="w-5 shrink-0 text-slate-500">V{s.lap}</span>
+                            <span className={`flex-1 ${s.done ? 'text-slate-200' : 'text-sky-300'}`}>{lapTime(s.minutes)}</span>
+                            {s.done ? (
+                              <span className={`shrink-0 ${s.deltaMin == null ? 'text-slate-600'
+                                : s.deltaMin < 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {s.deltaMin == null ? '—' : `${s.deltaMin < 0 ? '−' : '+'}${lapTime(Math.abs(s.deltaMin))}`}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-sky-300">en curso · {s.km.toFixed(1)} km</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {nextLapMin != null && (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Siguiente vuelta ~{lapTime(nextLapMin)}
+                          {lapTrend && <> · {lapTrend}</>}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {rawTrail.length >= 2 && (
                     <div>
                       <div className="flex items-center justify-between gap-2">
