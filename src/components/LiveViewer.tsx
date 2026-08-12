@@ -7,7 +7,7 @@ import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiT
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
 import { withNoteWaypoints } from '../lib/notesToGpx'
-import { fetchTrackState, haversineKm, LiveTrackError } from '../lib/liveTrack'
+import { fetchTrackState, haversineKm, viewerId, LiveTrackError } from '../lib/liveTrack'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
@@ -995,7 +995,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           : 'No se ha podido enviar.')
         return
       }
-      const created = await res.json() as TrackCheer
+      const created = { ...(await res.json() as TrackCheer), likes: 0, likedByMe: false }
       // Se añade al momento en vez de esperar al siguiente sondeo: quien acaba
       // de escribir tiene que ver su mensaje ya. Y se marca leido, que no tiene
       // sentido avisarle de su propio ánimo.
@@ -1009,6 +1009,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       setCheerError('Sin conexión.')
     } finally {
       setCheerBusy(false)
+    }
+  }
+
+  // Me gusta. Se pinta al instante y se corrige con lo que responda el servidor,
+  // que es quien lleva la cuenta buena: el boton tiene que reaccionar al dedo,
+  // pero el numero no puede quedar a merced de un fallo de red.
+  async function toggleLike(c: TrackCheer) {
+    const optimistic = { ...c, likedByMe: !c.likedByMe, likes: Math.max(0, c.likes + (c.likedByMe ? -1 : 1)) }
+    const put = (v: TrackCheer) =>
+      setState((s) => (s ? { ...s, cheers: (s.cheers ?? []).map((x) => (x.id === v.id ? v : x)) } : s))
+    put(optimistic)
+    try {
+      const res = await fetch(`/api/track/${token}/cheers/${c.id}/like?v=${encodeURIComponent(viewerId())}`, { method: 'POST' })
+      if (!res.ok) { put(c); return }
+      const r = await res.json() as { likes: number; likedByMe: boolean }
+      put({ ...c, likes: r.likes, likedByMe: r.likedByMe })
+    } catch {
+      put(c) // sin red, se deshace: mejor eso que un corazon que miente
     }
   }
 
@@ -1583,6 +1601,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                   </span>
                                 </div>
                                 <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-300">{c.body}</p>
+                                {canCheer && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleLike(c)}
+                                    aria-pressed={c.likedByMe}
+                                    aria-label={c.likedByMe ? 'Quitar me gusta' : 'Me gusta'}
+                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                                      c.likedByMe ? 'bg-rose-500/15 text-rose-300' : 'bg-slate-700/50 text-slate-400'}`}
+                                  >
+                                    <span aria-hidden="true">{c.likedByMe ? '❤️' : '🤍'}</span>
+                                    {c.likes > 0 && <span className="tabular-nums">{c.likes}</span>}
+                                  </button>
+                                )}
                               </div>
                             )
                           })}

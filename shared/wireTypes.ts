@@ -119,6 +119,10 @@ export interface TrackCheer {
   /** Km de la ruta por el que iba el corredor al llegar el ánimo. Lo sella el
    *  servidor con la última posición conocida; null si aún no había ninguna. */
   trackKm: number | null
+  /** Cuántos seguidores le han dado a me gusta. */
+  likes: number
+  /** Si ESTE navegador ya votó (para pintar el botón y permitir quitarlo). */
+  likedByMe: boolean
 }
 
 /** Lo que envía un seguidor al animar.

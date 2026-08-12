@@ -15,7 +15,7 @@ export class LiveTrackError extends Error {
  *  (presence) without any account. Persisted across reloads; falls back to an
  *  in-memory id when storage is unavailable (private mode / embedded viewer). */
 let memoViewerId: string | null = null
-function viewerId(): string {
+export function viewerId(): string {
   const fresh = () =>
     (globalThis.crypto?.randomUUID?.() ?? `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
       .replace(/[^A-Za-z0-9_-]/g, '')

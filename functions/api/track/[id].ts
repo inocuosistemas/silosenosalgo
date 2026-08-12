@@ -108,10 +108,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   let cheers: TrackCheer[] | undefined
   try {
     const cheerRows = await env.DB.prepare(
-      `SELECT id, created_at AS createdAt, nick, body, track_km AS trackKm
-         FROM track_cheers WHERE session_id=? ORDER BY created_at DESC LIMIT 200`,
-    ).bind(id).all<TrackCheer>()
-    cheers = cheerRows.results.length ? cheerRows.results : undefined
+      `SELECT c.id, c.created_at AS createdAt, c.nick, c.body, c.track_km AS trackKm,
+              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id) AS likes,
+              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id AND l.viewer_id = ?) AS likedByMe
+         FROM track_cheers c WHERE c.session_id=? ORDER BY c.created_at DESC LIMIT 200`,
+    ).bind(viewerId ?? '', id).all<TrackCheer & { likedByMe: number }>()
+    cheers = cheerRows.results.length
+      ? cheerRows.results.map((c) => ({ ...c, likes: c.likes ?? 0, likedByMe: !!c.likedByMe }))
+      : undefined
   } catch { cheers = undefined }
 
   // Live presence: only meaningful while the session is active. Record this
