@@ -1960,16 +1960,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       </div>
 
       {/* Recentrar en el corredor. A la derecha y por encima de la pastilla de
-          estado: donde lo espera cualquiera y donde no tapa la tarjeta de datos. */}
+          estado: donde lo espera cualquiera y donde no tapa la tarjeta de datos.
+          Sin fondo ni marco: una pastilla oscura tapaba terreno sin necesidad.
+          La mirilla se lee sola gracias al halo blanco (drop-shadow), que la
+          separa tanto del verde del bosque como del gris del asfalto. */}
       {fix && (
         <button
           type="button"
           onClick={() => setRecentre((n) => n + 1)}
           aria-label="Centrar en el corredor"
           title="Centrar en el corredor"
-          className="absolute bottom-24 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/85 text-lg shadow-lg backdrop-blur active:scale-95"
+          className="absolute bottom-24 right-3 z-[1000] grid h-11 w-11 place-items-center text-slate-900 [filter:drop-shadow(0_0_2px_white)_drop-shadow(0_1px_2px_rgba(0,0,0,.4))] active:scale-95"
         >
-          <span aria-hidden="true">🎯</span>
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="6.5" />
+            <path d="M12 1.6v3.6M12 18.8v3.6M1.6 12h3.6M18.8 12h3.6" />
+            <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+          </svg>
         </button>
       )}
 
