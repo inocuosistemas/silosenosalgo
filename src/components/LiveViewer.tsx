@@ -906,14 +906,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
+  // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
+  // la marca queda de rastro al final de la segunda linea. `plan.track.name` cae
+  // a "Ruta compartida" cuando el GPX no traia nombre, y eso no dice nada, asi
+  // que en ese caso manda el titulo de la sesion si lo hay. Sin plan ni titulo
+  // (una baliza suelta) el nombre de la app es lo unico que queda.
+  const routeName = plan?.track.name?.trim() ?? ''
+  const namedRoute = routeName && routeName !== 'Ruta compartida' ? routeName : ''
+  const headline = namedRoute || state.title?.trim() || routeName || 'SiLoSeNoSalgo - Baliza'
+  const showBrand = headline !== 'SiLoSeNoSalgo - Baliza'
+
   const header = (
     <div className="flex items-center gap-2">
       <span className="text-lg">🌧️</span>
       <div className="min-w-0 flex-1">
-        <p className="font-semibold truncate">{state.title || 'SiLoSeNoSalgo - Baliza'}</p>
-        {state.username && (
-          <p className="text-xs text-slate-400 truncate">
-            Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span>
+        <p className="font-semibold truncate">{headline}</p>
+        {(state.username || showBrand) && (
+          // Una sola linea: lo variable trunca y la marca, que es lo prescindible,
+          // va fija al final para que no empuje ni desaparezca.
+          <p className="flex items-baseline gap-1 text-xs text-slate-400">
+            {state.username && (
+              <span className="truncate">
+                Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span>
+              </span>
+            )}
+            {showBrand && <span className="shrink-0 text-slate-600">· SiLoSeNoSalgo</span>}
           </p>
         )}
       </div>
