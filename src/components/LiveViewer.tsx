@@ -1062,7 +1062,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         className="flex items-center gap-1 text-xs"
       >
         <span className={onPlan ? 'text-slate-300' : slower ? 'text-amber-400' : 'text-emerald-400'}>
-          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${slower ? '+' : '−'}${Math.abs(pct)}% vs ritmo`}
+          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${Math.abs(pct)}% más ${slower ? 'lento' : 'rápido'} de lo previsto`}
         </span>
         {suggestFactor && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true" />}
       </button>
