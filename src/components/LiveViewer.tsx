@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
+import { CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -207,6 +207,27 @@ function pulseDivIcon(color: string): L.DivIcon {
     pulseIconCache.set(color, icon)
   }
   return icon
+}
+
+/** Primer emoji de lo que se haya escrito, o null si no hay ninguno. El teclado
+ *  puede colar espacios o varios de golpe; se corta por grafemas (Intl.Segmenter)
+ *  para no partir por la mitad un emoji compuesto, que son varios code points. */
+function firstEmoji(texto: string): string | null {
+  const t = texto.trim()
+  if (!t) return null
+  // Intl.Segmenter no entra en la `lib` de TypeScript que usa el proyecto, y en
+  // algún navegador viejo tampoco existe: se accede sin tipar y con respaldo.
+  type Segmentador = { segment(s: string): Iterable<{ segment: string }> }
+  const Seg = (Intl as unknown as {
+    Segmenter?: new (loc: string, opts: { granularity: string }) => Segmentador
+  }).Segmenter
+  if (Seg) {
+    for (const { segment } of new Seg('es', { granularity: 'grapheme' }).segment(t)) {
+      if (isReactionEmoji(segment)) return segment
+    }
+    return null
+  }
+  return isReactionEmoji(t) ? t : null
 }
 
 /** min/km as M:SS/km. */
@@ -1717,7 +1738,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                         <span aria-hidden="true">{c.myReaction ?? '🙂'}</span>
                                       </button>
                                       {picker === c.id && (
-                                        <div className="absolute bottom-full right-0 z-10 mb-1 flex gap-0.5 rounded-full border border-slate-700 bg-slate-900 px-1.5 py-1 shadow-xl">
+                                        <div className="absolute bottom-full right-0 z-10 mb-1 flex items-center gap-0.5 rounded-full border border-slate-700 bg-slate-900 px-1.5 py-1 shadow-xl">
                                           {CHEER_REACTIONS.map((e) => (
                                             <button
                                               key={e}
@@ -1730,6 +1751,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                               {e}
                                             </button>
                                           ))}
+                                          {/* Cualquier otro emoji: el campo abre el
+                                              teclado del sistema, que ya trae el
+                                              suyo. Se queda con el primero que se
+                                              escriba y reacciona. A 16px, que por
+                                              debajo iOS hace zoom al enfocar. */}
+                                          <input
+                                            value=""
+                                            onChange={(e) => {
+                                              const primero = firstEmoji(e.target.value)
+                                              if (primero) react(c, primero)
+                                            }}
+                                            placeholder="＋"
+                                            aria-label="Reaccionar con otro emoji"
+                                            className="ml-0.5 h-8 w-8 rounded-full bg-slate-800 text-center text-base text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-sky-600"
+                                          />
                                         </div>
                                       )}
                                     </div>

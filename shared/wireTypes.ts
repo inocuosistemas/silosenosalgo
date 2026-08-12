@@ -130,10 +130,33 @@ export interface TrackCheer {
   mine: boolean
 }
 
-/** Reacciones permitidas. Lista cerrada y validada en el servidor: sin ella, el
- *  campo sería texto libre y acabaría guardando cualquier cosa. El orden es el
- *  del selector. */
-export const CHEER_REACTIONS = ['❤️', '💪', '🔥', '👏'] as const
+/** Los que ofrece el selector de un toque. No es una lista cerrada: son los
+ *  atajos. Cualquier otro emoji vale si pasa `isReactionEmoji`. */
+export const CHEER_REACTIONS = ['❤️', '💪', '🔥', '👏', '😂', '🖕'] as const
+
+/**
+ * ¿Es UN emoji y solo uno?
+ *
+ * Lo que se guarda se le enseña a todo el mundo, así que no puede ser texto
+ * libre: sin esto, el campo de reacción sería un sitio donde escribir lo que
+ * fuera. Se acepta un pictograma con sus modificadores (tono de piel, selector
+ * de variación) y las secuencias unidas por ZWJ, que es como se componen los
+ * emojis de familia o profesión y llegan como uno solo. También las banderas,
+ * que son dos indicadores regionales y no encajan en lo anterior.
+ *
+ * Las letras y los números quedan fuera solos: no son `Extended_Pictographic`.
+ */
+const PICTO = '(?:\\p{Extended_Pictographic})(?:\\uFE0F|\\p{Emoji_Modifier})*'
+const EMOJI_RE = new RegExp(
+  `^(?:${PICTO}(?:\\u200D${PICTO})*|\\p{Regional_Indicator}{2})$`,
+  'u',
+)
+
+export function isReactionEmoji(v: unknown): v is string {
+  // El tope de longitud es una red aparte del patrón: una secuencia ZWJ absurda
+  // podría encajar y no tiene por qué acabar en la base de datos.
+  return typeof v === 'string' && v.length > 0 && v.length <= 24 && EMOJI_RE.test(v)
+}
 
 /** Segundos que un ánimo permanece privado y borrable por su autor. */
 export const CHEER_GRACE_MS = 10_000

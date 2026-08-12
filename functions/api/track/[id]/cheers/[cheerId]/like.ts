@@ -2,7 +2,7 @@
 import type { Env } from '../../../../../lib/db'
 import { json, csrfOk, rateLimited, clientIp } from '../../../../../lib/http'
 import { TOKEN_RE } from '../../../../../../shared/validate'
-import { CHEER_REACTIONS } from '../../../../../../shared/wireTypes'
+import { isReactionEmoji } from '../../../../../../shared/wireTypes'
 
 /**
  * POST /api/track/:id/cheers/:cheerId/like?v=<viewerId>&e=<emoji> — pone, cambia
@@ -40,10 +40,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const q = new URL(request.url).searchParams
   const viewer = q.get('v') || ''
   if (!VIEWER_RE.test(viewer)) return json({ error: 'bad_viewer' }, 400)
-  // Lista cerrada: el emoji acaba en la base de datos y se muestra a todo el
-  // mundo, asi que no puede ser texto libre.
+  // Vale cualquier emoji, pero SOLO un emoji: lo que se guarde se le enseña a
+  // todo el mundo, asi que el campo no puede convertirse en texto libre.
   const emoji = q.get('e') || ''
-  if (!(CHEER_REACTIONS as readonly string[]).includes(emoji)) return json({ error: 'bad_emoji' }, 400)
+  if (!isReactionEmoji(emoji)) return json({ error: 'bad_emoji' }, 400)
 
   // El mensaje tiene que pertenecer a esta ruta: sin esta comprobacion, con el
   // id de un mensaje se podria votar desde cualquier enlace.
