@@ -1176,6 +1176,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     : null
 
   const hasPlan = !!plan
+
+  // ¿Ha llegado a meta? La baliza no lo dice: solo se para. Se da por llegada
+  // cuando se detuvo Y estaba lo bastante cerca del final de la ruta como para
+  // que no quepa otra explicación. El margen es generoso a propósito: la línea
+  // de meta rara vez coincide al metro con el último punto del GPX y el GPS
+  // tiene lo suyo. Un 1,5% de la ruta, con suelo y techo para que ni en una
+  // ruta corta se quede en nada ni en una de 400 km dé por llegado a un
+  // kilómetro y medio.
+  const goalTolKm = Math.min(1, Math.max(0.25, totalKm * 0.015))
+  const remainingKm = progressKm != null ? Math.max(0, totalKm - progressKm) : null
+  const reachedGoal = ended && hasPlan && remainingKm != null && remainingKm <= goalTolKm
+  // Llegada = última posición recibida, no `endedAt`: la baliza se para cuando
+  // uno se acuerda, que puede ser bastante después de cruzar la meta.
+  const arrivalAt = reachedGoal && fix ? new Date(fix.updatedAt) : null
+  const totalMin = arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000 : null
+
   const center: [number, number] = fix ? [fix.lat, fix.lon]
     : trail.length ? [trail[trail.length - 1].lat, trail[trail.length - 1].lon]
     : plan ? [plan.track.points[0].lat, plan.track.points[0].lon]
@@ -1184,7 +1200,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Live status (en directo / visto / finalizado / esperando). Shown full-width,
   // not in the truncated header — as a bottom pill over the map, and as its own
   // line in the cards view.
-  const statusLine = ended
+  const statusLine = reachedGoal
+    ? <><span className="text-emerald-400">🏁 llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
+    : ended
     ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : <>finalizado</>)
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
@@ -1299,8 +1317,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     </div>
   )
 
-  // Pre-start → countdown; otherwise → the next-cut-off banner.
-  const topHero = preStart ? countdownHero : cutoffHero
+  // Llegada a meta. Manda sobre todo lo demás: una vez cruzada, el próximo corte
+  // ya no importa y dejar el aviso de "te quedan 0,2 km" hacía que una carrera
+  // terminada se leyera como una que se quedó a medias.
+  const goalHero = reachedGoal && (
+    <div className="rounded-xl border border-emerald-700 bg-emerald-950/50 p-3 text-center text-emerald-100">
+      <p className="text-[11px] uppercase tracking-wide opacity-80">🏁 Meta</p>
+      <p className="text-3xl font-extrabold leading-tight">
+        {totalMin != null ? hhmm(totalMin) : '—'}
+      </p>
+      <p className="text-xs opacity-90">
+        Llegada {arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} · {totalKm.toFixed(1)} km
+        {plannedFinish && totalMin != null && (
+          <> · {deltaLabel((arrivalAt!.getTime() - plannedFinish.getTime()) / 60_000)}</>
+        )}
+      </p>
+    </div>
+  )
+
+  // Pre-start → countdown; llegada → meta; si no → el próximo corte.
+  const topHero = preStart ? countdownHero : reachedGoal ? goalHero : cutoffHero
 
   // Runner-only: surface the detected form change and let the runner CONFIRM the
   // new forecast (they know if the slowdown was circumstantial). The card shows
@@ -1944,9 +1980,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   )}
                   {advStats && (
                     <>
+                      {/* Llegado a meta, "restante" y "meta prevista" ya no son
+                          datos: son un pronóstico de algo que ya pasó. Se
+                          sustituyen por lo que de verdad interesa después. */}
                       <MetricSection icon="🏁" title="Meta" cols={2}>
-                        <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
-                        <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                        {reachedGoal ? (
+                          <>
+                            <Stat label="Llegada" value={arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} />
+                            <Stat label="Tiempo total" value={totalMin != null ? hhmm(totalMin) : '—'} />
+                          </>
+                        ) : (
+                          <>
+                            <Stat label="Restante" value={`${advStats.remDist.toFixed(1)} km`} />
+                            <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                          </>
+                        )}
                       </MetricSection>
                       <MetricSection icon="⛰️" title="Desnivel" cols={3}>
                         <Stat label="D+ hecho" value={`${Math.round(advStats.done.elevGainM)}/${Math.round(advStats.totalGainM)} m`} />
