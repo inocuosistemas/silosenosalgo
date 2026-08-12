@@ -163,15 +163,6 @@ function CutoffBadge({ min }: { min: number }) {
 }
 
 export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSetCutoff, daylightAnchor }: Props) {
-  if (waypoints.length === 0) return null
-
-  const last = waypoints[waypoints.length - 1]
-  const totalMs = last.estimatedTime.getTime() - startTime.getTime()
-  const totalH = Math.floor(totalMs / 3600000)
-  const totalM = Math.floor((totalMs % 3600000) / 60000)
-  const totalGain = Math.round(last.elevGainM)
-  const totalLoss = Math.round(last.elevLossM)
-
   const hasWeather  = waypoints.some((w) => w.weather !== null)
   const hasLocation = waypoints.some((w) => w.location !== null)
   const hasCutoffCol = namedWaypoints.length > 0
@@ -197,6 +188,19 @@ export function WaypointsTable({ waypoints, namedWaypoints = [], startTime, onSe
       return aKm - bKm
     })
   }, [waypoints, namedWaypoints])
+
+  // El corte va DESPUES de los hooks: con la tabla vacia no hay nada que pintar,
+  // pero salir antes cambiaria el numero de hooks entre renders (React #310) en
+  // cuanto los waypoints pasan de cero a unos cuantos, que es justo lo que hacen
+  // al cargarse el plan. Lo de arriba aguanta sin problemas un array vacio.
+  if (waypoints.length === 0) return null
+
+  const last = waypoints[waypoints.length - 1]
+  const totalMs = last.estimatedTime.getTime() - startTime.getTime()
+  const totalH = Math.floor(totalMs / 3600000)
+  const totalM = Math.floor((totalMs % 3600000) / 60000)
+  const totalGain = Math.round(last.elevGainM)
+  const totalLoss = Math.round(last.elevLossM)
 
   return (
     <div className="space-y-3">
