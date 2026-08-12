@@ -1271,12 +1271,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                 {hasPlan && progressKm != null
-                  ? <Stat
-                      label={lapInfo && lapNow
-                        ? <span className="text-sky-300">Vuelta {lapNow} de {lapInfo.laps}</span>
-                        : `Progreso ${pct}%`}
-                      value={`${progressKm.toFixed(1)} km`}
-                    />
+                  ? lapInfo && lapNow
+                    // En un circuito lo que importa es la vuelta, no el kilometro
+                    // absoluto: pasa a ser el dato grande y los km bajan a la
+                    // etiqueta, sin que la casilla cambie de tamaño.
+                    ? <Stat tone="sky" value={`Vuelta ${lapNow}/${lapInfo.laps}`} label={`${progressKm.toFixed(1)} km · ${pct}%`} />
+                    : <Stat value={`${progressKm.toFixed(1)} km`} label={`Progreso ${pct}%`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat
                   label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
@@ -1573,10 +1573,10 @@ function AutoScroll({ children, className = '' }: { children: ReactNode; classNa
   )
 }
 
-function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 'amber' }) {
+function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 'amber' | 'sky' }) {
   return (
     <div className="rounded-lg bg-slate-800/70 py-1 px-1">
-      <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : ''}`}>{value}</p>
+      <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : tone === 'sky' ? 'text-sky-300' : ''}`}>{value}</p>
       <p className="text-[10px] uppercase tracking-wide text-slate-500 truncate">{label}</p>
     </div>
   )
