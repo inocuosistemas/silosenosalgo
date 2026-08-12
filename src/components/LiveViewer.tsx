@@ -1187,9 +1187,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const goalTolKm = Math.min(1, Math.max(0.25, totalKm * 0.015))
   const remainingKm = progressKm != null ? Math.max(0, totalKm - progressKm) : null
   const reachedGoal = ended && hasPlan && remainingKm != null && remainingKm <= goalTolKm
-  // Llegada = última posición recibida, no `endedAt`: la baliza se para cuando
-  // uno se acuerda, que puede ser bastante después de cruzar la meta.
-  const arrivalAt = reachedGoal && fix ? new Date(fix.updatedAt) : null
+  // Hora de llegada: el instante en que se dejó de AVANZAR, no el de la última
+  // posición ni el de parar la baliza.
+  //
+  // Los tres momentos son distintos y pueden separarse mucho: se cruza la meta,
+  // se sigue emitiendo un rato mientras uno respira y saluda, y en algún momento
+  // se acuerda de parar la baliza. Tomar cualquiera de los dos últimos sumaría
+  // ese rato al tiempo de carrera.
+  //
+  // El punto más lejano de la ruta sí es el cruce: a partir de ahí el km deja de
+  // subir por mucho que sigan llegando posiciones. Se busca la PRIMERA que llega
+  // a ese máximo, con 30 m de margen para que el temblor del GPS parado no
+  // desplace la marca.
+  const arrivalAt = (() => {
+    if (!reachedGoal) return null
+    if (formSamples.length) {
+      const maxKm = formSamples.reduce((m, s) => Math.max(m, s.km), 0)
+      const cruce = formSamples.find((s) => s.km >= maxKm - 0.03)
+      if (cruce) return new Date(cruce.t)
+    }
+    return fix ? new Date(fix.updatedAt) : null
+  })()
   const totalMin = arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000 : null
 
   const center: [number, number] = fix ? [fix.lat, fix.lon]
