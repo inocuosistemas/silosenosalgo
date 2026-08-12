@@ -352,7 +352,23 @@ function FormTimeline({ log, totalKm, currentKm, currentFactor, color }: {
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block w-full h-8">
       <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="#475569" strokeWidth={0.5} strokeDasharray="2 2" />
       <path d={path} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
-      {pts.map((e, i) => <circle key={i} cx={x(e.km)} cy={y((e.factor - 1) * 100)} r={1.6} fill="#fff" />)}
+      {/* Marcas de cada confirmación. NO son <circle>: el lienzo se estira con
+          preserveAspectRatio="none", muchísimo más a lo ancho que a lo alto, y
+          un círculo dibujado dentro sale ovalado. Un segmento de longitud cero
+          con remate redondo pinta un punto en píxeles de pantalla, ajeno a ese
+          estiramiento — el mismo truco que ya usaba la línea con
+          vectorEffect. */}
+      {pts.map((e, i) => {
+        const cx = x(e.km), cy = y((e.factor - 1) * 100)
+        return (
+          <line
+            key={i}
+            x1={cx} y1={cy} x2={cx} y2={cy}
+            stroke="#fff" strokeWidth={4.5} strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )
+      })}
     </svg>
   )
 }
