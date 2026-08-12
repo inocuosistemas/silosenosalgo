@@ -1046,6 +1046,29 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     )
   })() : null
 
+  // Map view only: the form panels are tall enough to bury the map, so there they
+  // collapse into this one-line chip and the full detail moves into the advanced
+  // (expandable) section. Tapping the chip opens it. The dot flags that the runner
+  // has a pending recalibration to confirm — otherwise it would go unnoticed.
+  const formChip = formStatusPanel ? (() => {
+    const pct = Math.round(((detectedFactor ?? confirmedFactor) - 1) * 100)
+    const slower = pct >= 0
+    const onPlan = Math.abs(pct) < 1
+    return (
+      <button
+        type="button"
+        onClick={() => setShowAdvanced(true)}
+        aria-label="Ver estado de forma"
+        className="flex items-center gap-1 text-xs"
+      >
+        <span className={onPlan ? 'text-slate-300' : slower ? 'text-amber-400' : 'text-emerald-400'}>
+          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${slower ? '+' : '−'}${Math.abs(pct)}% vs ritmo`}
+        </span>
+        {suggestFactor && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true" />}
+      </button>
+    )
+  })() : null
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -1212,8 +1235,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
             {topHero && <div>{topHero}</div>}
-            {recalibrationCard && <div className="mt-2">{recalibrationCard}</div>}
-            {formStatusPanel && <div className="mt-2">{formStatusPanel}</div>}
             {fix && (
               <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
@@ -1227,8 +1248,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 />
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
-              {deltaMin != null && (
-                <p className={`mt-2 text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</p>
+              {(deltaMin != null || formChip) && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {deltaMin != null && (
+                    <span className={`text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</span>
+                  )}
+                  {formChip}
+                </div>
               )}
               {hasPlan && offRoute && nearest && (
                 <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
@@ -1251,6 +1277,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </button>
               {showAdvanced && (
                 <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
+                  {recalibrationCard}
+                  {formStatusPanel}
                   {rawTrail.length >= 2 && (
                     <div>
                       <div className="flex items-center justify-between gap-2">
