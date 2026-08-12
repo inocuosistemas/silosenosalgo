@@ -3,6 +3,8 @@ import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson, rateLimited, clientIp } from '../../../lib/http'
 import { genId } from '../../../../shared/ids'
 import { TOKEN_RE } from '../../../../shared/validate'
+import { PUBLIC_BASE_URL } from '../../../../shared/config'
+import { notifyTelegram, escapeHtml } from '../../../lib/notify'
 import { CHEER_BODY_MAX, CHEER_NICK_MAX, type CheerCreate, type TrackCheer } from '../../../../shared/wireTypes'
 
 /**
@@ -42,7 +44,7 @@ async function hashIp(ip: string): Promise<string> {
   return [...new Uint8Array(buf)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, waitUntil }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
@@ -56,8 +58,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // La sesión tiene que existir y seguir viva. Animar a una ruta caducada no
   // tiene destinatario, y evita que un enlace viejo quede como buzón abierto.
   const row = await env.DB.prepare(
-    'SELECT expires_at AS expiresAt, pinned, track_km AS trackKm FROM tracking_sessions WHERE id=?',
-  ).bind(id).first<{ expiresAt: number; pinned: number | null; trackKm: number | null }>()
+    'SELECT expires_at AS expiresAt, pinned, track_km AS trackKm, title FROM tracking_sessions WHERE id=?',
+  ).bind(id).first<{ expiresAt: number; pinned: number | null; trackKm: number | null; title: string | null }>()
   if (!row) return json({ error: 'not_found' }, 404)
   if (!row.pinned && Date.now() > row.expiresAt) return json({ error: 'expired' }, 410)
 
@@ -81,10 +83,21 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const clientKm = typeof b.trackKm === 'number' && Number.isFinite(b.trackKm)
     && b.trackKm >= 0 && b.trackKm < 100_000 ? b.trackKm : null
   const trackKm = typeof row.trackKm === 'number' && Number.isFinite(row.trackKm) ? row.trackKm : clientKm
-  const cheer: TrackCheer = { id: genId(16), createdAt: Date.now(), nick, body, trackKm }
+  // Recién creado: sin votos y, por definición, sin el voto de quien lo escribe.
+  const cheer: TrackCheer = { id: genId(16), createdAt: Date.now(), nick, body, trackKm, likes: 0, likedByMe: false }
   await env.DB.prepare(
     'INSERT INTO track_cheers (id, session_id, created_at, nick, body, track_km, ip_hash) VALUES (?,?,?,?,?,?,?)',
   ).bind(cheer.id, id, cheer.createdAt, cheer.nick, cheer.body, cheer.trackKm, await hashIp(ip)).run()
+
+  // Aviso por Telegram, si está configurado. Con waitUntil: quien anima no tiene
+  // por qué esperar a que Telegram conteste, y si el aviso falla el mensaje ya
+  // está guardado igual.
+  waitUntil(notifyTelegram(env, [
+    `💬 <b>Nuevo ánimo</b>${row.title ? ` · ${escapeHtml(row.title)}` : ''}`,
+    `<b>${escapeHtml(cheer.nick || 'Anónimo')}</b>${cheer.trackKm != null ? ` · km ${cheer.trackKm.toFixed(1)}` : ''}`,
+    escapeHtml(cheer.body),
+    `${PUBLIC_BASE_URL}/?t=${encodeURIComponent(id)}`,
+  ].join('\n')))
 
   return json(cheer, 201, { 'Cache-Control': 'no-store' })
 }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint .",
-    "build": "eslint . && tsc && vite build && node scripts/make-ota-manifest.mjs",
+    "build": "eslint . && tsc && tsc -p tsconfig.functions.json && vite build && node scripts/make-ota-manifest.mjs",
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/deploy.mjs",
     "deploy:cf": "node scripts/deploy-all.mjs"

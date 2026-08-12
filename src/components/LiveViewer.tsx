@@ -1645,20 +1645,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                     {c.trackKm != null && ` · km ${c.trackKm.toFixed(1)}`}
                                   </span>
                                 </div>
-                                <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-300">{c.body}</p>
-                                {canCheer && (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleLike(c)}
-                                    aria-pressed={c.likedByMe}
-                                    aria-label={c.likedByMe ? 'Quitar me gusta' : 'Me gusta'}
-                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
-                                      c.likedByMe ? 'bg-rose-500/15 text-rose-300' : 'bg-slate-700/50 text-slate-400'}`}
-                                  >
-                                    <span aria-hidden="true">{c.likedByMe ? '❤️' : '🤍'}</span>
-                                    {c.likes > 0 && <span className="tabular-nums">{c.likes}</span>}
-                                  </button>
-                                )}
+                                {/* El corazón va a la derecha del texto, no debajo:
+                                    en su propia línea sumaba altura a cada mensaje
+                                    y la lista se hacía larguísima. */}
+                                <div className="mt-0.5 flex items-start gap-2">
+                                  <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] text-slate-300">{c.body}</p>
+                                  {canCheer && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleLike(c)}
+                                      aria-pressed={c.likedByMe}
+                                      aria-label={c.likedByMe ? 'Quitar me gusta' : 'Me gusta'}
+                                      className={`-mt-0.5 -mr-1 inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] ${
+                                        c.likedByMe ? 'text-rose-300' : 'text-slate-500'}`}
+                                    >
+                                      <span aria-hidden="true">{c.likedByMe ? '❤️' : '🤍'}</span>
+                                      {c.likes > 0 && <span className="tabular-nums">{c.likes}</span>}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )
                           })}

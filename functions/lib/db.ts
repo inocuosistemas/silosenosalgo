@@ -11,4 +11,8 @@ export interface Env {
   /** Per-user media budget in bytes (note photos+audios). Optional string var
    *  (Pages env vars are strings); defaults to 100 MB when unset/invalid. */
   MEDIA_QUOTA_BYTES?: string
+  /** Avisos por Telegram. Secretos OPCIONALES: mientras no estén, no se avisa de
+   *  nada y todo lo demás funciona igual (ver functions/lib/notify.ts). */
+  TELEGRAM_BOT_TOKEN?: string
+  TELEGRAM_CHAT_ID?: string
 }

@@ -112,7 +112,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
               (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id) AS likes,
               (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id AND l.viewer_id = ?) AS likedByMe
          FROM track_cheers c WHERE c.session_id=? ORDER BY c.created_at DESC LIMIT 200`,
-    ).bind(viewerId ?? '', id).all<TrackCheer & { likedByMe: number }>()
+    // SQLite devuelve el "¿lo he votado yo?" como 0/1, no como booleano, asi que
+    // la fila NO es un TrackCheer todavia: se tipa aparte y se convierte al
+    // mapear. Intersecarlo con TrackCheer daria `never` por el choque de tipos.
+    ).bind(viewerId ?? '', id).all<Omit<TrackCheer, 'likedByMe'> & { likedByMe: number }>()
     cheers = cheerRows.results.length
       ? cheerRows.results.map((c) => ({ ...c, likes: c.likes ?? 0, likedByMe: !!c.likedByMe }))
       : undefined
