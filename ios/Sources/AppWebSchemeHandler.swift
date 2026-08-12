@@ -6,7 +6,8 @@ import WebKit
 /// http/https, so the SPA is loaded under this custom scheme and its RELATIVE
 /// requests (`/assets/…`, `/api/…`, `/_tile/…`) route here:
 ///
-///  - `/`, `/index.html`, `/assets/*`, `/favicon.svg`, …  → bundled `WebDist/`
+///  - `/`, `/index.html`, `/assets/*`, `/favicon.svg`, …  → `WebAssetStore`
+///    (copia OTA activa si la hay, si no el `WebDist/` empaquetado)
 ///  - `/api/track/<token>`  → `ViewerDataProvider` synthesized state (local trail)
 ///  - `/api/share/<id>`     → cached gzipped plan bytes
 ///  - `/_tile/<z>/<x>/<y>.png` → `TileCache` (disk → network → placeholder)
@@ -15,9 +16,6 @@ import WebKit
 /// so `main.tsx` takes the viewer branch and `LiveViewer` uses the cached tiles.
 final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "appweb"
-
-    /// Bundled web assets (folder reference), resolved once.
-    private lazy var webRoot: URL? = Bundle.main.url(forResource: "WebDist", withExtension: nil)
 
     /// Tasks WebKit still considers live. `stop()` removes them; delivering to a
     /// stopped task crashes, so every callback is guarded by this set.
@@ -93,8 +91,8 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return finish404(task, url: url)
         }
 
-        // Bundled static assets.
-        if let (data, mime) = loadBundled(path) {
+        // Static assets: copia OTA activa si la hay, si no la empaquetada.
+        if let (data, mime) = WebAssetStore.shared.load(path) {
             return respond(task, url: url, data: data, mime: mime)
         }
         finish404(task, url: url)
@@ -150,38 +148,6 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
         req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
         req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
         URLSession.shared.dataTask(with: req).resume()
-    }
-
-    // MARK: Bundle serving
-
-    /// Map an absolute request path onto a bundled file, returning bytes + MIME.
-    private func loadBundled(_ path: String) -> (Data, String)? {
-        guard let root = webRoot else { return nil }
-        var rel = path == "/" ? "index.html" : String(path.dropFirst())
-        // Deep links / unknown non-asset paths fall back to the SPA shell.
-        if !rel.contains(".") { rel = "index.html" }
-        guard !rel.contains("..") else { return nil } // path-traversal guard
-        let file = root.appendingPathComponent(rel)
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        return (data, Self.mime(for: file.pathExtension.lowercased()))
-    }
-
-    private static func mime(for ext: String) -> String {
-        switch ext {
-        case "js", "mjs": return "text/javascript"   // ES modules REQUIRE a JS MIME
-        case "css": return "text/css"
-        case "html": return "text/html"
-        case "json", "map": return "application/json"
-        case "svg": return "image/svg+xml"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "webp": return "image/webp"
-        case "woff2": return "font/woff2"
-        case "woff": return "font/woff"
-        case "ttf": return "font/ttf"
-        case "ico": return "image/x-icon"
-        default: return "application/octet-stream"
-        }
     }
 
     private static func parseTile(_ path: String) -> (z: Int, x: Int, y: Int)? {

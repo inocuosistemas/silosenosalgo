@@ -10,6 +10,11 @@
 /index.html
   Cache-Control: no-cache, must-revalidate
 
+# Manifiesto OTA que consulta la app iOS para saber si hay visor nuevo. Si se
+# cacheara, la app seguiria viendo el build anterior indefinidamente.
+/ota-manifest.json
+  Cache-Control: no-cache, must-revalidate
+
 # Cabeceras de seguridad base para todo el sitio.
 /*
   X-Frame-Options: DENY

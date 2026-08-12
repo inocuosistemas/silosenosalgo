@@ -14,6 +14,10 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
+                // Busca visor web nuevo al arrancar, nunca con el visor abierto:
+                // cambiar los assets bajo un WKWebView vivo lo romperia. Si hay
+                // build nuevo, entra en la siguiente apertura del visor.
+                .task { await WebOTAUpdater.shared.refresh() }
                 .onOpenURL { url in
                     guard url.pathExtension.lowercased() == "slsnsguide" else { return }
                     Task { await guideLibrary.openImportedGuide(from: url) }

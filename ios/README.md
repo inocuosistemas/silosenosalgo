@@ -96,7 +96,9 @@ Cómo funciona (sin reescribir el visor):
 
 - El SPA construido se empaqueta en `WebDist/` y se sirve bajo un esquema propio
   `appweb://` mediante `AppWebSchemeHandler` (un `WKURLSchemeHandler` no puede
-  interceptar https, por eso el esquema propio).
+  interceptar https, por eso el esquema propio). Quien resuelve cada fichero es
+  `WebAssetStore`: primero la copia OTA activa, si la hay, y si no la empaquetada
+  (ver **Actualización OTA del visor**).
 - Las peticiones del visor se resuelven en local:
   - `/api/track/<token>` → `ViewerDataProvider` sintetiza el estado con la **traza
     completa** que `TrackingStore` graba y persiste (`Application Support/trails/`).
@@ -106,6 +108,35 @@ Cómo funciona (sin reescribir el visor):
 - `LiveViewer.tsx` detecta `?embedded=1` y enruta los tiles a `/_tile/...` para que
   pasen por la caché. El resto (plan de paso, cortes, perfil, colores) ya se calcula
   en cliente. El tiempo/radar (Open-Meteo) degradan con gracia sin conexión.
+
+### Actualización OTA del visor
+
+La app empaqueta una copia **congelada** de `dist/`, así que sin esto cada cambio
+del visor web exigiría recompilar y publicar en la App Store. `WebOTAUpdater`
+descarga el visor de producción y lo instala como copia OTA, de modo que los
+cambios web llegan solos.
+
+La regla que gobierna el diseño es **todo o nada**: esto es una app de montaña y
+el visor tiene que funcionar sin cobertura, así que un build a medias no puede
+llegar a activarse nunca.
+
+- `npm run build` genera `dist/ota-manifest.json` (`scripts/make-ota-manifest.mjs`)
+  con el `buildId` y el hash de cada fichero. Hace falta porque los chunks
+  perezosos no aparecen en `index.html`: sin manifiesto no hay forma de saber qué
+  ficheros componen un build ni cuándo la descarga está completa.
+- Al **arrancar** la app (nunca con el visor abierto, para no cambiar los assets
+  bajo un `WKWebView` vivo) se compara el `buildId` con el instalado. Si cambió,
+  se descarga todo a `staging/` y solo cuando está entero se promociona de golpe a
+  `active/` con `replaceItemAt`. Cualquier fallo deja `active/` intacta.
+- Los **assets** se verifican por sha256. El **HTML no**: `functions/_middleware.ts`
+  lo reescribe al servirlo (og:* a URLs absolutas, y en los enlaces `?s=` también
+  el título), así que los bytes servidos nunca coinciden con los del build. En su
+  lugar se comprueba que el shell referencie un módulo que esté en el manifiesto,
+  que es lo que impide mezclar el `index.html` de un build con los assets de otro.
+- La copia vive en `Application Support/WebOTA/`, marcada como no respaldable: es
+  caché reconstruible.
+
+Para volver al visor empaquetado basta con borrar esa carpeta (o reinstalar).
 
 **Mapa offline:** desde el visor, el botón de descarga abre `MapDownloadView`, que
 pre-descarga un **corredor de tiles** alrededor de la ruta (ancho y zoom máx.
