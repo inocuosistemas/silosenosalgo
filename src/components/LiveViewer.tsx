@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { CHEER_BODY_MAX, CHEER_NICK_MAX, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
+import { CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -447,6 +447,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [cheerBusy, setCheerBusy] = useState(false)
   const [cheerError, setCheerError] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
+  // Id del ánimo cuyo selector de emojis está abierto, o null.
+  const [picker, setPicker] = useState<string | null>(null)
   const [recentre, setRecentre] = useState(0)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
@@ -1060,18 +1062,33 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Me gusta. Se pinta al instante y se corrige con lo que responda el servidor,
   // que es quien lleva la cuenta buena: el boton tiene que reaccionar al dedo,
   // pero el numero no puede quedar a merced de un fallo de red.
-  async function toggleLike(c: TrackCheer) {
-    const optimistic = { ...c, likedByMe: !c.likedByMe, likes: Math.max(0, c.likes + (c.likedByMe ? -1 : 1)) }
+  async function react(c: TrackCheer, emoji: string) {
+    setPicker(null)
     const put = (v: TrackCheer) =>
       setState((s) => (s ? { ...s, cheers: (s.cheers ?? []).map((x) => (x.id === v.id ? v : x)) } : s))
-    put(optimistic)
+    // Se pinta al momento: una reaccion que tarda en aparecer se siente rota.
+    // Se recalcula el agregado en local aplicando el mismo criterio del
+    // servidor (mismo emoji = quitar, otro = cambiar) y luego se corrige con lo
+    // que responda, que es quien lleva la cuenta buena.
+    const quita = c.myReaction === emoji
+    const cuenta = new Map(c.reactions.map((r) => [r.emoji, r.count]))
+    if (c.myReaction) cuenta.set(c.myReaction, (cuenta.get(c.myReaction) ?? 1) - 1)
+    if (!quita) cuenta.set(emoji, (cuenta.get(emoji) ?? 0) + 1)
+    put({
+      ...c,
+      myReaction: quita ? null : emoji,
+      reactions: [...cuenta].filter(([, n]) => n > 0).map(([e, n]) => ({ emoji: e, count: n })).sort((a, b) => b.count - a.count),
+    })
     try {
-      const res = await fetch(`/api/track/${token}/cheers/${c.id}/like?v=${encodeURIComponent(viewerId())}`, { method: 'POST' })
+      const res = await fetch(
+        `/api/track/${token}/cheers/${c.id}/like?v=${encodeURIComponent(viewerId())}&e=${encodeURIComponent(emoji)}`,
+        { method: 'POST' },
+      )
       if (!res.ok) { put(c); return }
-      const r = await res.json() as { likes: number; likedByMe: boolean }
-      put({ ...c, likes: r.likes, likedByMe: r.likedByMe })
+      const r = await res.json() as { reactions: { emoji: string; count: number }[]; myReaction: string | null }
+      put({ ...c, reactions: r.reactions, myReaction: r.myReaction })
     } catch {
-      put(c) // sin red, se deshace: mejor eso que un corazon que miente
+      put(c) // sin red, se deshace: mejor eso que un contador que miente
     }
   }
 
@@ -1685,19 +1702,57 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                       <span className="tabular-nums">{graceLeft}</span>
                                     </button>
                                   ) : canCheer && (
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleLike(c)}
-                                      aria-pressed={c.likedByMe}
-                                      aria-label={c.likedByMe ? 'Quitar me gusta' : 'Me gusta'}
-                                      className={`-mt-0.5 -mr-1 inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] ${
-                                        c.likedByMe ? 'text-rose-300' : 'text-slate-500'}`}
-                                    >
-                                      <span aria-hidden="true">{c.likedByMe ? '❤️' : '🤍'}</span>
-                                      {c.likes > 0 && <span className="tabular-nums">{c.likes}</span>}
-                                    </button>
+                                    // Un toque abre el selector, como en WhatsApp.
+                                    // La pulsación larga, que es su gesto, se pelea
+                                    // en el móvil con el menú del navegador.
+                                    <div className="relative -mt-0.5 -mr-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => setPicker(picker === c.id ? null : c.id)}
+                                        aria-expanded={picker === c.id}
+                                        aria-label={c.myReaction ? 'Cambiar reacción' : 'Reaccionar'}
+                                        className={`inline-flex items-center rounded-full px-2 py-1 text-[13px] ${
+                                          c.myReaction ? '' : 'opacity-45 grayscale'}`}
+                                      >
+                                        <span aria-hidden="true">{c.myReaction ?? '🙂'}</span>
+                                      </button>
+                                      {picker === c.id && (
+                                        <div className="absolute bottom-full right-0 z-10 mb-1 flex gap-0.5 rounded-full border border-slate-700 bg-slate-900 px-1.5 py-1 shadow-xl">
+                                          {CHEER_REACTIONS.map((e) => (
+                                            <button
+                                              key={e}
+                                              type="button"
+                                              onClick={() => react(c, e)}
+                                              aria-label={`Reaccionar con ${e}`}
+                                              className={`grid h-8 w-8 place-items-center rounded-full text-base ${
+                                                c.myReaction === e ? 'bg-sky-600/30' : 'active:bg-slate-700'}`}
+                                            >
+                                              {e}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
+                                {/* Recuento por emoji. Solo los que tienen votos:
+                                    enseñar un cero es ruido. */}
+                                {c.reactions.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {c.reactions.map((r) => (
+                                      <button
+                                        key={r.emoji}
+                                        type="button"
+                                        onClick={() => canCheer && react(c, r.emoji)}
+                                        aria-label={`${r.count} ${r.emoji}`}
+                                        className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                                          c.myReaction === r.emoji ? 'bg-sky-600/25 text-slate-100' : 'bg-slate-700/50 text-slate-300'}`}
+                                      >
+                                        <span aria-hidden="true">{r.emoji}</span>{r.count}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                                 {pending && (
                                   <p className="mt-0.5 text-[10px] text-slate-500">
                                     Solo lo ves tú · se publica en {graceLeft} s

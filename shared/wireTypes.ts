@@ -119,16 +119,21 @@ export interface TrackCheer {
   /** Km de la ruta por el que iba el corredor al llegar el ánimo. Lo sella el
    *  servidor con la última posición conocida; null si aún no había ninguna. */
   trackKm: number | null
-  /** Cuántos seguidores le han dado a me gusta. */
-  likes: number
-  /** Si ESTE navegador ya votó (para pintar el botón y permitir quitarlo). */
-  likedByMe: boolean
+  /** Reacciones agregadas, de más votada a menos. Solo las que tienen votos. */
+  reactions: { emoji: string; count: number }[]
+  /** El emoji que puso ESTE navegador, o null si no ha reaccionado. */
+  myReaction: string | null
   /** Instante en que pasa a ser público. Hasta entonces solo lo ve quien lo
    *  escribió, que puede borrarlo. */
   publishAt: number
   /** Si lo escribió ESTE navegador (habilita el borrado durante la ventana). */
   mine: boolean
 }
+
+/** Reacciones permitidas. Lista cerrada y validada en el servidor: sin ella, el
+ *  campo sería texto libre y acabaría guardando cualquier cosa. El orden es el
+ *  del selector. */
+export const CHEER_REACTIONS = ['❤️', '💪', '🔥', '👏'] as const
 
 /** Segundos que un ánimo permanece privado y borrable por su autor. */
 export const CHEER_GRACE_MS = 10_000

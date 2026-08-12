@@ -88,14 +88,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
   const clientKm = typeof b.trackKm === 'number' && Number.isFinite(b.trackKm)
     && b.trackKm >= 0 && b.trackKm < 100_000 ? b.trackKm : null
   const trackKm = typeof row.trackKm === 'number' && Number.isFinite(row.trackKm) ? row.trackKm : clientKm
-  // Recién creado: sin votos y, por definición, sin el voto de quien lo escribe.
+  // Recién creado: sin reacciones y, por definición, sin la de quien lo escribe.
   const now = Date.now()
   // Sin autor identificable no hay a quien enseñarselo en privado ni quien pueda
   // borrarlo, asi que se publica ya.
   const publishAt = author ? now + CHEER_GRACE_MS : now
   const cheer: TrackCheer = {
     id: genId(16), createdAt: now, nick, body, trackKm,
-    likes: 0, likedByMe: false, publishAt, mine: !!author,
+    reactions: [], myReaction: null, publishAt, mine: !!author,
   }
   await env.DB.prepare(
     'INSERT INTO track_cheers (id, session_id, created_at, nick, body, track_km, ip_hash, viewer_id, publish_at) VALUES (?,?,?,?,?,?,?,?,?)',

@@ -113,9 +113,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
       // migración 0014, que no tienen publish_at y son públicas de siempre.
       `SELECT c.id, c.created_at AS createdAt, c.nick, c.body, c.track_km AS trackKm,
               COALESCE(c.publish_at, c.created_at) AS publishAt,
-              (c.viewer_id IS NOT NULL AND c.viewer_id = ?1) AS mine,
-              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id) AS likes,
-              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id AND l.viewer_id = ?1) AS likedByMe
+              (c.viewer_id IS NOT NULL AND c.viewer_id = ?1) AS mine
          FROM track_cheers c
         WHERE c.session_id = ?2
           AND (COALESCE(c.publish_at, c.created_at) <= ?3 OR c.viewer_id = ?1)
@@ -123,9 +121,35 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     // SQLite devuelve el "¿lo he votado yo?" como 0/1, no como booleano, asi que
     // la fila NO es un TrackCheer todavia: se tipa aparte y se convierte al
     // mapear. Intersecarlo con TrackCheer daria `never` por el choque de tipos.
-    ).bind(viewerId ?? '', id, now).all<Omit<TrackCheer, 'likedByMe' | 'mine'> & { likedByMe: number; mine: number }>()
+    ).bind(viewerId ?? '', id, now).all<Omit<TrackCheer, 'mine' | 'reactions' | 'myReaction'> & { mine: number }>()
+
+    // Las reacciones en una consulta aparte, agrupadas por mensaje y emoji: con
+    // subconsultas correlacionadas haria falta una por emoji y por fila.
+    const reactRows = await env.DB.prepare(
+      `SELECT l.cheer_id AS cheerId, l.emoji AS emoji, COUNT(*) AS n,
+              MAX(CASE WHEN l.viewer_id = ?1 THEN 1 ELSE 0 END) AS mine
+         FROM cheer_likes l JOIN track_cheers c ON c.id = l.cheer_id
+        WHERE c.session_id = ?2
+        GROUP BY l.cheer_id, l.emoji
+        ORDER BY n DESC`,
+    ).bind(viewerId ?? '', id).all<{ cheerId: string; emoji: string; n: number; mine: number }>()
+
+    const porMensaje = new Map<string, { emoji: string; count: number }[]>()
+    const mio = new Map<string, string>()
+    for (const r of reactRows.results) {
+      const lista = porMensaje.get(r.cheerId) ?? []
+      lista.push({ emoji: r.emoji, count: r.n })
+      porMensaje.set(r.cheerId, lista)
+      if (r.mine) mio.set(r.cheerId, r.emoji)
+    }
+
     cheers = cheerRows.results.length
-      ? cheerRows.results.map((c) => ({ ...c, likes: c.likes ?? 0, likedByMe: !!c.likedByMe, mine: !!c.mine }))
+      ? cheerRows.results.map((c) => ({
+          ...c,
+          mine: !!c.mine,
+          reactions: porMensaje.get(c.id) ?? [],
+          myReaction: mio.get(c.id) ?? null,
+        }))
       : undefined
   } catch { cheers = undefined }
 

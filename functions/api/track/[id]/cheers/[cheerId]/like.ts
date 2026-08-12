@@ -2,11 +2,15 @@
 import type { Env } from '../../../../../lib/db'
 import { json, csrfOk, rateLimited, clientIp } from '../../../../../lib/http'
 import { TOKEN_RE } from '../../../../../../shared/validate'
+import { CHEER_REACTIONS } from '../../../../../../shared/wireTypes'
 
 /**
- * POST /api/track/:id/cheers/:cheerId/like?v=<viewerId> — alterna el "me gusta"
- * de un seguidor sobre un mensaje de ánimo. Devuelve el total y si este
- * navegador lo tiene puesto.
+ * POST /api/track/:id/cheers/:cheerId/like?v=<viewerId>&e=<emoji> — pone, cambia
+ * o quita la reacción de un seguidor sobre un mensaje de ánimo.
+ *
+ * UNA reacción por persona y mensaje, como en WhatsApp: tocar otro emoji la
+ * cambia, tocar el mismo la quita. Eso es lo que mantiene los contadores
+ * honestos; con varias por persona dejarían de medir cuánta gente reacciona.
  *
  * Igual que animar, es un endpoint ABIERTO: quien vota no tiene cuenta. Que un
  * contador signifique algo depende por completo de poder distinguir votantes,
@@ -33,8 +37,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const cheerId = String(params.cheerId)
   if (!TOKEN_RE.test(id) || !VIEWER_RE.test(cheerId)) return json({ error: 'bad_id' }, 400)
 
-  const viewer = new URL(request.url).searchParams.get('v') || ''
+  const q = new URL(request.url).searchParams
+  const viewer = q.get('v') || ''
   if (!VIEWER_RE.test(viewer)) return json({ error: 'bad_viewer' }, 400)
+  // Lista cerrada: el emoji acaba en la base de datos y se muestra a todo el
+  // mundo, asi que no puede ser texto libre.
+  const emoji = q.get('e') || ''
+  if (!(CHEER_REACTIONS as readonly string[]).includes(emoji)) return json({ error: 'bad_emoji' }, 400)
 
   // El mensaje tiene que pertenecer a esta ruta: sin esta comprobacion, con el
   // id de un mensaje se podria votar desde cualquier enlace.
@@ -49,23 +58,31 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   }
 
   const existing = await env.DB.prepare(
-    'SELECT 1 AS x FROM cheer_likes WHERE cheer_id=? AND viewer_id=?',
-  ).bind(cheerId, viewer).first<{ x: number }>()
+    'SELECT emoji FROM cheer_likes WHERE cheer_id=? AND viewer_id=?',
+  ).bind(cheerId, viewer).first<{ emoji: string }>()
 
-  if (existing) {
+  // Mismo emoji otra vez = quitarlo. Distinto = cambiarlo. Ninguno = ponerlo.
+  const quita = existing?.emoji === emoji
+  if (quita) {
     await env.DB.prepare('DELETE FROM cheer_likes WHERE cheer_id=? AND viewer_id=?')
       .bind(cheerId, viewer).run()
+  } else if (existing) {
+    await env.DB.prepare('UPDATE cheer_likes SET emoji=?, created_at=? WHERE cheer_id=? AND viewer_id=?')
+      .bind(emoji, Date.now(), cheerId, viewer).run()
   } else {
     // OR IGNORE por si dos toques simultaneos del mismo navegador se cruzan: el
     // segundo choca con la clave primaria y se descarta en vez de fallar.
     await env.DB.prepare(
-      'INSERT OR IGNORE INTO cheer_likes (cheer_id, viewer_id, created_at, ip_hash) VALUES (?,?,?,?)',
-    ).bind(cheerId, viewer, Date.now(), await hashIp(ip)).run()
+      'INSERT OR IGNORE INTO cheer_likes (cheer_id, viewer_id, created_at, ip_hash, emoji) VALUES (?,?,?,?,?)',
+    ).bind(cheerId, viewer, Date.now(), await hashIp(ip), emoji).run()
   }
 
-  const count = await env.DB.prepare(
-    'SELECT COUNT(*) AS n FROM cheer_likes WHERE cheer_id=?',
-  ).bind(cheerId).first<{ n: number }>()
+  const rows = await env.DB.prepare(
+    'SELECT emoji, COUNT(*) AS n FROM cheer_likes WHERE cheer_id=? GROUP BY emoji ORDER BY n DESC',
+  ).bind(cheerId).all<{ emoji: string; n: number }>()
 
-  return json({ likes: count?.n ?? 0, likedByMe: !existing }, 200, { 'Cache-Control': 'no-store' })
+  return json({
+    reactions: rows.results.map((r) => ({ emoji: r.emoji, count: r.n })),
+    myReaction: quita ? null : emoji,
+  }, 200, { 'Cache-Control': 'no-store' })
 }
