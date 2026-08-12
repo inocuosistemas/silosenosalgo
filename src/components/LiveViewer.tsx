@@ -1980,10 +1980,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     <Stat label="Media total" value={fmtSpeed(avgSpeedKmh)} />
                     <Stat label="Media en mov." value={fmtSpeed(movingAvgKmh)} />
                   </MetricSection>
-                  {fix.accuracy != null && (
-                    <MetricSection icon="📡" title="Señal GPS" cols={3}>
-                      <Stat label="Precisión" value={`± ${Math.round(fix.accuracy)} m`} tone={fix.accuracy > 25 ? 'amber' : undefined} />
-                      <Stat label="Calidad" value={accuracyLabel(fix.accuracy) ?? '—'} tone={fix.accuracy > 25 ? 'amber' : undefined} />
+                  {/* Solo en directo. Los tres valores describen la ÚLTIMA lectura
+                      y los últimos treinta puntos, así que sirven para decidir si
+                      te puedes fiar del punto que ves ahora; terminada la
+                      carrera no cuentan nada del recorrido. Lo retrospectivo ya
+                      está en el mapa: la traza va coloreada por precisión y
+                      enseña DÓNDE falló la señal, que es lo que interesa después.
+
+                      "Precisión" y "Calidad" eran el mismo dato dos veces (la
+                      etiqueta salía de los mismos metros), así que van juntas. */}
+                  {!ended && fix.accuracy != null && (
+                    <MetricSection icon="📡" title="Señal GPS" cols={2}>
+                      <Stat
+                        label={`Precisión${accuracyLabel(fix.accuracy) ? ` · ${accuracyLabel(fix.accuracy)}` : ''}`}
+                        value={`± ${Math.round(fix.accuracy)} m`}
+                        tone={fix.accuracy > 25 ? 'amber' : undefined}
+                      />
                       <Stat label="Frecuencia" value={sampleSec != null ? sampleLabel(sampleSec) : '—'} />
                     </MetricSection>
                   )}
