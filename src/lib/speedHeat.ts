@@ -97,6 +97,30 @@ export function heatColor(speedKmh: number, scale: { slow: number; fast: number 
   return HEAT_RAMP[idx]
 }
 
+/**
+ * Velocidad media REAL de los tramos pintados de cada color, para la leyenda.
+ *
+ * Se promedian las casillas que han caido en cada color en vez de anunciar el
+ * centro teorico de cada banda: lo que interesa saber es a que se va por las
+ * zonas azules de ESTA ruta, no que umbral las separa. Las casillas miden todas
+ * lo mismo, asi que la media simple ya esta ponderada por distancia.
+ *
+ * Un color sin tramos devuelve null y la leyenda lo omite: enseñar un color que
+ * no esta en el mapa solo despista.
+ */
+export function heatLegend(
+  bins: HeatBin[],
+  scale: { slow: number; fast: number },
+): { color: string; speedKmh: number | null }[] {
+  const acc = HEAT_RAMP.map(() => ({ sum: 0, n: 0 }))
+  for (const b of bins) {
+    if (b.speedKmh == null) continue
+    const i = HEAT_RAMP.indexOf(heatColor(b.speedKmh, scale) as (typeof HEAT_RAMP)[number])
+    if (i >= 0) { acc[i].sum += b.speedKmh; acc[i].n++ }
+  }
+  return HEAT_RAMP.map((color, i) => ({ color, speedKmh: acc[i].n > 0 ? acc[i].sum / acc[i].n : null }))
+}
+
 /** Puntos de la traza entre dos km, con los extremos interpolados para que los
  *  tramos de colores encajen sin huecos ni solapes. */
 export function pathBetweenKm(track: GpxTrack, fromKm: number, toKm: number): [number, number][] {

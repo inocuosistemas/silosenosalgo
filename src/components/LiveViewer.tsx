@@ -19,7 +19,7 @@ import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColor
 import { detectForm } from '../lib/formCalibration'
 import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
 import { kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
-import { buildSpeedHeat, heatScale, heatColor, pathBetweenKm, HEAT_RAMP } from '../lib/speedHeat'
+import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
 
@@ -947,6 +947,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     ? buildSpeedHeat(formSamples, heatSpanKm, Math.max(12, Math.min(160, Math.round(heatSpanKm / 0.25))))
     : []
   const heatRange = heatBins.length ? heatScale(heatBins) : null
+  // Solo los colores que de verdad aparecen en el mapa, de rapido a lento.
+  const heatLegendItems = heatRange
+    ? heatLegend(heatBins, heatRange).filter((b) => b.speedKmh != null)
+    : null
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
   // Moving/stopped split for display. Flag the coverage-gap caveat only when the
@@ -1528,21 +1532,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${heat ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
                       </div>
-                      {heat && (
-                        heatRange ? (
-                          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-500">
-                            <span>lento</span>
-                            <span className="flex h-1.5 flex-1 overflow-hidden rounded-full">
-                              {[...HEAT_RAMP].reverse().map((c) => (
-                                <span key={c} className="flex-1" style={{ backgroundColor: c }} />
-                              ))}
-                            </span>
-                            <span>rápido</span>
-                            <span className="tabular-nums text-slate-600">{heatRange.slow.toFixed(1)}–{heatRange.fast.toFixed(1)} km/h</span>
-                          </div>
-                        ) : (
-                          <p className="mt-1.5 text-[10px] text-slate-500">Aún no hay recorrido suficiente para comparar tramos.</p>
-                        )
+                      {/* La escala vive en la pastilla de abajo, con la velocidad
+                          real de cada color: repetirla aqui seria tener dos
+                          leyendas de lo mismo. */}
+                      {heat && !heatRange && (
+                        <p className="mt-1.5 text-[10px] text-slate-500">Aún no hay recorrido suficiente para comparar tramos.</p>
                       )}
                     </div>
                   )}
@@ -1714,9 +1708,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       {/* Live status pill — status + (when there's data) the GPS-precision legend,
           in one bottom card so the trail colours read alongside "en directo". */}
       <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
-        <div className={`${hasAccuracyData ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
+        <div className={`${hasAccuracyData || heatLegendItems ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
           <div className="whitespace-nowrap">{statusLine}</div>
-          {hasAccuracyData && (
+          {/* La leyenda explica LO QUE SE ESTA VIENDO: con el mapa de calor
+              puesto, los colores de la traza son ritmo y no precision, asi que
+              enseñar la escala de precision seria describir un mapa que ya no
+              esta ahi. Una leyenda a la vez, la del modo activo. */}
+          {heatLegendItems ? (
+            <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+              <span className="uppercase tracking-wide text-slate-500">{showPace ? 'Ritmo' : 'Velocidad'}</span>
+              {heatLegendItems.map((b) => (
+                <span key={b.color} className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
+                  {fmtSpeed(b.speedKmh)}
+                </span>
+              ))}
+            </div>
+          ) : hasAccuracyData && (
             <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
               <span className="uppercase tracking-wide text-slate-500">Precisión</span>
               {ACCURACY_LEGEND.map((b) => (
