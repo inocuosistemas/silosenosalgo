@@ -1000,7 +1000,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // cabecera y el de las casillas: el cuadro mide lo mismo que antes.
   const header = (
     <div>
-      <AutoScroll className="font-semibold leading-tight">{headline}</AutoScroll>
+      {/* El nombre hace de barra de titulo: tocarlo pliega y despliega, para no
+          depender solo del tirador de abajo (que desplegado queda lejos, al
+          final de todo el panel). py-1 con -my-1 agranda la zona sensible sin
+          mover nada: una linea de texto sola es un blanco pequeño para el dedo. */}
+      <button
+        type="button"
+        onClick={() => setShowAdvanced((v) => !v)}
+        aria-expanded={showAdvanced}
+        aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados'}
+        className="-my-1 block w-full py-1 text-left"
+      >
+        <AutoScroll className="font-semibold leading-tight">{headline}</AutoScroll>
+      </button>
       <div className="mt-0.5 flex items-center gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-400">
           {state.username && (
@@ -1343,7 +1355,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             cuadro lleva overflow-hidden (lo necesitan las esquinas redondeadas),
             asi que la lengüeta no puede vivir dentro. */}
         <div className="relative mx-auto max-w-md pointer-events-auto">
-        <div className="flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl">
+        {/* El alto maximo deja hueco por debajo para la lenguesta Y para la
+            pastilla de estado: desplegado, el cuadro llegaba casi al borde y el
+            tirador quedaba fuera de pantalla, sin forma de volver a plegarlo. */}
+        <div className="flex max-h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl">
           <div className="shrink-0 px-3 pt-2.5 pb-1.5">
             {header}
           </div>
