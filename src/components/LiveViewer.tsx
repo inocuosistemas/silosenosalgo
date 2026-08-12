@@ -19,6 +19,7 @@ import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColor
 import { detectForm } from '../lib/formCalibration'
 import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
 import { kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
+import { buildSpeedHeat, heatScale, heatColor, pathBetweenKm, HEAT_RAMP } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
 
@@ -381,6 +382,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // (see lib/trailSmoothing). On by default; the map's advanced panel can turn it
   // off to inspect the raw trace with its precision colours.
   const [smooth, setSmooth] = useState(true)
+  const [heat, setHeat] = useState(false)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -934,6 +936,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Un solo sitio donde se decide el color del corredor, para que el punto y su
   // latido no puedan discrepar.
   const fixColor = ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9'
+
+  // Mapa de calor de ritmo. En un circuito el tramo medido es UNA vuelta y se
+  // acumulan todas las pasadas; si no, la ruta entera. Una casilla cada ~250 m,
+  // con topes para no quedarse corto en rutas cortas ni pintar cientos de
+  // polilineas en una de 400 km.
+  const canHeat = !!plan && formSamples.length >= 4
+  const heatSpanKm = lapInfo?.lapKm ?? totalKm
+  const heatBins = heat && canHeat && heatSpanKm > 0
+    ? buildSpeedHeat(formSamples, heatSpanKm, Math.max(12, Math.min(160, Math.round(heatSpanKm / 0.25))))
+    : []
+  const heatRange = heatBins.length ? heatScale(heatBins) : null
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
   // Moving/stopped split for display. Flag the coverage-gap caveat only when the
@@ -1295,8 +1308,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <MapContainer center={center} zoom={fix || trail.length ? 14 : plan ? 13 : 6} className="absolute inset-0" zoomControl={false}>
         <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
+        {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
+            traza. En un circuito las pasadas se superponen y pintando la traza
+            solo se veria la ultima vuelta; sobre la ruta cabe el acumulado. */}
+        {heatRange && plan && heatBins.map((b, i) => {
+          if (b.speedKmh == null) return null
+          const pts = pathBetweenKm(plan.track, b.fromKm, b.toKm)
+          if (pts.length < 2) return null
+          return <Polyline key={`heat-${i}`} positions={pts} pathOptions={{ color: heatColor(b.speedKmh, heatRange), weight: 6, opacity: 0.9 }} />
+        })}
         {trailSegments.map((s, i) => (
-          <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: 4, opacity: 0.85 }} />
+          // Con el calor puesto la traza se apaga: sigue diciendo por donde se
+          // fue de verdad, pero sin competir con los colores del ritmo.
+          <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: heatRange ? 2 : 4, opacity: heatRange ? 0.3 : 0.85 }} />
         ))}
         {plan?.track.namedWaypoints.map((w, i) => (
           <CircleMarker key={`poi-${i}`} center={[w.lat, w.lon]} radius={5} pathOptions={{ color: '#fff', weight: 1, fillColor: '#f59e0b', fillOpacity: 0.9 }}>
@@ -1480,6 +1504,45 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           {!onFinalLap && <>{lapEta ? ' · ' : ''}vuelta ~{lapTime(nextLapMin)}</>}
                           {lapTrend && <> · {lapTrend}</>}
                         </p>
+                      )}
+                    </div>
+                  )}
+                  {canHeat && (
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-200">Mapa de calor · ritmo</p>
+                          <p className="text-[10px] text-slate-500">
+                            {lapInfo
+                              ? `Colorea la vuelta sumando las ${lapInfo.laps} pasadas`
+                              : 'Colorea el trazado por dónde se va rápido y dónde se atasca'}
+                          </p>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={heat}
+                          aria-label="Mapa de calor de ritmo"
+                          onClick={() => setHeat((v) => !v)}
+                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${heat ? 'bg-sky-600' : 'bg-slate-700'}`}
+                        >
+                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${heat ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                      {heat && (
+                        heatRange ? (
+                          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+                            <span>lento</span>
+                            <span className="flex h-1.5 flex-1 overflow-hidden rounded-full">
+                              {[...HEAT_RAMP].reverse().map((c) => (
+                                <span key={c} className="flex-1" style={{ backgroundColor: c }} />
+                              ))}
+                            </span>
+                            <span>rápido</span>
+                            <span className="tabular-nums text-slate-600">{heatRange.slow.toFixed(1)}–{heatRange.fast.toFixed(1)} km/h</span>
+                          </div>
+                        ) : (
+                          <p className="mt-1.5 text-[10px] text-slate-500">Aún no hay recorrido suficiente para comparar tramos.</p>
+                        )
                       )}
                     </div>
                   )}
