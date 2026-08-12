@@ -18,6 +18,7 @@ import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
 import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
+import { kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
 
@@ -707,6 +708,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // con el error #310.
   const lapInfo = useMemo(() => (plan ? detectLaps(plan.track) : null), [plan])
 
+  // "Corredor virtual": donde iria alguien que fuese exactamente en hora.
+  //
+  // Invertir el plan (dado un tiempo, en que km toca estar) cuesta recorrer la
+  // traza entera, asi que hacerlo en cada render dejaria el mapa a tirones en
+  // rutas grandes. Se muestrea UNA vez la curva km->minutos previstos y luego
+  // cada render solo interpola sobre ella. Incluye las pausas previstas, para
+  // que el fantasma no se adelante justo mientras el plan dice que estas parado
+  // y para que concuerde con el "vs plan" que ya se muestra.
+  const plannedCurve = useMemo(() => {
+    if (!plan) return null
+    const total = plan.track.totalDistanceKm
+    if (!(total > 0)) return null
+    const anchor = new Date(0)
+    const STEPS = 256
+    const kms: number[] = [], mins: number[] = []
+    for (let i = 0; i <= STEPS; i++) {
+      const km = (total * i) / STEPS
+      const at = estimateArrivalTimeAtKm(plan.track, km, anchor, plan.paceConfig, undefined, pauses)
+      if (!at) return null
+      kms.push(km)
+      mins.push(at.getTime() / 60_000)
+    }
+    return { kms, mins }
+  }, [plan, pauses])
+
   // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
   // projected ETA at render time.
   const [weather, setWeather] = useState<(PoiHourly | null)[] | null>(null)
@@ -881,6 +907,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // / elapsed, stops included). Uses on-route km when available, else trail km.
   const elapsedMin = !preStart ? (refNow - sessionStart.getTime()) / 60_000 : 0
   const coveredKm = progressKm ?? distanceKm
+  // Posicion del corredor virtual. Solo mientras la carrera esta viva: antes de
+  // salir estaria clavado en la salida y despues de acabar no compara con nada.
+  const ghostKm = plannedCurve && !preStart && !ended && elapsedMin > 0
+    ? kmAtPlannedMin(plannedCurve, elapsedMin) : null
+  const ghostPos = ghostKm != null && plan ? pointAtKm(plan.track, ghostKm) : null
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
   // Moving/stopped split for display. Flag the coverage-gap caveat only when the
@@ -1269,6 +1300,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </Tooltip>
             </CircleMarker>
           </>
+        )}
+        {/* Corredor virtual: por donde iria alguien que fuese justo en hora.
+            Deliberadamente apagado (violeta translucido, sin borde blanco) para
+            que no compita con el punto del corredor real. Se dibuja ANTES que
+            este, asi que si coinciden queda debajo y el de verdad se ve. */}
+        {ghostPos && (
+          <CircleMarker
+            center={ghostPos}
+            radius={7}
+            pathOptions={{ color: '#a78bfa', weight: 2, opacity: 0.7, fillColor: '#a78bfa', fillOpacity: 0.25 }}
+          >
+            <Tooltip direction="top" offset={[0, -6]}>
+              Según el plan deberías ir por aquí · km {ghostKm!.toFixed(1)}
+            </Tooltip>
+          </CircleMarker>
         )}
         {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
