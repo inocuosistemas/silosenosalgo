@@ -108,16 +108,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   let cheers: TrackCheer[] | undefined
   try {
     const cheerRows = await env.DB.prepare(
+      // Un ánimo recién escrito solo lo ve su autor hasta que se publica: esa es
+      // su ventana para retirarlo. `COALESCE` cubre las filas anteriores a la
+      // migración 0014, que no tienen publish_at y son públicas de siempre.
       `SELECT c.id, c.created_at AS createdAt, c.nick, c.body, c.track_km AS trackKm,
+              COALESCE(c.publish_at, c.created_at) AS publishAt,
+              (c.viewer_id IS NOT NULL AND c.viewer_id = ?1) AS mine,
               (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id) AS likes,
-              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id AND l.viewer_id = ?) AS likedByMe
-         FROM track_cheers c WHERE c.session_id=? ORDER BY c.created_at DESC LIMIT 200`,
+              (SELECT COUNT(*) FROM cheer_likes l WHERE l.cheer_id = c.id AND l.viewer_id = ?1) AS likedByMe
+         FROM track_cheers c
+        WHERE c.session_id = ?2
+          AND (COALESCE(c.publish_at, c.created_at) <= ?3 OR c.viewer_id = ?1)
+        ORDER BY c.created_at DESC LIMIT 200`,
     // SQLite devuelve el "¿lo he votado yo?" como 0/1, no como booleano, asi que
     // la fila NO es un TrackCheer todavia: se tipa aparte y se convierte al
     // mapear. Intersecarlo con TrackCheer daria `never` por el choque de tipos.
-    ).bind(viewerId ?? '', id).all<Omit<TrackCheer, 'likedByMe'> & { likedByMe: number }>()
+    ).bind(viewerId ?? '', id, now).all<Omit<TrackCheer, 'likedByMe' | 'mine'> & { likedByMe: number; mine: number }>()
     cheers = cheerRows.results.length
-      ? cheerRows.results.map((c) => ({ ...c, likes: c.likes ?? 0, likedByMe: !!c.likedByMe }))
+      ? cheerRows.results.map((c) => ({ ...c, likes: c.likes ?? 0, likedByMe: !!c.likedByMe, mine: !!c.mine }))
       : undefined
   } catch { cheers = undefined }
 

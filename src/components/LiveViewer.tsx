@@ -1025,7 +1025,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     setCheerBusy(true)
     setCheerError(null)
     try {
-      const res = await fetch(`/api/track/${token}/cheers`, {
+      const res = await fetch(`/api/track/${token}/cheers?v=${encodeURIComponent(viewerId())}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // progressKm es el km que el visor ya muestra en pantalla: sale de
@@ -1040,7 +1040,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           : 'No se ha podido enviar.')
         return
       }
-      const created = { ...(await res.json() as TrackCheer), likes: 0, likedByMe: false }
+      const created = await res.json() as TrackCheer
       // Se añade al momento en vez de esperar al siguiente sondeo: quien acaba
       // de escribir tiene que ver su mensaje ya. Y se marca leido, que no tiene
       // sentido avisarle de su propio ánimo.
@@ -1072,6 +1072,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       put({ ...c, likes: r.likes, likedByMe: r.likedByMe })
     } catch {
       put(c) // sin red, se deshace: mejor eso que un corazon que miente
+    }
+  }
+
+  // Retirar un ánimo propio dentro de su ventana. Se quita de la lista al
+  // instante y se repone si el servidor dice que no: el servidor es quien decide
+  // de verdad si aún se puede.
+  async function deleteCheer(c: TrackCheer) {
+    // `cheers` en vez de `state.cheers`: dentro de una función, TypeScript ya no
+    // recuerda que `state` no puede ser null aquí.
+    const before = cheers
+    setState((s) => (s ? { ...s, cheers: (s.cheers ?? []).filter((x) => x.id !== c.id) } : s))
+    try {
+      const res = await fetch(`/api/track/${token}/cheers/${c.id}?v=${encodeURIComponent(viewerId())}`, { method: 'DELETE' })
+      if (!res.ok) setState((s) => (s ? { ...s, cheers: before } : s))
+    } catch {
+      setState((s) => (s ? { ...s, cheers: before } : s))
     }
   }
 
@@ -1630,8 +1646,14 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                         <div className="space-y-1.5">
                           {cheers.map((c) => {
                             const isNew = c.createdAt > cheersReadAt
+                            // En ventana: todavía privado y retirable por su autor.
+                            const graceLeft = Math.ceil((c.publishAt - refNow) / 1000)
+                            const pending = c.mine && graceLeft > 0
                             return (
-                              <div key={c.id} className={`rounded-lg px-2 py-1.5 ${isNew ? 'bg-fuchsia-500/10 ring-1 ring-fuchsia-500/30' : 'bg-slate-800/70'}`}>
+                              <div key={c.id} className={`rounded-lg px-2 py-1.5 ${
+                                pending ? 'bg-slate-800/40 ring-1 ring-slate-600'
+                                : isNew ? 'bg-fuchsia-500/10 ring-1 ring-fuchsia-500/30'
+                                : 'bg-slate-800/70'}`}>
                                 <div className="flex items-baseline justify-between gap-2">
                                   <span className="min-w-0 truncate text-xs font-medium text-slate-200">
                                     {c.nick || 'Anónimo'}
@@ -1649,7 +1671,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                     y la lista se hacía larguísima. */}
                                 <div className="mt-0.5 flex items-start gap-2">
                                   <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] text-slate-300">{c.body}</p>
-                                  {canCheer && (
+                                  {/* Mientras está en ventana, el sitio del corazón
+                                      lo ocupa el borrado: nadie más lo ve todavía,
+                                      así que no hay nada que votar. */}
+                                  {pending ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteCheer(c)}
+                                      aria-label="Borrar este ánimo"
+                                      className="-mt-0.5 -mr-1 inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] text-amber-400"
+                                    >
+                                      <span aria-hidden="true">🗑️</span>
+                                      <span className="tabular-nums">{graceLeft}</span>
+                                    </button>
+                                  ) : canCheer && (
                                     <button
                                       type="button"
                                       onClick={() => toggleLike(c)}
@@ -1663,6 +1698,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                     </button>
                                   )}
                                 </div>
+                                {pending && (
+                                  <p className="mt-0.5 text-[10px] text-slate-500">
+                                    Solo lo ves tú · se publica en {graceLeft} s
+                                  </p>
+                                )}
                               </div>
                             )
                           })}

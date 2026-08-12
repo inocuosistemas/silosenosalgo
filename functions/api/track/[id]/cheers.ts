@@ -5,7 +5,7 @@ import { genId } from '../../../../shared/ids'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../../../shared/config'
 import { notifyTelegram, escapeHtml } from '../../../lib/notify'
-import { CHEER_BODY_MAX, CHEER_NICK_MAX, type CheerCreate, type TrackCheer } from '../../../../shared/wireTypes'
+import { CHEER_BODY_MAX, CHEER_GRACE_MS, CHEER_NICK_MAX, type CheerCreate, type TrackCheer } from '../../../../shared/wireTypes'
 
 /**
  * POST /api/track/:id/cheers — un seguidor deja un mensaje de ánimo.
@@ -49,6 +49,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
 
+  // Quien escribe, para poder enseñarselo solo a el durante la ventana de
+  // arrepentimiento y dejarle borrarlo. Sin id valido se publica directamente.
+  const viewer = new URL(request.url).searchParams.get('v')
+  const author = viewer && /^[A-Za-z0-9_-]{8,64}$/.test(viewer) ? viewer : null
+
   const b = await readJson<CheerCreate>(request)
   if (!b) return json({ error: 'bad_body' }, 400)
   const body = clean(b.body, CHEER_BODY_MAX)
@@ -84,20 +89,35 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
     && b.trackKm >= 0 && b.trackKm < 100_000 ? b.trackKm : null
   const trackKm = typeof row.trackKm === 'number' && Number.isFinite(row.trackKm) ? row.trackKm : clientKm
   // Recién creado: sin votos y, por definición, sin el voto de quien lo escribe.
-  const cheer: TrackCheer = { id: genId(16), createdAt: Date.now(), nick, body, trackKm, likes: 0, likedByMe: false }
+  const now = Date.now()
+  // Sin autor identificable no hay a quien enseñarselo en privado ni quien pueda
+  // borrarlo, asi que se publica ya.
+  const publishAt = author ? now + CHEER_GRACE_MS : now
+  const cheer: TrackCheer = {
+    id: genId(16), createdAt: now, nick, body, trackKm,
+    likes: 0, likedByMe: false, publishAt, mine: !!author,
+  }
   await env.DB.prepare(
-    'INSERT INTO track_cheers (id, session_id, created_at, nick, body, track_km, ip_hash) VALUES (?,?,?,?,?,?,?)',
-  ).bind(cheer.id, id, cheer.createdAt, cheer.nick, cheer.body, cheer.trackKm, await hashIp(ip)).run()
+    'INSERT INTO track_cheers (id, session_id, created_at, nick, body, track_km, ip_hash, viewer_id, publish_at) VALUES (?,?,?,?,?,?,?,?,?)',
+  ).bind(cheer.id, id, cheer.createdAt, cheer.nick, cheer.body, cheer.trackKm, await hashIp(ip), author, publishAt).run()
 
-  // Aviso por Telegram, si está configurado. Con waitUntil: quien anima no tiene
-  // por qué esperar a que Telegram conteste, y si el aviso falla el mensaje ya
-  // está guardado igual.
-  waitUntil(notifyTelegram(env, [
-    `💬 <b>Nuevo ánimo</b>${row.title ? ` · ${escapeHtml(row.title)}` : ''}`,
-    `<b>${escapeHtml(cheer.nick || 'Anónimo')}</b>${cheer.trackKm != null ? ` · km ${cheer.trackKm.toFixed(1)}` : ''}`,
-    escapeHtml(cheer.body),
-    `${PUBLIC_BASE_URL}/?t=${encodeURIComponent(id)}`,
-  ].join('\n')))
+  // Aviso por Telegram, si está configurado. Espera a que el mensaje se publique
+  // y vuelve a comprobar que sigue ahí: avisar antes delataría un mensaje que su
+  // autor todavía puede retirar, y la gracia de la ventana es justamente que lo
+  // borrado no lo vea nadie. Va en waitUntil, así que quien anima no espera.
+  waitUntil((async () => {
+    const wait = publishAt - Date.now()
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+    const still = await env.DB.prepare('SELECT 1 AS x FROM track_cheers WHERE id=?')
+      .bind(cheer.id).first<{ x: number }>()
+    if (!still) return
+    await notifyTelegram(env, [
+      `💬 <b>Nuevo ánimo</b>${row.title ? ` · ${escapeHtml(row.title)}` : ''}`,
+      `<b>${escapeHtml(cheer.nick || 'Anónimo')}</b>${cheer.trackKm != null ? ` · km ${cheer.trackKm.toFixed(1)}` : ''}`,
+      escapeHtml(cheer.body),
+      `${PUBLIC_BASE_URL}/?t=${encodeURIComponent(id)}`,
+    ].join('\n'))
+  })())
 
   return json(cheer, 201, { 'Cache-Control': 'no-store' })
 }

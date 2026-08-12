@@ -123,7 +123,15 @@ export interface TrackCheer {
   likes: number
   /** Si ESTE navegador ya votó (para pintar el botón y permitir quitarlo). */
   likedByMe: boolean
+  /** Instante en que pasa a ser público. Hasta entonces solo lo ve quien lo
+   *  escribió, que puede borrarlo. */
+  publishAt: number
+  /** Si lo escribió ESTE navegador (habilita el borrado durante la ventana). */
+  mine: boolean
 }
+
+/** Segundos que un ánimo permanece privado y borrable por su autor. */
+export const CHEER_GRACE_MS = 10_000
 
 /** Lo que envía un seguidor al animar.
  *
