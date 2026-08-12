@@ -23,6 +23,26 @@
   100% { left: 100%; }
 }
 
+/* Latido del punto de seguimiento: un anillo que sale del punto y se desvanece.
+   Marca a la vez DONDE esta y que la senal sigue viva; por eso solo late cuando
+   la sesion esta en directo y llegando posiciones. El color lo pone el marcador
+   (currentColor) para que acompañe al estado: azul normal, ambar fuera de ruta. */
+@keyframes runner-pulse {
+  0%   { transform: scale(0.5); opacity: 0.8; }
+  70%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.runner-pulse {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: runner-pulse 1.9s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .runner-pulse { animation: none; opacity: 0.35; }
+}
+
 /* Texto que no cabe (nombre de la ruta, usuario al que se sigue): en vez de
    cortarlo con puntos suspensivos, se desplaza solo hasta el final y vuelve, con
    una pausa en cada extremo para poder leerlo. El recorrido lo mide el componente

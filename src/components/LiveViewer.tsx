@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { TrackStateResponse, BeaconActivity } from '../../shared/wireTypes'
@@ -141,6 +141,25 @@ function noteDivIcon(poiType: string): L.DivIcon {
       popupAnchor: [0, -22],
     })
     noteIconCache.set(poiType, icon)
+  }
+  return icon
+}
+
+/** Anillo que late bajo el punto de seguimiento. Va en un div-icon y no en un
+ *  CircleMarker porque el radio de un path SVG no se puede animar por CSS.
+ *  Cacheado por color: si no, cada render crearia un icono nuevo y la animacion
+ *  se reiniciaria desde cero en cada posicion recibida. */
+const pulseIconCache = new Map<string, L.DivIcon>()
+function pulseDivIcon(color: string): L.DivIcon {
+  let icon = pulseIconCache.get(color)
+  if (!icon) {
+    icon = L.divIcon({
+      className: '',
+      html: `<div class="runner-pulse" style="color:${color}"></div>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+    })
+    pulseIconCache.set(color, icon)
   }
   return icon
 }
@@ -912,6 +931,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const ghostKm = plannedCurve && !preStart && !ended && elapsedMin > 0
     ? kmAtPlannedMin(plannedCurve, elapsedMin) : null
   const ghostPos = ghostKm != null && plan ? pointAtKm(plan.track, ghostKm) : null
+  // Un solo sitio donde se decide el color del corredor, para que el punto y su
+  // latido no puedan discrepar.
+  const fixColor = ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9'
   const avgSpeedKmh = elapsedMin > 0 && coveredKm > 0 ? coveredKm / (elapsedMin / 60) : null
   const movingAvgKmh = movingMs > 60_000 && coveredKm > 0 ? coveredKm / (movingMs / 3_600_000) : null
   // Moving/stopped split for display. Flag the coverage-gap caveat only when the
@@ -1323,22 +1345,34 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </CircleMarker>
           </>
         )}
-        {/* Corredor virtual: por donde iria alguien que fuese justo en hora.
-            Deliberadamente apagado (violeta translucido, sin borde blanco) para
-            que no compita con el punto del corredor real. Se dibuja ANTES que
-            este, asi que si coinciden queda debajo y el de verdad se ve. */}
-        {ghostPos && (
-          <CircleMarker
-            center={ghostPos}
-            radius={7}
-            pathOptions={{ color: '#a78bfa', weight: 2, opacity: 0.7, fillColor: '#a78bfa', fillOpacity: 0.25 }}
-          >
-            <Tooltip direction="top" offset={[0, -6]}>
-              Según el plan deberías ir por aquí · km {ghostKm!.toFixed(1)}
-            </Tooltip>
-          </CircleMarker>
-        )}
-        {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9', fillOpacity: 1 }} />}
+        {/* Un CircleMarker vive en el overlayPane (z-index 400), POR DEBAJO de
+            los marcadores de notas (markerPane, 600): el punto de seguimiento se
+            perdia detras de cualquier chincheta. Este pane propio lo sube por
+            encima de ellas, y se queda por debajo de tooltips (650) y popups
+            (700) para no tapar lo que se abre al tocar. */}
+        <Pane name="runner" style={{ zIndex: 640 }}>
+          {/* Corredor virtual: por donde iria alguien que fuese justo en hora.
+              Deliberadamente apagado (violeta translucido, sin borde blanco)
+              para que no compita con el punto real. Se dibuja ANTES que el, asi
+              que si coinciden queda debajo y el de verdad se ve. */}
+          {ghostPos && (
+            <CircleMarker
+              center={ghostPos}
+              radius={7}
+              pathOptions={{ color: '#a78bfa', weight: 2, opacity: 0.7, fillColor: '#a78bfa', fillOpacity: 0.25 }}
+            >
+              <Tooltip direction="top" offset={[0, -6]}>
+                Según el plan deberías ir por aquí · km {ghostKm!.toFixed(1)}
+              </Tooltip>
+            </CircleMarker>
+          )}
+          {/* El latido solo mientras hay senal viva: es lo que significa. Parado
+              o acabado, el punto se queda quieto y eso ya informa. */}
+          {fix && !ended && !fr?.stale && (
+            <Marker position={[fix.lat, fix.lon]} icon={pulseDivIcon(fixColor)} interactive={false} />
+          )}
+          {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
+        </Pane>
         {fix && <Follow lat={fix.lat} lon={fix.lon} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
