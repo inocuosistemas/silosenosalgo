@@ -1666,6 +1666,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </>
             )}
           </div>
+          {/* Barra de progreso a sangre en el borde inferior, justo encima del
+              tirador. El degradado ocupa SIEMPRE el ancho completo y lo que se
+              tapa es lo que falta, asi que el color del extremo lleno indica por
+              si solo cuanto queda: azul al empezar, verde al acabar. Sin leerla,
+              solo por el color y lo llena que este, ya se sabe. */}
+          {hasPlan && progressKm != null && (
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct}
+              aria-label="Progreso de la ruta"
+              title={`${pct}% de la ruta`}
+              className="relative h-1 w-full shrink-0 overflow-hidden bg-slate-800"
+            >
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg,#0ea5e9,#22d3ee,#4ade80,#22c55e)' }} />
+              <div className="absolute inset-y-0 right-0 bg-slate-800/90 transition-[width] duration-500" style={{ width: `${100 - pct}%` }} />
+            </div>
+          )}
         </div>
         {/* Lengüeta: sobresale solo en el centro, pegada al borde inferior, para
             que se lea como un tirador del que estirar. Al estar fuera del cuadro
