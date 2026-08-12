@@ -17,6 +17,7 @@ import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
+import { detectLaps, currentLap } from '../lib/laps'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
 
@@ -906,6 +907,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
+  // Circuito de varias vueltas: en una ruta asi, "vuelta 2 de 4" dice mucho mas
+  // que un porcentaje, asi que sustituye al % en la casilla de progreso (sin
+  // ocupar mas sitio). En rutas normales no es nada y todo queda como estaba.
+  const lapInfo = useMemo(() => (plan ? detectLaps(plan.track) : null), [plan])
+  const lapNow = lapInfo && progressKm != null ? currentLap(lapInfo, progressKm) : null
+
   // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
   // la marca queda de rastro al final de la segunda linea. `plan.track.name` cae
   // a "Ruta compartida" cuando el GPX no traia nombre, y eso no dice nada, asi
@@ -1256,7 +1263,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                 {hasPlan && progressKm != null
-                  ? <Stat label={`Progreso ${pct}%`} value={`${progressKm.toFixed(1)} km`} />
+                  ? <Stat
+                      label={lapInfo && lapNow
+                        ? <span className="text-sky-300">Vuelta {lapNow} de {lapInfo.laps}</span>
+                        : `Progreso ${pct}%`}
+                      value={`${progressKm.toFixed(1)} km`}
+                    />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
                 <Stat
                   label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
@@ -1506,7 +1518,7 @@ function MetricSection({ icon, title, cols, children }: { icon: string; title: s
   )
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
+function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 'amber' }) {
   return (
     <div className="rounded-lg bg-slate-800/70 py-1.5 px-1">
       <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : ''}`}>{value}</p>
