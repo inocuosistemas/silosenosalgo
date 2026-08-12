@@ -941,8 +941,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <div className="mt-0.5 flex items-center gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-400">
           {state.username && (
-            <AutoScroll className="min-w-0 flex-1">
-              Siguiendo a <span className="font-medium text-slate-200">@{state.username}</span>
+            <AutoScroll className="min-w-0 flex-1 font-medium text-slate-200">
+              @{state.username}
             </AutoScroll>
           )}
           {/* La marca es lo prescindible: fija al final, nunca empuja al nombre. */}
