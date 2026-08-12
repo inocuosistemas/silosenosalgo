@@ -349,27 +349,29 @@ function FormTimeline({ log, totalKm, currentKm, currentFactor, color }: {
   const y = (pct: number) => H / 2 - (pct / maxAbs) * (H / 2 - 2)
   const path = 'M' + series.map((s) => `${x(s.km).toFixed(1)},${y(s.pct).toFixed(1)}`).join('L')
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block w-full h-8">
-      <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="#475569" strokeWidth={0.5} strokeDasharray="2 2" />
-      <path d={path} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
-      {/* Marcas de cada confirmación. NO son <circle>: el lienzo se estira con
-          preserveAspectRatio="none", muchísimo más a lo ancho que a lo alto, y
-          un círculo dibujado dentro sale ovalado. Un segmento de longitud cero
-          con remate redondo pinta un punto en píxeles de pantalla, ajeno a ese
-          estiramiento — el mismo truco que ya usaba la línea con
-          vectorEffect. */}
-      {pts.map((e, i) => {
-        const cx = x(e.km), cy = y((e.factor - 1) * 100)
-        return (
-          <line
-            key={i}
-            x1={cx} y1={cy} x2={cx} y2={cy}
-            stroke="#fff" strokeWidth={4.5} strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        )
-      })}
-    </svg>
+    // Las marcas van FUERA del SVG, como puntos HTML colocados por porcentaje.
+    //
+    // Dentro salían ovaladas: el lienzo se estira con preserveAspectRatio="none"
+    // y es mucho más ancho que alto, así que cualquier forma dibujada dentro se
+    // achata. `vectorEffect="non-scaling-stroke"` arregla el GROSOR de la línea
+    // —por eso se ve pareja— pero WebKit sigue deformando los remates redondos,
+    // así que ni un <circle> ni un punto hecho con remate redondo salvan la
+    // situación. Un elemento HTML no pasa por esa transformación y es redondo
+    // siempre. Es el mismo recurso que usa el perfil de altitud para su marca de
+    // posición.
+    <div className="relative h-8">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-full w-full">
+        <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="#475569" strokeWidth={0.5} strokeDasharray="2 2" />
+        <path d={path} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+      </svg>
+      {pts.map((e, i) => (
+        <span
+          key={i}
+          className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
+          style={{ left: `${x(e.km)}%`, top: `${(y((e.factor - 1) * 100) / H) * 100}%` }}
+        />
+      ))}
+    </div>
   )
 }
 
