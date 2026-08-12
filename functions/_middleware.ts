@@ -83,10 +83,24 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         desc = live
           ? `Sigue a ${who} en tiempo real: posición, ritmo y hora estimada de llegada.`
           : `Recorrido de ${who}. Mira por dónde pasó y a qué hora.`
-        // Si la baliza lleva una ruta enganchada, se aprovecha la tarjeta ya
-        // generada de esa ruta: se ve el trazado en vez del logo. Si no existe,
-        // /og/<id>.jpg ya devuelve la tarjeta de marca por su cuenta.
-        if (row.planShareId) imageUrl = `${url.origin}/og/${row.planShareId}.jpg`
+        // Imagen: mejor la tarjeta YA generada de la ruta enganchada, que enseña
+        // el trazado real. Pero solo existe si esa ruta se compartió alguna vez
+        // desde la web (se dibuja en el navegador y se sube), cosa que no pasa
+        // con un plan creado desde la app: entonces /og/<id>.jpg devuelve la
+        // tarjeta de marca, que habla de previsión meteorológica y no dice nada
+        // de un seguimiento. Por eso se comprueba antes si existe de verdad y,
+        // si no, se usa la tarjeta propia de "en directo".
+        const fallback = `${url.origin}/og-live.png`
+        imageUrl = fallback
+        if (row.planShareId) {
+          try {
+            const stored = await ctx.env.SHARE_KV.get(`${row.planShareId}:img`, 'stream')
+            if (stored) {
+              imageUrl = `${url.origin}/og/${row.planShareId}.jpg`
+              await stored.cancel()
+            }
+          } catch { /* sin tarjeta de ruta, la de en directo sirve */ }
+        }
       }
     } catch { /* si algo falla, vista previa de marca y a seguir */ }
   }
