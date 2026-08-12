@@ -23,6 +23,25 @@
   100% { left: 100%; }
 }
 
+/* Texto que no cabe (nombre de la ruta, usuario al que se sigue): en vez de
+   cortarlo con puntos suspensivos, se desplaza solo hasta el final y vuelve, con
+   una pausa en cada extremo para poder leerlo. El recorrido lo mide el componente
+   y lo pasa en --marquee-shift, asi que se desplaza justo lo que sobra y ni un
+   pixel mas. Si el texto cabe, no se aplica la clase y no hay animacion. */
+@keyframes marquee-peek {
+  0%, 15%   { transform: translateX(0); }
+  45%, 60%  { transform: translateX(var(--marquee-shift, 0px)); }
+  90%, 100% { transform: translateX(0); }
+}
+.marquee-scroll {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-peek var(--marquee-duration, 10s) ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-scroll { animation: none; }
+}
+
 /* ── Dual-thumb range slider (analyze-range selector) ──────────────────────
    Two <input type="range"> are stacked over one shared track. The input itself
    is transparent and ignores pointer events, so clicks fall through to whichever

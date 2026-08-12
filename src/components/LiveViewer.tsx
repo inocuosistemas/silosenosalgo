@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -930,24 +930,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const headline = namedRoute || state.title?.trim() || routeName || 'SiLoSeNoSalgo - Baliza'
   const showBrand = headline !== 'SiLoSeNoSalgo - Baliza'
 
+  // Dos filas en vez de dos columnas: la primera queda entera para el nombre de
+  // la ruta (sin emoji ni botones robandole sitio) y los controles bajan a la
+  // segunda, junto a quien va. Lo que no cabe se desplaza solo en lugar de
+  // truncarse. Lo que gana de alto se devuelve apretando el relleno de la
+  // cabecera y el de las casillas: el cuadro mide lo mismo que antes.
   const header = (
-    <div className="flex items-center gap-2">
-      <span className="text-lg">🌧️</span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold truncate">{headline}</p>
-        {(state.username || showBrand) && (
-          // Una sola linea: lo variable trunca y la marca, que es lo prescindible,
-          // va fija al final para que no empuje ni desaparezca.
-          <p className="flex items-baseline gap-1 text-xs text-slate-400">
-            {state.username && (
-              <span className="truncate">
-                Siguiendo a <span className="text-slate-200 font-medium">@{state.username}</span>
-              </span>
-            )}
-            {showBrand && <span className="shrink-0 text-slate-600">· SiLoSeNoSalgo</span>}
-          </p>
-        )}
-      </div>
+    <div>
+      <AutoScroll className="font-semibold leading-tight">{headline}</AutoScroll>
+      <div className="mt-0.5 flex items-center gap-2">
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-400">
+          {state.username && (
+            <AutoScroll className="min-w-0 flex-1">
+              Siguiendo a <span className="font-medium text-slate-200">@{state.username}</span>
+            </AutoScroll>
+          )}
+          {/* La marca es lo prescindible: fija al final, nunca empuja al nombre. */}
+          {showBrand && <span className="shrink-0 text-slate-600">· SiLoSeNoSalgo</span>}
+        </span>
       {/* Activity icon: declared by the broadcaster, or inferred from the trail
           ("auto" mark) when left on Automático. */}
       {effectiveActivity && (
@@ -962,8 +962,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       )}
       {hasPlan && <ViewToggle mode={viewMode} setMode={setViewMode} />}
       {onClose && (
-        <button type="button" onClick={onClose} title="Cerrar guía" aria-label="Cerrar guía" className="ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-800 hover:text-white">×</button>
+        <button type="button" onClick={onClose} title="Cerrar guía" aria-label="Cerrar guía" className="ml-1 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-800 hover:text-white">×</button>
       )}
+      </div>
     </div>
   )
 
@@ -1261,7 +1262,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
         <div className="mx-auto flex max-w-md max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl pointer-events-auto">
-          <div className="shrink-0 p-3 pb-2">
+          <div className="shrink-0 px-3 pt-2.5 pb-1.5">
             {header}
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
@@ -1525,9 +1526,56 @@ function MetricSection({ icon, title, cols, children }: { icon: string; title: s
   )
 }
 
+/**
+ * Muestra el texto entero aunque no quepa: si sobra, se desplaza solo hasta el
+ * final y vuelve. Truncar con puntos suspensivos escondia justo lo que
+ * identifica la salida (el nombre de la ruta), y la cabecera no puede crecer
+ * para que quepa.
+ *
+ * Solo anima cuando hace falta: mide el sobrante real y, si es cero, se queda
+ * quieto. La velocidad es constante (~28 px/s) en vez de una duracion fija, para
+ * que un nombre muy largo no salga disparado.
+ */
+function AutoScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
+  const box = useRef<HTMLSpanElement>(null)
+  const text = useRef<HTMLSpanElement>(null)
+  const [shift, setShift] = useState(0)
+
+  useEffect(() => {
+    const measure = () => {
+      const b = box.current, t = text.current
+      if (!b || !t) return
+      // Un par de pixeles de margen: por redondeos del layout, un texto que cabe
+      // justo puede dar 1px de sobrante y ponerse a temblar sin motivo.
+      const over = t.scrollWidth - b.clientWidth
+      setShift(over > 2 ? over : 0)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    if (box.current) ro.observe(box.current)
+    if (text.current) ro.observe(text.current)
+    return () => ro.disconnect()
+  }, [children])
+
+  return (
+    <span ref={box} className={`block overflow-hidden ${className}`}>
+      <span
+        ref={text}
+        className={shift ? 'marquee-scroll' : 'block truncate'}
+        style={shift ? ({
+          '--marquee-shift': `-${shift}px`,
+          '--marquee-duration': `${Math.max(8, Math.round(shift / 28) * 2 + 8)}s`,
+        } as CSSProperties) : undefined}
+      >
+        {children}
+      </span>
+    </span>
+  )
+}
+
 function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 'amber' }) {
   return (
-    <div className="rounded-lg bg-slate-800/70 py-1.5 px-1">
+    <div className="rounded-lg bg-slate-800/70 py-1 px-1">
       <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : ''}`}>{value}</p>
       <p className="text-[10px] uppercase tracking-wide text-slate-500 truncate">{label}</p>
     </div>
