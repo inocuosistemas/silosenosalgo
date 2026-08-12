@@ -1612,7 +1612,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               {showAdvanced && (
                 <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
                   {recalibrationCard}
-                  {formStatusPanel}
                   {(canCheer || cheers.length > 0) && (
                     <div>
                       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
@@ -1673,6 +1672,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       )}
                     </div>
                   )}
+                  {formStatusPanel}
                   {lapInfo && splits.length > 0 && (
                     <div>
                       {/* Los km por vuelta van en la cabecera y no en cada fila:
