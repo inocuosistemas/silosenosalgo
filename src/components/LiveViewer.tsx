@@ -1283,11 +1283,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       )}
 
       <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
-        <div className="mx-auto flex max-w-md max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl pointer-events-auto">
+        {/* `relative` para que el tirador pueda colgar por debajo del borde: el
+            cuadro lleva overflow-hidden (lo necesitan las esquinas redondeadas),
+            asi que la lengüeta no puede vivir dentro. */}
+        <div className="relative mx-auto max-w-md pointer-events-auto">
+        <div className="flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl">
           <div className="shrink-0 px-3 pt-2.5 pb-1.5">
             {header}
           </div>
-          <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-2">
             {topHero && <div>{topHero}</div>}
             {fix && (
               <>
@@ -1318,24 +1322,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               {hasPlan && offRoute && nearest && (
                 <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
               )}
-              <button
-                onClick={() => { if (advDraggedRef.current) { advDraggedRef.current = false; return } setShowAdvanced((v) => !v) }}
-                onTouchStart={(e) => { advDragStartY.current = e.touches[0].clientY; advDraggedRef.current = false }}
-                onTouchMove={(e) => {
-                  if (advDragStartY.current == null) return
-                  const dy = e.touches[0].clientY - advDragStartY.current
-                  if (Math.abs(dy) > 24) { advDraggedRef.current = true; setShowAdvanced(dy > 0) }
-                }}
-                onTouchEnd={() => { advDragStartY.current = null }}
-                aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca o arrastra)'}
-                className="mt-1 w-full flex justify-center items-center gap-1 py-2 group touch-none"
-              >
-                {[0, 1, 2].map((i) => (
-                  <span key={i} className={`h-1 w-1 rounded-full transition-colors ${showAdvanced ? 'bg-slate-300' : 'bg-slate-600 group-hover:bg-slate-400'}`} />
-                ))}
-              </button>
               {showAdvanced && (
-                <div className="mt-1 border-t border-slate-800 pt-2 space-y-3">
+                <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
                   {recalibrationCard}
                   {formStatusPanel}
                   {lapInfo && splits.length > 0 && (
@@ -1504,6 +1492,29 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </>
             )}
           </div>
+        </div>
+        {/* Lengüeta: sobresale solo en el centro, pegada al borde inferior, para
+            que se lea como un tirador del que estirar. Al estar fuera del cuadro
+            (que recorta) puede colgar; -translate-y-px solapa el borde para que
+            no se vea la costura entre ambos. */}
+        {fix && (
+          <button
+            onClick={() => { if (advDraggedRef.current) { advDraggedRef.current = false; return } setShowAdvanced((v) => !v) }}
+            onTouchStart={(e) => { advDragStartY.current = e.touches[0].clientY; advDraggedRef.current = false }}
+            onTouchMove={(e) => {
+              if (advDragStartY.current == null) return
+              const dy = e.touches[0].clientY - advDragStartY.current
+              if (Math.abs(dy) > 24) { advDraggedRef.current = true; setShowAdvanced(dy > 0) }
+            }}
+            onTouchEnd={() => { advDragStartY.current = null }}
+            aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca o arrastra)'}
+            className="group absolute left-1/2 top-full flex w-16 -translate-x-1/2 -translate-y-px touch-none items-center justify-center gap-1 rounded-b-xl border border-t-0 border-slate-700 bg-slate-900/85 py-1.5 shadow-lg backdrop-blur"
+          >
+            {[0, 1, 2].map((i) => (
+              <span key={i} className={`h-1 w-1 rounded-full transition-colors ${showAdvanced ? 'bg-slate-300' : 'bg-slate-600 group-hover:bg-slate-400'}`} />
+            ))}
+          </button>
+        )}
         </div>
       </div>
 
