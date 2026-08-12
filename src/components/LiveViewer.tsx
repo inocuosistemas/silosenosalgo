@@ -931,14 +931,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Sin useMemo a proposito: `refNow` se define despues de los `return` de
   // arriba, asi que un hook aqui volveria a desordenarlos (el #310 de antes).
   // El calculo es una pasada corta sobre las muestras y no compensa el riesgo.
-  const splits = lapInfo ? lapSplits(lapInfo, formSamples, refNow) : []
+  const splits = lapInfo ? lapSplits(lapInfo, formSamples, refNow, MOVING_MIN_KMH) : []
   const nextLapMin = projectNextLapMin(splits)
-  // Comparando las dos ultimas completas: media vuelta de margen para no llamar
-  // "mejorando" a lo que solo es ruido de GPS.
-  const lastDelta = splits.filter((s) => s.done).slice(-1)[0]?.deltaMin ?? null
-  const lapTrend = lastDelta == null ? null
-    : Math.abs(lastDelta) < 0.5 ? 'ritmo estable'
-    : lastDelta < 0 ? 'mejorando' : 'aflojando'
+  // La tendencia se mide EN MOVIMIENTO, no de reloj: una vuelta larga por haber
+  // parado a comer no es un bajon de ritmo, y decir lo contrario es lo que hace
+  // que el dato no sirva. Medio minuto de margen para no llamar "mejorando" a
+  // lo que es ruido de GPS.
+  const lastMovDelta = splits.filter((s) => s.done).slice(-1)[0]?.deltaMovingMin ?? null
+  const lapTrend = lastMovDelta == null ? null
+    : Math.abs(lastMovDelta) < 0.5 ? 'ritmo estable'
+    : lastMovDelta < 0 ? 'mejorando' : 'aflojando'
 
   // Lo que identifica la salida es la RUTA, no la app: el titular es su nombre y
   // la marca queda de rastro al final de la segunda linea. `plan.track.name` cae
@@ -1344,18 +1346,32 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
                         <span className="text-xs">🔁</span>Vueltas · {lapInfo.lapKm.toFixed(1)} km cada una
                       </p>
+                      {/* Reloj y movimiento por separado: una vuelta puede salir
+                          larga por una parada sin que el ritmo haya bajado, y sin
+                          esta distincion el dato engaña. La diferencia que se
+                          muestra es la de MOVIMIENTO, que es la que responde a
+                          "¿voy mas lento de verdad?". */}
+                      <div className="grid grid-cols-[1.3rem_repeat(3,1fr)_1.5fr] gap-1 text-[9px] uppercase tracking-wide text-slate-600">
+                        <span />
+                        <span className="text-right">reloj</span>
+                        <span className="text-right">parado</span>
+                        <span className="text-right">en mov.</span>
+                        <span className="text-right">dif. mov.</span>
+                      </div>
                       <div className="space-y-0.5 tabular-nums">
                         {splits.map((s) => (
-                          <div key={s.lap} className="flex items-baseline gap-2 text-xs">
-                            <span className="w-5 shrink-0 text-slate-500">V{s.lap}</span>
-                            <span className={`flex-1 ${s.done ? 'text-slate-200' : 'text-sky-300'}`}>{lapTime(s.minutes)}</span>
+                          <div key={s.lap} className="grid grid-cols-[1.3rem_repeat(3,1fr)_1.5fr] items-baseline gap-1 text-[11px]">
+                            <span className={s.done ? 'text-slate-500' : 'text-sky-300'}>V{s.lap}</span>
+                            <span className={`text-right ${s.done ? 'text-slate-300' : 'text-sky-300'}`}>{lapTime(s.minutes)}</span>
+                            <span className={`text-right ${s.stoppedMin >= 0.5 ? 'text-amber-400' : 'text-slate-600'}`}>{lapTime(s.stoppedMin)}</span>
+                            <span className={`text-right ${s.done ? 'text-slate-200' : 'text-sky-300'}`}>{lapTime(s.movingMin)}</span>
                             {s.done ? (
-                              <span className={`shrink-0 ${s.deltaMin == null ? 'text-slate-600'
-                                : s.deltaMin < 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                                {s.deltaMin == null ? '—' : `${s.deltaMin < 0 ? '−' : '+'}${lapTime(Math.abs(s.deltaMin))}`}
+                              <span className={`text-right ${s.deltaMovingMin == null ? 'text-slate-600'
+                                : s.deltaMovingMin < 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {s.deltaMovingMin == null ? '—' : `${s.deltaMovingMin < 0 ? '−' : '+'}${lapTime(Math.abs(s.deltaMovingMin))}`}
                               </span>
                             ) : (
-                              <span className="shrink-0 text-sky-300">en curso · {s.km.toFixed(1)} km</span>
+                              <span className="text-right text-sky-300">{s.km.toFixed(1)} km</span>
                             )}
                           </div>
                         ))}

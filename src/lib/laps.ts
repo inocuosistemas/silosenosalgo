@@ -77,10 +77,17 @@ export interface LapSplit {
   lap: number
   /** Km recorridos DENTRO de esta vuelta (la de en curso va a medias). */
   km: number
-  /** Minutos que costo. En la de en curso, los que lleva. */
+  /** Minutos que costo de reloj. En la de en curso, los que lleva. */
   minutes: number
-  /** Diferencia con la vuelta anterior completa; null en la primera. */
+  /** De esos minutos, los que se pasaron avanzando. */
+  movingMin: number
+  /** Y los que se pasaron parado (incluye el rato sin posiciones nuevas). */
+  stoppedMin: number
+  /** Diferencia de reloj con la vuelta anterior completa; null en la primera. */
   deltaMin: number | null
+  /** Diferencia SOLO en movimiento: esta es la que dice si el ritmo baja de
+   *  verdad o si la vuelta salio larga porque hubo una parada. */
+  deltaMovingMin: number | null
   done: boolean
 }
 
@@ -99,6 +106,9 @@ export function lapSplits(
   info: LapInfo,
   samples: { km: number; t: number }[],
   nowMs: number,
+  /** Por debajo de esta velocidad se cuenta como parado (el mismo umbral que usa
+   *  el resto del visor para la media en movimiento). */
+  movingMinKmh: number,
 ): LapSplit[] {
   if (samples.length < 2) return []
 
@@ -115,26 +125,63 @@ export function lapSplits(
     return null
   }
 
-  const startT = samples[0].t
+  // Cada hueco entre muestras se clasifica entero en movimiento o en parada,
+  // segun la velocidad media del tramo.
+  const gaps: { a: number; b: number; moving: boolean }[] = []
+  for (let i = 1; i < samples.length; i++) {
+    const dt = samples[i].t - samples[i - 1].t
+    if (dt <= 0) continue
+    const dKm = Math.abs(samples[i].km - samples[i - 1].km)
+    gaps.push({ a: samples[i - 1].t, b: samples[i].t, moving: dKm / (dt / 3_600_000) >= movingMinKmh })
+  }
+
+  // Minutos en movimiento dentro de una ventana. Los huecos que cruzan el
+  // principio o el final se recortan en vez de asignarse enteros a una vuelta:
+  // si no, el tramo que pisa la linea de meta se contaria dos veces y los
+  // parciales dejarian de sumar el total.
+  const movingBetween = (from: number, to: number): number => {
+    let ms = 0
+    for (const g of gaps) {
+      if (!g.moving) continue
+      const a = Math.max(g.a, from), b = Math.min(g.b, to)
+      if (b > a) ms += b - a
+    }
+    return ms / 60_000
+  }
+
   const lastSample = samples[samples.length - 1]
   const out: LapSplit[] = []
-  let prevT = startT
-  let prevDone: number | null = null
+  let prevT = samples[0].t
+  let prevDone: LapSplit | null = null
+
+  const row = (lap: number, km: number, from: number, to: number, done: boolean): LapSplit => {
+    const minutes = (to - from) / 60_000
+    const movingMin = Math.min(minutes, movingBetween(from, to))
+    return {
+      lap, km, minutes, movingMin,
+      // Lo que no fue movimiento fue parada. Incluye el rato sin posiciones
+      // nuevas: desde aqui no se distingue un descanso de una perdida de senal.
+      stoppedMin: minutes - movingMin,
+      // La vuelta en curso no se compara: va a medias y saldria siempre "mejor"
+      // que una completa.
+      deltaMin: done && prevDone ? minutes - prevDone.minutes : null,
+      deltaMovingMin: done && prevDone ? movingMin - prevDone.movingMin : null,
+      done,
+    }
+  }
 
   for (let lap = 1; lap <= info.laps; lap++) {
     const endT = timeAtKm(lap * info.lapKm)
     if (endT != null) {
-      const minutes = (endT - prevT) / 60_000
-      out.push({ lap, km: info.lapKm, minutes, deltaMin: prevDone == null ? null : minutes - prevDone, done: true })
-      prevDone = minutes
+      const r = row(lap, info.lapKm, prevT, endT, true)
+      out.push(r)
+      prevDone = r
       prevT = endT
       continue
     }
     // Vuelta en curso: solo tiene sentido si ya se ha empezado.
     const km = lastSample.km - (lap - 1) * info.lapKm
-    if (km > 0) {
-      out.push({ lap, km, minutes: (nowMs - prevT) / 60_000, deltaMin: null, done: false })
-    }
+    if (km > 0) out.push(row(lap, km, prevT, nowMs, false))
     break
   }
 
