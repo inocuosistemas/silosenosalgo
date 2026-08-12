@@ -17,6 +17,9 @@ import type { TrailPoint, PingResponse } from '../../../../shared/wireTypes'
 
 const PATH_MAX = 2000
 const MAX_BATCH = 600
+/** Margen de silencio: una baliza que no da señal en este tiempo se da por
+ *  terminada. Cada posición lo renueva, así que mientras emita no caduca. */
+const ALIVE_TTL_MS = 16 * 60 * 60 * 1000
 
 interface InFix {
   lat: number; lon: number
@@ -81,13 +84,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // Latest fix by time → the live position shown to followers.
   const latest = incoming.reduce((a, b) => (b.t >= a.t ? b : a))
 
+  // Cada posición prolonga la caducidad. Sin esto, `expires_at` se fijaba al
+  // arrancar y no se movía nunca: una baliza que siguiera emitiendo pasado su
+  // plazo se daba por caducada, el enlace devolvía 404 y la purga vaciaba
+  // posición y traza. En una carrera larga —un Backyard puede pasar de un día—
+  // eso significaba perder el seguimiento EN MITAD de la prueba.
+  //
+  // El plazo pasa a contar desde la última posición, no desde la salida: así una
+  // baliza viva nunca caduca, y una que deja de emitir sigue expirando sola.
+  const keepAlive = now + ALIVE_TTL_MS
   await env.DB.prepare(
     `UPDATE tracking_sessions
-        SET lat=?, lon=?, track_km=?, speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?
+        SET lat=?, lon=?, track_km=?, speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
+            expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
-    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), id,
+    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), keepAlive, id,
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.

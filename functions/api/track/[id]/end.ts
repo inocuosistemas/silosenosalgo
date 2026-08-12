@@ -6,14 +6,18 @@ import { TOKEN_RE } from '../../../../shared/validate'
 
 /**
  * POST /api/track/:id/end — owner stops sharing. Keeps the route + last known
- * position so the viewer can still show them for the retention window (48 h by
- * default); only the status flips to 'ended' and expires_at is reset to now +
+ * position so the viewer can still show them for the retention window (30 days
+ * by default); only the status flips to 'ended' and expires_at is reset to now +
  * retention (past that, a lazy purge clears the data and the public link goes
  * dead). Ownership is checked with a SELECT (not meta.changes, which is
  * unreliable on production D1).
  */
 
-const DEFAULT_RETAIN_HOURS = 48 // viewable after end, then lazy-purged
+// Cuanto sigue vivo el enlace despues de llegar a meta. Eran 48 h y se quedaba
+// corto: la enhorabuena llega durante dias, y un enlace compartido en un grupo
+// se sigue abriendo mucho despues. Treinta dias da margen de sobra sin guardar
+// las cosas para siempre; para eso ya esta la chincheta, que exime de la purga.
+const DEFAULT_RETAIN_HOURS = 24 * 30
 const MAX_RETAIN_HOURS = 24 * 30 // 30 days
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {

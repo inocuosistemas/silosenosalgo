@@ -13,7 +13,10 @@ import type { BeaconActivity, CreateTrackResponse, TrackSessionsResponse, TrackS
  */
 
 const MAX_TTL_MS = 1000 * 60 * 60 * 16 // 16 h — covers an ultra; lazy-expired on read.
-const KEEP_AFTER_END_MS = 48 * 60 * 60 * 1000 // ended sessions stay viewable 48 h, then lazy-purged.
+// Cierre automatico de la baliza anterior al abrir otra. Mismo plazo que el
+// cierre manual (end.ts): el enlace sigue vivo 30 dias para que quepan la
+// enhorabuena y las consultas posteriores.
+const KEEP_AFTER_END_MS = 24 * 30 * 60 * 60 * 1000
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
