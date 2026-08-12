@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { TrackStateResponse, BeaconActivity } from '../../shared/wireTypes'
+import { CHEER_BODY_MAX, CHEER_NICK_MAX, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -364,6 +364,20 @@ function saveFormFactor(token: string, f: number): void {
   try { localStorage.setItem(`formFactor:${token}`, String(f)) } catch { /* private mode / disabled */ }
 }
 
+/** Hasta cuando ha leido ESTE navegador los animos de esta ruta. Se guarda en
+ *  local y no en el servidor a proposito: los seguidores no tienen cuenta, asi
+ *  que "leido" solo puede ser por dispositivo. Un 0 (primera visita) marcaria
+ *  todo como nuevo, que es justo lo que se quiere. */
+function loadCheersRead(token: string): number {
+  try {
+    const v = parseInt(localStorage.getItem(`cheersRead:${token}`) || '', 10)
+    return Number.isFinite(v) && v > 0 ? v : 0
+  } catch { return 0 }
+}
+function saveCheersRead(token: string, t: number): void {
+  try { localStorage.setItem(`cheersRead:${token}`, String(t)) } catch { /* private mode / disabled */ }
+}
+
 type LiveViewerProps =
   | { token: string; guide?: never; onClose?: never }
   | { token?: never; guide: BrowserGuide; onClose: () => void }
@@ -383,6 +397,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // off to inspect the raw trace with its precision colours.
   const [smooth, setSmooth] = useState(true)
   const [heat, setHeat] = useState(false)
+  const [cheersReadAt, setCheersReadAt] = useState(() => loadCheersRead(storageToken))
+  const [cheerNick, setCheerNick] = useState(() => { try { return localStorage.getItem('cheerNick') || '' } catch { return '' } })
+  const [cheerBody, setCheerBody] = useState('')
+  const [cheerBusy, setCheerBusy] = useState(false)
+  const [cheerError, setCheerError] = useState<string | null>(null)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -766,6 +785,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return () => { alive = false }
   }, [planRows, localGuide])
 
+  // Los ánimos se dan por leídos al abrir el panel, que es donde se leen. No al
+  // cargar la página: si se marcaran antes de que nadie los mire, el aviso de
+  // "hay mensajes nuevos" no llegaría a verse nunca.
+  useEffect(() => {
+    if (!showAdvanced) return
+    const list = state?.cheers
+    if (!list?.length) return
+    const newest = list.reduce((m, c) => Math.max(m, c.createdAt), 0)
+    if (newest > cheersReadAt) {
+      setCheersReadAt(newest)
+      saveCheersRead(storageToken, newest)
+    }
+  }, [showAdvanced, state?.cheers, cheersReadAt, storageToken])
+
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
   if (!state) return <Centered title="Cargando…" />
@@ -933,6 +966,47 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const ghostKm = plannedCurve && !preStart && !ended && elapsedMin > 0
     ? kmAtPlannedMin(plannedCurve, elapsedMin) : null
   const ghostPos = ghostKm != null && plan ? pointAtKm(plan.track, ghostKm) : null
+  const cheers = state.cheers ?? []
+  const unreadCheers = cheers.filter((c) => c.createdAt > cheersReadAt).length
+  // Animar exige un POST con cuerpo JSON, y el visor incrustado de la app los
+  // destroza al pasar por su esquema propio (mismo motivo por el que desde ahi
+  // no se crean notas). Los seguidores entran por el navegador, asi que el
+  // formulario solo se ofrece ahi.
+  const canCheer = !!token && !embedded && !localGuide
+  async function sendCheer() {
+    const body = cheerBody.trim()
+    if (!body || cheerBusy) return
+    setCheerBusy(true)
+    setCheerError(null)
+    try {
+      const res = await fetch(`/api/track/${token}/cheers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nick: cheerNick.trim() || null, body }),
+      })
+      if (!res.ok) {
+        setCheerError(res.status === 429
+          ? 'Has enviado varios seguidos. Prueba en un rato.'
+          : res.status === 410 ? 'Esta ruta ya no admite mensajes.'
+          : 'No se ha podido enviar.')
+        return
+      }
+      const created = await res.json() as TrackCheer
+      // Se añade al momento en vez de esperar al siguiente sondeo: quien acaba
+      // de escribir tiene que ver su mensaje ya. Y se marca leido, que no tiene
+      // sentido avisarle de su propio ánimo.
+      setState((s) => (s ? { ...s, cheers: [created, ...(s.cheers ?? [])] } : s))
+      setCheersReadAt(created.createdAt)
+      saveCheersRead(storageToken, created.createdAt)
+      setCheerBody('')
+      try { localStorage.setItem('cheerNick', cheerNick.trim()) } catch { /* modo privado */ }
+    } catch {
+      setCheerError('Sin conexión.')
+    } finally {
+      setCheerBusy(false)
+    }
+  }
+
   // Un solo sitio donde se decide el color del corredor, para que el punto y su
   // latido no puedan discrepar.
   const fixColor = ended ? '#94a3b8' : (offRoute || fr?.stale) ? '#f59e0b' : '#0ea5e9'
@@ -1450,6 +1524,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     <span className={`text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</span>
                   )}
                   {formChip}
+                  {/* Aviso de ánimos sin leer, en la franja compacta: es lo
+                      primero que se ve al entrar, sin desplegar nada. Al abrir
+                      el panel se dan por leídos y desaparece. */}
+                  {unreadCheers > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvanced(true)}
+                      className="flex items-center gap-1 rounded-full bg-fuchsia-500/15 px-2 py-0.5 text-xs font-medium text-fuchsia-300"
+                    >
+                      💬 {unreadCheers} {unreadCheers === 1 ? 'ánimo nuevo' : 'ánimos nuevos'}
+                    </button>
+                  )}
                 </div>
               )}
               {hasPlan && offRoute && nearest && (
@@ -1459,6 +1545,75 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
                   {recalibrationCard}
                   {formStatusPanel}
+                  {(canCheer || cheers.length > 0) && (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span className="text-xs">💬</span>Ánimos{cheers.length > 0 && ` · ${cheers.length}`}
+                      </p>
+                      {canCheer && (
+                        <div className="mb-2 rounded-lg bg-slate-800/70 p-2">
+                          <div className="flex gap-1.5">
+                            <input
+                              value={cheerNick}
+                              onChange={(e) => setCheerNick(e.target.value.slice(0, CHEER_NICK_MAX))}
+                              placeholder="Tu apodo (opcional)"
+                              aria-label="Tu apodo, opcional"
+                              className="min-w-0 flex-1 rounded-md bg-slate-900/70 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:ring-1 focus:ring-sky-600"
+                            />
+                          </div>
+                          <textarea
+                            value={cheerBody}
+                            onChange={(e) => setCheerBody(e.target.value.slice(0, CHEER_BODY_MAX))}
+                            placeholder="Escribe un mensaje de ánimo…"
+                            aria-label="Mensaje de ánimo"
+                            rows={2}
+                            className="mt-1.5 w-full resize-none rounded-md bg-slate-900/70 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:ring-1 focus:ring-sky-600"
+                          />
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-slate-600">
+                              {cheerNick.trim() ? `Firmas como ${cheerNick.trim()}` : 'Se enviará como anónimo'}
+                              {cheerBody.length > CHEER_BODY_MAX - 40 && ` · ${CHEER_BODY_MAX - cheerBody.length}`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={sendCheer}
+                              disabled={!cheerBody.trim() || cheerBusy}
+                              className="shrink-0 rounded-lg bg-sky-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                            >
+                              {cheerBusy ? 'Enviando…' : 'Enviar'}
+                            </button>
+                          </div>
+                          {cheerError && <p className="mt-1 text-[10px] text-amber-400">{cheerError}</p>}
+                        </div>
+                      )}
+                      {cheers.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {cheers.map((c) => {
+                            const isNew = c.createdAt > cheersReadAt
+                            return (
+                              <div key={c.id} className={`rounded-lg px-2 py-1.5 ${isNew ? 'bg-fuchsia-500/10 ring-1 ring-fuchsia-500/30' : 'bg-slate-800/70'}`}>
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="min-w-0 truncate text-xs font-medium text-slate-200">
+                                    {c.nick || 'Anónimo'}
+                                  </span>
+                                  {/* Hora exacta y km del corredor cuando llegó:
+                                      releyendo la carrera se sabe dónde cayó cada
+                                      empujón. */}
+                                  <span className="shrink-0 text-[10px] text-slate-500">
+                                    {formatTime(new Date(c.createdAt))}
+                                    {c.trackKm != null && ` · km ${c.trackKm.toFixed(1)}`}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-300">{c.body}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-500">Todavía no hay ninguno. Sé el primero.</p>
+                      )}
+                    </div>
+                  )}
                   {lapInfo && splits.length > 0 && (
                     <div>
                       {/* Los km por vuelta van en la cabecera y no en cada fila:

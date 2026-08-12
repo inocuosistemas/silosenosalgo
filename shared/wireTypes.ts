@@ -108,6 +108,30 @@ export interface FormLogEntry {
   factor: number
 }
 
+/** Mensaje de ánimo dejado por un seguidor. Sin cuenta: el apodo es voluntario
+ *  y `nick: null` se muestra como anónimo. */
+export interface TrackCheer {
+  id: string
+  /** Hora exacta de envío, epoch ms. */
+  createdAt: number
+  nick: string | null
+  body: string
+  /** Km de la ruta por el que iba el corredor al llegar el ánimo. Lo sella el
+   *  servidor con la última posición conocida; null si aún no había ninguna. */
+  trackKm: number | null
+}
+
+/** Lo que envía un seguidor al animar. */
+export interface CheerCreate {
+  nick?: string | null
+  body: string
+}
+
+/** Límites compartidos por cliente y servidor: el contador del formulario y la
+ *  validación del endpoint tienen que decir exactamente lo mismo. */
+export const CHEER_NICK_MAX = 24
+export const CHEER_BODY_MAX = 280
+
 /** A field note anchored to a live GPS fix during a tracking session. Notes
  *  accumulate into the session (durable rows, unlike the bounded `trail`) and
  *  are exported as GPX <wpt> POIs. `poiType` is a slug from shared/poiTypes.ts. */
@@ -197,6 +221,9 @@ export interface TrackStateResponse {
   /** Field notes anchored during the session, oldest→newest. Visible to
    *  followers (public payload). Undefined when the session has none. */
   notes?: TrackNote[]
+  /** Ánimos de los seguidores, más recientes primero (se muestran así y se
+   *  recortan por arriba). Undefined cuando no hay ninguno. */
+  cheers?: TrackCheer[]
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */

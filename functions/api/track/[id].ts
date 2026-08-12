@@ -4,7 +4,7 @@ import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
 import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
-import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote } from '../../../shared/wireTypes'
+import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote, TrackCheer } from '../../../shared/wireTypes'
 
 /**
  * GET /api/track/:id — public, no auth. Returns the last known fix + short
@@ -99,6 +99,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     notes = noteRows.results.length ? noteRows.results : undefined
   } catch { notes = undefined }
 
+  // Ánimos de los seguidores. Viajan con el estado (como las notas) en vez de en
+  // una petición aparte: el visor ya sondea esto cada pocos segundos, así que
+  // llegan solos sin abrir un segundo bucle. Más recientes primero, que es como
+  // se leen, y recortados por arriba. Mismo guardado que las notas: si la
+  // migración 0012 aún no ha corrido, degrada a "sin ánimos" en lugar de tumbar
+  // la vista entera.
+  let cheers: TrackCheer[] | undefined
+  try {
+    const cheerRows = await env.DB.prepare(
+      `SELECT id, created_at AS createdAt, nick, body, track_km AS trackKm
+         FROM track_cheers WHERE session_id=? ORDER BY created_at DESC LIMIT 200`,
+    ).bind(id).all<TrackCheer>()
+    cheers = cheerRows.results.length ? cheerRows.results : undefined
+  } catch { cheers = undefined }
+
   // Live presence: only meaningful while the session is active. Record this
   // viewer's heartbeat and report how many followers are currently watching.
   // Best-effort: presence must never break the state feed, so swallow failures
@@ -115,7 +130,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     status, username: row.username, title: row.title, startedAt: row.startedAt, expiresAt: row.expiresAt,
     endedAt: row.endedAt, planShareId: row.planShareId,
     activity: isBeaconActivity(row.activity) ? row.activity : null,
-    fix, trail, formFactor: row.formFactor ?? 1, formLog, viewers, notes,
+    fix, trail, formFactor: row.formFactor ?? 1, formLog, viewers, notes, cheers,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }
