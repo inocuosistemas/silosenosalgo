@@ -1256,7 +1256,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </AutoScroll>
           )}
           {/* La marca es lo prescindible: fija al final, nunca empuja al nombre. */}
-          {showBrand && <span className="shrink-0 text-slate-600">· SiLoSeNoSalgo</span>}
+          {showBrand && <span className="shrink-0 text-slate-500">· SiLoSeNoSalgo</span>}
         </span>
       {/* Activity icon: declared by the broadcaster, or inferred from the trail
           ("auto" mark) when left on Automático. */}
@@ -1266,7 +1266,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           className="shrink-0 inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5"
         >
           <span aria-hidden="true" className="text-sm leading-none">{ACTIVITY_LABEL[effectiveActivity].emoji}</span>
-          {activityIsAuto && <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">auto</span>}
+          {activityIsAuto && <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">auto</span>}
           <span className="sr-only">{ACTIVITY_LABEL[effectiveActivity].label}</span>
         </span>
       )}
@@ -1356,7 +1356,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           </div>
         )}
         {(up != null || down != null || flat != null) && (
-          <p className="mt-0.5 text-[11px] text-slate-500">
+          <p className="mt-0.5 text-[11px] text-slate-400">
             {up != null && <>↑ subida {fmt(up)}   </>}
             {down != null && <>↓ bajada {fmt(down)}   </>}
             {flat != null && <>llano {fmt(flat)}</>}
@@ -1367,11 +1367,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <span className="text-[11px] text-slate-400">{confPct === 0 && formLog.length === 0 ? 'Según el plan' : embedded ? 'Confirmado (tu previsión)' : 'Confirmado por el corredor'}</span>
           <span className={`text-xs font-semibold ${confPct === 0 ? 'text-slate-300' : confSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{confPct === 0 ? 'según plan' : `${confSlower ? '+' : '−'}${Math.abs(confPct)}% vs plan`}</span>
         </div>
-        {last && <p className="mt-0.5 text-[11px] text-slate-500">confirmado{last.km != null && <> · km {last.km.toFixed(1)}</>} · {agoLabel(last.t)}</p>}
+        {last && <p className="mt-0.5 text-[11px] text-slate-400">confirmado{last.km != null && <> · km {last.km.toFixed(1)}</>} · {agoLabel(last.t)}</p>}
         {formLog.length > 0 && (
           <div className="mt-1.5">
             <FormTimeline log={formLog} totalKm={totalKm} currentKm={progressKm} currentFactor={confirmedFactor} color={confSlower ? '#f59e0b' : '#34d399'} />
-            <div className="flex justify-between text-[10px] text-slate-500"><span>salida</span><span>meta</span></div>
+            <div className="flex justify-between text-[10px] text-slate-400"><span>salida</span><span>meta</span></div>
           </div>
         )}
         <p className="mt-1.5 text-[11px] text-slate-300">
@@ -1458,7 +1458,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </div>
           )}
           {cards.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-4">Esta previsión no tiene puntos de control.</p>
+            <p className="text-xs text-slate-400 text-center py-4">Esta previsión no tiene puntos de control.</p>
           ) : cards.map((c, i) => (
             <div
               key={`${c.w.distanceKm}-${i}`}
@@ -1471,7 +1471,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 </p>
                 <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
               </div>
-              {c.w.desc && <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{c.w.desc}</p>}
+              {c.w.desc && <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{c.w.desc}</p>}
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
                 {c.cutoff && (
@@ -1482,7 +1482,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   </span>
                 )}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
                 <span>↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min</span>
                 {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
                 {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
@@ -1668,7 +1668,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {recalibrationCard}
                   {(canCheer || cheers.length > 0) && (
                     <div>
-                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
                         <span className="text-xs">💬</span>Ánimos{cheers.length > 0 && ` · ${cheers.length}`}
                       </p>
                       {canCheer && (
@@ -1699,7 +1699,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                   {/* Hora exacta y km del corredor cuando llegó:
                                       releyendo la carrera se sabe dónde cayó cada
                                       empujón. */}
-                                  <span className="shrink-0 text-[10px] text-slate-500">
+                                  <span className="shrink-0 text-[10px] text-slate-400">
                                     {formatTime(new Date(c.createdAt))}
                                     {c.trackKm != null && ` · km ${c.trackKm.toFixed(1)}`}
                                   </span>
@@ -1790,7 +1790,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                   </div>
                                 )}
                                 {pending && (
-                                  <p className="mt-0.5 text-[10px] text-slate-500">
+                                  <p className="mt-0.5 text-[10px] text-slate-400">
                                     Solo lo ves tú · se publica en {graceLeft} s
                                   </p>
                                 )}
@@ -1799,7 +1799,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           })}
                         </div>
                       ) : (
-                        <p className="text-[10px] text-slate-500">Todavía no hay ninguno. Sé el primero.</p>
+                        <p className="text-[10px] text-slate-400">Todavía no hay ninguno. Sé el primero.</p>
                       )}
                     </div>
                   )}
@@ -1809,7 +1809,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       {/* Los km por vuelta van en la cabecera y no en cada fila:
                           son iguales por definicion (asi se detecta el circuito),
                           repetirlos gastaria el ancho que necesita el tiempo. */}
-                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
                         <span className="text-xs">🔁</span>Vueltas · {lapInfo.lapKm.toFixed(1)} km cada una
                       </p>
                       {/* Reloj y movimiento por separado: una vuelta puede salir
@@ -1817,7 +1817,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           esta distincion el dato engaña. La diferencia que se
                           muestra es la de MOVIMIENTO, que es la que responde a
                           "¿voy mas lento de verdad?". */}
-                      <div className="grid grid-cols-[1.3rem_repeat(3,1fr)_1.5fr] gap-1 text-[9px] uppercase tracking-wide text-slate-600">
+                      <div className="grid grid-cols-[1.3rem_repeat(3,1fr)_1.5fr] gap-1 text-[9px] uppercase tracking-wide text-slate-400">
                         <span />
                         <span className="text-right">reloj</span>
                         <span className="text-right">parado</span>
@@ -1827,12 +1827,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       <div className="space-y-0.5 tabular-nums">
                         {splits.map((s) => (
                           <div key={s.lap} className="grid grid-cols-[1.3rem_repeat(3,1fr)_1.5fr] items-baseline gap-1 text-[11px]">
-                            <span className={s.done ? 'text-slate-500' : 'text-sky-300'}>V{s.lap}</span>
+                            <span className={s.done ? 'text-slate-400' : 'text-sky-300'}>V{s.lap}</span>
                             <span className={`text-right ${s.done ? 'text-slate-300' : 'text-sky-300'}`}>{lapTime(s.minutes)}</span>
-                            <span className={`text-right ${s.stoppedMin >= 0.5 ? 'text-amber-400' : 'text-slate-600'}`}>{lapTime(s.stoppedMin)}</span>
+                            <span className={`text-right ${s.stoppedMin >= 0.5 ? 'text-amber-400' : 'text-slate-400'}`}>{lapTime(s.stoppedMin)}</span>
                             <span className={`text-right ${s.done ? 'text-slate-200' : 'text-sky-300'}`}>{lapTime(s.movingMin)}</span>
                             {s.done ? (
-                              <span className={`text-right ${s.deltaMovingMin == null ? 'text-slate-600'
+                              <span className={`text-right ${s.deltaMovingMin == null ? 'text-slate-400'
                                 : s.deltaMovingMin < 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                                 {s.deltaMovingMin == null ? '—' : `${s.deltaMovingMin < 0 ? '−' : '+'}${lapTime(Math.abs(s.deltaMovingMin))}`}
                               </span>
@@ -1843,7 +1843,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                         ))}
                       </div>
                       {nextLapMin != null && (
-                        <p className="mt-1 text-[11px] text-slate-500">
+                        <p className="mt-1 text-[11px] text-slate-400">
                           {lapEta && (
                             <>
                               {onFinalLap ? 'Meta' : `Cierras la V${openLap!.lap}`}
@@ -1861,7 +1861,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-slate-200">Mapa de calor · ritmo</p>
-                          <p className="text-[10px] text-slate-500">
+                          <p className="text-[10px] text-slate-400">
                             {lapInfo
                               ? `Colorea la vuelta sumando las ${lapInfo.laps} pasadas`
                               : 'Colorea el trazado por dónde se va rápido y dónde se atasca'}
@@ -1881,7 +1881,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           real de cada color: repetirla aqui seria tener dos
                           leyendas de lo mismo. */}
                       {heat && !heatRange && (
-                        <p className="mt-1.5 text-[10px] text-slate-500">Aún no hay recorrido suficiente para comparar tramos.</p>
+                        <p className="mt-1.5 text-[10px] text-slate-400">Aún no hay recorrido suficiente para comparar tramos.</p>
                       )}
                     </div>
                   )}
@@ -1890,7 +1890,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
-                          <p className="text-[10px] text-slate-500">Oculta saltos por mala señal GPS</p>
+                          <p className="text-[10px] text-slate-400">Oculta saltos por mala señal GPS</p>
                         </div>
                         <button
                           role="switch"
@@ -1914,9 +1914,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   )}
                   {hasPlan && fullProfile && (
                     <div>
-                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500"><span className="text-xs">📈</span>Perfil del recorrido</p>
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><span className="text-xs">📈</span>Perfil del recorrido</p>
                       <SegmentProfile profile={fullProfile} posKm={progressKm} />
-                      <div className="flex justify-between text-[10px] text-slate-500">
+                      <div className="flex justify-between text-[10px] text-slate-400">
                         <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
                       </div>
                     </div>
@@ -1940,7 +1940,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     <Stat label="Parado" value={splitMin > 0 ? hhmm(stoppedMin) : '—'} />
                   </MetricSection>
                   {showNoCoverage && (
-                    <p className="-mt-1.5 text-[10px] text-slate-500">Incluye {hhmm(noCoverageMin)} sin cobertura, repartido según el desplazamiento.</p>
+                    <p className="-mt-1.5 text-[10px] text-slate-400">Incluye {hhmm(noCoverageMin)} sin cobertura, repartido según el desplazamiento.</p>
                   )}
                   {advStats && (
                     <>
@@ -1957,7 +1957,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   )}
                   {notes.length > 0 && (
                     <div className="border-t border-slate-800 pt-2">
-                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
                         <span className="text-xs">📝</span>Notas · {notes.length}
                       </p>
                       <div className="space-y-1.5">
@@ -1967,7 +1967,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                             <div key={n.id} className="rounded-lg bg-slate-800/70 px-2 py-1.5">
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="min-w-0 truncate text-xs font-medium text-slate-200">{t.emoji} {n.title || t.label}</span>
-                                <span className="shrink-0 text-[10px] text-slate-500">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
+                                <span className="shrink-0 text-[10px] text-slate-400">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
                               </div>
                               {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
                               {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
@@ -2082,7 +2082,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               esta ahi. Una leyenda a la vez, la del modo activo. */}
           {heatLegendItems ? (
             <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
-              <span className="uppercase tracking-wide text-slate-500">{showPace ? 'Ritmo' : 'Velocidad'}</span>
+              <span className="uppercase tracking-wide text-slate-400">{showPace ? 'Ritmo' : 'Velocidad'}</span>
               {heatLegendItems.map((b) => (
                 <span key={b.color} className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
@@ -2092,7 +2092,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </div>
           ) : hasAccuracyData && (
             <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
-              <span className="uppercase tracking-wide text-slate-500">Precisión</span>
+              <span className="uppercase tracking-wide text-slate-400">Precisión</span>
               {ACCURACY_LEGEND.map((b) => (
                 <span key={b.label} className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
@@ -2174,7 +2174,7 @@ function CheerComposer({
           autoFocus
           className="mt-2 w-full resize-none rounded-lg bg-slate-800 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-sky-600"
         />
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-[11px] text-slate-400">
           {nick.trim() ? `Firmas como ${nick.trim()}` : 'Se enviará como anónimo'} · quedan {CHEER_BODY_MAX - body.length}
         </p>
         {error && <p className="mt-1 text-xs text-amber-400">{error}</p>}
@@ -2249,7 +2249,7 @@ function marginTone(marginMin: number | null): string {
 function MetricSection({ icon, title, cols, children }: { icon: string; title: string; cols: 2 | 3; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
         <span className="text-xs">{icon}</span>{title}
       </p>
       <div className={`grid ${cols === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-2 text-center`}>{children}</div>
@@ -2308,7 +2308,7 @@ function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 
   return (
     <div className="rounded-lg bg-slate-800/70 py-1 px-1">
       <p className={`text-sm font-semibold truncate ${tone === 'amber' ? 'text-amber-400' : tone === 'sky' ? 'text-sky-300' : ''}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-slate-500 truncate">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-slate-400 truncate">{label}</p>
     </div>
   )
 }
