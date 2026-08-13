@@ -58,7 +58,10 @@
   height: 100%;
   border-radius: 9999px;
   border: 3px solid #f472b6;
-  animation: note-ping 1.3s ease-out 3;
+  /* `forwards` es imprescindible: sin él, al acabar la animación el elemento
+     vuelve a sus estilos base —anillo entero y opaco— y en vez de apagarse se
+     queda ahí fijo. Con él conserva el último fotograma, que es invisible. */
+  animation: note-ping 1.3s ease-out 3 forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .note-ping { animation: none; opacity: 0.85; }

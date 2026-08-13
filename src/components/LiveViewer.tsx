@@ -520,7 +520,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [recentre, setRecentre] = useState(0)
   // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
   // para que repetir la misma nota vuelva a centrar.
-  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number; at: number } | null>(null)
+  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
+  // Destello activo. Estado propio y con temporizador: la primera version lo
+  // ataba a `refNow`, que en una sesion TERMINADA se congela en la hora de la
+  // ultima posicion, asi que la cuenta nunca avanzaba y el anillo no se iba.
+  const [ping, setPing] = useState(0)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -903,6 +907,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     void fetchPoiWeather(planRows.map((r) => ({ lat: r.w.lat, lon: r.w.lon }))).then((w) => { if (alive) setWeather(w) })
     return () => { alive = false }
   }, [planRows, localGuide])
+
+  // El destello de la nota se retira cuando termina, con temporizador propio.
+  // Atarlo al reloj del visor fallaba: en una sesión TERMINADA ese reloj se
+  // congela en la hora de la última posición, así que la cuenta nunca avanzaba y
+  // el anillo se quedaba fijo en el mapa. Tocar otra nota cambia `ping` y
+  // cancela el temporizador anterior.
+  useEffect(() => {
+    if (!ping) return
+    const id = window.setTimeout(() => setPing(0), 4200)
+    return () => window.clearTimeout(id)
+  }, [ping])
 
   // Los ánimos se dan por leídos al abrir el panel, que es donde se leen. No al
   // cargar la página: si se marcaran antes de que nadie los mire, el aviso de
@@ -1716,11 +1731,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             <Marker position={[fix.lat, fix.lon]} icon={pulseDivIcon(fixColor)} interactive={false} />
           )}
           {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
-          {/* Destello de la nota recien tocada. Se apaga solo: el visor repinta
-              cada segundo, asi que basta comparar con la hora del toque y no
-              hace falta ningun temporizador. */}
-          {focus && refNow - focus.at < 4200 && (
-            <Marker position={[focus.lat, focus.lon]} icon={notePingIcon} interactive={false} />
+          {/* Destello de la nota recién tocada. La `key` cambia en cada toque a
+              propósito: sin ella React reutilizaría el mismo elemento, la
+              animación no volvería a empezar y saltar a una segunda nota no
+              destellaría. */}
+          {focus && ping > 0 && (
+            <Marker key={ping} position={[focus.lat, focus.lon]} icon={notePingIcon} interactive={false} />
           )}
         </Pane>
         {fix && <Follow lat={fix.lat} lon={fix.lon} nudge={recentre} />}
@@ -2122,7 +2138,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setFocus((f) => ({ lat: n.lat, lon: n.lon, n: (f?.n ?? 0) + 1, at: Date.now() }))
+                                  setFocus((f) => ({ lat: n.lat, lon: n.lon, n: (f?.n ?? 0) + 1 }))
+                                  setPing((v) => v + 1)
                                   setShowAdvanced(false)
                                 }}
                                 aria-label={`Ver en el mapa: ${n.title || t.label}`}
