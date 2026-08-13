@@ -250,6 +250,15 @@ function firstEmoji(texto: string): string | null {
   return isReactionEmoji(t) ? t : null
 }
 
+/** Anillo que señala la nota a la que se acaba de saltar. Se crea una sola vez:
+ *  recrearlo en cada render reiniciaria la animacion sin parar. */
+const notePingIcon = L.divIcon({
+  className: '',
+  html: '<div class="note-ping"></div>',
+  iconSize: [40, 40],
+  iconAnchor: [20, 32], // sobre la punta de la chincheta, no sobre su centro
+})
+
 /** min/km as M:SS/km. */
 function paceLabel(minPerKm: number): string {
   if (!Number.isFinite(minPerKm) || minPerKm <= 0) return '—'
@@ -511,7 +520,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [recentre, setRecentre] = useState(0)
   // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
   // para que repetir la misma nota vuelva a centrar.
-  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
+  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number; at: number } | null>(null)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -1707,6 +1716,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             <Marker position={[fix.lat, fix.lon]} icon={pulseDivIcon(fixColor)} interactive={false} />
           )}
           {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
+          {/* Destello de la nota recien tocada. Se apaga solo: el visor repinta
+              cada segundo, asi que basta comparar con la hora del toque y no
+              hace falta ningun temporizador. */}
+          {focus && refNow - focus.at < 4200 && (
+            <Marker position={[focus.lat, focus.lon]} icon={notePingIcon} interactive={false} />
+          )}
         </Pane>
         {fix && <Follow lat={fix.lat} lon={fix.lon} nudge={recentre} />}
         {focus && <FlyTo lat={focus.lat} lon={focus.lon} nudge={focus.n} />}
@@ -2107,7 +2122,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setFocus((f) => ({ lat: n.lat, lon: n.lon, n: (f?.n ?? 0) + 1 }))
+                                  setFocus((f) => ({ lat: n.lat, lon: n.lon, n: (f?.n ?? 0) + 1, at: Date.now() }))
                                   setShowAdvanced(false)
                                 }}
                                 aria-label={`Ver en el mapa: ${n.title || t.label}`}
