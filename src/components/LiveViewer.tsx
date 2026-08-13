@@ -94,6 +94,26 @@ function Follow({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }
   return null
 }
 
+/**
+ * Lleva el mapa a un punto concreto (la nota que se acaba de tocar).
+ *
+ * Depende SOLO de `nudge`, no de las coordenadas: si dependiera de estas,
+ * volvería a saltar sola cada vez que React recalculara, y el mapa dejaría de
+ * ser tuyo otra vez. Acerca a zoom 16 si estabas más lejos, pero no aleja: si
+ * ya venías mirando de cerca, no tiene por qué cambiarte la escala.
+ */
+function FlyTo({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }) {
+  const map = useMap()
+  const pos = useRef({ lat, lon })
+  pos.current = { lat, lon }
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return }
+    map.setView([pos.current.lat, pos.current.lon], Math.max(map.getZoom(), 16))
+  }, [nudge, map])
+  return null
+}
+
 /** Fits the map to the planned route once, while there's no live fix yet. */
 function FitPlan({ positions }: { positions: [number, number][] }) {
   const map = useMap()
@@ -489,6 +509,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Id del ánimo cuyo selector de emojis está abierto, o null.
   const [picker, setPicker] = useState<string | null>(null)
   const [recentre, setRecentre] = useState(0)
+  // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
+  // para que repetir la misma nota vuelva a centrar.
+  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
   // Runner-confirmed form factor (only used/surfaced in the embedded app viewer),
   // and the drift level the runner last dismissed (so a "was circumstantial"
   // dismissal doesn't nag until form drifts further).
@@ -1228,6 +1251,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   })()
   const totalMin = arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000 : null
 
+  // Km de cada nota. NO viene guardado: la app sube coordenadas y hora, pero no
+  // el punto kilométrico (`track_km` está vacío en las 44 notas existentes). Se
+  // deduce por HORA y no por posición: en un circuito, proyectar unas
+  // coordenadas sobre la ruta es ambiguo —el mismo punto es el km 6 y el 13 y el
+  // 19—, mientras que el instante lo resuelve sin dudas.
+  const noteKm = (createdAt: number): number | null => {
+    if (!formSamples.length) return null
+    let mejor = formSamples[0]
+    for (const s of formSamples) {
+      if (Math.abs(s.t - createdAt) < Math.abs(mejor.t - createdAt)) mejor = s
+    }
+    // Si la posición más cercana en el tiempo está a más de diez minutos, la nota
+    // cae fuera de lo registrado y cualquier km sería inventado.
+    return Math.abs(mejor.t - createdAt) <= 600_000 ? mejor.km : null
+  }
+
   const center: [number, number] = fix ? [fix.lat, fix.lon]
     : trail.length ? [trail[trail.length - 1].lat, trail[trail.length - 1].lon]
     : plan ? [plan.track.points[0].lat, plan.track.points[0].lon]
@@ -1670,6 +1709,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
         </Pane>
         {fix && <Follow lat={fix.lat} lon={fix.lon} nudge={recentre} />}
+        {focus && <FlyTo lat={focus.lat} lon={focus.lon} nudge={focus.n} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
 
@@ -2061,10 +2101,28 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           const t = poiTypeFor(n.poiType)
                           return (
                             <div key={n.id} className="rounded-lg bg-slate-800/70 px-2 py-1.5">
-                              <div className="flex items-baseline justify-between gap-2">
+                              {/* La cabecera lleva al punto de la nota en el mapa
+                                  y pliega el panel, que si no taparía justo lo
+                                  que se acaba de centrar. */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFocus((f) => ({ lat: n.lat, lon: n.lon, n: (f?.n ?? 0) + 1 }))
+                                  setShowAdvanced(false)
+                                }}
+                                aria-label={`Ver en el mapa: ${n.title || t.label}`}
+                                className="flex w-full items-baseline justify-between gap-2 text-left"
+                              >
                                 <span className="min-w-0 truncate text-xs font-medium text-slate-200">{t.emoji} {n.title || t.label}</span>
-                                <span className="shrink-0 text-[10px] text-slate-400">{formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}</span>
-                              </div>
+                                <span className="shrink-0 text-[10px] text-slate-400">
+                                  {formatTime(new Date(n.createdAt))}
+                                  {(() => {
+                                    const km = n.trackKm ?? noteKm(n.createdAt)
+                                    return km != null ? ` · km ${km.toFixed(1)}` : ''
+                                  })()}
+                                  <span className="ml-1 text-slate-500" aria-hidden="true">›</span>
+                                </span>
+                              </button>
                               {n.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-400">{n.body}</p>}
                               {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
                                 <button
