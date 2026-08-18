@@ -1,0 +1,11 @@
+# Gradle / Android build
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+
+# Visor web incrustado (copiado de dist/ por scripts/copy-webdist.sh)
+app/src/main/assets/web/
+
+.DS_Store
