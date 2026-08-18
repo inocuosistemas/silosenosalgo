@@ -21,7 +21,8 @@ visor web**: aquí no hay nada de servidor, solo otro cliente.
     red, para poder probarlas en la JVM. Espejo de la lógica de
     `ios/Sources/WebOTAUpdater.swift`.
 - `app/src/main/assets/web/` — visor web construido (copiado de `../dist` por
-  `scripts/copy-webdist.sh`; git-ignored, igual que `ios/WebDist/`).
+  `scripts/copy-webdist.sh`, o `copy-webdist.ps1` en Windows; git-ignored, igual
+  que `ios/WebDist/`).
 - `app/src/test/` — pruebas JVM: contrato de red, reglas OTA y el manifiesto
   **real de producción** como caso de verdad.
 
@@ -39,6 +40,31 @@ sdkmanager --sdk_root="$HOME/Library/Android/sdk" \
 
 `local.properties` (git-ignored) apunta al SDK. Mínimo **Android 10** (API 29),
 objetivo API 35.
+
+## En Windows
+
+El desarrollo funciona igual; solo cambian tres cosas: `gradlew.bat` en vez de
+`./gradlew`, el script del visor es `copy-webdist.ps1` (PowerShell, porque el
+`.sh` usa rsync) y el SDK se localiza por la variable `ANDROID_HOME`.
+
+```powershell
+winget install EclipseAdoptium.Temurin.17.JDK
+winget install Google.AndroidStudio     # trae SDK, adb y drivers
+winget install OpenJS.NodeJS.LTS Git.Git
+
+# En una terminal NUEVA (para que las variables estén puestas):
+setx ANDROID_HOME "$env:LOCALAPPDATA\Android\Sdk"
+
+npm install
+npm run build
+.\android\scripts\copy-webdist.ps1
+cd android
+.\gradlew.bat testDebugUnitTest
+.\gradlew.bat assembleDebug
+```
+
+`local.properties` no hace falta si `ANDROID_HOME` está puesta; Android Studio lo
+crea solo la primera vez que abre la carpeta `android/`.
 
 ## Compilar y probar
 
