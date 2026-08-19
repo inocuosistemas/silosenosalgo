@@ -743,8 +743,13 @@ object TrackingStore {
         if (!e.compartiendo || e.sessionId == null) return
 
         // Armada en espera: no se registra nada, la lectura solo sirve de excusa
-        // para mirar si ya toca empezar.
-        if (e.enEspera) { quizaEmpieza(); return }
+        // para mirar si ya toca empezar... y para preguntar por los ánimos, que
+        // es lo único que puede llegar mientras se espera la hora de salida.
+        if (e.enEspera) {
+            quizaEmpieza()
+            scope.launch { refrescaAnimos() }
+            return
+        }
 
         if (!TrackingRules.tocaRegistrar(ahoraMs, ultimoIntentoMs, e.ritmo)) return
 
@@ -776,7 +781,11 @@ object TrackingStore {
         }
 
         registra(aRegistrar)
-        scope.launch { vacia() }
+        // Los ánimos se piden aquí y no solo en el tic periódico: el tic va con
+        // un `Handler`, que se para cuando la CPU se suspende con la pantalla
+        // apagada. La entrega de una posición SÍ despierta el móvil, así que
+        // este es el momento fiable para preguntar.
+        scope.launch { vacia(); refrescaAnimos() }
     }
 
     /** Registra en local (y persiste) antes de intentar subir nada. */
@@ -1094,7 +1103,14 @@ object TrackingStore {
     fun tic() {
         val e = _estado.value
         if (!e.compartiendo) return
-        if (e.enEspera) { quizaEmpieza(); return }
+        if (e.enEspera) {
+            quizaEmpieza()
+            // Armada y esperando la hora de salida NO significa incomunicada:
+            // el enlace ya está compartido y la gente empieza a mandar ánimos
+            // antes de que salgas. Antes se volvía aquí sin preguntar por ellos.
+            scope.launch { refrescaAnimos() }
+            return
+        }
         if (TrackingRules.tocaLatido(ahoraMs, ultimoIntentoMs, e.ritmo)) {
             ultimoIntentoMs = ahoraMs   // optimista: que no se repita cada tic
             motor.pideUnaLectura()
