@@ -107,7 +107,7 @@ object TrackingRules {
         val distanciaMinimaM: Float,
     )
 
-    fun ajusteGps(ritmo: Ritmo): AjusteGps = when (ritmo.modo) {
+    fun ajusteGps(ritmo: Ritmo, actividad: BeaconActivity? = null): AjusteGps = when (ritmo.modo) {
         Modo.TIEMPO -> when {
             // Máximo detalle: se deja al GPS entregar todo lo que tenga y el
             // recorte por tiempo se hace arriba, para que el primer punto tras
@@ -130,13 +130,31 @@ object TrackingRules {
         // bici son ~18 s y se detecta el tramo con un retraso de una lectura.
         Modo.DISTANCIA -> AjusteGps(
             Proveedor.GPS,
-            INTERVALO_MINIMO_DISTANCIA_MS,
+            intervaloMinimoDistancia(actividad),
             ritmo.distanciaMetros.toFloat(),
         )
     }
 
-    /** Cada cuánto se le pregunta al GPS en modo distancia. Ver [ajusteGps]. */
-    const val INTERVALO_MINIMO_DISTANCIA_MS = 15_000L
+    /**
+     * Cada cuánto se le pregunta al GPS en modo distancia, según a qué velocidad
+     * se va.
+     *
+     * El tiempo mínimo es el que MANDA de verdad sobre la resolución: por muchos
+     * "cada 100 m" que se pidan, entre lectura y lectura no puede haber menos de
+     * esto. Medido en una salida real: a 60 km/h y con 15 s fijos, los puntos
+     * salían cada 250 m en vez de cada 100.
+     *
+     * Los valores son el tiempo que se tarda en recorrer 100 m a cada ritmo, con
+     * margen: andando sobran 15 s (100 m son ~70 s), en bici hacen falta ~18 s,
+     * y en coche 100 m se hacen en 6 s. En "Automático" se toma el punto medio,
+     * porque no se sabe.
+     */
+    fun intervaloMinimoDistancia(actividad: BeaconActivity?): Long = when (actividad) {
+        BeaconActivity.WALK, BeaconActivity.RUN -> 15_000L
+        BeaconActivity.BIKE -> 10_000L
+        BeaconActivity.TRANSPORT -> 5_000L
+        null -> 10_000L
+    }
 
     /**
      * Modo espera: la sesión existe y cuenta atrás, pero aún no toca transmitir.
@@ -298,7 +316,15 @@ object TrackingRules {
         var total = 0.0
         for (i in 1 until traza.size) {
             val d = distanciaMetros(traza[i - 1].lat, traza[i - 1].lon, traza[i].lat, traza[i].lon)
-            if (d >= incertidumbre(traza[i - 1].a, traza[i].a)) total += d
+            // El mismo umbral que decide si hubo movimiento: si un tramo no da
+            // para mover la posición, tampoco puede sumar kilómetros.
+            if (d >= umbralMovimiento(
+                    traza[i - 1].a?.toDouble(),
+                    traza[i].a?.toDouble(),
+                )
+            ) {
+                total += d
+            }
         }
         return total
     }
@@ -321,10 +347,26 @@ object TrackingRules {
     fun hayMovimiento(ancla: Fix?, nueva: Fix): Boolean {
         if (ancla == null) return true
         val d = distanciaMetros(ancla.lat, ancla.lon, nueva.lat, nueva.lon)
-        return d >= incertidumbre(
-            ancla.accuracy?.roundToInt(),
-            nueva.accuracy?.roundToInt(),
-        )
+        return d >= umbralMovimiento(ancla.accuracy, nueva.accuracy)
+    }
+
+    /**
+     * Cuánto hay que desplazarse para creer que ha habido movimiento.
+     *
+     * **1,5 veces el PEOR de los dos errores**, no la suma. La suma era
+     * demasiado severa al salir: con el GPS aún enganchando (±50 m) exigía 100 m
+     * antes de dar el primer punto, y el arranque de una ruta salía vacío.
+     * Tomando el peor error se responde antes cuando una de las dos lecturas es
+     * buena, y el factor 1,5 mantiene fuera el ruido medido con señal mala
+     * (saltos de hasta 118 m con lecturas de ±99: 1,5 × 99 = 148, sigue fuera).
+     *
+     * Es un equilibrio, no una verdad: con señal mediocre y constante puede
+     * colarse algún salto que antes no se colaba. Si vuelve a verse ruido, el
+     * factor es el mando que hay que subir.
+     */
+    fun umbralMovimiento(precisionA: Double?, precisionB: Double?): Double {
+        val peor = maxOf(precisionA ?: 0.0, precisionB ?: 0.0)
+        return peor * 1.5
     }
 
     /**

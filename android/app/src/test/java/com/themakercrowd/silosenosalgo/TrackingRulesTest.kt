@@ -270,6 +270,40 @@ class TrackingRulesTest {
         assertTrue(TrackingRules.hayMovimiento(ancla, fixCon(42.3710, -7.4000, 50.0, 3.0)))
     }
 
+    @Test fun `el umbral usa el peor error, no la suma`() {
+        // La suma era demasiado severa al salir: con el GPS aun enganchando
+        // (+-50 m) exigia 100 m antes del primer punto y el arranque de la ruta
+        // salia vacio. Con el peor error x1,5 se responde antes cuando una de
+        // las dos lecturas ya es buena.
+        assertEquals(75.0, TrackingRules.umbralMovimiento(50.0, 50.0), 0.001)
+        assertEquals(75.0, TrackingRules.umbralMovimiento(4.0, 50.0), 0.001)
+        // Y sigue dejando fuera el ruido medido con señal mala: saltos de hasta
+        // 118 m con lecturas de +-99.
+        assertTrue(TrackingRules.umbralMovimiento(76.0, 99.0) > 118)
+    }
+
+    @Test fun `a 60 por hora no se puede marcar cada 100 m con 15 s`() {
+        // El tiempo minimo manda sobre la resolucion: por muchos "cada 100 m"
+        // que se pidan, entre lectura y lectura no puede haber menos. Medido en
+        // una salida real: a 60 km/h y 15 s fijos salian puntos cada 250 m.
+        val enCoche = TrackingRules.intervaloMinimoDistancia(BeaconActivity.TRANSPORT)
+        val andando = TrackingRules.intervaloMinimoDistancia(BeaconActivity.WALK)
+        assertTrue(enCoche < andando)
+        // A 60 km/h (16,7 m/s) hacen falta 6 s para 100 m.
+        assertTrue("en coche se pediria cada ${enCoche} ms", enCoche <= 6_000)
+        // Andando, 100 m son ~70 s: 15 s sobran y no hay por que gastar mas.
+        assertEquals(15_000L, andando)
+    }
+
+    @Test fun `el ajuste del GPS respeta la actividad`() {
+        val ritmo = TrackingRules.Ritmo(TrackingRules.Modo.DISTANCIA, 15.0, 100.0)
+        val coche = TrackingRules.ajusteGps(ritmo, BeaconActivity.TRANSPORT)
+        val pie = TrackingRules.ajusteGps(ritmo, BeaconActivity.WALK)
+        assertTrue(coche.tiempoMinimoMs < pie.tiempoMinimoMs)
+        // La distancia pedida no cambia: lo que se afloja es el reloj.
+        assertEquals(pie.distanciaMinimaM, coche.distanciaMinimaM, 0f)
+    }
+
     @Test fun `la primera lectura siempre se acepta`() {
         assertTrue(TrackingRules.hayMovimiento(null, fixCon(42.0, -7.0, 50.0, 0.0)))
     }

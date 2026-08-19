@@ -61,6 +61,10 @@ object TrackingStore {
         val metrosRecorridos: Double = 0.0,
         /** Notas de campo ancladas en esta sesión. */
         val notas: Int = 0,
+        /** Lecturas que no superaron el ruido y se registraron manteniendo la
+         *  posición. Se enseña para poder juzgar el umbral con datos: si son
+         *  muchas andando, es que está demasiado alto. */
+        val retenidas: Int = 0,
         /** Nivel de batería 0…1, negativo si no se sabe. */
         val nivelBateria: Double = -1.0,
         val cargando: Boolean = false,
@@ -695,7 +699,13 @@ object TrackingStore {
         val e = _estado.value
         if (!e.compartiendo) { motor.para(); return }
         motor.aplica(
-            if (e.enEspera) TrackingRules.ajusteEspera() else TrackingRules.ajusteGps(e.ritmo),
+            if (e.enEspera) {
+                TrackingRules.ajusteEspera()
+            } else {
+                // La actividad decide cada cuánto se pide el GPS en modo
+                // distancia: a 60 km/h, 15 s son 250 m y no 100.
+                TrackingRules.ajusteGps(e.ritmo, e.actividadEfectiva)
+            },
         )
     }
 
@@ -734,6 +744,7 @@ object TrackingStore {
             anclaPosicion = fix
             fix
         } else {
+            _estado.value = _estado.value.copy(retenidas = _estado.value.retenidas + 1)
             TrackingRules.mantenPosicion(anclaPosicion!!, fix)
         }
 

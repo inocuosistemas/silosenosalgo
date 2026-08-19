@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -431,8 +432,15 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         }
 
         if (estado.compartiendo) {
+            // En rojo, no en el azul de todo lo demás: es la única acción de la
+            // pantalla que DESHACE algo, y estaba a un dedo de "Ver el mapa".
+            // Pulsarla por error corta la traza y no hay forma de recomponerla.
             Button(
                 onClick = { TrackingService.para(context) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Paleta.rojo,
+                    contentColor = Paleta.slate950,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Dejar de compartir") }
         } else {
@@ -584,6 +592,9 @@ private fun TarjetaEnMarcha(estado: TrackingStore.Estado) {
             Dato("En cola", "${estado.pendientes}")
             estado.seguidores?.let { Dato("Siguiendo ahora", "$it") }
             Dato("Puntos de traza", "${estado.puntosTraza}")
+            // Cuántas lecturas no superaron el ruido. Si andando salen muchas,
+            // el umbral está demasiado alto y hay que bajarlo.
+            if (estado.retenidas > 0) Dato("Lecturas descartadas", "${estado.retenidas}")
             if (estado.notas > 0) Dato("Notas", "${estado.notas}")
             Dato("Recorrido", TrackingRules.formateaDistancia(estado.metrosRecorridos))
             estado.huecoMetros?.let {
