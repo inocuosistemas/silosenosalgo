@@ -99,7 +99,11 @@ class MainActivity : ComponentActivity() {
         TrackingStore.inicia(this)
         setContent {
             TemaSlsns {
-                Surface(modifier = Modifier.fillMaxSize()) {
+                // El fondo tiene que ser el MÁS oscuro de la paleta, no el de
+                // las tarjetas: `Surface` sin color coge `colorScheme.surface`,
+                // que aquí es el mismo `slate900` de las secciones, y entonces
+                // no se distinguen — la pantalla entera se ve plana.
+                Surface(modifier = Modifier.fillMaxSize(), color = Paleta.slate950) {
                     // Desde Android 15 (y con targetSdk 35+) las apps se dibujan
                     // de borde a borde por defecto: sin descontar las barras del
                     // sistema, el título queda debajo del reloj y los botones de
@@ -358,7 +362,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             TextButton(onClick = onSalir, enabled = !estado.compartiendo) { Text("Salir") }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(20.dp))
 
         if (!permisoUbicacion) {
             TarjetaAviso(
@@ -436,24 +440,27 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 }
             }
 
-            Seccion(
-                pie = if (estado.notas > 0) {
+            // El botón va suelto, sin tarjeta: una tarjeta que solo contiene un
+            // botón no separa nada de nada, y le quitaba peso a la acción
+            // principal de la pantalla mientras se transmite.
+            Button(
+                onClick = { viendoMapa = true },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+            ) { Text("Ver mi ruta en el mapa (offline)") }
+            Spacer(Modifier.height(7.dp))
+            Text(
+                if (estado.notas > 0) {
                     "${estado.notas} ${if (estado.notas == 1) "nota anclada" else "notas ancladas"} " +
                         "en esta ruta. Se exportan como POIs en el GPX de la guía."
                 } else {
                     "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Tu " +
                         "previsión y tu mapa funcionan sin cobertura."
                 },
-            ) {
-                // Botón de verdad, no una línea de texto. En iOS es una fila de
-                // formulario y ahí se lee como acción; dentro de una tarjeta de
-                // Material, un texto azul parece una etiqueta más. Y es la
-                // acción principal mientras se transmite.
-                Button(
-                    onClick = { viendoMapa = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Ver mi ruta en el mapa (offline)") }
-            }
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
+            Spacer(Modifier.height(22.dp))
         }
 
         // La actividad y el ritmo se ajustan TAMBIÉN en marcha, como en iOS. No
@@ -755,11 +762,18 @@ private fun DatosDeLaSesion(estado: TrackingStore.Estado) {
 @Composable
 private fun Dato(etiqueta: String, valor: String) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(etiqueta, style = MaterialTheme.typography.bodyMedium)
-        Text(valor, style = MaterialTheme.typography.bodyMedium)
+        // La etiqueta apagada y el valor encendido: en una lista de ocho cifras
+        // con los dos al mismo tono, la vista no encuentra el numero que busca.
+        Text(etiqueta, style = MaterialTheme.typography.bodyMedium, color = Paleta.slate400)
+        Text(
+            valor,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Paleta.slate100,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

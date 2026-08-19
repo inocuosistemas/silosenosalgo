@@ -1,10 +1,12 @@
 package com.themakercrowd.silosenosalgo
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -79,7 +81,7 @@ fun Seccion(
     modifier: Modifier = Modifier,
     contenido: @Composable () -> Unit,
 ) {
-    Column(modifier.fillMaxWidth().padding(bottom = 18.dp)) {
+    Column(modifier.fillMaxWidth().padding(bottom = 22.dp)) {
         titulo?.let {
             Text(
                 it.uppercase(),
@@ -87,22 +89,28 @@ fun Seccion(
                 color = Paleta.slate400,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                letterSpacing = 0.8.sp,
+                modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
             )
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = Paleta.slate900),
+            shape = RoundedCornerShape(14.dp),
+            // Un borde tenue además del color: sobre fondo oscuro la diferencia
+            // entre dos grises cercanos se pierde según el brillo de la pantalla
+            // y el sol de la calle, y el borde sostiene la separación igual.
+            border = BorderStroke(1.dp, Paleta.slate800),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(Modifier.padding(14.dp)) { contenido() }
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) { contenido() }
         }
         pie?.let {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(7.dp))
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
                 color = Paleta.slate400,
-                modifier = Modifier.padding(horizontal = 4.dp),
+                modifier = Modifier.padding(horizontal = 6.dp),
             )
         }
     }

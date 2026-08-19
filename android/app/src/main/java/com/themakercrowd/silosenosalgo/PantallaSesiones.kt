@@ -29,6 +29,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -42,8 +43,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -89,8 +92,6 @@ fun SeccionSesiones(
         }
     }
 
-    Text("Mis seguimientos", style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(6.dp))
 
     if (inservibles.isNotEmpty()) {
         Row(
@@ -363,13 +364,13 @@ fun SeccionGuias(
     onVer: (GuideRules.GuiaLocal) -> Unit,
     onBorrar: (GuideRules.GuiaLocal) -> Unit,
 ) {
+    // Sin título propio: lo pone la sección que la envuelve, y repetirlo era
+    // gritar dos veces lo mismo.
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
     ) {
-        Text("Guías sin conexión", style = MaterialTheme.typography.titleSmall, color = Paleta.slate100)
-        TextButton(onClick = onImportar) { Text("Importar") }
+        TextButton(onClick = onImportar) { Text("Importar guía") }
     }
 
     if (guias.isEmpty()) {
@@ -543,41 +544,106 @@ fun MandosAvanzados(ritmo: TrackingRules.Ritmo, onCambia: (TrackingRules.Ritmo) 
         }
     }
 
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(10.dp))
+    // Deslizador y no una fila de botones: son escalas ordenadas de menos a
+    // más, y una hilera de nueve pastillas es mucho ruido para decir "más o
+    // menos a menudo". Es además lo que usa iOS.
     if (ritmo.modo == TrackingRules.Modo.DISTANCIA) {
-        Text("Cada cuántos metros", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TrackingRules.PASOS_DISTANCIA.forEach { m ->
-                BotonElegible("${m.toInt()} m", ritmo.distanciaMetros == m) {
-                    onCambia(ritmo.copy(distanciaMetros = m))
-                }
-            }
-        }
+        EscalaDeRitmo(
+            pasos = TrackingRules.PASOS_DISTANCIA,
+            actual = ritmo.distanciaMetros,
+            etiqueta = { "Cada ${TrackingRules.etiquetaDistancia(it)}" },
+            gasto = { TrackingRules.gastoPorDistancia(it) },
+            onElige = { onCambia(ritmo.copy(distanciaMetros = it)) },
+        )
     } else {
-        Text("Cada cuánto tiempo", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TrackingRules.PASOS_INTERVALO.forEach { s ->
-                BotonElegible(etiquetaIntervalo(s), ritmo.intervaloSegundos == s) {
-                    onCambia(ritmo.copy(intervaloSegundos = s))
-                }
-            }
-        }
+        EscalaDeRitmo(
+            pasos = TrackingRules.PASOS_INTERVALO,
+            actual = ritmo.intervaloSegundos,
+            etiqueta = { "Cada ${TrackingRules.etiquetaIntervalo(it)}" },
+            gasto = { TrackingRules.gastoPorIntervalo(it) },
+            onElige = { onCambia(ritmo.copy(intervaloSegundos = it)) },
+        )
+    }
+}
+
+/**
+ * Un deslizador sobre una escala de valores sueltos, con el valor elegido y su
+ * coste de batería encima.
+ *
+ * El coste va al lado del valor y no en una nota al pie porque es LA decisión
+ * que se está tomando: nadie elige "cada 10 s", elige cuánta batería está
+ * dispuesto a gastar.
+ */
+@Composable
+private fun EscalaDeRitmo(
+    pasos: List<Double>,
+    actual: Double,
+    etiqueta: (Double) -> String,
+    gasto: (Double) -> TrackingRules.Gasto,
+    onElige: (Double) -> Unit,
+) {
+    val indice = pasos.indexOf(actual).let { if (it >= 0) it else pasos.size / 2 }
+    val g = gasto(actual)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            etiqueta(actual),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Paleta.slate100,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            TrackingRules.etiquetaGasto(g),
+            style = MaterialTheme.typography.labelSmall,
+            color = when (g) {
+                TrackingRules.Gasto.ALTO -> Paleta.ambar
+                TrackingRules.Gasto.MEDIO -> Paleta.sky500
+                TrackingRules.Gasto.AHORRO -> Paleta.verde
+            },
+        )
+    }
+    Slider(
+        value = indice.toFloat(),
+        onValueChange = { onElige(pasos[it.roundToInt().coerceIn(0, pasos.size - 1)]) },
+        valueRange = 0f..(pasos.size - 1).toFloat(),
+        steps = (pasos.size - 2).coerceAtLeast(0),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text("Más precisión", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
+        Text("Más batería", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
     }
 }
 
 @Composable
 fun SelectorRetencion(horas: Double, onElige: (Double) -> Unit) {
-    Text(
-        "Conservar la ruta",
-        style = MaterialTheme.typography.bodyMedium,
-        color = Paleta.slate100,
-    )
-    Spacer(Modifier.height(6.dp))
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        TrackingRules.PASOS_RETENCION.forEach { h ->
-            BotonElegible(TrackingRules.etiquetaRetencion(h), horas == h) { onElige(h) }
-        }
+    val pasos = TrackingRules.PASOS_RETENCION
+    val indice = pasos.indexOf(horas).let { if (it >= 0) it else pasos.indexOf(48.0) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Conservar la ruta", style = MaterialTheme.typography.bodyMedium, color = Paleta.slate400)
+        Text(
+            TrackingRules.etiquetaRetencion(horas),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Paleta.slate100,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
+    Slider(
+        value = indice.toFloat(),
+        onValueChange = { onElige(pasos[it.roundToInt().coerceIn(0, pasos.size - 1)]) },
+        valueRange = 0f..(pasos.size - 1).toFloat(),
+        steps = pasos.size - 2,
+    )
 }
 
 @Composable

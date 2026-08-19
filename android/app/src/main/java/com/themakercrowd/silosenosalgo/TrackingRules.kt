@@ -86,6 +86,39 @@ object TrackingRules {
     val PASOS_INTERVALO = listOf(5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0)
     val PASOS_DISTANCIA = listOf(25.0, 50.0, 100.0, 250.0, 500.0)
 
+    /** Cuánto gasta el ritmo elegido. Espejo de `batteryLabel` en iOS: los
+     *  mismos cortes, para que las dos apps no digan cosas distintas del mismo
+     *  ajuste. */
+    enum class Gasto { ALTO, MEDIO, AHORRO }
+
+    fun gastoPorIntervalo(segundos: Double): Gasto = when {
+        segundos <= 15 -> Gasto.ALTO
+        segundos <= 120 -> Gasto.MEDIO
+        else -> Gasto.AHORRO
+    }
+
+    fun gastoPorDistancia(metros: Double): Gasto = when {
+        metros <= 50 -> Gasto.ALTO
+        metros <= 250 -> Gasto.MEDIO
+        else -> Gasto.AHORRO
+    }
+
+    fun etiquetaGasto(gasto: Gasto): String = when (gasto) {
+        Gasto.ALTO -> "Consumo alto"
+        Gasto.MEDIO -> "Consumo medio"
+        Gasto.AHORRO -> "Ahorro batería"
+    }
+
+    fun etiquetaIntervalo(segundos: Double): String = when {
+        segundos < 60 -> "${segundos.toInt()} s"
+        segundos < 3600 -> "${(segundos / 60).toInt()} min"
+        else -> "${(segundos / 3600).toInt()} h"
+    }
+
+    fun etiquetaDistancia(metros: Double): String =
+        if (metros < 1000) "${metros.toInt()} m"
+        else String.format(java.util.Locale.getDefault(), "%.1f km", metros / 1000)
+
     // ── Configuración del GPS ────────────────────────────────────────────────
 
     /** Qué proveedor de posición se le pide al sistema. */
