@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.themakercrowd.silosenosalgo
 
 import android.Manifest
@@ -34,6 +36,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -233,6 +236,7 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
     var titulo by remember { mutableStateOf("") }
     var arrancando by remember { mutableStateOf(false) }
     var viendoMapa by remember { mutableStateOf(false) }
+    var descargandoMapa by remember { mutableStateOf(false) }
     val guias by TrackingStore.guias.collectAsState()
     var guiaEnMapa by remember { mutableStateOf<String?>(null) }
     var avisoGuia by remember { mutableStateOf<String?>(null) }
@@ -377,14 +381,27 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
 
+        // El orden de aquí abajo es el de `ios/Sources/TrackingView.swift`, y no
+        // por copiar: allí lo primero es SI está transmitiendo, no los números.
+        // Al abrir la app en marcha lo que se busca saber es "¿sigue?", y el
+        // enlace y las estadísticas solo se miran cuando ya se sabe que sí.
+        EstadoCompacto(estado)
+
         if (estado.compartiendo) {
-            TarjetaEnMarcha(estado)
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = { viendoMapa = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Ver el mapa") }
-            Spacer(Modifier.height(20.dp))
+            Seccion(
+                pie = if (estado.notas > 0) {
+                    "${estado.notas} ${if (estado.notas == 1) "nota anclada" else "notas ancladas"} " +
+                        "en esta ruta. Se exportan como POIs en el GPX de la guía."
+                } else {
+                    "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Tu " +
+                        "previsión y tu mapa funcionan sin cobertura."
+                },
+            ) {
+                TextButton(
+                    onClick = { viendoMapa = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Ver mi ruta en el mapa (offline)") }
+            }
         }
 
         // La actividad y el ritmo se ajustan TAMBIÉN en marcha, como en iOS. No
@@ -418,35 +435,9 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                     "ahorrar es pedirle menos al GPS, y parado no gasta."
             },
         ) {
-            SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
-            Spacer(Modifier.height(12.dp))
-            MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
-        }
-
-        Seccion(
-            titulo = "Al finalizar",
-            pie = "Cuánto tiempo se podrá consultar la ruta después de terminar " +
-                "(o para siempre si la fijas con la chincheta).",
-        ) {
-            SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
-        }
-
-        if (estado.compartiendo) {
-            // En rojo, no en el azul de todo lo demás: es la única acción de la
-            // pantalla que DESHACE algo, y estaba a un dedo de "Ver el mapa".
-            // Pulsarla por error corta la traza y no hay forma de recomponerla.
-            Button(
-                onClick = { TrackingService.para(context) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Paleta.rojo,
-                    contentColor = Paleta.slate950,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Dejar de compartir") }
-        } else {
-            // El nombre y la ruta planificada SÍ se ocultan en marcha: la sesión
-            // ya está creada en el backend con los suyos, igual que en iOS.
-            Seccion(titulo = "Ruta") {
+            // El nombre vive aquí y no en "Ruta", como en iOS: forma parte de
+            // cómo se va a registrar la sesión, no de qué ruta se sigue.
+            if (!estado.compartiendo) {
                 OutlinedTextField(
                     value = titulo,
                     onValueChange = { titulo = it },
@@ -455,74 +446,57 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
-                SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
             }
-
-            Button(
-                onClick = {
-                    arrancando = true
-                    scope.launch {
-                        TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
-                        arrancando = false
-                        // El servicio se arranca DESPUÉS de que exista la sesión:
-                        // así su notificación ya nace con el enlace y el estado
-                        // reales, y nunca se queda una notificación vacía si la
-                        // creación falla por falta de cobertura.
-                        if (TrackingStore.estado.value.compartiendo) {
-                            TrackingService.arranca(context)
-                            // Al empezar, el formulario desaparece y arriba
-                            // queda lo que hace falta: la confirmación de que
-                            // está transmitiendo, el enlace y el mapa. Botón de
-                            // empezar suele quedar a media pantalla, así que sin
-                            // subir se sigue viendo el hueco del formulario y no
-                            // se sabe si ha arrancado.
-                            desplazamiento.animateScrollTo(0)
-                        }
-                    }
-                },
-                enabled = permisoUbicacion && !arrancando,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
-                else Text("Empezar a compartir")
-            }
-        }
-
-        estado.error?.let {
+            SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
             Spacer(Modifier.height(12.dp))
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-        avisoGuia?.let {
+            MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
             Spacer(Modifier.height(12.dp))
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
         }
 
-        // El mapa (y con él las notas y la descarga) solo se ofrece cuando hay
-        // sesión: sin ella no hay nada que enseñar ni dónde anclar una nota.
         if (!estado.compartiendo) {
-            Spacer(Modifier.height(24.dp))
-            SeccionMapaOffline(
-                planId = estado.planId,
-                trazaActual = TrackingStore.trazaActual(),
-            )
-        }
+            // La ruta planificada se oculta en marcha: la sesión ya está creada
+            // en el backend con la suya.
+            Seccion(
+                titulo = "Ruta",
+                pie = if (estado.planId != null) {
+                    "Prepara el mapa la víspera (con conexión) para verlo sin " +
+                        "cobertura durante la salida."
+                } else {
+                    null
+                },
+            ) {
+                SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
+                // El acceso al mapa sin cobertura cuelga de la ruta y solo
+                // aparece con una elegida, igual que en iOS: sin plan no hay
+                // corredor que preparar, solo lo ya recorrido.
+                if (estado.planId != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Tus seguidores verán la ruta planificada y tu progreso.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Paleta.slate400,
+                    )
+                    TextButton(onClick = { descargandoMapa = true }) {
+                        Text("Descargar mapa offline")
+                    }
+                }
+            }
 
-        Spacer(Modifier.height(24.dp))
-        SeccionGuias(
-            guias = guias,
-            onImportar = { abreGuia.launch(arrayOf("*/*")) },
-            onVer = { guia ->
-                ViewerData.abreGuia(guia.id)
-                guiaEnMapa = guia.id
-            },
-            onBorrar = { TrackingStore.borraGuia(it.id) },
-        )
+            Seccion(titulo = "Guías offline") {
+                SeccionGuias(
+                    guias = guias,
+                    onImportar = { abreGuia.launch(arrayOf("*/*")) },
+                    onVer = { guia ->
+                        ViewerData.abreGuia(guia.id)
+                        guiaEnMapa = guia.id
+                    },
+                    onBorrar = { TrackingStore.borraGuia(it.id) },
+                )
+            }
 
-        Spacer(Modifier.height(24.dp))
-        MedidorAlmacenamiento(estado)
-
-        Spacer(Modifier.height(24.dp))
-        SeccionSesiones(
+            Seccion(titulo = "Mis seguimientos") {
+                SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,
             // Continuar y reanudar se pulsan desde la lista, que está al final de
@@ -557,40 +531,157 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             onChincheta = { id, fijada -> scope.launch { TrackingStore.fijaSesion(id, fijada) } },
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
-        )
+                )
+            }
+        }
+
+        // El enlace y las estadísticas, abajo y solo en marcha: es lo que se
+        // consulta cuando ya se sabe que está transmitiendo.
+        if (estado.compartiendo) {
+            estado.enlace?.let { enlace ->
+                Seccion(titulo = "Enlace para compartir") {
+                    Text(enlace, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { portapapeles.setText(AnnotatedString(enlace)) }) {
+                            Text("Copiar")
+                        }
+                        Button(onClick = { comparteEnlace(context, enlace) }) { Text("Compartir") }
+                    }
+                }
+            }
+
+            Seccion(titulo = "Estado") { DatosDeLaSesion(estado) }
+        }
+
+        estado.error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
+        }
+        avisoGuia?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // El botón de empezar o parar va el ÚLTIMO, como en iOS: es el final del
+        // recorrido de la pantalla, después de haber decidido todo lo demás.
+        if (estado.compartiendo) {
+            // En rojo, no en el azul de todo lo demás: es la única acción que
+            // DESHACE algo, y pulsarla por error corta la traza.
+            Button(
+                onClick = { TrackingService.para(context) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Paleta.rojo,
+                    contentColor = Paleta.slate950,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Dejar de compartir") }
+        } else {
+            Button(
+                onClick = {
+                    arrancando = true
+                    scope.launch {
+                        TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                        arrancando = false
+                        // El servicio se arranca DESPUÉS de que exista la sesión:
+                        // así su notificación nace con el enlace y el estado
+                        // reales, y nunca queda una notificación vacía si la
+                        // creación falla por falta de cobertura.
+                        if (TrackingStore.estado.value.compartiendo) {
+                            TrackingService.arranca(context)
+                            desplazamiento.animateScrollTo(0)
+                        }
+                    }
+                },
+                enabled = permisoUbicacion && !arrancando,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
+                else Text("Empezar a compartir")
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+    }
+
+    // La pantalla de preparar el mapa se abre desde la ruta elegida, igual que
+    // en iOS: no es una sección más del portal, es algo que se hace una vez.
+    if (descargandoMapa) {
+        ModalBottomSheet(onDismissRequest = { descargandoMapa = false }) {
+            Column(
+                Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text("Preparar el mapa", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(10.dp))
+                SeccionMapaOffline(
+                    planId = estado.planId,
+                    trazaActual = TrackingStore.trazaActual(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Lo primero de la pantalla: **si está transmitiendo**, no cuánto.
+ *
+ * Espejo de `statusContent` en `ios/Sources/TrackingView.swift`. Al abrir la app
+ * a mitad de ruta, lo que se busca saber es "¿sigue?"; el enlace y las cifras se
+ * miran después, y por eso viven abajo.
+ */
+@Composable
+private fun EstadoCompacto(estado: TrackingStore.Estado) {
+    Seccion {
+        val (texto, color) = when {
+            estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
+            estado.compartiendo -> "● Compartiendo en directo" to Paleta.verde
+            else -> "⏸ Detenido" to Paleta.slate400
+        }
+        Text(texto, style = MaterialTheme.typography.titleSmall, color = color)
+
+        if (estado.enEspera) {
+            Text(
+                "Empieza solo a la hora prevista. Deja la app abierta en segundo " +
+                    "plano (no la cierres).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+        }
+        if (estado.compartiendo) {
+            Text(
+                estado.titulo?.takeIf { it.isNotBlank() } ?: "Sin ruta · trazado en vivo",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (estado.titulo.isNullOrBlank()) Paleta.slate400 else Paleta.slate100,
+            )
+            estado.actividadEfectiva?.let {
+                Text(
+                    "${it.emoji} ${it.label}" + if (estado.actividad == null) " · auto" else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Paleta.slate100,
+                )
+            }
+            estado.gastoBateriaPorHora?.let { gasto ->
+                val restante = estado.horasRestantes
+                Text(
+                    "🔋 ${String.format(Locale.getDefault(), "%.1f", gasto)} %/h" +
+                        (restante?.let { " · quedan ${TrackingRules.formateaHoras(it)}" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if ((restante ?: 99.0) < 3) Paleta.rojo else Paleta.slate400,
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun TarjetaEnMarcha(estado: TrackingStore.Estado) {
-    val context = LocalContext.current
-    val portapapeles = LocalClipboardManager.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                if (estado.enEspera) "Preparado, aún sin transmitir" else "Transmitiendo",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            estado.enlace?.let { enlace ->
-                Spacer(Modifier.height(4.dp))
-                Text(enlace, style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { portapapeles.setText(AnnotatedString(enlace)) }) {
-                        Text("Copiar")
-                    }
-                    Button(onClick = { comparteEnlace(context, enlace) }) {
-                        Text("Compartir")
-                    }
-                }
+private fun DatosDeLaSesion(estado: TrackingStore.Estado) {
+    Column {
+            estado.seguidores?.let {
+                Dato("Seguidores activos", "$it")
             }
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(12.dp))
-
-            Dato("Enviadas", "${estado.subidas}")
+            Dato("Posiciones enviadas", "${estado.subidas}")
             Dato("En cola", "${estado.pendientes}")
-            estado.seguidores?.let { Dato("Siguiendo ahora", "$it") }
             Dato("Puntos de traza", "${estado.puntosTraza}")
             // Cuántas lecturas no superaron el ruido. Si andando salen muchas,
             // el umbral está demasiado alto y hay que bajarlo.
@@ -601,21 +692,6 @@ private fun TarjetaEnMarcha(estado: TrackingStore.Estado) {
                 Dato("Retraso de los seguidores", TrackingRules.formateaDistancia(it))
             }
             estado.ultimoEnvioMs?.let { Dato("Último envío", hora(it)) }
-            // Gasto MEDIDO, no teórico: es lo que deja decidir en marcha si el
-            // perfil elegido llega al final o hay que bajar a "Ahorro".
-            estado.gastoBateriaPorHora?.let {
-                Dato("Gasto de batería", String.format(Locale.getDefault(), "%.1f %%/h", it))
-            }
-            estado.horasRestantes?.let {
-                Dato("Autonomía estimada", TrackingRules.formateaHoras(it))
-            }
-            estado.actividadEfectiva?.let {
-                Dato(
-                    "Movimiento",
-                    "${it.emoji} ${it.label}" + if (estado.actividad == null) " (deducido)" else "",
-                )
-            }
-        }
     }
 }
 
@@ -782,3 +858,4 @@ private fun pideSinRestricciones(context: Context) {
 
 private fun hora(epochMs: Double): String =
     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMs.toLong()))
+
