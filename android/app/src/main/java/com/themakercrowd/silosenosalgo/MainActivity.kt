@@ -116,21 +116,38 @@ private fun App() {
     val context = LocalContext.current
     val almacenToken = remember { TokenStore(context) }
     var token by remember { mutableStateOf(almacenToken.token) }
+    var usuario by remember { mutableStateOf<String?>(null) }
+
+    // Al volver a abrir la app con la sesión ya guardada no se pasa por el
+    // login, así que el nombre no lo sabe nadie: se le pregunta al backend. Al
+    // mejor esfuerzo — sin cobertura la pantalla funciona igual, solo que sin
+    // nombre debajo del título.
+    LaunchedEffect(token) {
+        val t = token ?: return@LaunchedEffect
+        if (usuario != null) return@LaunchedEffect
+        runCatching { Api().me(t) }.getOrNull()?.username?.let {
+            usuario = it
+            ViewerData.ponUsuario(it)
+        }
+    }
 
     if (token == null) {
         PantallaEntrar(
-            onEntrado = { nuevo, usuario ->
+            onEntrado = { nuevo, quien ->
                 almacenToken.token = nuevo
                 // El visor incrustado enseña quién transmite, igual que el que
                 // se abre desde el enlace.
-                ViewerData.ponUsuario(usuario)
+                ViewerData.ponUsuario(quien)
+                usuario = quien
                 token = nuevo
             },
         )
     } else {
         PantallaSeguimiento(
+            usuario = usuario,
             onSalir = {
                 almacenToken.clear()
+                usuario = null
                 token = null
             },
         )
@@ -222,7 +239,7 @@ private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
 // ── Seguimiento ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PantallaSeguimiento(onSalir: () -> Unit) {
+private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val estado by TrackingStore.estado.collectAsState()
@@ -328,7 +345,16 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Compartir posición", style = MaterialTheme.typography.headlineSmall)
+            Column {
+                Text("Baliza", style = MaterialTheme.typography.headlineSmall)
+                // El usuario debajo, no en el título: en iOS el título ES el
+                // nombre, y saber de quién es la baliza importa —el enlace que
+                // se comparte lleva ese nombre— pero no es el asunto de la
+                // pantalla.
+                usuario?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                }
+            }
             TextButton(onClick = onSalir, enabled = !estado.compartiendo) { Text("Salir") }
         }
 
@@ -385,12 +411,17 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         // por copiar: allí lo primero es SI está transmitiendo, no los números.
         // Al abrir la app en marcha lo que se busca saber es "¿sigue?", y el
         // enlace y las estadísticas solo se miran cuando ya se sabe que sí.
+        // TODO lo del directo va junto y arriba: si está transmitiendo, las
+        // cifras, el enlace y el mapa. Aquí nos separamos de iOS a propósito
+        // —allí el enlace y las cifras viven al final—, porque en marcha esta
+        // pantalla se abre para mirar cómo va, y repartir esa información entre
+        // el principio y el final obliga a recorrerla entera cada vez.
         EstadoCompacto(estado)
 
-        // El enlace va ARRIBA, y aquí nos separamos de iOS a propósito: allí
-        // vive al final. Es lo primero que se busca al empezar a compartir —
-        // mandárselo a quien te espera— y tenerlo que ir a buscar al fondo de la
-        // pantalla cada vez no compensa el parecido.
+        if (estado.compartiendo) {
+            Seccion(titulo = "En directo") { DatosDeLaSesion(estado) }
+        }
+
         if (estado.compartiendo) {
             estado.enlace?.let { enlace ->
                 Seccion(titulo = "Enlace para compartir") {
@@ -508,23 +539,70 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 }
             }
 
-            Seccion(titulo = "Guías offline") {
-                SeccionGuias(
-                    guias = guias,
-                    onImportar = { abreGuia.launch(arrayOf("*/*")) },
-                    onVer = { guia ->
-                        ViewerData.abreGuia(guia.id)
-                        guiaEnMapa = guia.id
-                    },
-                    onBorrar = { TrackingStore.borraGuia(it.id) },
-                )
-            }
-
+        }
+        estado.error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
+        }
+        avisoGuia?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
         }
 
-        // Los seguimientos, SIEMPRE. En iOS se ocultan al transmitir, pero
-        // entonces no hay forma de abrir el mapa de una ruta pasada mientras se
-        // anda — que es justo cuando apetece mirar por dónde se fue la última vez.
+        // El botón de empezar o parar cierra la parte "de ahora", antes de lo
+        // guardado. Como en iOS, es el final del recorrido de decisiones.
+        if (estado.compartiendo) {
+            // En rojo, no en el azul de todo lo demás: es la única acción que
+            // DESHACE algo, y pulsarla por error corta la traza.
+            Button(
+                onClick = { TrackingService.para(context) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Paleta.rojo,
+                    contentColor = Paleta.slate950,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Dejar de compartir") }
+        } else {
+            Button(
+                onClick = {
+                    arrancando = true
+                    scope.launch {
+                        TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                        arrancando = false
+                        // El servicio se arranca DESPUÉS de que exista la sesión:
+                        // así su notificación nace con el enlace y el estado
+                        // reales, y nunca queda una notificación vacía si la
+                        // creación falla por falta de cobertura.
+                        if (TrackingStore.estado.value.compartiendo) {
+                            TrackingService.arranca(context)
+                            desplazamiento.animateScrollTo(0)
+                        }
+                    }
+                },
+                enabled = permisoUbicacion && !arrancando,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
+                else Text("Empezar a compartir")
+            }
+        }
+
+        // Y abajo del todo, lo GUARDADO: guías y seguimientos pasados. No es lo
+        // que se viene a mirar mientras se anda, y arriba solo estorbaba.
+        Spacer(Modifier.height(28.dp))
+
+        Seccion(titulo = "Guías offline") {
+            SeccionGuias(
+                guias = guias,
+                onImportar = { abreGuia.launch(arrayOf("*/*")) },
+                onVer = { guia ->
+                    ViewerData.abreConsulta(guia.id)
+                    guiaEnMapa = guia.id
+                },
+                onBorrar = { TrackingStore.borraGuia(it.id) },
+            )
+        }
+
         Seccion(titulo = "Mis seguimientos") {
             SeccionSesiones(
             sesiones = sesiones,
@@ -578,59 +656,6 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
             )
-        }
-
-        // El enlace y las estadísticas, abajo y solo en marcha: es lo que se
-        // consulta cuando ya se sabe que está transmitiendo.
-        if (estado.compartiendo) {
-            Seccion(titulo = "Estado") { DatosDeLaSesion(estado) }
-        }
-
-        estado.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(12.dp))
-        }
-        avisoGuia?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(12.dp))
-        }
-
-        // El botón de empezar o parar va el ÚLTIMO, como en iOS: es el final del
-        // recorrido de la pantalla, después de haber decidido todo lo demás.
-        if (estado.compartiendo) {
-            // En rojo, no en el azul de todo lo demás: es la única acción que
-            // DESHACE algo, y pulsarla por error corta la traza.
-            Button(
-                onClick = { TrackingService.para(context) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Paleta.rojo,
-                    contentColor = Paleta.slate950,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Dejar de compartir") }
-        } else {
-            Button(
-                onClick = {
-                    arrancando = true
-                    scope.launch {
-                        TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
-                        arrancando = false
-                        // El servicio se arranca DESPUÉS de que exista la sesión:
-                        // así su notificación nace con el enlace y el estado
-                        // reales, y nunca queda una notificación vacía si la
-                        // creación falla por falta de cobertura.
-                        if (TrackingStore.estado.value.compartiendo) {
-                            TrackingService.arranca(context)
-                            desplazamiento.animateScrollTo(0)
-                        }
-                    }
-                },
-                enabled = permisoUbicacion && !arrancando,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
-                else Text("Empezar a compartir")
-            }
         }
 
         Spacer(Modifier.height(24.dp))
