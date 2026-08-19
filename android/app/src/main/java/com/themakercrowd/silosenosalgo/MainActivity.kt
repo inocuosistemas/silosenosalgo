@@ -414,7 +414,11 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                         "previsión y tu mapa funcionan sin cobertura."
                 },
             ) {
-                TextButton(
+                // Botón de verdad, no una línea de texto. En iOS es una fila de
+                // formulario y ahí se lee como acción; dentro de una tarjeta de
+                // Material, un texto azul parece una etiqueta más. Y es la
+                // acción principal mientras se transmite.
+                Button(
                     onClick = { viendoMapa = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Ver mi ruta en el mapa (offline)") }
@@ -494,9 +498,13 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = Paleta.slate400,
                     )
-                    TextButton(onClick = { descargandoMapa = true }) {
-                        Text("Descargar mapa offline")
-                    }
+                    Spacer(Modifier.height(8.dp))
+                    // Perfilado y no relleno: es una preparación previa, no la
+                    // acción principal de la pantalla. Pero botón, no texto.
+                    OutlinedButton(
+                        onClick = { descargandoMapa = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Descargar mapa offline") }
                 }
             }
 
