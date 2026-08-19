@@ -52,6 +52,11 @@ visor web**: aquí no hay nada de servidor, solo otro cliente.
   - `ViewerData.kt` — el estado que el visor pide a `/api/track/:id`, fabricado
     con la traza local en vez de traído de la red.
   - `TileCache.kt` — teselas del mapa en disco, con la política de OSM.
+  - `TileMath.kt` — qué teselas cubren el corredor de una ruta y cuánto ocupan.
+    Puro y probado en la JVM: un error aquí no se ve en el sofá y se descubre en
+    mitad del monte, con un hueco justo donde hacía falta.
+  - `PlanGeometry.kt` — saca el trazado del blob comprimido de un plan.
+  - `PantallaMapa.kt` — preparar el mapa antes de salir.
 - `app/src/main/assets/web/` — visor web construido (copiado de `../dist` por
   `scripts/copy-webdist.sh`, o `copy-webdist.ps1` en Windows; git-ignored, igual
   que `ios/WebDist/`).
@@ -242,10 +247,10 @@ se comería la batería de toda la travesía.
   moverse: la distancia se suma punto a punto y el ruido del GPS se acumula. Lo
   mismo pasa en iOS (`trailDistanceMeters` suma todo). Habría que descartar los
   saltos por debajo de la precisión de la lectura antes de sumarlos.
-- **Descarga por adelantado del corredor de una ruta** (la noche antes de
-  salir): la caché de teselas se llena hoy según se mira el mapa, pero no sabe
-  precargar. Es lo que en iOS hace `TileCache.tiles(for:)` + `MapDownloadView`.
 - Overlay del plan en el visor (`/api/share/:id`) y el factor de forma
-  confirmado por quien camina (`/api/track/:id/form`).
+  confirmado por quien camina (`/api/track/:id/form`). El blob del plan ya se
+  guarda al elegir ruta; falta servirlo al visor y pintar el trazado previsto.
+- La capa de cobertura del mapa descargado (los cuadros verdes de iOS sobre el
+  mapa de vista previa): hoy se sabe cuántas teselas hay, pero no se ven.
 - Paquetes `.slsnsguide` (formato ya especificado en
   `../docs/slsnsguide-v1.md`).

@@ -67,6 +67,20 @@ class LocalStore(context: Context) {
             ?.let { runCatching { Api.json.decodeFromString<List<TrailPoint>>(it) }.getOrNull() }
             ?: emptyList()
 
+    // ── Ruta planificada ─────────────────────────────────────────────────────
+
+    /** El blob del plan asociado, tal cual llegó del backend (gzip). Se guarda
+     *  sin tocar para que el visor pueda servirlo igual que lo haría el
+     *  servidor: recomprimirlo sería arriesgarse a alterarlo por el camino. */
+    fun guardaPlan(sessionId: String, gz: ByteArray) {
+        runCatching { File(dir(sessionId), "plan.gz").writeBytes(gz) }
+    }
+
+    fun leePlan(sessionId: String): ByteArray? = runCatching {
+        val f = File(dir(sessionId), "plan.gz")
+        if (f.exists()) f.readBytes() else null
+    }.getOrNull()
+
     // ── Notas de campo ───────────────────────────────────────────────────────
 
     private fun ficheroNotas(sessionId: String) = File(dir(sessionId), "notas.json")

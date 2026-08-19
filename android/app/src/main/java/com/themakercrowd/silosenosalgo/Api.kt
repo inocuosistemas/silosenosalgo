@@ -142,6 +142,29 @@ class Api(
     @kotlinx.serialization.Serializable
     private data class SessionsWrapper(val sessions: List<TrackSessionSummary> = emptyList())
 
+    /**
+     * Los bytes CRUDOS de un plan: un SharePayload comprimido en gzip, tal cual
+     * lo produjo el navegador al guardarlo. No se decodifica aquí a propósito —
+     * se guardan como llegan para que el visor incrustado pueda servirlos igual
+     * que el backend, sin volver a comprimir ni arriesgarse a alterarlos.
+     */
+    suspend fun fetchPlanPayload(token: String, planId: String): ByteArray =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("$baseUrl/api/plans/$planId")
+                .header("X-Auth-Mode", "token")
+                .header("Authorization", "Bearer $token")
+                .build()
+            try {
+                client.newCall(req).execute().use { resp ->
+                    if (!ok(resp.code)) throw decodeError(resp.body?.string() ?: "", resp.code)
+                    resp.body?.bytes() ?: ByteArray(0)
+                }
+            } catch (e: IOException) {
+                throw ApiException(0, "network")
+            }
+        }
+
     // ── Almacenamiento ───────────────────────────────────────────────────────
 
     suspend fun storage(token: String): StorageInfo {

@@ -404,6 +404,21 @@ object TrackingStore {
 
     fun enlaceDe(id: String): String = Config.shareLink(id)
 
+    /**
+     * El trazado de una ruta planificada, para poder bajarse su mapa antes de
+     * salir. Al mejor esfuerzo: hace falta conexión, y sin ella simplemente no
+     * hay ruta que preparar.
+     *
+     * De paso guarda el blob tal cual llegó, que es lo que luego permitirá al
+     * visor incrustado dibujar la ruta prevista encima del mapa sin cobertura.
+     */
+    suspend fun trazadoDelPlan(planId: String): List<Pair<Double, Double>>? {
+        val t = token ?: return null
+        val bytes = runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() ?: return null
+        _estado.value.sessionId?.let { almacen.guardaPlan(it, bytes) }
+        return PlanGeometry.trazado(bytes)
+    }
+
     /** La traza retenida de la sesión actual, para el visor incrustado. */
     fun trazaActual(): List<TrailPoint> = traza
 

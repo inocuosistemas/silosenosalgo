@@ -102,6 +102,48 @@ class TileCache(context: Context) {
         }
     }
 
+    /** Cuántas de esas teselas ya están bajadas: es el "M de N" que se enseña
+     *  antes de descargar, para no volver a pagar lo que ya se tiene. */
+    fun cuantasHay(teselas: Collection<TileMath.Tesela>): Int =
+        teselas.count { estaEnDisco(it.z, it.x, it.y) }
+
+    /**
+     * Baja por adelantado el corredor de una ruta: el mapa de la travesía, la
+     * noche antes y con wifi.
+     *
+     * Va de dos en dos con una pausa entre tandas, que es lo que permite la
+     * política de OSM. Es lento a propósito — bajar 3000 teselas lleva un rato —
+     * y por eso [alProgresar] informa y [cancelado] se consulta entre tandas:
+     * quien lo lanza tiene que poder verlo avanzar y poder pararlo.
+     *
+     * El tope de [maxTeselas] no es decorativo: una ruta larga con un corredor
+     * ancho puede pedir decenas de miles de teselas, y eso ni es razonable para
+     * el servidor de OSM ni cabe cómodamente en el móvil.
+     */
+    suspend fun descargaCorredor(
+        teselas: Collection<TileMath.Tesela>,
+        maxTeselas: Int = 20_000,
+        alProgresar: (hechas: Int, total: Int) -> Unit = { _, _ -> },
+        cancelado: () -> Boolean = { false },
+    ): Int = withContext(Dispatchers.IO) {
+        val pendientes = teselas
+            .filterNot { estaEnDisco(it.z, it.x, it.y) }
+            .take(maxTeselas)
+        val total = pendientes.size
+        alProgresar(0, total)
+
+        var hechas = 0
+        for (tanda in pendientes.chunked(2)) {
+            if (cancelado()) break
+            for (t in tanda) {
+                tesela(t.z, t.x, t.y)
+                hechas++
+            }
+            alProgresar(hechas, total)
+        }
+        hechas
+    }
+
     /** Cuánto ocupa la caché en disco (bytes), para poder enseñarlo y limpiarlo. */
     fun bytesOcupados(): Long =
         runCatching { raiz.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }

@@ -400,6 +400,12 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         }
 
         Spacer(Modifier.height(24.dp))
+        SeccionMapaOffline(
+            planId = estado.planId,
+            trazaActual = TrackingStore.trazaActual(),
+        )
+
+        Spacer(Modifier.height(24.dp))
         SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,
