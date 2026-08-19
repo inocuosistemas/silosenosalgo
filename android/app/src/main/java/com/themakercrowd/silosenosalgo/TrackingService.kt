@@ -68,6 +68,7 @@ class TrackingService : Service() {
         TrackingStore.inicia(this)
         TrackingStore.despertador = { ms -> runCatching { bloqueoCpu?.acquire(ms) } }
         TrackingStore.lectorBateria = ::leeBateria
+        TrackingStore.avisadorDeAnimos = ::avisaDeAnimo
         creaCanal()
         // La notificación se mantiene al día con el estado: posiciones subidas,
         // atasco pendiente y hueco con los seguidores. Es la única ventana al
@@ -123,6 +124,7 @@ class TrackingService : Service() {
         handler.removeCallbacks(tic)
         TrackingStore.despertador = null
         TrackingStore.lectorBateria = null
+        TrackingStore.avisadorDeAnimos = null
         runCatching { if (bloqueoCpu?.isHeld == true) bloqueoCpu?.release() }
         super.onDestroy()
     }
@@ -170,6 +172,41 @@ class TrackingService : Service() {
         return fraccion to cargando
     }
 
+    /**
+     * Un ánimo nuevo, avisando de verdad.
+     *
+     * Va en su PROPIO canal y con importancia normal, al revés que la
+     * notificación del seguimiento: aquella es una pastilla de estado que no
+     * debe molestar, y esta es justo lo contrario — alguien se ha molestado en
+     * escribirte mientras andas, y el móvil va en el bolsillo. Si no suena, no
+     * se entera nadie.
+     */
+    private fun avisaDeAnimo(nick: String?, texto: String, cuantos: Int) {
+        val titulo = when {
+            cuantos > 1 -> "💬 $cuantos ánimos nuevos"
+            !nick.isNullOrBlank() -> "💬 $nick te anima"
+            else -> "💬 Un ánimo nuevo"
+        }
+        val abrir = PendingIntent.getActivity(
+            this, 2,
+            Intent(this, MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val aviso = NotificationCompat.Builder(this, CANAL_ANIMOS)
+            .setContentTitle(titulo)
+            .setContentText(texto)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(texto))
+            .setSmallIcon(R.drawable.ic_notificacion)
+            .setContentIntent(abrir)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        val nm = ContextCompat.getSystemService(this, NotificationManager::class.java)
+        runCatching { nm?.notify(ID_ANIMO, aviso) }
+    }
+
     private fun notifica(n: Notification) {
         val nm = ContextCompat.getSystemService(this, NotificationManager::class.java)
         runCatching { nm?.notify(ID_NOTIFICACION, n) }
@@ -187,8 +224,20 @@ class TrackingService : Service() {
             description = "Mantiene el seguimiento activo mientras compartes tu posición."
             setShowBadge(false)
         }
-        ContextCompat.getSystemService(this, NotificationManager::class.java)
-            ?.createNotificationChannel(canal)
+        val canalAnimos = NotificationChannel(
+            CANAL_ANIMOS,
+            "Ánimos",
+            // Normal, no baja: esto SÍ tiene que interrumpir. La notificación
+            // del seguimiento es una pastilla de estado; un ánimo es alguien
+            // hablándote mientras andas con el móvil en el bolsillo.
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Mensajes de quienes siguen tu ruta."
+        }
+        ContextCompat.getSystemService(this, NotificationManager::class.java)?.apply {
+            createNotificationChannel(canal)
+            createNotificationChannel(canalAnimos)
+        }
     }
 
     /**
@@ -241,7 +290,9 @@ class TrackingService : Service() {
 
     companion object {
         private const val CANAL = "seguimiento"
+        private const val CANAL_ANIMOS = "animos"
         private const val ID_NOTIFICACION = 1
+        private const val ID_ANIMO = 2
         const val ACCION_PARAR = "com.themakercrowd.silosenosalgo.PARAR"
 
         /** Arranca el servicio. Se llama SIEMPRE desde la pantalla y con los

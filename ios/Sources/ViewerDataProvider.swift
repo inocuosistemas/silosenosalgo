@@ -256,9 +256,14 @@ final class ViewerDataProvider {
         return dir.appendingPathComponent("\(token).json")
     }
 
-    /// Cada cuánto se preguntan. Un ánimo no caduca, y en el monte cada petición
-    /// cuesta batería y cobertura.
-    private static let cheersInterval: TimeInterval = 60
+    /// Cada cuánto se preguntan.
+    ///
+    /// Es lo que de verdad se nota: el backend solo los retiene 10 s
+    /// (`CHEER_GRACE_MS`, la ventana que tiene su autor para arrepentirse), así
+    /// que el resto de la espera sale de aquí. A 30 s, un ánimo aparece en menos
+    /// de medio minuto, que es lo que espera quien acaba de escribirlo. Bajarlo
+    /// mucho más solo gastaría batería y datos en el monte.
+    private static let cheersInterval: TimeInterval = 30
     private var lastCheerFetch = Date.distantPast
 
     /// Trae los ánimos del endpoint público si toca. Al mejor esfuerzo.

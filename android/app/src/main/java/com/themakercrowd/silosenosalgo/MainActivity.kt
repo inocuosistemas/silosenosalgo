@@ -384,27 +384,60 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Ver el mapa") }
             Spacer(Modifier.height(20.dp))
+        }
+
+        // La actividad y el ritmo se ajustan TAMBIÉN en marcha, como en iOS. No
+        // es un extra: el perfil que se elige en el portal es una apuesta, y a
+        // mitad de ruta es cuando de verdad se sabe si sobra precisión o falta
+        // batería. Obligar a parar el seguimiento para cambiarlo sería obligar a
+        // partir la traza en dos.
+        Seccion(
+            titulo = "Actividad",
+            pie = "Define cómo ven tu velocidad quienes te siguen y ayuda a " +
+                "descartar saltos de GPS imposibles.",
+        ) {
+            SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
+            estado.actividadEfectiva?.takeIf { estado.actividad == null }?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Detectado: ${it.emoji} ${it.label}. Se ajusta según tu velocidad.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.slate400,
+                )
+            }
+        }
+
+        Seccion(
+            titulo = "Modo de seguimiento",
+            pie = if (estado.compartiendo) {
+                "Se puede cambiar sobre la marcha: el ritmo nuevo se aplica al " +
+                    "momento, sin cortar la traza."
+            } else {
+                "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
+                    "ahorrar es pedirle menos al GPS, y parado no gasta."
+            },
+        ) {
+            SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
+            Spacer(Modifier.height(12.dp))
+            MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
+        }
+
+        Seccion(
+            titulo = "Al finalizar",
+            pie = "Cuánto tiempo se podrá consultar la ruta después de terminar " +
+                "(o para siempre si la fijas con la chincheta).",
+        ) {
+            SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
+        }
+
+        if (estado.compartiendo) {
             Button(
                 onClick = { TrackingService.para(context) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Dejar de compartir") }
         } else {
-            Seccion(
-                titulo = "Actividad",
-                pie = "Define cómo ven tu velocidad quienes te siguen y ayuda a " +
-                    "descartar saltos de GPS imposibles.",
-            ) {
-                SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
-                estado.actividadEfectiva?.takeIf { estado.actividad == null }?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Detectado: ${it.emoji} ${it.label}. Se ajusta según tu velocidad.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Paleta.slate400,
-                    )
-                }
-            }
-
+            // El nombre y la ruta planificada SÍ se ocultan en marcha: la sesión
+            // ya está creada en el backend con los suyos, igual que en iOS.
             Seccion(titulo = "Ruta") {
                 OutlinedTextField(
                     value = titulo,
@@ -415,24 +448,6 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 )
                 Spacer(Modifier.height(12.dp))
                 SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
-            }
-
-            Seccion(
-                titulo = "Modo de seguimiento",
-                pie = "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
-                    "ahorrar es pedirle menos al GPS, y parado no gasta.",
-            ) {
-                SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
-                Spacer(Modifier.height(12.dp))
-                MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
-            }
-
-            Seccion(
-                titulo = "Al finalizar",
-                pie = "Cuánto tiempo se podrá consultar la ruta después de terminar " +
-                    "(o para siempre si la fijas con la chincheta).",
-            ) {
-                SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
             }
 
             Button(

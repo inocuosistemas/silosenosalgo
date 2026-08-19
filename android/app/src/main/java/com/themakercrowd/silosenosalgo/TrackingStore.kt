@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * La sesión de seguimiento en vivo: la crea en el backend y va subiendo la
@@ -563,9 +569,17 @@ object TrackingStore {
     private var animosEnMemoria: JsonElement? = null
     private var ultimaConsultaAnimosMs = 0.0
 
-    /** Cada cuánto se preguntan. No hace falta más: un ánimo no caduca, y en el
-     *  monte cada petición cuesta batería y cobertura. */
-    private const val ANIMOS_CADA_MS = 60_000
+    /**
+     * Cada cuánto se preguntan.
+     *
+     * Es lo que de verdad se nota: el backend solo los retiene 10 s
+     * (`CHEER_GRACE_MS`, la ventana que tiene su autor para arrepentirse), así
+     * que el resto de la espera sale de aquí. A 30 s, un ánimo aparece en menos
+     * de medio minuto, que es lo que espera quien acaba de escribirlo. Bajarlo
+     * mucho más solo gastaría batería y datos en el monte por un mensaje que no
+     * urge tanto.
+     */
+    private const val ANIMOS_CADA_MS = 30_000
 
     private suspend fun refrescaAnimos() {
         val id = _estado.value.sessionId ?: return
@@ -574,11 +588,54 @@ object TrackingStore {
 
         val publico = api.estadoPublico(id)
         val lista = publico?.get("cheers")
-        if (lista != null && lista !is JsonNull) {
-            animosEnMemoria = lista
-            runCatching { almacen.guardaAnimos(id, lista.toString().toByteArray()) }
-        }
+        if (lista == null || lista is JsonNull) return
+
+        animosEnMemoria = lista
+        runCatching { almacen.guardaAnimos(id, lista.toString().toByteArray()) }
+        avisaDeLosNuevos(lista)
     }
+
+    /**
+     * Avisa de los ánimos que no se habían visto todavía.
+     *
+     * Quien camina lleva el móvil en el bolsillo: un mensaje que solo aparece al
+     * abrir el mapa no lo va a ver nadie, y el sentido de un ánimo es llegar
+     * cuando llega. Por eso se notifica, como hace la web.
+     *
+     * El corte es la hora del ánimo más reciente que ya se conocía; así al
+     * abrir la app por primera vez en una ruta con veinte mensajes no salta una
+     * ráfaga de veinte avisos.
+     */
+    private fun avisaDeLosNuevos(lista: JsonElement) {
+        val animos = runCatching { lista.jsonArray }.getOrNull() ?: return
+        val nuevos = animos.mapNotNull { it as? JsonObject }.filter { animo ->
+            val creado = animo["createdAt"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+            val propio = animo["mine"]?.jsonPrimitive?.booleanOrNull ?: false
+            creado > ultimoAnimoVistoMs && !propio
+        }
+        // La primera vuelta solo fija el corte: los que ya estaban no son nuevos.
+        val eraLaPrimera = ultimoAnimoVistoMs == 0.0
+        animos.mapNotNull { it as? JsonObject }
+            .mapNotNull { it["createdAt"]?.jsonPrimitive?.doubleOrNull }
+            .maxOrNull()
+            ?.let { if (it > ultimoAnimoVistoMs) ultimoAnimoVistoMs = it }
+        if (eraLaPrimera || nuevos.isEmpty()) return
+
+        val ultimo = nuevos.maxByOrNull {
+            it["createdAt"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+        } ?: return
+        avisadorDeAnimos?.invoke(
+            ultimo["nick"]?.jsonPrimitive?.contentOrNull,
+            ultimo["body"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            nuevos.size,
+        )
+    }
+
+    private var ultimoAnimoVistoMs = 0.0
+
+    /** Enseña un aviso de ánimo nuevo. Lo pone el servicio, que es quien puede
+     *  notificar; aquí solo se sabe cuándo hace falta. */
+    var avisadorDeAnimos: ((nick: String?, texto: String, cuantos: Int) -> Unit)? = null
 
     /** Recupera del disco los ánimos de una sesión que se retoma. */
     private fun cargaAnimosDe(id: String) {
