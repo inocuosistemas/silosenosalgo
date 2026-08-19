@@ -60,6 +60,10 @@ object TrackingStore {
          *  hasta que ha pasado el tiempo suficiente para que signifiquen algo. */
         val gastoBateriaPorHora: Double? = null,
         val horasRestantes: Double? = null,
+        /** Uso de medios en el servidor frente a la cuota del usuario. Nulos
+         *  hasta la primera consulta (o sin cobertura). */
+        val usadoBytes: Long? = null,
+        val cuotaBytes: Long? = null,
     ) {
         /** Cuánto se ha quedado atrás lo que ven los seguidores. Crece en las
          *  zonas sin cobertura y se desploma al vaciarse el atasco. */
@@ -300,6 +304,29 @@ object TrackingStore {
             .onSuccess { _sesiones.value = TrackingRules.ordenaSesiones(it) }
     }
 
+    /**
+     * Refresca el uso de almacenamiento del usuario. Al mejor esfuerzo: sin
+     * cobertura o si falla, se dejan los últimos valores conocidos intactos —
+     * nunca se ponen a cero, porque un cero mentiría diciendo que hay sitio.
+     */
+    suspend fun refrescaAlmacenamiento() {
+        val t = token ?: return
+        runCatching { api.storage(t) }.onSuccess {
+            _estado.value = _estado.value.copy(
+                usadoBytes = it.usedBytes,
+                cuotaBytes = it.quotaBytes,
+            )
+        }
+    }
+
+    /** Lo que ocupan en local los medios de la sesión actual. */
+    fun bytesMediosSesion(): Long =
+        _estado.value.sessionId?.let { almacen.bytesMedios(it) } ?: 0L
+
+    /** Fotos y audios de la sesión actual. */
+    fun cuentaMediosSesion(): Pair<Int, Int> =
+        _estado.value.sessionId?.let { almacen.cuentaMedios(it) } ?: (0 to 0)
+
     suspend fun cargaPlanes() {
         val t = token ?: return
         runCatching { api.listPlans(t) }.onSuccess { _planes.value = it }
@@ -426,6 +453,14 @@ object TrackingStore {
      *  sin cobertura (la foto ya está en el móvil: no hay que ir a buscarla). */
     fun medioDeNota(sessionId: String, noteId: String, kind: String): ByteArray? =
         almacen.leeMedio(sessionId, almacen.nombreMedio(noteId, kind))
+
+    /** La ruta del fichero de un medio. Para reproducir el audio hace falta el
+     *  fichero, no los bytes: cargar en memoria un audio largo sería absurdo
+     *  cuando el reproductor sabe leerlo del disco. */
+    fun ficheroDeMedio(sessionId: String, noteId: String, kind: String): java.io.File? {
+        val f = almacen.ficheroMedio(sessionId, almacen.nombreMedio(noteId, kind))
+        return if (f.exists()) f else null
+    }
 
     // ── Ajustes en caliente ──────────────────────────────────────────────────
 

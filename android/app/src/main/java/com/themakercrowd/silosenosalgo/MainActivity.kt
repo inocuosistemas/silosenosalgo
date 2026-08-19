@@ -207,25 +207,15 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
     var arrancando by remember { mutableStateOf(false) }
     var viendoMapa by remember { mutableStateOf(false) }
 
-    // El visor a pantalla completa: es un mapa, y en un mapa el espacio es lo
-    // único que de verdad importa.
+    // El mapa a pantalla completa, con las notas y la descarga colgando de él
+    // (misma navegación que iOS).
     if (viendoMapa && estado.sessionId != null) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Mapa en vivo", style = MaterialTheme.typography.titleSmall)
-                TextButton(onClick = { viendoMapa = false }) { Text("Cerrar") }
-            }
-            VisorIncrustado(
-                sessionId = estado.sessionId!!,
-                estado = estado,
-                notas = notas,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        PantallaMapaVivo(
+            sessionId = estado.sessionId!!,
+            estado = estado,
+            notas = notas,
+            onCerrar = { viendoMapa = false },
+        )
         return
     }
 
@@ -265,6 +255,7 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         }
         TrackingStore.cargaSesiones()
         TrackingStore.cargaPlanes()
+        TrackingStore.refrescaAlmacenamiento()
         // El visor se actualiza solo, en segundo plano y al mejor esfuerzo: si
         // no hay build nuevo o falla la red, no pasa nada y se sigue con el que
         // haya (OTA activa, o el empaquetado en el APK).
@@ -340,14 +331,6 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Ver el mapa") }
             Spacer(Modifier.height(20.dp))
-            SeccionNotas(
-                notas = notas,
-                onAnadir = { texto, tipo, foto, audio ->
-                    TrackingStore.anadeNota(texto, tipo, foto, audio)
-                },
-                onBorrar = { TrackingStore.borraNota(it) },
-            )
-            Spacer(Modifier.height(20.dp))
             Button(
                 onClick = { TrackingService.para(context) },
                 modifier = Modifier.fillMaxWidth(),
@@ -399,11 +382,18 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
+        // El mapa (y con él las notas y la descarga) solo se ofrece cuando hay
+        // sesión: sin ella no hay nada que enseñar ni dónde anclar una nota.
+        if (!estado.compartiendo) {
+            Spacer(Modifier.height(24.dp))
+            SeccionMapaOffline(
+                planId = estado.planId,
+                trazaActual = TrackingStore.trazaActual(),
+            )
+        }
+
         Spacer(Modifier.height(24.dp))
-        SeccionMapaOffline(
-            planId = estado.planId,
-            trazaActual = TrackingStore.trazaActual(),
-        )
+        MedidorAlmacenamiento(estado)
 
         Spacer(Modifier.height(24.dp))
         SeccionSesiones(

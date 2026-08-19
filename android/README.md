@@ -41,8 +41,11 @@ visor web**: aquí no hay nada de servidor, solo otro cliente.
   - `PoiTypes.kt` — la taxonomía de las notas de campo. Espejo de
     `shared/poiTypes.ts` y de `ios/Sources/PoiTypes.swift`: **los tres van a la
     vez**, con los mismos slugs, etiquetas y emojis.
-  - `MainActivity.kt`, `PantallaSesiones.kt`, `PantallaNotas.kt` — las pantallas
-    Compose: entrar, compartir, "Mis seguimientos" y las notas de campo.
+  - `MainActivity.kt`, `PantallaSesiones.kt` — entrar, compartir, "Mis
+    seguimientos" y el medidor de almacenamiento.
+  - `PantallaMapaVivo.kt`, `PantallaNotas.kt`, `PantallaMapa.kt` — el mapa a
+    pantalla completa y lo que cuelga de él: las notas (verlas, añadirlas, ver su
+    detalle con foto y voz) y la descarga del mapa.
   - `VisorWeb.kt` — el visor incrustado: el MISMO código web que ve quien te
     sigue, servido entero desde el móvil. Espejo de `AppWebSchemeHandler.swift`.
   - `WebAssetStore.kt` — de dónde salen sus ficheros: copia OTA activa si la
@@ -207,6 +210,12 @@ al ritmo del tiempo mínimo aunque nadie se mueva. Con un valor corto, el perfil
 como compromiso: andando, 100 m son unos 72 s, así que sobra; en bici son ~18 s
 y el tramo se detecta con una lectura de retraso.
 
+**A las notas se llega DESDE EL MAPA, no desde la pantalla de compartir.** Es la
+navegación de iOS (`LiveMapView`) y es deliberada: cuando surge algo que anotar
+—una fuente, un cruce dudoso, un peligro— se está mirando el mapa, y obligar a
+salir a otro menú para apuntarlo garantiza que no se apunte. La descarga del
+mapa cuelga del mismo sitio y por el mismo motivo.
+
 **El visor se sirve desde `appassets.androidplatform.net`, no desde un esquema
 propio.** En iOS hay que inventarse `appweb://` porque WebKit no deja
 interceptar http/https. En Android sí se puede, y usar el dominio reservado da
@@ -252,5 +261,8 @@ se comería la batería de toda la travesía.
   guarda al elegir ruta; falta servirlo al visor y pintar el trazado previsto.
 - La capa de cobertura del mapa descargado (los cuadros verdes de iOS sobre el
   mapa de vista previa): hoy se sabe cuántas teselas hay, pero no se ven.
+- Guardar la foto original a máxima calidad en la galería del móvil. Aquí solo
+  se guarda la copia compacta que se sube; iOS conserva además el original.
+- `noteMetrics`: km de ruta y desnivel acumulado de cada nota respecto al plan.
 - Paquetes `.slsnsguide` (formato ya especificado en
   `../docs/slsnsguide-v1.md`).

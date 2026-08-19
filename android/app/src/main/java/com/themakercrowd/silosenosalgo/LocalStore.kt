@@ -164,6 +164,27 @@ class LocalStore(context: Context) {
         }
     }
 
+    /**
+     * Lo que ocupan en local los medios de una sesión. Es lo mismo que acabará
+     * ocupando en el servidor (se sube el mismo fichero compacto) y, a
+     * diferencia de la cifra del servidor, cuenta también lo que está esperando
+     * cobertura: por eso es la medida honesta del "tamaño de esta sesión".
+     */
+    fun bytesMedios(sessionId: String): Long =
+        runCatching { dirMedios(sessionId).listFiles()?.sumOf { it.length() } ?: 0L }
+            .getOrDefault(0L)
+
+    /** Fotos y audios de la sesión, por el nombre del fichero. */
+    fun cuentaMedios(sessionId: String): Pair<Int, Int> {
+        val ficheros = runCatching { dirMedios(sessionId).listFiles() }.getOrNull() ?: return 0 to 0
+        var fotos = 0
+        var audios = 0
+        for (f in ficheros) {
+            if (f.name.endsWith("_photo.jpg")) fotos++ else if (f.name.endsWith("_audio.m4a")) audios++
+        }
+        return fotos to audios
+    }
+
     fun guardaMediosPendientes(sessionId: String, medios: List<MedioPendiente>) {
         escribe(ficheroMedios(sessionId), Api.json.encodeToString(medios))
     }

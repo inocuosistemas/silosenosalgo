@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -207,6 +208,70 @@ private fun DialogoRenombrar(
         },
         dismissButton = { TextButton(onClick = onCancelar) { Text("Cancelar") } },
     )
+}
+
+/**
+ * El medidor de almacenamiento. Espejo de `StorageMeterView.swift`.
+ *
+ * Las fotos y los audios viven en un almacén con poca capacidad, así que hay que
+ * avisar ANTES de que se llene: descubrir que no caben las notas a mitad de
+ * travesía no tiene arreglo desde el monte. Es de solo lectura; la limpieza se
+ * hace borrando notas de seguimientos antiguos.
+ */
+@Composable
+fun MedidorAlmacenamiento(estado: TrackingStore.Estado) {
+    val usado = estado.usadoBytes
+    val cuota = estado.cuotaBytes
+
+    Text("Almacenamiento de notas", style = MaterialTheme.typography.titleSmall)
+    if (usado == null || cuota == null || cuota <= 0) {
+        Text("—", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    val fraccion = (usado.toDouble() / cuota).coerceIn(0.0, 1.0)
+    Text(
+        "${formateaBytes(usado)} / ${formateaBytes(cuota)}",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    LinearProgressIndicator(
+        progress = { fraccion.toFloat() },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    )
+    if (fraccion >= 0.8) {
+        Text(
+            "Queda poco espacio (${(fraccion * 100).toInt()} %). Puedes seguir añadiendo " +
+                "notas; si se llena, elimina fotos o audios de seguimientos antiguos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+
+    if (estado.compartiendo) {
+        val bytes = TrackingStore.bytesMediosSesion()
+        val (fotos, audios) = TrackingStore.cuentaMediosSesion()
+        Text(
+            if (bytes == 0L) "Esta sesión: sin fotos ni audios todavía."
+            else "Esta sesión: ${formateaBytes(bytes)}" + sufijoMedios(fotos, audios),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+private fun sufijoMedios(fotos: Int, audios: Int): String {
+    val partes = buildList {
+        if (fotos > 0) add(if (fotos == 1) "1 foto" else "$fotos fotos")
+        if (audios > 0) add(if (audios == 1) "1 audio" else "$audios audios")
+    }
+    return if (partes.isEmpty()) "" else " (${partes.joinToString(", ")})"
+}
+
+private fun formateaBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 ->
+        String.format(Locale.getDefault(), "%.1f GB", bytes / 1024.0 / 1024 / 1024)
+    bytes >= 1024L * 1024 ->
+        String.format(Locale.getDefault(), "%.1f MB", bytes / 1024.0 / 1024)
+    else -> String.format(Locale.getDefault(), "%.0f KB", bytes / 1024.0)
 }
 
 // ── Mandos previos a compartir ───────────────────────────────────────────────
