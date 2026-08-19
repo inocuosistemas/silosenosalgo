@@ -7,14 +7,19 @@ plugins {
 
 android {
     namespace = "com.themakercrowd.silosenosalgo"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.themakercrowd.silosenosalgo"
         // Android 10: cubre de sobra el parque real y evita el laberinto de
         // permisos de ubicación anteriores a Q.
         minSdk = 29
-        targetSdk = 35
+        // Android 16. El dispositivo de pruebas (Galaxy A26) ya va con API 36, y
+        // es justo la versión que aprieta lo nuestro: servicios en primer plano
+        // de tipo `location` y ubicación en segundo plano. Compilar por debajo
+        // dejaría la app en modo compatibilidad y probaríamos algo que no es lo
+        // que verá el usuario cuando Play obligue a subir el objetivo.
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
     }
@@ -61,6 +66,10 @@ dependencies {
 
     // El visor web incrustado se sirve desde los assets/copia OTA.
     implementation("androidx.webkit:webkit:1.12.1")
+
+    // Las fotos de las notas llegan con la rotación en el EXIF, no aplicada:
+    // sin leerlo se suben tumbadas las tomadas en vertical.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
