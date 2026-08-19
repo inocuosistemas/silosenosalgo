@@ -81,6 +81,19 @@ class LocalStore(context: Context) {
         if (f.exists()) f.readBytes() else null
     }.getOrNull()
 
+    /** El factor de forma confirmado y su historial, para que sobreviva a que
+     *  el sistema mate la app a mitad de travesía. */
+    @Serializable
+    data class FormaGuardada(val factor: Double, val log: List<ViewerData.FormaWire>)
+
+    fun guardaForma(sessionId: String, forma: FormaGuardada) {
+        escribe(File(dir(sessionId), "forma.json"), Api.json.encodeToString(forma))
+    }
+
+    fun leeForma(sessionId: String): FormaGuardada? =
+        lee(File(dir(sessionId), "forma.json"))
+            ?.let { runCatching { Api.json.decodeFromString<FormaGuardada>(it) }.getOrNull() }
+
     // ── Notas de campo ───────────────────────────────────────────────────────
 
     private fun ficheroNotas(sessionId: String) = File(dir(sessionId), "notas.json")

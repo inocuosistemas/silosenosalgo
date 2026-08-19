@@ -193,6 +193,7 @@ object TrackingStore {
             )
             aplicaGps()
             ViewerData.registra(res.id)
+            cachePlan(res.id, planId)
             guardaActivo()
             scope.launch { cargaSesiones() }
             res.id
@@ -213,6 +214,7 @@ object TrackingStore {
         pendientes = almacen.leePendientes(guardado.sessionId)
         traza = almacen.leeTraza(guardado.sessionId)
         cargaNotasDe(guardado.sessionId)
+        almacen.leeForma(guardado.sessionId)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
         _estado.value = Estado(
@@ -358,6 +360,7 @@ object TrackingStore {
         pendientes = almacen.leePendientes(id)
         traza = almacen.leeTraza(id)
         cargaNotasDe(id)
+        almacen.leeForma(id)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
         _estado.value = Estado(
@@ -444,6 +447,40 @@ object TrackingStore {
         val bytes = runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() ?: return null
         _estado.value.sessionId?.let { almacen.guardaPlan(it, bytes) }
         return PlanGeometry.trazado(bytes)
+    }
+
+    /**
+     * El blob del plan asociado a una sesión, tal cual llegó del backend. Lo
+     * sirve el visor incrustado en `/api/share/:id` y lo descomprime él mismo,
+     * exactamente igual que haría online: por eso se guarda sin tocar.
+     */
+    fun planDeSesion(sessionId: String): ByteArray? = almacen.leePlan(sessionId)
+
+    /** Persiste el factor de forma confirmado y avisa al backend para que lo
+     *  vean también quienes siguen la ruta. Lo local manda: si no hay cobertura,
+     *  el visor incrustado ya lo refleja. */
+    fun guardaForma(sessionId: String, factor: Double, historial: List<ViewerData.FormaWire>) {
+        almacen.guardaForma(sessionId, LocalStore.FormaGuardada(factor, historial))
+        val t = token ?: return
+        val km = historial.lastOrNull()?.km
+        scope.launch { runCatching { api.setForm(t, sessionId, factor, km) } }
+    }
+
+    fun hayPlanDe(sessionId: String): Boolean = almacen.leePlan(sessionId) != null
+
+    /**
+     * Se baja el plan de la sesión y lo deja en disco, para que el visor pueda
+     * dibujar la ruta prevista sin cobertura. Al mejor esfuerzo y sin bloquear:
+     * si no hay conexión al empezar, simplemente no habrá overlay hasta que se
+     * vuelva a pedir.
+     */
+    private fun cachePlan(sessionId: String, planId: String?) {
+        val id = planId ?: return
+        val t = token ?: return
+        scope.launch {
+            runCatching { api.fetchPlanPayload(t, id) }
+                .onSuccess { almacen.guardaPlan(sessionId, it) }
+        }
     }
 
     /** La traza retenida de la sesión actual, para el visor incrustado. */

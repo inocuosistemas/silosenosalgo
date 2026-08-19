@@ -33,6 +33,10 @@ object ViewerData {
         val updatedAt: Double,
     )
 
+    /** Un cambio de forma confirmado por quien camina. */
+    @Serializable
+    data class FormaWire(val t: Double, val km: Double? = null, val factor: Double)
+
     @Serializable
     data class EstadoWire(
         val status: String,
@@ -50,16 +54,57 @@ object ViewerData {
          *  dibujar el hueco entre dónde estás y dónde te ven. */
         val reportedFix: FixWire? = null,
         val notes: List<Note>? = null,
+        /** Factor de forma confirmado (1 = el plan) y su historial. */
+        val formFactor: Double? = null,
+        val formLog: List<FormaWire>? = null,
     )
 
     @Volatile private var token: String? = null
     @Volatile private var usuario: String? = null
+    @Volatile private var factorForma: Double = 1.0
+    @Volatile private var historialForma: List<FormaWire> = emptyList()
+
+    /** Límites del factor, los mismos que aplica el backend: fuera de ahí no es
+     *  una recalibración, es un dato roto. */
+    private const val FACTOR_MIN = 0.5
+    private const val FACTOR_MAX = 2.2
+
+    /** El historial se recorta: es para ver la evolución, no un registro
+     *  contable, y en una ultra de 30 h se dispararía. */
+    private const val HISTORIAL_MAX = 40
+
+    /**
+     * Quien camina confirma que va a otro ritmo del planificado. Llega desde el
+     * propio visor (el interceptor lo encamina aquí), se guarda en disco para
+     * que sobreviva a un reinicio, y se refleja ya en el estado sintetizado
+     * aunque no haya cobertura para contárselo al servidor.
+     */
+    fun ajustaForma(sessionId: String, factor: Double, km: Double?, ahoraMs: Double) {
+        if (token != sessionId) return
+        val acotado = factor.coerceIn(FACTOR_MIN, FACTOR_MAX)
+        factorForma = acotado
+        historialForma = (historialForma + FormaWire(ahoraMs, km, acotado))
+            .takeLast(HISTORIAL_MAX)
+        TrackingStore.guardaForma(sessionId, acotado, historialForma)
+    }
+
+    /** Recupera de disco la forma confirmada al retomar una sesión. */
+    fun cargaForma(factor: Double, historial: List<FormaWire>) {
+        factorForma = factor
+        historialForma = historial
+    }
 
     /** El nombre que se enseña al seguir la ruta; lo pone la pantalla, que es
      *  quien conoce al usuario autenticado. */
     fun ponUsuario(nombre: String?) { usuario = nombre }
 
-    fun registra(sessionId: String?) { token = sessionId }
+    fun registra(sessionId: String?) {
+        token = sessionId
+        // La forma es de cada sesión: al cambiar de sesión hay que soltar la de
+        // la anterior o se arrastraría un factor que no es suyo.
+        factorForma = 1.0
+        historialForma = emptyList()
+    }
 
     fun esLaActual(id: String): Boolean = token == id
 
@@ -85,11 +130,19 @@ object ViewerData {
             // el visor solo lo utiliza para avisar de cuándo dejará de verse.
             expiresAt = estado.salidaMs + estado.retenerHoras * 3_600_000,
             endedAt = if (!estado.compartiendo) estado.ultimoEnvioMs else null,
+            // El id de la sesión hace de id de "share": el visor pedirá
+            // `/api/share/<sessionId>` y el interceptor le devolverá el blob del
+            // plan que está en el móvil. Solo se anuncia si de verdad está
+            // guardado: anunciarlo sin tenerlo dejaría al visor esperando una
+            // ruta que nunca llega.
+            planShareId = if (TrackingStore.hayPlanDe(id)) id else null,
             activity = estado.actividadEfectiva?.wire,
             fix = real,
             trail = TrackingStore.trazaActual(),
             reportedFix = reportada,
             notes = notas.ifEmpty { null },
+            formFactor = factorForma,
+            formLog = historialForma.ifEmpty { null },
         )
         return Api.json.encodeToString(wire)
     }

@@ -211,6 +211,27 @@ private class ClienteVisor(context: Context) : WebViewClient() {
             return noEncontrado()
         }
 
+        // Quien camina confirma que va a otro ritmo del planificado. Se apunta
+        // en local (funciona sin cobertura) y se reenvía al backend para que
+        // también lo vean quienes siguen la ruta.
+        if (ruta.startsWith("/api/track/") && ruta.endsWith("/form")) {
+            val id = ruta.removePrefix("/api/track/").removeSuffix("/form")
+            val factor = url.getQueryParameter("factor")?.toDoubleOrNull()
+            val km = url.getQueryParameter("km")?.toDoubleOrNull()
+            if (factor != null) {
+                ViewerData.ajustaForma(id, factor, km, System.currentTimeMillis().toDouble())
+            }
+            return respuesta("{}".toByteArray(), "application/json", sinCache = true)
+        }
+
+        // La ruta planificada, servida desde el móvil. Va comprimida tal cual
+        // llegó del backend: el visor la descomprime él mismo, igual que online.
+        if (ruta.startsWith("/api/share/")) {
+            val id = ruta.removePrefix("/api/share/").substringBefore('/')
+            val blob = TrackingStore.planDeSesion(id) ?: return noEncontrado()
+            return respuesta(blob, "application/octet-stream")
+        }
+
         // El estado de la sesión, fabricado con la traza local.
         if (ruta.startsWith("/api/track/")) {
             val id = ruta.removePrefix("/api/track/").substringBefore('/')

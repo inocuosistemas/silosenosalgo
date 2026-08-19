@@ -288,6 +288,22 @@ class Api(
         }
     }
 
+    /**
+     * El factor de forma que confirma quien camina: 1 = va como el plan, 1,2 =
+     * un 20 % más lento. Los seguidores lo necesitan para que las predicciones
+     * de llegada dejen de mentir cuando el día se tuerce.
+     *
+     * Va en la query y no en el cuerpo porque así lo emite el visor web, que es
+     * quien lo dispara (el interceptor no recibe cuerpos POST).
+     */
+    suspend fun setForm(token: String, id: String, factor: Double, km: Double? = null) {
+        val consulta = buildString {
+            append("factor=$factor")
+            km?.let { append("&km=$it") }
+        }
+        runCatching { request("api/track/$id/form?$consulta", "POST", token) }
+    }
+
     /** Reabre una sesión terminada (mismo enlace) para seguir compartiendo. */
     suspend fun reopen(token: String, id: String): CreateTrackResponse {
         val (body, status) = request("api/track/$id/reopen", "POST", token)

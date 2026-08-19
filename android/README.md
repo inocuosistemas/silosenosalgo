@@ -210,6 +210,15 @@ al ritmo del tiempo mínimo aunque nadie se mueva. Con un valor corto, el perfil
 como compromiso: andando, 100 m son unos 72 s, así que sobra; en bici son ~18 s
 y el tramo se detecta con una lectura de retraso.
 
+**En Android WebView las unidades de viewport de CSS (`vh`, `dvh`) valen CERO.**
+Medido: `dvh=0 vh=0` con `window.innerHeight=652`. El visor limita su panel de
+resumen con `max-height: calc(100dvh - 9rem)`, así que ese cálculo sale negativo,
+se recorta a 0 y el panel queda de 2 píxeles: el contenido está TODO en el DOM
+pero no se ve nada, y sin ningún error en consola. Se parchea desde el cliente
+Android dando la altura en píxeles reales, y **solo si las unidades están rotas
+de verdad**, para que deje de aplicarse solo el día que WebView lo arregle.
+Sustituir `dvh` por `vh` NO sirve: está igual de roto.
+
 **A las notas se llega DESDE EL MAPA, no desde la pantalla de compartir.** Es la
 navegación de iOS (`LiveMapView`) y es deliberada: cuando surge algo que anotar
 —una fuente, un cruce dudoso, un peligro— se está mirando el mapa, y obligar a
@@ -256,9 +265,6 @@ se comería la batería de toda la travesía.
   moverse: la distancia se suma punto a punto y el ruido del GPS se acumula. Lo
   mismo pasa en iOS (`trailDistanceMeters` suma todo). Habría que descartar los
   saltos por debajo de la precisión de la lectura antes de sumarlos.
-- Overlay del plan en el visor (`/api/share/:id`) y el factor de forma
-  confirmado por quien camina (`/api/track/:id/form`). El blob del plan ya se
-  guarda al elegir ruta; falta servirlo al visor y pintar el trazado previsto.
 - La capa de cobertura del mapa descargado (los cuadros verdes de iOS sobre el
   mapa de vista previa): hoy se sabe cuántas teselas hay, pero no se ven.
 - Guardar la foto original a máxima calidad en la galería del móvil. Aquí solo
