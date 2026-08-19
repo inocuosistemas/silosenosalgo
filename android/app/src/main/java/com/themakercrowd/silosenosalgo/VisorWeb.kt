@@ -211,6 +211,21 @@ private class ClienteVisor(context: Context) : WebViewClient() {
             return noEncontrado()
         }
 
+        // Reaccionar a un ánimo (darle un "me gusta", o retirarlo). La LISTA de
+        // ánimos no pasa por aquí: viaja dentro del estado de la sesión, que se
+        // fabrica en local con lo que el store haya traído del servidor.
+        //
+        // Estas dos sí van al backend en el momento, porque son escrituras: sin
+        // cobertura no hay nada que hacer, y el visor ya lo maneja.
+        if (ruta.startsWith("/api/track/") && ruta.contains("/cheers")) {
+            val consulta = url.query?.let { "?$it" } ?: ""
+            val delBackend = TrackingStore.pasarela(
+                ruta.removePrefix("/") + consulta,
+                request.method,
+            ) ?: return noEncontrado()
+            return respuesta(delBackend.first, delBackend.second, sinCache = true)
+        }
+
         // Quien camina confirma que va a otro ritmo del planificado. Se apunta
         // en local (funciona sin cobertura) y se reenvía al backend para que
         // también lo vean quienes siguen la ruta.

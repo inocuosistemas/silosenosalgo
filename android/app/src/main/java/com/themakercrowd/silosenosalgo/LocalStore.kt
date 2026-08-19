@@ -94,6 +94,17 @@ class LocalStore(context: Context) {
         lee(File(dir(sessionId), "forma.json"))
             ?.let { runCatching { Api.json.decodeFromString<FormaGuardada>(it) }.getOrNull() }
 
+    /** Los ánimos tal cual los devolvió el servidor, para releerlos sin
+     *  cobertura: llegan de gente que te está esperando y no se tiran. */
+    fun guardaAnimos(sessionId: String, json: ByteArray) {
+        runCatching { File(dir(sessionId), "animos.json").writeBytes(json) }
+    }
+
+    fun leeAnimos(sessionId: String): ByteArray? = runCatching {
+        val f = File(dir(sessionId), "animos.json")
+        if (f.exists()) f.readBytes() else null
+    }.getOrNull()
+
     // ── Notas de campo ───────────────────────────────────────────────────────
 
     private fun ficheroNotas(sessionId: String) = File(dir(sessionId), "notas.json")
@@ -219,11 +230,30 @@ class LocalStore(context: Context) {
         prefs.edit().remove(CLAVE_ACTIVO).apply()
     }
 
-    /** Al terminar una sesión se borra su rastro local; la traza se conserva
-     *  aparte solo si algún día la revisamos sin conexión (fase de notas). */
+    /** Borra del todo el rastro local de una sesión. Solo al borrarla de verdad:
+     *  al terminarla NO, porque la traza, las notas y las fotos siguen siendo
+     *  suyas y son lo que permite revisarla o exportarla luego sin cobertura. */
     fun limpiaSesion(sessionId: String) {
         runCatching { File(raiz, sessionId).deleteRecursively() }
     }
+
+    /**
+     * Tira lo local de las sesiones que el servidor ya no lista: caducaron y sus
+     * datos no vuelven. Sin esto, el móvil de alguien que sale a diario acumula
+     * trazas y fotos para siempre.
+     */
+    fun poda(conservar: Set<String>) {
+        runCatching {
+            raiz.listFiles()?.forEach { dir ->
+                if (dir.isDirectory && dir.name !in conservar) dir.deleteRecursively()
+            }
+        }
+    }
+
+    /** Las sesiones que tienen datos guardados en el móvil. */
+    fun sesionesGuardadas(): List<String> =
+        runCatching { raiz.listFiles()?.filter { it.isDirectory }?.map { it.name } }
+            .getOrNull() ?: emptyList()
 
     // ── Fontanería ───────────────────────────────────────────────────────────
 

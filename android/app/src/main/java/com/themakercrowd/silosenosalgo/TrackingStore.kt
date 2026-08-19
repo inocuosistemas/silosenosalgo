@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 
 /**
  * La sesión de seguimiento en vivo: la crea en el backend y va subiendo la
@@ -214,6 +216,7 @@ object TrackingStore {
         pendientes = almacen.leePendientes(guardado.sessionId)
         traza = almacen.leeTraza(guardado.sessionId)
         cargaNotasDe(guardado.sessionId)
+        cargaAnimosDe(guardado.sessionId)
         almacen.leeForma(guardado.sessionId)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
@@ -275,7 +278,9 @@ object TrackingStore {
                 actividadDeducida?.let { api.setActivity(t, id, it) }
             }
             api.end(t, id, _estado.value.retenerHoras)
-            almacen.limpiaSesion(id)
+            // Los ficheros locales NO se borran: la traza, las notas y las fotos
+            // son lo que permite revisar la ruta o exportarla como guía después,
+            // sin cobertura. Se limpian al borrar la sesión o al podar.
         }
         almacen.borraActivo()
         ViewerData.registra(null)
@@ -360,6 +365,7 @@ object TrackingStore {
         pendientes = almacen.leePendientes(id)
         traza = almacen.leeTraza(id)
         cargaNotasDe(id)
+        cargaAnimosDe(id)
         almacen.leeForma(id)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
@@ -491,6 +497,49 @@ object TrackingStore {
             runCatching { api.fetchPlanPayload(t, id) }
                 .onSuccess { almacen.guardaPlan(sessionId, it) }
         }
+    }
+
+    /** Deja pasar al backend una petición del visor incrustado (dar un "me
+     *  gusta" a un ánimo, o retirarlo). */
+    fun pasarela(rutaConConsulta: String, metodo: String): Pair<ByteArray, String>? =
+        api.pasarelaBloqueante(rutaConConsulta, metodo, token)
+
+    /**
+     * Los ánimos que han dejado quienes siguen la ruta.
+     *
+     * Es lo único del visor incrustado que NO se puede fabricar en local: los
+     * escriben otros y viven en el servidor. Se traen del endpoint público —el
+     * mismo que ven los seguidores, para que la baliza vea exactamente lo
+     * mismo— y se guardan en disco, porque un ánimo que ya llegó tiene que
+     * poder releerse sin cobertura, que es justo cuando más apetece.
+     */
+    fun animos(): JsonElement? = animosEnMemoria
+
+    private var animosEnMemoria: JsonElement? = null
+    private var ultimaConsultaAnimosMs = 0.0
+
+    /** Cada cuánto se preguntan. No hace falta más: un ánimo no caduca, y en el
+     *  monte cada petición cuesta batería y cobertura. */
+    private const val ANIMOS_CADA_MS = 60_000
+
+    private suspend fun refrescaAnimos() {
+        val id = _estado.value.sessionId ?: return
+        if (ahoraMs - ultimaConsultaAnimosMs < ANIMOS_CADA_MS) return
+        ultimaConsultaAnimosMs = ahoraMs
+
+        val publico = api.estadoPublico(id)
+        val lista = publico?.get("cheers")
+        if (lista != null && lista !is JsonNull) {
+            animosEnMemoria = lista
+            runCatching { almacen.guardaAnimos(id, lista.toString().toByteArray()) }
+        }
+    }
+
+    /** Recupera del disco los ánimos de una sesión que se retoma. */
+    private fun cargaAnimosDe(id: String) {
+        animosEnMemoria = almacen.leeAnimos(id)
+            ?.let { runCatching { Api.json.parseToJsonElement(it.toString(Charsets.UTF_8)) }.getOrNull() }
+        ultimaConsultaAnimosMs = 0.0
     }
 
     /** La traza retenida de la sesión actual, para el visor incrustado. */
@@ -903,6 +952,7 @@ object TrackingStore {
             vaciaNotas()
             vaciaBorradosDeNotas()
             vaciaMedios()
+            refrescaAnimos()
         }
     }
 

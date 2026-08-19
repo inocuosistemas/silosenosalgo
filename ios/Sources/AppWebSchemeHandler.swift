@@ -75,6 +75,22 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return finish404(task, url: url)
         }
 
+        // Reaccionar a un ánimo (darle un "me gusta", o retirarlo). La LISTA de
+        // ánimos NO pasa por aquí: viaja dentro del estado de la sesión, que se
+        // sintetiza en local con lo que `ViewerDataProvider` haya traído del
+        // servidor. Estas son escrituras, así que van al backend en el momento;
+        // sin cobertura no hay nada que hacer y el visor ya lo maneja.
+        if path.hasPrefix("/api/track/"), path.contains("/cheers") {
+            forwardCheers(url: url, method: task.request.httpMethod ?? "GET") { data, mime in
+                if let data {
+                    self.respond(task, url: url, data: data, mime: mime, noStore: true)
+                } else {
+                    self.finish404(task, url: url)
+                }
+            }
+            return
+        }
+
         // Local API routes (synchronous).
         if path.hasPrefix("/api/track/") {
             let token = String(path.dropFirst("/api/track/".count))
@@ -148,6 +164,33 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
         req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
         req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
         URLSession.shared.dataTask(with: req).resume()
+    }
+
+    /// Reenvía al backend una petición de ánimos, conservando ruta, query y
+    /// método. Los `like`/`DELETE` van sin cuerpo porque el visor los manda todo
+    /// en la query (el manejador del esquema no recibe cuerpos).
+    private func forwardCheers(url: URL, method: String,
+                               completion: @escaping (Data?, String) -> Void) {
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        var base = URLComponents(url: Config.baseURL, resolvingAgainstBaseURL: false)
+        base?.path = url.path
+        base?.query = comps?.query
+        guard let remote = base?.url else { return completion(nil, "application/json") }
+
+        var req = URLRequest(url: remote)
+        req.httpMethod = method
+        req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        if let auth = Keychain.load() { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }
+        req.timeoutInterval = 12
+
+        URLSession.shared.dataTask(with: req) { data, response, _ in
+            let http = response as? HTTPURLResponse
+            let mime = http?.value(forHTTPHeaderField: "Content-Type")?
+                .components(separatedBy: ";").first?
+                .trimmingCharacters(in: .whitespaces) ?? "application/json"
+            let ok = (200...299).contains(http?.statusCode ?? 0)
+            DispatchQueue.main.async { completion(ok ? data : nil, mime) }
+        }.resume()
     }
 
     private static func parseTile(_ path: String) -> (z: Int, x: Int, y: Int)? {

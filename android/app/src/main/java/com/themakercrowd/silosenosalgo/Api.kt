@@ -165,6 +165,54 @@ class Api(
             }
         }
 
+    /**
+     * El estado PÚBLICO de una sesión, el mismo que ve quien abre el enlace. La
+     * app lo consulta por una sola cosa: los **ánimos**, que los escriben los
+     * seguidores y por tanto solo existen en el servidor.
+     *
+     * Sin autenticación a propósito: es el endpoint público, y usarlo tal cual
+     * garantiza que la baliza ve exactamente lo mismo que sus seguidores.
+     */
+    suspend fun estadoPublico(id: String): JsonObject? = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder().url("$baseUrl/api/track/$id").build()
+            client.newCall(req).execute().use { resp ->
+                if (!ok(resp.code)) return@use null
+                resp.body?.string()?.let { json.parseToJsonElement(it).jsonObject }
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Deja pasar al backend una petición del visor incrustado tal cual, y
+     * devuelve el cuerpo con su tipo. **Bloqueante** a propósito: la usa el
+     * interceptor del WebView, que ya corre fuera del hilo principal y necesita
+     * contestar en el mismo instante.
+     *
+     * Existe para los ánimos: los escriben quienes siguen la ruta, así que viven
+     * en el servidor y no hay forma de fabricarlos en local. Es la única cosa
+     * del visor que de verdad necesita cobertura.
+     */
+    fun pasarelaBloqueante(
+        rutaConConsulta: String,
+        metodo: String,
+        token: String?,
+    ): Pair<ByteArray, String>? = runCatching {
+        val cuerpo: RequestBody? =
+            if (metodo == "POST" || metodo == "PUT") ByteArray(0).toRequestBody(JSON_MEDIA) else null
+        val req = Request.Builder()
+            .url("$baseUrl/$rutaConConsulta")
+            .method(metodo, cuerpo)
+            .header("X-Auth-Mode", "token")
+            .apply { if (token != null) header("Authorization", "Bearer $token") }
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (!ok(resp.code)) return null
+            val tipo = resp.header("Content-Type") ?: "application/json"
+            (resp.body?.bytes() ?: ByteArray(0)) to tipo.substringBefore(';').trim()
+        }
+    }.getOrNull()
+
     // ── Almacenamiento ───────────────────────────────────────────────────────
 
     suspend fun storage(token: String): StorageInfo {

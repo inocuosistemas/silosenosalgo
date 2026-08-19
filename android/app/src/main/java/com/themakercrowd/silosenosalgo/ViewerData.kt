@@ -57,6 +57,10 @@ object ViewerData {
         /** Factor de forma confirmado (1 = el plan) y su historial. */
         val formFactor: Double? = null,
         val formLog: List<FormaWire>? = null,
+        /** Los ánimos que han dejado quienes siguen la ruta. Se pasan tal cual
+         *  llegaron del servidor: su forma la decide el backend y el visor, y
+         *  copiarla aquí solo serviría para que se desincronicen. */
+        val cheers: kotlinx.serialization.json.JsonElement? = null,
     )
 
     @Volatile private var token: String? = null
@@ -143,6 +147,7 @@ object ViewerData {
             notes = notas.ifEmpty { null },
             formFactor = factorForma,
             formLog = historialForma.ifEmpty { null },
+            cheers = TrackingStore.animos(),
         )
         return Api.json.encodeToString(wire)
     }
