@@ -76,9 +76,36 @@ fun SeccionSesiones(
     if (sesiones.isEmpty()) return
     var renombrando by remember { mutableStateOf<TrackSessionSummary?>(null) }
     var borrando by remember { mutableStateOf<TrackSessionSummary?>(null) }
+    var limpiando by remember { mutableStateOf(false) }
+
+    // Las que ya no sirven para nada: el servidor borró su ruta y en el móvil no
+    // queda traza. No se puede ver su mapa, ni compartir su enlace, ni exportar
+    // una guía. Lo único que se puede hacer con ellas es borrarlas, y hacerlo de
+    // una en una por una lista larga es un trabajo tonto.
+    val inservibles = remember(sesiones) {
+        val ahora = System.currentTimeMillis().toDouble()
+        sesiones.filter {
+            TrackingRules.estaCaducada(it, ahora) && !TrackingStore.hayDatosLocales(it.id)
+        }
+    }
 
     Text("Mis seguimientos", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(6.dp))
+
+    if (inservibles.isNotEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${inservibles.size} caducadas sin nada guardado",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+            TextButton(onClick = { limpiando = true }) { Text("Limpiar") }
+        }
+    }
 
     sesiones.forEach { s ->
         FilaSesion(
@@ -104,6 +131,27 @@ fun SeccionSesiones(
                 onRenombrar(s.id, nuevo)
                 renombrando = null
             },
+        )
+    }
+
+    if (limpiando) {
+        AlertDialog(
+            onDismissRequest = { limpiando = false },
+            title = { Text("¿Limpiar ${inservibles.size} seguimientos?") },
+            text = {
+                Text(
+                    "Son los que ya han caducado y de los que no queda nada en este " +
+                        "móvil: no se puede ver su mapa ni exportarlos, y su enlace " +
+                        "ya no funciona. Solo se quita la entrada de la lista.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    inservibles.forEach { onBorrar(it.id) }
+                    limpiando = false
+                }) { Text("Limpiar") }
+            },
+            dismissButton = { TextButton(onClick = { limpiando = false }) { Text("Cancelar") } },
         )
     }
 
