@@ -21,8 +21,18 @@
     <!-- Para ofrecer al usuario salir de la optimización de batería: en los
          Samsung (One UI) es lo que evita que el sistema mate el seguimiento. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- La CPU se mantiene despierta SOLO unos segundos tras cada posición, lo
+         justo para escribirla en disco y subirla. Sin esto el móvil se vuelve a
+         dormir con el envío a medias y el atasco crece sin que falle nada. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Notas de campo con voz. La cámara no necesita permiso: se dispara la app
+         de cámara del sistema con un intent y ella se encarga. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -42,6 +52,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- El seguimiento vive aquí, no en la actividad: la pantalla puede
+             cerrarse y el servicio sigue. `foregroundServiceType` es obligatorio
+             desde Android 14 y tiene que coincidir con el permiso declarado
+             arriba, o el sistema rechaza el arranque. -->
+        <service
+            android:name=".TrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Para pasarle a la app de cámara un sitio donde dejar la foto. Se
+             comparte por URI de contenido con permiso temporal: pasar un
+             `file://` daría FileUriExposedException desde Android 7. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.ficheros"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/rutas_ficheros" />
+        </provider>
 
     </application>
 

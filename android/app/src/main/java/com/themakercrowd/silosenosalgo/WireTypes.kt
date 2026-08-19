@@ -85,6 +85,10 @@ data class TrackSessionSummary(
     val activity: BeaconActivity? = null,
 ) {
     val isActive: Boolean get() = status == "active"
+
+    /** `pinned` es nullable porque un servidor antiguo no lo manda: ausente se
+     *  trata como "sin chincheta", que es el valor por defecto real. */
+    val isPinned: Boolean get() = pinned == true
 }
 
 /** Una posición enviada al backend. */
@@ -139,6 +143,12 @@ data class StorageInfo(val usedBytes: Long, val quotaBytes: Long)
 data class PlanSummary(
     val id: String,
     val name: String? = null,
+    val routeName: String? = null,
+    val distanceKm: Double? = null,
+    /** Salida prevista del plan, en ISO. Es la referencia de los ritmos y las
+     *  predicciones del visor: al elegir un plan, la hora de salida se toma de
+     *  aquí y no del momento de darle a compartir. */
+    val startTime: String? = null,
     val updatedAt: Double? = null,
 )
 
