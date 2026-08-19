@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -73,6 +74,22 @@ import java.util.Locale
  * al bolsillo, y no se puede probar sin salir a la calle con el móvil.
  */
 class MainActivity : ComponentActivity() {
+
+    /**
+     * El visor se actualiza solo, y se comprueba en CADA vuelta a la app.
+     *
+     * No basta con mirarlo al crear la pantalla: en una travesía la app se queda
+     * abierta días, y con una comprobación única nunca se enteraría de que hay
+     * un visor nuevo. Al mejor esfuerzo — si no hay build nuevo o falla la red,
+     * se sigue con el que haya (la copia OTA activa, o la del APK).
+     */
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            runCatching { WebOtaUpdater(this@MainActivity).actualiza() }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TrackingStore.inicia(this)
@@ -294,10 +311,6 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         TrackingStore.cargaPlanes()
         TrackingStore.refrescaAlmacenamiento()
         TrackingStore.cargaGuias()
-        // El visor se actualiza solo, en segundo plano y al mejor esfuerzo: si
-        // no hay build nuevo o falla la red, no pasa nada y se sigue con el que
-        // haya (OTA activa, o el empaquetado en el APK).
-        runCatching { WebOtaUpdater(context).actualiza() }
     }
 
     Column(

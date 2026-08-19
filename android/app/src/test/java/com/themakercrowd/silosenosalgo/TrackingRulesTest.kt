@@ -226,6 +226,54 @@ class TrackingRulesTest {
         assertTrue(TrackingRules.distanciaTraza(sinPrecision) > 50)
     }
 
+    private fun fixCon(lat: Double, lon: Double, precision: Double, t: Double) =
+        Fix(lat = lat, lon = lon, accuracy = precision, fixAt = t, speed = 3.0, heading = 90.0)
+
+    @Test fun `quieto, la posicion no se mueve del ancla`() {
+        // Caso REAL medido: quieto, la posicion se paseaba en un radio de 40 m
+        // mientras el GPS declaraba +-50 m. A quien te sigue le bailaba la marca
+        // por el mapa estando tu sentado.
+        val ancla = fixCon(42.37380, -7.41478, 50.0, 0.0)
+        val paseo = fixCon(42.37398, -7.41500, 50.0, 160_000.0)
+        assertFalse(TrackingRules.hayMovimiento(ancla, paseo))
+
+        val mantenida = TrackingRules.mantenPosicion(ancla, paseo)
+        assertEquals(ancla.lat, mantenida.lat, 0.0)
+        assertEquals(ancla.lon, mantenida.lon, 0.0)
+        // Pero la hora SI se refresca: dice "sigo aqui, y sigo vivo", que es lo
+        // que evita que el visor lo de por señal perdida.
+        assertEquals(160_000.0, mantenida.fixAt!!, 0.0)
+    }
+
+    @Test fun `una posicion mantenida no propaga velocidad ni rumbo`() {
+        // Serian los de una lectura que no supera el ruido: no significan nada.
+        val ancla = fixCon(42.37380, -7.41478, 50.0, 0.0)
+        val quieto = TrackingRules.mantenPosicion(ancla, fixCon(42.3739, -7.4148, 50.0, 1.0))
+        assertNull(quieto.speed)
+        assertNull(quieto.heading)
+    }
+
+    @Test fun `andando de verdad la posicion si avanza`() {
+        val ancla = fixCon(42.3700, -7.4000, 10.0, 0.0)
+        val lejos = fixCon(42.3745, -7.4000, 10.0, 60_000.0)  // ~500 m
+        assertTrue(TrackingRules.hayMovimiento(ancla, lejos))
+    }
+
+    @Test fun `un avance lento acaba detectandose porque se compara con el ancla`() {
+        // Si se comparase con la lectura ANTERIOR, un avance de 20 m cada vez
+        // con +-50 m de error no se detectaria jamas. Contra el ancla, el
+        // desplazamiento se acumula hasta superar el umbral.
+        val ancla = fixCon(42.3700, -7.4000, 50.0, 0.0)
+        assertFalse(TrackingRules.hayMovimiento(ancla, fixCon(42.3702, -7.4000, 50.0, 1.0)))
+        assertFalse(TrackingRules.hayMovimiento(ancla, fixCon(42.3705, -7.4000, 50.0, 2.0)))
+        // ~110 m acumulados: ya supera los 100 m de incertidumbre.
+        assertTrue(TrackingRules.hayMovimiento(ancla, fixCon(42.3710, -7.4000, 50.0, 3.0)))
+    }
+
+    @Test fun `la primera lectura siempre se acepta`() {
+        assertTrue(TrackingRules.hayMovimiento(null, fixCon(42.0, -7.0, 50.0, 0.0)))
+    }
+
     @Test fun `la incertidumbre suma el error de las dos lecturas`() {
         assertEquals(120.0, TrackingRules.incertidumbre(70, 50), 0.001)
         assertEquals(0.0, TrackingRules.incertidumbre(null, null), 0.001)

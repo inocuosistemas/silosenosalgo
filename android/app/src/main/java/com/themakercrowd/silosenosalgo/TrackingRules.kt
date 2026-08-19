@@ -308,6 +308,45 @@ object TrackingRules {
     fun incertidumbre(precisionA: Int?, precisionB: Int?): Double =
         (precisionA ?: 0).toDouble() + (precisionB ?: 0).toDouble()
 
+    /**
+     * ¿Se ha movido de verdad respecto al ANCLA —la última posición que dimos
+     * por buena—, o es el GPS paseándose?
+     *
+     * Se compara contra el ancla y no contra la lectura anterior a propósito: si
+     * se comparase con la anterior, un avance lento y real (cada paso por debajo
+     * del ruido) no se detectaría nunca. Contra el ancla, el desplazamiento se
+     * va acumulando hasta que supera la incertidumbre y entonces salta de golpe,
+     * que es tarde pero cierto — y se corrige solo.
+     */
+    fun hayMovimiento(ancla: Fix?, nueva: Fix): Boolean {
+        if (ancla == null) return true
+        val d = distanciaMetros(ancla.lat, ancla.lon, nueva.lat, nueva.lon)
+        return d >= incertidumbre(
+            ancla.accuracy?.roundToInt(),
+            nueva.accuracy?.roundToInt(),
+        )
+    }
+
+    /**
+     * La posición que se registra cuando NO hay movimiento: la del ancla, pero
+     * con la hora y la precisión de la lectura nueva.
+     *
+     * Es lo que evita que a quien te sigue le baile la marca por el mapa estando
+     * tú sentado. Medido en el aparato: quieto, la posición se paseaba en un
+     * radio de 40 m mientras el GPS declaraba ±50 m de error. Conservar la
+     * posición y refrescar solo la hora dice justo lo que pasa —"sigo aquí, y
+     * sigo vivo"— sin inventarse un paseo.
+     */
+    fun mantenPosicion(ancla: Fix, nueva: Fix): Fix = ancla.copy(
+        fixAt = nueva.fixAt,
+        accuracy = nueva.accuracy,
+        // La velocidad y el rumbo de una lectura que no supera el ruido no
+        // significan nada: se omiten en vez de propagar un dato falso.
+        speed = null,
+        heading = null,
+        altitude = nueva.altitude,
+    )
+
     // ── Tipo de movimiento ───────────────────────────────────────────────────
 
     /**

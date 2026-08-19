@@ -115,6 +115,11 @@ object TrackingStore {
     private var ultimaMuestraMs = 0.0
     private var actividadDeducida: BeaconActivity? = null
     private var ultimoIntentoMs: Double = 0.0
+
+    /** La última posición que se dio por buena. Todo se compara contra ella, no
+     *  contra la lectura anterior: así un avance lento pero real acaba
+     *  acumulando y se detecta, en vez de perderse paso a paso. */
+    private var anclaPosicion: Fix? = null
     private var vaciando = false
     private var iniciado = false
 
@@ -178,6 +183,7 @@ object TrackingStore {
             _notas.value = emptyList()
             actividadDeducida = null
             ultimoIntentoMs = 0.0
+            anclaPosicion = null
             almacen.guardaPendientes(res.id, pendientes)
             almacen.guardaTraza(res.id, traza)
             almacen.guardaNotas(res.id, _notas.value)
@@ -224,6 +230,7 @@ object TrackingStore {
         almacen.leeForma(guardado.sessionId)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
+        anclaPosicion = null
         _estado.value = Estado(
             compartiendo = true,
             enEspera = guardado.enEspera &&
@@ -373,6 +380,7 @@ object TrackingStore {
         almacen.leeForma(id)?.let { ViewerData.cargaForma(it.factor, it.log) }
         actividadDeducida = TrackingRules.deduceActividad(traza)
         ultimoIntentoMs = 0.0
+        anclaPosicion = null
         _estado.value = Estado(
             compartiendo = true,
             sessionId = id,
@@ -661,7 +669,18 @@ object TrackingStore {
         if (TrackingRules.esRepetida(e.ultimaLectura, fix)) return
         if (TrackingRules.saltoImposible(e.ultimaLectura, fix, e.actividadEfectiva)) return
 
-        registra(fix)
+        // Posición mantenida: si el desplazamiento no supera la incertidumbre,
+        // no es que te hayas movido, es el GPS paseándose. Se registra la
+        // posición del ancla con la hora nueva —"sigo aquí, y sigo vivo"— en vez
+        // de dibujarle a quien te sigue un paseo que no has dado.
+        val aRegistrar = if (TrackingRules.hayMovimiento(anclaPosicion, fix)) {
+            anclaPosicion = fix
+            fix
+        } else {
+            TrackingRules.mantenPosicion(anclaPosicion!!, fix)
+        }
+
+        registra(aRegistrar)
         scope.launch { vacia() }
     }
 
@@ -743,6 +762,7 @@ object TrackingStore {
         if (!e.enEspera || !TrackingRules.tocaEmpezar(ahoraMs, e.salidaMs)) return
         _estado.value = e.copy(enEspera = false)
         ultimoIntentoMs = 0.0
+        anclaPosicion = null
         aplicaGps()
         guardaActivo()
         motor.pideUnaLectura()
