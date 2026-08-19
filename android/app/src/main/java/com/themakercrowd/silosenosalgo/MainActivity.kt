@@ -387,7 +387,24 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         // enlace y las estadísticas solo se miran cuando ya se sabe que sí.
         EstadoCompacto(estado)
 
+        // El enlace va ARRIBA, y aquí nos separamos de iOS a propósito: allí
+        // vive al final. Es lo primero que se busca al empezar a compartir —
+        // mandárselo a quien te espera— y tenerlo que ir a buscar al fondo de la
+        // pantalla cada vez no compensa el parecido.
         if (estado.compartiendo) {
+            estado.enlace?.let { enlace ->
+                Seccion(titulo = "Enlace para compartir") {
+                    Text(enlace, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { portapapeles.setText(AnnotatedString(enlace)) }) {
+                            Text("Copiar")
+                        }
+                        Button(onClick = { comparteEnlace(context, enlace) }) { Text("Compartir") }
+                    }
+                }
+            }
+
             Seccion(
                 pie = if (estado.notas > 0) {
                     "${estado.notas} ${if (estado.notas == 1) "nota anclada" else "notas ancladas"} " +
@@ -495,8 +512,13 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 )
             }
 
-            Seccion(titulo = "Mis seguimientos") {
-                SeccionSesiones(
+        }
+
+        // Los seguimientos, SIEMPRE. En iOS se ocultan al transmitir, pero
+        // entonces no hay forma de abrir el mapa de una ruta pasada mientras se
+        // anda — que es justo cuando apetece mirar por dónde se fue la última vez.
+        Seccion(titulo = "Mis seguimientos") {
+            SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,
             // Continuar y reanudar se pulsan desde la lista, que está al final de
@@ -528,29 +550,31 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                     null
                 }
             },
+            onVerMapa = { sesion, enLocal ->
+                if (enLocal) {
+                    // Con traza en el móvil se abre el visor incrustado: se ve
+                    // entera, con sus notas y sus fotos, y sin cobertura.
+                    ViewerData.abreConsulta(sesion.id)
+                    guiaEnMapa = sesion.id
+                } else {
+                    // Sin datos locales solo queda el enlace público, que existe
+                    // mientras la ruta no haya caducado en el servidor.
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(TrackingStore.enlaceDe(sesion.id))),
+                        )
+                    }
+                }
+            },
             onChincheta = { id, fijada -> scope.launch { TrackingStore.fijaSesion(id, fijada) } },
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
-                )
-            }
+            )
         }
 
         // El enlace y las estadísticas, abajo y solo en marcha: es lo que se
         // consulta cuando ya se sabe que está transmitiendo.
         if (estado.compartiendo) {
-            estado.enlace?.let { enlace ->
-                Seccion(titulo = "Enlace para compartir") {
-                    Text(enlace, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { portapapeles.setText(AnnotatedString(enlace)) }) {
-                            Text("Copiar")
-                        }
-                        Button(onClick = { comparteEnlace(context, enlace) }) { Text("Compartir") }
-                    }
-                }
-            }
-
             Seccion(titulo = "Estado") { DatosDeLaSesion(estado) }
         }
 

@@ -68,6 +68,7 @@ fun SeccionSesiones(
     onCompartir: (String) -> Unit,
     onCopiar: (String) -> Unit,
     onExportar: (TrackSessionSummary) -> Unit,
+    onVerMapa: (TrackSessionSummary, Boolean) -> Unit,
     onChincheta: (String, Boolean) -> Unit,
     onRenombrar: (String, String?) -> Unit,
     onBorrar: (String) -> Unit,
@@ -88,6 +89,7 @@ fun SeccionSesiones(
             onCompartir = { onCompartir(s.id) },
             onCopiar = { onCopiar(s.id) },
             onExportar = { onExportar(s) },
+            onVerMapa = { enLocal -> onVerMapa(s, enLocal) },
             onChincheta = { onChincheta(s.id, !s.isPinned) },
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
@@ -136,11 +138,13 @@ private fun FilaSesion(
     onCompartir: () -> Unit,
     onCopiar: () -> Unit,
     onExportar: () -> Unit,
+    onVerMapa: (enLocal: Boolean) -> Unit,
     onChincheta: () -> Unit,
     onRenombrar: () -> Unit,
     onBorrar: () -> Unit,
 ) {
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
+    val hayDatosLocales = remember(sesion.id) { TrackingStore.hayDatosLocales(sesion.id) }
     var menuAbierto by remember { mutableStateOf(false) }
 
     // Fila compacta, como en iOS: un renglón de título con sus chips y otro de
@@ -183,6 +187,13 @@ private fun FilaSesion(
                         else -> "Finalizado" to Paleta.slate700
                     }
                     Chip(texto, color.copy(alpha = 0.25f), Paleta.slate100)
+                    if (hayDatosLocales) {
+                        // Lo que decide si una sesion caducada sirve para algo:
+                        // con traza en el movil se puede seguir viendo su mapa y
+                        // exportarla; sin ella solo se puede borrar.
+                        Spacer(Modifier.width(6.dp))
+                        Chip("En el móvil", Paleta.sky600.copy(alpha = 0.25f), Paleta.sky500)
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(
                         fecha(sesion.startedAt),
@@ -215,6 +226,12 @@ private fun FilaSesion(
                         } else if (!caducada) {
                             Opcion("Reanudar") { menuAbierto = false; onReanudar() }
                         }
+                    }
+                    // Ver su mapa: con traza en el móvil se abre el visor
+                    // incrustado sin cobertura; si no, se abre el enlace público
+                    // (que solo existe mientras la ruta no haya caducado).
+                    if (hayDatosLocales || !caducada) {
+                        Opcion("Ver mapa") { menuAbierto = false; onVerMapa(hayDatosLocales) }
                     }
                     Opcion(
                         if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",

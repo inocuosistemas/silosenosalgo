@@ -110,32 +110,43 @@ object ViewerData {
         historialForma = emptyList()
     }
 
-    fun esLaActual(id: String): Boolean = token == id || guiaAbierta == id
+    fun esLaActual(id: String): Boolean = token == id || enConsulta == id
 
     /**
-     * La guía `.slsnsguide` que se está consultando, si hay alguna.
+     * Lo que se está CONSULTANDO: una guía importada o un seguimiento propio ya
+     * terminado.
      *
-     * Una guía se sirve al visor igual que una sesión propia —misma ruta, mismo
-     * JSON— pero siempre como TERMINADA y desde lo que trajo el paquete. Es lo
-     * que permite abrir la ruta de otra persona en el monte, con sus notas y sus
-     * fotos, sin que el visor tenga que saber que no es tuya.
+     * Se sirve al visor igual que una sesión en vivo —misma ruta, mismo JSON—
+     * pero siempre como TERMINADA y leyéndolo del disco. Es lo que permite abrir
+     * una ruta pasada, o la de otra persona, en el monte y sin cobertura, con
+     * sus notas y sus fotos, sin que el visor tenga que saber que no es la de
+     * ahora.
      */
-    @Volatile private var guiaAbierta: String? = null
+    @Volatile private var enConsulta: String? = null
 
-    fun abreGuia(id: String?) { guiaAbierta = id }
+    fun abreConsulta(id: String?) { enConsulta = id }
 
-    private fun estadoDeGuia(id: String): String? {
-        val guia = TrackingStore.guias.value.firstOrNull { it.id == id } ?: return null
+    /** Compatibilidad con el nombre anterior. */
+    fun abreGuia(id: String?) = abreConsulta(id)
+
+    private fun estadoDeConsulta(id: String): String? {
         val (traza, notas) = TrackingStore.contenidoDeGuia(id)
+        if (traza.isEmpty()) return null
+
+        // El título y las fechas salen de donde estén: del índice de guías si es
+        // una importada, o de "Mis seguimientos" si es una propia.
+        val guia = TrackingStore.guias.value.firstOrNull { it.id == id }
+        val sesion = TrackingStore.sesiones.value.firstOrNull { it.id == id }
         val ultima = traza.lastOrNull()
 
         val wire = EstadoWire(
             status = "ended",
-            title = guia.titulo,
-            startedAt = guia.startedAt,
-            // Una guía no caduca: ya está en el móvil y no depende de nadie.
+            title = guia?.titulo ?: sesion?.title,
+            startedAt = guia?.startedAt ?: sesion?.startedAt ?: (ultima?.t ?: 0.0),
+            // Lo consultado no caduca: ya está en el móvil y no depende de nadie.
             expiresAt = Double.MAX_VALUE,
-            endedAt = guia.endedAt ?: ultima?.t,
+            endedAt = guia?.endedAt ?: sesion?.endedAt ?: ultima?.t,
+            activity = sesion?.activity?.wire,
             planShareId = if (TrackingStore.hayPlanDe(id)) id else null,
             fix = ultima?.let {
                 FixWire(lat = it.lat, lon = it.lon, accuracy = it.a?.toDouble(), fixAt = it.t, updatedAt = it.t)
@@ -152,7 +163,7 @@ object ViewerData {
      * una sesión que no existe).
      */
     fun estadoJson(id: String, estado: TrackingStore.Estado, notas: List<Note>): String? {
-        if (guiaAbierta == id) return estadoDeGuia(id)
+        if (enConsulta == id) return estadoDeConsulta(id)
         if (estado.sessionId != id) return null
 
         val real = estado.ultimaLectura?.let { aWire(it, it.fixAt ?: estado.salidaMs) }

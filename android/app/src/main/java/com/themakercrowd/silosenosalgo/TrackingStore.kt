@@ -491,9 +491,18 @@ object TrackingStore {
         cargaGuias()
     }
 
-    /** Lo que necesita el visor para dibujar una guía: su traza y sus notas. */
+    /** Lo que necesita el visor para dibujar algo guardado: traza y notas. */
     fun contenidoDeGuia(id: String): Pair<List<TrailPoint>, List<Note>> =
         almacen.leeTraza(id) to almacen.leeNotas(id)
+
+    /**
+     * ¿Queda algo de esta sesión EN ESTE MÓVIL?
+     *
+     * Es lo que decide si una sesión sirve para algo cuando su ruta ya no está
+     * en el servidor: con traza local se puede seguir viendo el mapa y
+     * exportarla como guía; sin ella, lo único que se puede hacer es borrarla.
+     */
+    fun hayDatosLocales(id: String): Boolean = almacen.leeTraza(id).isNotEmpty()
 
     /**
      * El trazado de una ruta planificada, para poder bajarse su mapa antes de
