@@ -700,9 +700,28 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     }
     return runs
   }, [trail, plan, planPts, trailSnaps])
+  // Distancia recorrida, descartando el ruido del GPS: un tramo solo cuenta si
+  // es mas largo que la suma de los errores que declaran sus dos lecturas.
+  //
+  // Sin esto un movil QUIETO acumula kilometros. Medido en el aparato: parado
+  // dentro de un edificio, doce lecturas seguidas sumaban 491 m, con saltos de
+  // 20 a 118 m entre lecturas que el propio GPS daba con +-30 a +-63 m de error.
+  // Dos posiciones asi de imprecisas pueden estar cien metros separadas sin que
+  // nadie se haya movido.
+  //
+  // El precio es quedarse corto andando despacio con mala señal --bajo arbolado,
+  // en un barranco-- y se asume: un numero algo bajo es un error honesto, y uno
+  // inflado es una mentira que ademas estropea los ritmos y las previsiones de
+  // llegada, que es justo lo que mira quien espera.
+  //
+  // Una lectura sin precision declarada se cree: no hay base para desconfiar.
   const distanceKm = useMemo(() => {
     let d = 0
-    for (let i = 1; i < trail.length; i++) d += haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
+    for (let i = 1; i < trail.length; i++) {
+      const seg = haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
+      const uncertaintyKm = ((trail[i - 1].a ?? 0) + (trail[i].a ?? 0)) / 1000
+      if (seg >= uncertaintyKm) d += seg
+    }
     return d
   }, [trail])
 

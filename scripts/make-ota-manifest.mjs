@@ -16,8 +16,14 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const DIST = new URL('../dist/', import.meta.url).pathname
+// `fileURLToPath` y no `.pathname`: en Windows, el pathname de una URL de
+// fichero es "/C:/DEV/...", con una barra delante, y al resolverlo Node lo toma
+// como relativo a la raiz de la unidad y acaba buscando en "C:\C:\DEV\...".
+// En macOS y Linux las dos formas coinciden, asi que el fallo solo aparece al
+// construir desde Windows.
+const DIST = fileURLToPath(new URL('../dist/', import.meta.url))
 const OUT = 'ota-manifest.json'
 const EXCLUDE = new Set(['_headers', '_redirects', '.DS_Store', OUT])
 
