@@ -2,6 +2,10 @@ package com.themakercrowd.silosenosalgo
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -71,6 +75,19 @@ fun VisorIncrustado(
                     builtInZoomControls = false
                     setSupportZoom(false)
                 }
+                // En build de depuración, la consola del visor va a logcat y se
+                // puede inspeccionar con Chrome DevTools. Es la única forma de
+                // ver por qué el visor no pinta algo: sus errores no llegan a
+                // Kotlin, se quedan dentro del WebView.
+                if (0 != (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE)) {
+                    WebView.setWebContentsDebuggingEnabled(true)
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                            Log.d("VisorWeb", "${m.messageLevel()} ${m.message()} @${m.lineNumber()}")
+                            return true
+                        }
+                    }
+                }
                 webViewClient = ClienteVisor(context)
                 loadUrl(VisorWeb.urlDelVisor(sessionId))
             }
@@ -100,6 +117,68 @@ private class ClienteVisor(context: Context) : WebViewClient() {
          *  la composición; el interceptor corre en otro hilo y solo lee. */
         @Volatile var ultimoEstado: TrackingStore.Estado = TrackingStore.Estado()
         @Volatile var ultimasNotas: List<Note> = emptyList()
+
+        /** Ver [onPageFinished]. Mide las unidades y solo parchea si están rotas. */
+        private val PARCHE_VIEWPORT = """
+            (function () {
+              var sonda = document.createElement('div');
+              sonda.style.cssText = 'position:absolute;visibility:hidden;height:100dvh';
+              document.body.appendChild(sonda);
+              var dvh = sonda.getBoundingClientRect().height;
+              sonda.style.height = '100vh';
+              var vh = sonda.getBoundingClientRect().height;
+              sonda.remove();
+
+              var roto = Math.max(dvh, vh) < window.innerHeight * 0.5;
+              if (!roto) return 'ok (dvh=' + dvh + ' vh=' + vh + ')';
+
+              // El estilo se inyecta una sola vez y de forma global, asi que da
+              // igual que el panel lo monte React mas tarde: en cuanto aparezca,
+              // la regla ya esta puesta.
+              var estilo = document.getElementById('slsns-viewport');
+              if (!estilo) {
+                estilo = document.createElement('style');
+                estilo.id = 'slsns-viewport';
+                document.head.appendChild(estilo);
+              }
+              function aplica() {
+                // 9rem es el hueco que el visor reserva por debajo del panel para
+                // su tirador y la pastilla de estado; se respeta tal cual.
+                estilo.textContent =
+                  '[class*="100dvh"]{max-height:' +
+                  Math.max(0, window.innerHeight - 144) + 'px !important}';
+              }
+              aplica();
+              // Al girar el movil o al aparecer el teclado cambia la altura util.
+              window.addEventListener('resize', aplica);
+              return 'parcheado (dvh=' + dvh + ' vh=' + vh + ' innerH=' + window.innerHeight + ')';
+            })()
+        """.trimIndent()
+    }
+
+    /**
+     * Parche de las unidades de viewport para Android WebView.
+     *
+     * **En este WebView `vh` y `dvh` valen CERO**, aunque `window.innerHeight`
+     * dé el valor correcto (medido: `dvh=0 vh=0 innerH=652`). El visor limita su
+     * panel de resumen —el que se despliega para ver las notas y los ánimos— con
+     * `max-height: calc(100dvh - 9rem)`; con `dvh` a cero eso da un número
+     * negativo, se recorta a 0 y el panel queda de 2 píxeles de alto: el
+     * contenido está TODO dentro del DOM —el nombre, la distancia, la altitud—
+     * pero no se ve nada, y sin ningún error en consola. En WKWebView las
+     * unidades funcionan, y por eso en iOS el panel sale bien.
+     *
+     * El apaño es dar la altura en píxeles de verdad, tomada de
+     * `window.innerHeight`. Se mide antes de tocar nada y solo se aplica si las
+     * unidades están rotas: el día que WebView lo arregle, esto deja de
+     * aplicarse solo. Y se hace aquí y no en el CSS compartido con la web y con
+     * iOS, donde el problema no existe.
+     */
+    override fun onPageFinished(view: WebView, url: String?) {
+        super.onPageFinished(view, url)
+        view.evaluateJavascript(PARCHE_VIEWPORT) { r ->
+            Log.d("VisorWeb", "unidades de viewport: $r")
+        }
     }
 
     override fun shouldInterceptRequest(
@@ -136,7 +215,8 @@ private class ClienteVisor(context: Context) : WebViewClient() {
         if (ruta.startsWith("/api/track/")) {
             val id = ruta.removePrefix("/api/track/").substringBefore('/')
             val json = ViewerData.estadoJson(id, ultimoEstado, ultimasNotas)
-                ?: return noEncontrado()
+            Log.d("VisorWeb", "estado $ruta -> " + (json?.take(400) ?: "404"))
+            if (json == null) return noEncontrado()
             return respuesta(json.toByteArray(), "application/json", sinCache = true)
         }
 

@@ -70,11 +70,15 @@ fun PantallaMapaVivo(
             }
         }
 
+        // `weight`, no `fillMaxSize`: dentro de una Column, `fillMaxSize` le da
+        // al WebView la altura ENTERA de la pantalla y, como va colocado debajo
+        // de la barra, se desborda por abajo. El visor calcula su panel con
+        // `100dvh`, así que esa altura de más lo descuadra.
         VisorIncrustado(
             sessionId = sessionId,
             estado = estado,
             notas = notas,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
         )
     }
 
