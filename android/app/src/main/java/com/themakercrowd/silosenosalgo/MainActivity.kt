@@ -58,6 +58,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -214,6 +215,34 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
     var titulo by remember { mutableStateOf("") }
     var arrancando by remember { mutableStateOf(false) }
     var viendoMapa by remember { mutableStateOf(false) }
+    val guias by TrackingStore.guias.collectAsState()
+    var guiaEnMapa by remember { mutableStateOf<String?>(null) }
+    var avisoGuia by remember { mutableStateOf<String?>(null) }
+
+    // Se acepta cualquier tipo: los `.slsnsguide` no tienen un MIME registrado,
+    // así que filtrar por tipo los escondería del selector de archivos.
+    val abreGuia = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        avisoGuia = when (val r = TrackingStore.importaGuia(context, uri)) {
+            is GuidePackage.Resultado.Bien -> null
+            is GuidePackage.Resultado.Mal -> r.rechazo.motivo
+        }
+    }
+
+    // Una guía se ve en el mismo visor que una ruta propia, pero sin poder
+    // anotar sobre ella: es de otra persona y ya está terminada.
+    guiaEnMapa?.let { id ->
+        PantallaMapaVivo(
+            sessionId = id,
+            estado = estado,
+            notas = emptyList(),
+            permiteEditar = false,
+            onCerrar = { guiaEnMapa = null; ViewerData.abreGuia(null) },
+        )
+        return
+    }
 
     // El mapa a pantalla completa, con las notas y la descarga colgando de él
     // (misma navegación que iOS).
@@ -264,6 +293,7 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         TrackingStore.cargaSesiones()
         TrackingStore.cargaPlanes()
         TrackingStore.refrescaAlmacenamiento()
+        TrackingStore.cargaGuias()
         // El visor se actualiza solo, en segundo plano y al mejor esfuerzo: si
         // no hay build nuevo o falla la red, no pasa nada y se sigue con el que
         // haya (OTA activa, o el empaquetado en el APK).
@@ -417,6 +447,10 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        avisoGuia?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
         // El mapa (y con él las notas y la descarga) solo se ofrece cuando hay
         // sesión: sin ella no hay nada que enseñar ni dónde anclar una nota.
@@ -427,6 +461,17 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 trazaActual = TrackingStore.trazaActual(),
             )
         }
+
+        Spacer(Modifier.height(24.dp))
+        SeccionGuias(
+            guias = guias,
+            onImportar = { abreGuia.launch(arrayOf("*/*")) },
+            onVer = { guia ->
+                ViewerData.abreGuia(guia.id)
+                guiaEnMapa = guia.id
+            },
+            onBorrar = { TrackingStore.borraGuia(it.id) },
+        )
 
         Spacer(Modifier.height(24.dp))
         MedidorAlmacenamiento(estado)
@@ -447,6 +492,16 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
             },
             onCompartir = { id -> comparteEnlace(context, TrackingStore.enlaceDe(id)) },
             onCopiar = { id -> portapapeles.setText(AnnotatedString(TrackingStore.enlaceDe(id))) },
+            onExportar = { sesion ->
+                val fichero = TrackingStore.exportaGuia(context, sesion)
+                avisoGuia = if (fichero == null) {
+                    "Este seguimiento no tiene traza guardada en este móvil, " +
+                        "así que no hay guía que exportar."
+                } else {
+                    comparteFichero(context, fichero)
+                    null
+                }
+            },
             onChincheta = { id, fijada -> scope.launch { TrackingStore.fijaSesion(id, fijada) } },
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
@@ -612,6 +667,23 @@ private fun TarjetaAviso(titulo: String, cuerpo: String, accion: String, onAccio
             Text(cuerpo, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = onAccion) { Text(accion) }
         }
+    }
+}
+
+/**
+ * Comparte un fichero (la guía `.slsnsguide` recién exportada) por donde sea.
+ * Va por el mismo FileProvider que las fotos: pasar un `file://` daría
+ * FileUriExposedException desde Android 7.
+ */
+private fun comparteFichero(context: Context, fichero: java.io.File) {
+    runCatching {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.ficheros", fichero)
+        val envio = Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(envio, "Compartir guía"))
     }
 }
 

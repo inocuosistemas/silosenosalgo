@@ -60,6 +60,10 @@ visor web**: aquí no hay nada de servidor, solo otro cliente.
     mitad del monte, con un hueco justo donde hacía falta.
   - `PlanGeometry.kt` — saca el trazado del blob comprimido de un plan.
   - `PantallaMapa.kt` — preparar el mapa antes de salir.
+  - `GuideRules.kt` — qué se acepta de un paquete `.slsnsguide`, probado en la
+    JVM. Es sobre todo defensa: el paquete llega de fuera y un ZIP hostil puede
+    intentar escribir donde no debe.
+  - `GuidePackage.kt` — empaquetar e importar esos paquetes.
 - `app/src/main/assets/web/` — visor web construido (copiado de `../dist` por
   `scripts/copy-webdist.sh`, o `copy-webdist.ps1` en Windows; git-ignored, igual
   que `ios/WebDist/`).
@@ -280,5 +284,5 @@ se comería la batería de toda la travesía.
 - Guardar la foto original a máxima calidad en la galería del móvil. Aquí solo
   se guarda la copia compacta que se sube; iOS conserva además el original.
 - `noteMetrics`: km de ruta y desnivel acumulado de cada nota respecto al plan.
-- Paquetes `.slsnsguide` (formato ya especificado en
-  `../docs/slsnsguide-v1.md`).
+- Probar de punta a punta un `.slsnsguide` exportado en un móvil e importado en
+  otro (y entre Android e iOS, que es lo que el formato promete).

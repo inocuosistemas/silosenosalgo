@@ -89,6 +89,10 @@ object TrackingStore {
     private val _planes = MutableStateFlow<List<PlanSummary>>(emptyList())
     val planes: StateFlow<List<PlanSummary>> = _planes.asStateFlow()
 
+    /** Las guías `.slsnsguide` importadas, para consultarlas sin conexión. */
+    private val _guias = MutableStateFlow<List<GuideRules.GuiaLocal>>(emptyList())
+    val guias: StateFlow<List<GuideRules.GuiaLocal>> = _guias.asStateFlow()
+
     /** Las notas de campo de la sesión actual, de la más nueva a la más vieja. */
     private val _notas = MutableStateFlow<List<Note>>(emptyList())
     val notas: StateFlow<List<Note>> = _notas.asStateFlow()
@@ -439,6 +443,39 @@ object TrackingStore {
     }
 
     fun enlaceDe(id: String): String = Config.shareLink(id)
+
+    // ── Guías offline ────────────────────────────────────────────────────────
+
+    fun cargaGuias() {
+        _guias.value = almacen.leeGuias().sortedByDescending { it.importadaMs }
+    }
+
+    /** Empaqueta una sesión terminada en un `.slsnsguide` listo para compartir.
+     *  Null si no tiene traza guardada: sin ella no hay guía que hacer. */
+    fun exportaGuia(context: Context, sesion: TrackSessionSummary): java.io.File? =
+        GuidePackage.exporta(context, almacen, sesion, ahoraMs)
+
+    /** Abre un `.slsnsguide` recibido y lo deja consultable sin conexión. */
+    fun importaGuia(context: Context, origen: android.net.Uri): GuidePackage.Resultado {
+        val resultado = GuidePackage.importa(context, almacen, origen, ahoraMs)
+        if (resultado is GuidePackage.Resultado.Bien) {
+            // Reimportar la misma guía la sustituye en vez de duplicarla.
+            val nuevas = _guias.value.filterNot { it.id == resultado.guia.id } + resultado.guia
+            almacen.guardaGuias(nuevas)
+            cargaGuias()
+        }
+        return resultado
+    }
+
+    fun borraGuia(id: String) {
+        almacen.limpiaSesion(id)
+        almacen.guardaGuias(_guias.value.filterNot { it.id == id })
+        cargaGuias()
+    }
+
+    /** Lo que necesita el visor para dibujar una guía: su traza y sus notas. */
+    fun contenidoDeGuia(id: String): Pair<List<TrailPoint>, List<Note>> =
+        almacen.leeTraza(id) to almacen.leeNotas(id)
 
     /**
      * El trazado de una ruta planificada, para poder bajarse su mapa antes de

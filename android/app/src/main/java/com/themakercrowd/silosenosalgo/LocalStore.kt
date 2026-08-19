@@ -216,6 +216,21 @@ class LocalStore(context: Context) {
     fun leeMediosPendientes(sessionId: String): List<MedioPendiente> =
         leeLista(ficheroMedios(sessionId))
 
+    // ── Guías importadas ─────────────────────────────────────────────────────
+
+    /** El índice de guías. Va en preferencias y no junto a los datos de cada
+     *  una: es una lista corta que se lee entera al abrir la pantalla. */
+    fun guardaGuias(guias: List<GuideRules.GuiaLocal>) {
+        prefs.edit().putString(CLAVE_GUIAS, Api.json.encodeToString(guias)).apply()
+    }
+
+    fun leeGuias(): List<GuideRules.GuiaLocal> =
+        prefs.getString(CLAVE_GUIAS, null)
+            ?.let {
+                runCatching { Api.json.decodeFromString<List<GuideRules.GuiaLocal>>(it) }.getOrNull()
+            }
+            ?: emptyList()
+
     // ── Estado activo ────────────────────────────────────────────────────────
 
     fun guardaActivo(estado: EstadoActivo) {
@@ -274,5 +289,6 @@ class LocalStore(context: Context) {
 
     companion object {
         private const val CLAVE_ACTIVO = "estado_activo"
+        private const val CLAVE_GUIAS = "guias"
     }
 }

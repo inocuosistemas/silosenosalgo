@@ -110,7 +110,41 @@ object ViewerData {
         historialForma = emptyList()
     }
 
-    fun esLaActual(id: String): Boolean = token == id
+    fun esLaActual(id: String): Boolean = token == id || guiaAbierta == id
+
+    /**
+     * La guía `.slsnsguide` que se está consultando, si hay alguna.
+     *
+     * Una guía se sirve al visor igual que una sesión propia —misma ruta, mismo
+     * JSON— pero siempre como TERMINADA y desde lo que trajo el paquete. Es lo
+     * que permite abrir la ruta de otra persona en el monte, con sus notas y sus
+     * fotos, sin que el visor tenga que saber que no es tuya.
+     */
+    @Volatile private var guiaAbierta: String? = null
+
+    fun abreGuia(id: String?) { guiaAbierta = id }
+
+    private fun estadoDeGuia(id: String): String? {
+        val guia = TrackingStore.guias.value.firstOrNull { it.id == id } ?: return null
+        val (traza, notas) = TrackingStore.contenidoDeGuia(id)
+        val ultima = traza.lastOrNull()
+
+        val wire = EstadoWire(
+            status = "ended",
+            title = guia.titulo,
+            startedAt = guia.startedAt,
+            // Una guía no caduca: ya está en el móvil y no depende de nadie.
+            expiresAt = Double.MAX_VALUE,
+            endedAt = guia.endedAt ?: ultima?.t,
+            planShareId = if (TrackingStore.hayPlanDe(id)) id else null,
+            fix = ultima?.let {
+                FixWire(lat = it.lat, lon = it.lon, accuracy = it.a?.toDouble(), fixAt = it.t, updatedAt = it.t)
+            },
+            trail = traza,
+            notes = notas.ifEmpty { null },
+        )
+        return Api.json.encodeToString(wire)
+    }
 
     /**
      * El estado sintetizado para `id`, o null si no es la sesión actual (el
@@ -118,6 +152,7 @@ object ViewerData {
      * una sesión que no existe).
      */
     fun estadoJson(id: String, estado: TrackingStore.Estado, notas: List<Note>): String? {
+        if (guiaAbierta == id) return estadoDeGuia(id)
         if (estado.sessionId != id) return null
 
         val real = estado.ultimaLectura?.let { aWire(it, it.fixAt ?: estado.salidaMs) }

@@ -67,6 +67,7 @@ fun SeccionSesiones(
     onReanudar: (String) -> Unit,
     onCompartir: (String) -> Unit,
     onCopiar: (String) -> Unit,
+    onExportar: (TrackSessionSummary) -> Unit,
     onChincheta: (String, Boolean) -> Unit,
     onRenombrar: (String, String?) -> Unit,
     onBorrar: (String) -> Unit,
@@ -86,6 +87,7 @@ fun SeccionSesiones(
             onReanudar = { onReanudar(s.id) },
             onCompartir = { onCompartir(s.id) },
             onCopiar = { onCopiar(s.id) },
+            onExportar = { onExportar(s) },
             onChincheta = { onChincheta(s.id, !s.isPinned) },
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
@@ -133,6 +135,7 @@ private fun FilaSesion(
     onReanudar: () -> Unit,
     onCompartir: () -> Unit,
     onCopiar: () -> Unit,
+    onExportar: () -> Unit,
     onChincheta: () -> Unit,
     onRenombrar: () -> Unit,
     onBorrar: () -> Unit,
@@ -221,6 +224,9 @@ private fun FilaSesion(
                         Opcion("Copiar enlace") { menuAbierto = false; onCopiar() }
                         Opcion("Compartir enlace") { menuAbierto = false; onCompartir() }
                     }
+                    // La guía se hace con lo que hay en ESTE móvil, así que
+                    // solo tiene sentido en las sesiones cuya traza se conserva.
+                    Opcion("Exportar guía offline") { menuAbierto = false; onExportar() }
                     Opcion("Eliminar") { menuAbierto = false; onBorrar() }
                 }
             }
@@ -273,6 +279,93 @@ private fun DialogoRenombrar(
         },
         dismissButton = { TextButton(onClick = onCancelar) { Text("Cancelar") } },
     )
+}
+
+/**
+ * Las guías `.slsnsguide`: una ruta terminada entera —traza, notas, fotos,
+ * audios y plan— en un archivo que se manda por mensajería y se abre sin
+ * conexión.
+ *
+ * Es lo que permite llevarse la ruta de otra persona al monte. No lleva las
+ * teselas del mapa a propósito: son caché de cada visor, pesan más que todo lo
+ * demás junto, y meterlas convertiría un archivo que se puede mandar en uno que
+ * no.
+ */
+@Composable
+fun SeccionGuias(
+    guias: List<GuideRules.GuiaLocal>,
+    onImportar: () -> Unit,
+    onVer: (GuideRules.GuiaLocal) -> Unit,
+    onBorrar: (GuideRules.GuiaLocal) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Guías sin conexión", style = MaterialTheme.typography.titleSmall, color = Paleta.slate100)
+        TextButton(onClick = onImportar) { Text("Importar") }
+    }
+
+    if (guias.isEmpty()) {
+        Text(
+            "Aquí aparecen las rutas que te compartan como archivo .slsnsguide. " +
+                "Se ven enteras sin cobertura.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Paleta.slate400,
+        )
+        return
+    }
+
+    guias.forEach { guia ->
+        var menu by remember(guia.id) { mutableStateOf(false) }
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Paleta.slate900),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        guia.titulo,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Paleta.slate100,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Chip("Guía", Paleta.sky600.copy(alpha = 0.25f), Paleta.sky500)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            fecha(guia.startedAt) + detalleGuia(guia),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Paleta.slate400,
+                        )
+                    }
+                }
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Text("⋮", style = MaterialTheme.typography.titleMedium, color = Paleta.sky500)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        Opcion("Ver en el mapa") { menu = false; onVer(guia) }
+                        Opcion("Eliminar") { menu = false; onBorrar(guia) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun detalleGuia(guia: GuideRules.GuiaLocal): String {
+    val partes = buildList {
+        if (guia.notas > 0) add(if (guia.notas == 1) "1 nota" else "${guia.notas} notas")
+        if (guia.medios > 0) add("${guia.medios} archivos")
+    }
+    return if (partes.isEmpty()) "" else " · " + partes.joinToString(", ")
 }
 
 /**
