@@ -82,6 +82,31 @@ class TileMathTest {
         assertTrue(teselas.contains(TileMath.Tesela(12, x2, y2)))
     }
 
+    @Test fun `la cobertura no se dibuja a un zoom que lo pinte todo`() {
+        // Caso REAL: con z12 fijo, una ruta corta cabia entera en una tesela de
+        // ~10 km, asi que en cuanto habia algo descargado la capa salia TODA
+        // verde. Los datos eran correctos y la respuesta, inutil.
+        // Ruta de ~2 km: el zoom elegido tiene que ser el fino que se pidio.
+        val z = TileMath.zoomDeCobertura(42.370, -7.420, 42.385, -7.400, zoomPedido = 15)
+        assertEquals(15, z)
+    }
+
+    @Test fun `una ruta enorme baja el zoom para no comprobar miles de teselas`() {
+        // 161 km a z16 serian cientos de miles de comprobaciones por cada
+        // redibujado.
+        val z = TileMath.zoomDeCobertura(42.0, -8.0, 43.5, -6.0, zoomPedido = 16)
+        assertTrue("zoom elegido $z", z < 16)
+        val teselas = TileMath.teselasEnCaja(42.0, -8.0, 43.5, -6.0, z)
+        assertTrue("serian ${teselas.size} teselas", teselas.size <= 2_000)
+    }
+
+    @Test fun `nunca sube por encima del detalle descargado`() {
+        // Enseñar cobertura a un zoom que no se ha bajado diria que falta mapa
+        // cuando en realidad no se pidio ese detalle.
+        val z = TileMath.zoomDeCobertura(42.370, -7.420, 42.371, -7.419, zoomPedido = 13)
+        assertEquals(13, z)
+    }
+
     // ── El corredor ──────────────────────────────────────────────────────────
 
     private val puntoEnGalicia = 42.3737 to -7.4149

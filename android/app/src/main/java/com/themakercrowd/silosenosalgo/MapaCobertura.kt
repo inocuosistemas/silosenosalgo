@@ -29,14 +29,12 @@ import androidx.compose.ui.unit.dp
 fun MapaCobertura(
     ruta: List<Pair<Double, Double>>,
     cache: TileCache,
+    zoomPedido: Int,
     modifier: Modifier = Modifier,
 ) {
     if (ruta.size < 2) return
 
-    /** z12 como en iOS: pocos cuadros y siempre forman parte de un corredor. */
-    val zoom = 12
-
-    val datos = remember(ruta, zoom) {
+    val datos = remember(ruta, zoomPedido) {
         val proyectada = ruta.map { (lat, lon) -> TileMath.proyecta(lat, lon) }
         val xs = proyectada.map { it.first }
         val ys = proyectada.map { it.second }
@@ -54,6 +52,9 @@ fun MapaCobertura(
         val latMax = ruta.maxOf { it.first }
         val lonMin = ruta.minOf { it.second }
         val lonMax = ruta.maxOf { it.second }
+        // El zoom se elige según la ruta: a uno fijo y grueso, cualquier ruta
+        // corta cabe en una tesela y la capa sale entera verde sin decir nada.
+        val zoom = TileMath.zoomDeCobertura(latMin, lonMin, latMax, lonMax, zoomPedido)
         val cuadros = TileMath.teselasEnCaja(latMin, lonMin, latMax, lonMax, zoom)
             .filter { cache.estaEnDisco(it.z, it.x, it.y) }
             .map { t ->

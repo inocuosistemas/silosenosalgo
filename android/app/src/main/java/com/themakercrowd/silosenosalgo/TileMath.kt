@@ -63,6 +63,38 @@ object TileMath {
         return Math.toDegrees(latRad) to lon
     }
 
+    /**
+     * A qué zoom dibujar la capa de cobertura de una ruta.
+     *
+     * No puede ser fijo. A z12 una tesela mide unos 10 km, así que en cualquier
+     * ruta de menos de eso el encuadre entero cabe en una o dos teselas y la
+     * capa sale TODA verde en cuanto hay algo descargado: los datos son
+     * correctos y la respuesta es inútil, porque no distingue "tengo el mapa"
+     * de "tengo un cuadro enorme que la contiene".
+     *
+     * Se sube al zoom más fino que se haya pedido descargar —que es el que de
+     * verdad importa: es el detalle con el que se va a mirar el mapa en el
+     * monte— y solo se baja si la ruta es tan larga que habría que comprobar
+     * demasiadas teselas para dibujarla.
+     */
+    fun zoomDeCobertura(
+        latMin: Double,
+        lonMin: Double,
+        latMax: Double,
+        lonMax: Double,
+        zoomPedido: Int,
+        maxTeselas: Int = 2_000,
+    ): Int {
+        for (z in zoomPedido downTo 6) {
+            val (x1, y1) = teselaDe(latMax, lonMin, z)
+            val (x2, y2) = teselaDe(latMin, lonMax, z)
+            val cuantas = (kotlin.math.abs(x2 - x1) + 1).toLong() *
+                (kotlin.math.abs(y2 - y1) + 1).toLong()
+            if (cuantas <= maxTeselas) return z
+        }
+        return 6
+    }
+
     /** Todas las teselas de un zoom que caen dentro de una caja geográfica. */
     fun teselasEnCaja(
         latMin: Double,

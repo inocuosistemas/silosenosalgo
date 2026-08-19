@@ -109,11 +109,11 @@ fun SeccionMapaOffline(
     // La vista previa: en verde lo que ya está en el móvil. Se redibuja al
     // terminar una descarga (por eso depende de `yaEnDisco`).
     ruta?.let { r ->
-        key(yaEnDisco) {
-            MapaCobertura(ruta = r, cache = teselas)
+        key(yaEnDisco, zoomMax) {
+            MapaCobertura(ruta = r, cache = teselas, zoomPedido = zoomMax)
         }
         Text(
-            "Verde = mapa ya descargado. La línea azul es tu ruta.",
+            "Verde = mapa ya descargado al detalle elegido. La línea azul es tu ruta.",
             style = MaterialTheme.typography.labelSmall,
         )
         Spacer(Modifier.height(8.dp))
