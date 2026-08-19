@@ -304,6 +304,46 @@ class TrackingRulesTest {
         assertEquals(pie.distanciaMinimaM, coche.distanciaMinimaM, 0f)
     }
 
+    @Test fun `con buena señal la posicion no se retiene`() {
+        // El ancla se invento para el caso de +-50 m dentro de un edificio. Con
+        // 4 m de precision el umbral quedaria en 6 m, peligrosamente cerca de lo
+        // que se anda entre dos lecturas de 10 s.
+        val ancla = fixCon(42.3700, -7.4000, 4.0, 0.0)
+        val unPaso = fixCon(42.37003, -7.4000, 4.0, 11_000.0)   // ~3 m
+        assertTrue(TrackingRules.hayMovimiento(ancla, unPaso))
+    }
+
+    @Test fun `con mala señal si se retiene`() {
+        val ancla = fixCon(42.3700, -7.4000, 50.0, 0.0)
+        val ruido = fixCon(42.37020, -7.4000, 50.0, 11_000.0)   // ~22 m
+        assertFalse(TrackingRules.hayMovimiento(ancla, ruido))
+    }
+
+    @Test fun `andando a 25 por hora es un salto imposible si lo has declarado`() {
+        // Caso REAL: 78,6 m en 11 s = 25,7 km/h con el GPS declarando 3 m de
+        // precision. Se colaba, y ese unico salto se llevaba el 26 % del
+        // recorrido de toda la ruta.
+        val a = fixCon(42.3700, -7.4000, 3.0, 0.0)
+        val b = fixCon(42.37071, -7.4000, 3.0, 11_000.0)        // ~79 m
+        assertTrue(TrackingRules.saltoImposible(a, b, BeaconActivity.WALK, declarada = true))
+    }
+
+    @Test fun `con la actividad DEDUCIDA no se aprieta el tope`() {
+        // La actividad se deduce de la traza: descartar agresivamente por una
+        // deduccion se muerde la cola --quien empieza andando y se sube a un
+        // coche veria su traza congelada, y congelada ya no hay datos nuevos con
+        // los que corregir la deduccion.
+        val a = fixCon(42.3700, -7.4000, 3.0, 0.0)
+        val b = fixCon(42.37071, -7.4000, 3.0, 11_000.0)
+        assertFalse(TrackingRules.saltoImposible(a, b, BeaconActivity.WALK, declarada = false))
+    }
+
+    @Test fun `un paso normal no se descarta ni declarando la actividad`() {
+        val a = fixCon(42.3700, -7.4000, 4.0, 0.0)
+        val b = fixCon(42.37012, -7.4000, 4.0, 11_000.0)        // ~13 m = 4,4 km/h
+        assertFalse(TrackingRules.saltoImposible(a, b, BeaconActivity.WALK, declarada = true))
+    }
+
     @Test fun `la primera lectura siempre se acepta`() {
         assertTrue(TrackingRules.hayMovimiento(null, fixCon(42.0, -7.0, 50.0, 0.0)))
     }

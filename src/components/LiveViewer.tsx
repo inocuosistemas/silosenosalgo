@@ -195,6 +195,36 @@ function poiIcon(w: { sym?: string; type?: string; name?: string }): string {
 /** Leaflet div-icon for a note marker: the taxonomy emoji in a dark pin. Cached
  *  per poiType (15 possible), so we don't rebuild an icon on every render. */
 const noteIconCache = new Map<string, L.DivIcon>()
+/** Marca de parada. Redonda y ambar para no confundirla con una nota (que es
+ *  una chincheta azul) ni con un punto de control del plan. La que sigue viva
+ *  late, que es la unica que puede cambiar mientras se mira. */
+const PAUSE_PULSE_CSS = `@keyframes slsns-pause-pulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55)}50%{box-shadow:0 0 0 6px rgba(245,158,11,0)}}`
+if (typeof document !== 'undefined' && !document.getElementById('slsns-pause-css')) {
+  const el = document.createElement('style')
+  el.id = 'slsns-pause-css'
+  el.textContent = PAUSE_PULSE_CSS
+  document.head.appendChild(el)
+}
+
+const pauseIconCache = new Map<string, L.DivIcon>()
+function pauseDivIcon(open: boolean): L.DivIcon {
+  const key = open ? 'open' : 'done'
+  let icon = pauseIconCache.get(key)
+  if (!icon) {
+    const border = open ? '#f59e0b' : '#94a3b8'
+    const pulse = open ? 'animation:slsns-pause-pulse 1.8s ease-in-out infinite;' : ''
+    icon = L.divIcon({
+      className: '',
+      html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;background:#0f172a;border:2px solid ${border};border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.55);${pulse}">⏸</div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      popupAnchor: [0, -12],
+    })
+    pauseIconCache.set(key, icon)
+  }
+  return icon
+}
+
 function noteDivIcon(poiType: string): L.DivIcon {
   let icon = noteIconCache.get(poiType)
   if (!icon) {
@@ -509,6 +539,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // off to inspect the raw trace with its precision colours.
   const [smooth, setSmooth] = useState(true)
   const [heat, setHeat] = useState(false)
+  const [showPauses, setShowPauses] = useState(true)
   const [cheersReadAt, setCheersReadAt] = useState(() => loadCheersRead(storageToken))
   const [cheerNick, setCheerNick] = useState(() => { try { return localStorage.getItem('cheerNick') || '' } catch { return '' } })
   const [cheerBody, setCheerBody] = useState('')
@@ -700,6 +731,52 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     }
     return runs
   }, [trail, plan, planPts, trailSnaps])
+  // ── Paradas ────────────────────────────────────────────────────────────────
+  // Donde alguien se quedo quieto un buen rato. Es la pregunta que se hace quien
+  // espera --"por que lleva ahi parado?"-- y sin marcarla en el mapa hay que
+  // deducirla mirando la hora de cada punto, que no la mira nadie.
+  //
+  // Una parada es una tanda de posiciones seguidas que no se alejan mas de
+  // PAUSE_RADIUS_M del sitio donde empezo. El radio no es un capricho: parado,
+  // el GPS sigue moviendose unos metros, y sin margen cada parada se partiria en
+  // trozos. Y el minimo de 5 min deja fuera los semaforos y los ratos de mirar
+  // el mapa, que no le interesan a nadie.
+  const stops = useMemo(() => {
+    const PAUSE_MIN_MS = 5 * 60_000
+    const PAUSE_RADIUS_M = 25
+    const out: { lat: number; lon: number; from: number; to: number; open: boolean }[] = []
+    let i = 0
+    while (i < trail.length) {
+      let j = i + 1
+      while (j < trail.length &&
+             haversineKm(trail[i].lat, trail[i].lon, trail[j].lat, trail[j].lon) * 1000 <= PAUSE_RADIUS_M) {
+        j++
+      }
+      const last = j - 1
+      if (last > i && trail[last].t - trail[i].t >= PAUSE_MIN_MS) {
+        // El punto se pone en el centro de la tanda, no en el primero: parado,
+        // las lecturas rodean el sitio real y el centro se acerca mas.
+        let lat = 0, lon = 0
+        for (let k = i; k <= last; k++) { lat += trail[k].lat; lon += trail[k].lon }
+        const n = last - i + 1
+        out.push({
+          lat: lat / n,
+          lon: lon / n,
+          from: trail[i].t,
+          to: trail[last].t,
+          // Sigue parado si la tanda llega hasta el final de la traza y la ruta
+          // no ha terminado: entonces lo que se enseña es lo que LLEVA, no lo
+          // que duro.
+          open: last === trail.length - 1 && state?.status !== 'ended',
+        })
+        i = j
+      } else {
+        i++
+      }
+    }
+    return out
+  }, [trail, state?.status])
+
   // Distancia recorrida, descartando el ruido del GPS: un tramo solo cuenta si
   // es mas largo que la suma de los errores que declaran sus dos lecturas.
   //
@@ -1676,6 +1753,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           // fue de verdad, pero sin competir con los colores del ritmo.
           <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: heatRange ? 2 : 4, opacity: heatRange ? 0.3 : 0.85 }} />
         ))}
+        {showPauses && stops.map((p, i) => (
+          <Marker key={`pause-${i}`} position={[p.lat, p.lon]} icon={pauseDivIcon(p.open)}>
+            <Popup>
+              <div style={{ minWidth: 130 }}>
+                <div style={{ fontWeight: 600 }}>{p.open ? '⏸️ Parado ahora' : '⏸️ Parada'}</div>
+                <div style={{ marginTop: 2 }}>
+                  {p.open
+                    ? `Lleva ${hhmm((refNow - p.from) / 60_000)}`
+                    : `${hhmm((p.to - p.from) / 60_000)} de parada`}
+                </div>
+                <div style={{ marginTop: 2, opacity: 0.7, fontSize: 11 }}>
+                  Desde las {formatTime(new Date(p.from))}
+                  {!p.open && ` · hasta las ${formatTime(new Date(p.to))}`}
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
         {plan?.track.namedWaypoints.map((w, i) => (
           <CircleMarker key={`poi-${i}`} center={[w.lat, w.lon]} radius={5} pathOptions={{ color: '#fff', weight: 1, fillColor: '#f59e0b', fillOpacity: 0.9 }}>
             <Tooltip>{w.name}</Tooltip>
@@ -2045,6 +2140,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       {heat && !heatRange && (
                         <p className="mt-1.5 text-[10px] text-slate-400">Aún no hay recorrido suficiente para comparar tramos.</p>
                       )}
+                    </div>
+                  )}
+                  {stops.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-200">Mostrar pausas</p>
+                          <p className="text-[10px] text-slate-400">
+                            {stops.length === 1 ? '1 parada' : `${stops.length} paradas`} de mas de 5 min
+                          </p>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={showPauses}
+                          aria-label="Mostrar pausas"
+                          onClick={() => setShowPauses((v) => !v)}
+                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${showPauses ? 'bg-sky-600' : 'bg-slate-700'}`}
+                        >
+                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${showPauses ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
                     </div>
                   )}
                   {rawTrail.length >= 2 && (
@@ -2529,3 +2645,4 @@ function Centered({ title, subtitle }: { title: string; subtitle?: string }) {
     </div>
   )
 }
+

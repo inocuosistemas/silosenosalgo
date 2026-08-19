@@ -766,7 +766,15 @@ object TrackingStore {
             altitud = if (loc.hasAltitude()) loc.altitude else null,
         )
         if (TrackingRules.esRepetida(e.ultimaLectura, fix)) return
-        if (TrackingRules.saltoImposible(e.ultimaLectura, fix, e.actividadEfectiva)) return
+        if (TrackingRules.saltoImposible(
+                e.ultimaLectura,
+                fix,
+                e.actividadEfectiva,
+                declarada = e.actividad != null,
+            )
+        ) {
+            return
+        }
 
         // Posición mantenida: si el desplazamiento no supera la incertidumbre,
         // no es que te hayas movido, es el GPS paseándose. Se registra la

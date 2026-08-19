@@ -346,9 +346,26 @@ object TrackingRules {
      */
     fun hayMovimiento(ancla: Fix?, nueva: Fix): Boolean {
         if (ancla == null) return true
+        // Con señal buena la lectura se cree tal cual. El ancla se inventó para
+        // el caso de ±50 m dentro de un edificio; con 4 m de precisión hace más
+        // daño que bien, porque el umbral (unos 6 m) se acerca peligrosamente a
+        // lo que se anda entre dos lecturas y acabaría comiéndose pasos reales
+        // en cuanto la señal empeore un poco.
+        val peor = maxOf(ancla.accuracy ?: 0.0, nueva.accuracy ?: 0.0)
+        if (peor <= PRECISION_FIABLE_M) return true
+
         val d = distanciaMetros(ancla.lat, ancla.lon, nueva.lat, nueva.lon)
         return d >= umbralMovimiento(ancla.accuracy, nueva.accuracy)
     }
+
+    /**
+     * Por debajo de esta precisión declarada, la posición se cree sin más.
+     *
+     * 10 m es el punto donde el ruido deja de parecerse a un paso: andando se
+     * hacen unos 12 m entre lecturas de 10 s, así que por encima de eso el
+     * filtro empezaría a confundir andar con no moverse.
+     */
+    const val PRECISION_FIABLE_M = 10.0
 
     /**
      * Cuánto hay que desplazarse para creer que ha habido movimiento.
@@ -587,15 +604,38 @@ object TrackingRules {
      * Con la actividad en "Automático" no se descarta nada: sin saber si va en
      * bici o en coche, cualquier tope sería inventado.
      */
-    fun saltoImposible(anterior: Fix?, nuevo: Fix, actividad: BeaconActivity?): Boolean {
+    fun saltoImposible(
+        anterior: Fix?,
+        nuevo: Fix,
+        actividad: BeaconActivity?,
+        declarada: Boolean = false,
+    ): Boolean {
         if (actividad == null || anterior == null) return false
         val t0 = anterior.fixAt ?: return false
         val t1 = nuevo.fixAt ?: return false
         val horas = (t1 - t0) / 3_600_000.0
         if (horas <= 0) return false
         val km = distanciaMetros(anterior.lat, anterior.lon, nuevo.lat, nuevo.lon) / 1000.0
-        return (km / horas) > actividad.maxSpeedKmh * 3
+        return (km / horas) > actividad.maxSpeedKmh * margenDeVelocidad(declarada)
     }
+
+    /**
+     * Cuánto se le perdona al tope de la actividad antes de llamar imposible a
+     * un salto.
+     *
+     * **Declarada, 1,5.** Si alguien dice que va andando, 18 km/h ya no es
+     * andar. Medido en una salida real: un salto de 78,6 m en 11 s —25,7 km/h
+     * con el GPS declarando 3 m de precisión— se colaba con el margen anterior y
+     * se llevaba él solo el 26 % del recorrido de toda la ruta.
+     *
+     * **Deducida, 3.** Aquí no se puede apretar: la actividad se deduce DE LA
+     * TRAZA, así que descartar agresivamente por una deducción se muerde la cola
+     * —quien empieza andando y se sube a un coche vería su traza congelada, y al
+     * congelarse ya no habría datos nuevos con los que corregir la deducción.
+     * Una actividad declarada es una promesa; una deducida es una conjetura, y
+     * no se tiran datos por una conjetura.
+     */
+    fun margenDeVelocidad(declarada: Boolean): Double = if (declarada) 1.5 else 3.0
 
     /** Texto del aviso cuando hay atasco, tal cual lo dice iOS. */
     fun avisoSinCobertura(pendientes: Int): String =
