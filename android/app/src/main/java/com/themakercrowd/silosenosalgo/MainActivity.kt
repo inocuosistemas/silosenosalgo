@@ -313,8 +313,10 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         TrackingStore.cargaGuias()
     }
 
+    val desplazamiento = rememberScrollState()
+
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(desplazamiento).padding(20.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -445,6 +447,13 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                         // creación falla por falta de cobertura.
                         if (TrackingStore.estado.value.compartiendo) {
                             TrackingService.arranca(context)
+                            // Al empezar, el formulario desaparece y arriba
+                            // queda lo que hace falta: la confirmación de que
+                            // está transmitiendo, el enlace y el mapa. Botón de
+                            // empezar suele quedar a media pantalla, así que sin
+                            // subir se sigue viendo el hueco del formulario y no
+                            // se sabe si ha arrancado.
+                            desplazamiento.animateScrollTo(0)
                         }
                     }
                 },
@@ -493,14 +502,21 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
         SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,
+            // Continuar y reanudar se pulsan desde la lista, que está al final de
+            // la pantalla. Sin subir, la sesión arranca pero se sigue mirando el
+            // listado y no hay forma de saber que ha pasado algo.
             onContinuar = { id ->
                 TrackingStore.continuaSesion(id)
                 TrackingService.arranca(context)
+                scope.launch { desplazamiento.animateScrollTo(0) }
             },
             onReanudar = { id ->
                 scope.launch {
                     TrackingStore.reabreSesion(id)
-                    if (TrackingStore.estado.value.compartiendo) TrackingService.arranca(context)
+                    if (TrackingStore.estado.value.compartiendo) {
+                        TrackingService.arranca(context)
+                        desplazamiento.animateScrollTo(0)
+                    }
                 }
             },
             onCompartir = { id -> comparteEnlace(context, TrackingStore.enlaceDe(id)) },
