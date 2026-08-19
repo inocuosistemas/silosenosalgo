@@ -12,9 +12,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +49,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -69,7 +76,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         TrackingStore.inicia(this)
         setContent {
-            MaterialTheme {
+            TemaSlsns {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Desde Android 15 (y con targetSdk 35+) las apps se dibujan
                     // de borde a borde por defecto: sin descontar las barras del
@@ -200,6 +207,7 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
     val sesiones by TrackingStore.sesiones.collectAsState()
     val planes by TrackingStore.planes.collectAsState()
     val notas by TrackingStore.notas.collectAsState()
+    val portapapeles = LocalClipboardManager.current
 
     var permisoUbicacion by remember { mutableStateOf(TrackingStore.gps.hayPermiso()) }
     var permisoFondo by remember { mutableStateOf(TrackingStore.gps.hayPermisoSegundoPlano()) }
@@ -336,24 +344,52 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Dejar de compartir") }
         } else {
-            OutlinedTextField(
-                value = titulo,
-                onValueChange = { titulo = it },
-                label = { Text("Nombre de la ruta (opcional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(16.dp))
-            SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
-            Spacer(Modifier.height(16.dp))
-            SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
-            Spacer(Modifier.height(16.dp))
-            MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
-            Spacer(Modifier.height(16.dp))
-            SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
-            Spacer(Modifier.height(16.dp))
-            SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
-            Spacer(Modifier.height(20.dp))
+            Seccion(
+                titulo = "Actividad",
+                pie = "Define cómo ven tu velocidad quienes te siguen y ayuda a " +
+                    "descartar saltos de GPS imposibles.",
+            ) {
+                SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
+                estado.actividadEfectiva?.takeIf { estado.actividad == null }?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Detectado: ${it.emoji} ${it.label}. Se ajusta según tu velocidad.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Paleta.slate400,
+                    )
+                }
+            }
+
+            Seccion(titulo = "Ruta") {
+                OutlinedTextField(
+                    value = titulo,
+                    onValueChange = { titulo = it },
+                    label = { Text("Nombre (opcional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
+            }
+
+            Seccion(
+                titulo = "Modo de seguimiento",
+                pie = "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
+                    "ahorrar es pedirle menos al GPS, y parado no gasta.",
+            ) {
+                SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
+                Spacer(Modifier.height(12.dp))
+                MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
+            }
+
+            Seccion(
+                titulo = "Al finalizar",
+                pie = "Cuánto tiempo se podrá consultar la ruta después de terminar " +
+                    "(o para siempre si la fijas con la chincheta).",
+            ) {
+                SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
+            }
+
             Button(
                 onClick = {
                     arrancando = true
@@ -410,6 +446,7 @@ private fun PantallaSeguimiento(onSalir: () -> Unit) {
                 }
             },
             onCompartir = { id -> comparteEnlace(context, TrackingStore.enlaceDe(id)) },
+            onCopiar = { id -> portapapeles.setText(AnnotatedString(TrackingStore.enlaceDe(id))) },
             onChincheta = { id, fijada -> scope.launch { TrackingStore.fijaSesion(id, fijada) } },
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
@@ -485,19 +522,20 @@ private fun Dato(etiqueta: String, valor: String) {
 
 @Composable
 private fun SelectorPerfil(actual: TrackingRules.Perfil, onElige: (TrackingRules.Perfil) -> Unit) {
-    Text("Ritmo de envío", style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(4.dp))
     FilaPerfil(
         TrackingRules.Perfil.EQUILIBRADO, actual, onElige,
         "Equilibrado", "Por distancia (~100 m). Buena precisión y batería.",
+        "Buena autonomía", Paleta.verde, recomendado = true,
     )
     FilaPerfil(
         TrackingRules.Perfil.AHORRO, actual, onElige,
         "Ahorro · ultra", "Por distancia (~500 m). Parado no gasta batería.",
+        "Máxima autonomía", Paleta.verde,
     )
     FilaPerfil(
         TrackingRules.Perfil.PRECISION, actual, onElige,
-        "Alta precisión", "Por tiempo (cada 10 s). Máximo detalle, menos autonomía.",
+        "Alta precisión", "Por tiempo (cada 10 s). Máximo detalle.",
+        "Menor autonomía", Paleta.ambar,
     )
 }
 
@@ -508,15 +546,39 @@ private fun FilaPerfil(
     onElige: (TrackingRules.Perfil) -> Unit,
     titulo: String,
     detalle: String,
+    autonomia: String,
+    colorAutonomia: Color,
+    recomendado: Boolean = false,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().clickable { onElige(perfil) }.padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = actual == perfil, onClick = { onElige(perfil) })
         Column {
-            Text(titulo, style = MaterialTheme.typography.bodyLarge)
-            Text(detalle, style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(titulo, style = MaterialTheme.typography.bodyLarge, color = Paleta.slate100)
+                if (recomendado) {
+                    Spacer(Modifier.width(6.dp))
+                    // La misma pastilla que iOS: sin ella, tres opciones sin
+                    // jerarquía obligan a leérselas todas para empezar a andar.
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Paleta.sky600.copy(alpha = 0.25f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            "Recomendado",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Paleta.sky500,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+            Text(detalle, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+            Text(autonomia, style = MaterialTheme.typography.labelSmall, color = colorAutonomia)
         }
     }
 }

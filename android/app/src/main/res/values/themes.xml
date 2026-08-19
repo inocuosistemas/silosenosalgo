@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SiLoSeNoSalgo" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Oscuro también aquí, y no solo en Compose: este es el tema que pinta la
+         ventana ANTES de que arranque la interfaz. Con el claro por defecto, cada
+         apertura empezaba con un fogonazo blanco — molesto siempre, y de noche en
+         el monte directamente te deja sin visión nocturna. -->
+    <style name="Theme.SiLoSeNoSalgo" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/slate950</item>
+        <item name="android:navigationBarColor">@color/slate950</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>

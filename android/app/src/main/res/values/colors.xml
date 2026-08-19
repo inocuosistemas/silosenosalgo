@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El mismo `slate950` que usa Compose (y iOS, y la web). Vive aquí además de
+     en Kotlin porque el tema de la ventana se aplica antes de que exista
+     Compose: los dos tienen que decir el mismo color o se ve el salto. -->
+<resources>
+    <color name="slate950">#FF020617</color>
+</resources>

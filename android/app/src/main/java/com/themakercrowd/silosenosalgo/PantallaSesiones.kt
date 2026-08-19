@@ -7,8 +7,13 @@
 
 package com.themakercrowd.silosenosalgo
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,6 +40,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,6 +66,7 @@ fun SeccionSesiones(
     onContinuar: (String) -> Unit,
     onReanudar: (String) -> Unit,
     onCompartir: (String) -> Unit,
+    onCopiar: (String) -> Unit,
     onChincheta: (String, Boolean) -> Unit,
     onRenombrar: (String, String?) -> Unit,
     onBorrar: (String) -> Unit,
@@ -72,6 +85,7 @@ fun SeccionSesiones(
             onContinuar = { onContinuar(s.id) },
             onReanudar = { onReanudar(s.id) },
             onCompartir = { onCompartir(s.id) },
+            onCopiar = { onCopiar(s.id) },
             onChincheta = { onChincheta(s.id, !s.isPinned) },
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
@@ -118,65 +132,116 @@ private fun FilaSesion(
     onContinuar: () -> Unit,
     onReanudar: () -> Unit,
     onCompartir: () -> Unit,
+    onCopiar: () -> Unit,
     onChincheta: () -> Unit,
     onRenombrar: () -> Unit,
     onBorrar: () -> Unit,
 ) {
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
+    var menuAbierto by remember { mutableStateOf(false) }
 
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    (if (sesion.isPinned) "📌 " else "") + (sesion.title ?: "Sin nombre"),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(etiquetaEstado(sesion, caducada, esLaActual), style = MaterialTheme.typography.labelSmall)
-            }
-            sesion.planName?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            Text(fecha(sesion.startedAt), style = MaterialTheme.typography.bodySmall)
-            sesion.activity?.let {
-                Text("${it.emoji} ${it.label}", style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.height(6.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (!esLaActual) {
-                    // Activa → se puede seguir transmitiendo sin tocar el
-                    // backend. Terminada → hay que reabrirla primero, y el
-                    // enlace sigue siendo el mismo.
-                    if (sesion.isActive) {
-                        Button(onClick = onContinuar) { Text("Continuar") }
-                    } else if (!caducada) {
-                        OutlinedButton(onClick = onReanudar) { Text("Reanudar") }
+    // Fila compacta, como en iOS: un renglón de título con sus chips y otro de
+    // estado. Todo lo que se hace con la sesión vive en el menú, no en una
+    // parrilla de botones — son cosas que se usan de vez en cuando, y sacarlas
+    // todas convertía la lista en un muro donde no se distinguía una ruta de
+    // otra.
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Paleta.slate900),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (sesion.isPinned) {
+                        Text("📌", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        sesion.title ?: "Sin nombre",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Paleta.slate100,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    sesion.activity?.let {
+                        Spacer(Modifier.width(6.dp))
+                        Chip("${it.emoji} ${it.label}", Paleta.slate800.copy(alpha = 0.7f), Paleta.slate400)
                     }
                 }
-                if (!caducada) {
-                    OutlinedButton(onClick = onCompartir) { Text("Enlace") }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val (texto, color) = when {
+                        esLaActual || sesion.isActive -> "Activo" to Paleta.verde
+                        caducada -> "Caducado" to Paleta.ambar
+                        else -> "Finalizado" to Paleta.slate700
+                    }
+                    Chip(texto, color.copy(alpha = 0.25f), Paleta.slate100)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        fecha(sesion.startedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Paleta.slate400,
+                    )
                 }
-                OutlinedButton(onClick = onChincheta) {
-                    Text(if (sesion.isPinned) "Soltar" else "Fijar")
+                sesion.planName?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Paleta.slate400,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                OutlinedButton(onClick = onRenombrar) { Text("Renombrar") }
-                OutlinedButton(onClick = onBorrar) { Text("Borrar") }
+            }
+
+            Box {
+                IconButton(onClick = { menuAbierto = true }) {
+                    Text("⋮", style = MaterialTheme.typography.titleMedium, color = Paleta.sky500)
+                }
+                DropdownMenu(expanded = menuAbierto, onDismissRequest = { menuAbierto = false }) {
+                    if (!esLaActual) {
+                        // Activa → se puede seguir transmitiendo sin tocar el
+                        // backend. Terminada → hay que reabrirla primero, y el
+                        // enlace sigue siendo el mismo.
+                        if (sesion.isActive) {
+                            Opcion("Continuar") { menuAbierto = false; onContinuar() }
+                        } else if (!caducada) {
+                            Opcion("Reanudar") { menuAbierto = false; onReanudar() }
+                        }
+                    }
+                    Opcion(
+                        if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",
+                    ) { menuAbierto = false; onChincheta() }
+                    Opcion("Renombrar") { menuAbierto = false; onRenombrar() }
+                    if (!caducada) {
+                        Opcion("Copiar enlace") { menuAbierto = false; onCopiar() }
+                        Opcion("Compartir enlace") { menuAbierto = false; onCompartir() }
+                    }
+                    Opcion("Eliminar") { menuAbierto = false; onBorrar() }
+                }
             }
         }
     }
 }
 
-private fun etiquetaEstado(
-    sesion: TrackSessionSummary,
-    caducada: Boolean,
-    esLaActual: Boolean,
-): String = when {
-    esLaActual -> "compartiendo"
-    sesion.isActive -> "en marcha"
-    caducada -> "caducada"
-    else -> "terminada"
+@Composable
+private fun Opcion(texto: String, onClick: () -> Unit) {
+    DropdownMenuItem(text = { Text(texto) }, onClick = onClick)
+}
+
+/** Etiqueta compacta, como las cápsulas de iOS. */
+@Composable
+private fun Chip(texto: String, fondo: Color, colorTexto: Color) {
+    Box(
+        Modifier.clip(RoundedCornerShape(50)).background(fondo)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    ) {
+        Text(texto, style = MaterialTheme.typography.labelSmall, color = colorTexto, maxLines = 1)
+    }
 }
 
 @Composable
@@ -279,12 +344,13 @@ private fun formateaBytes(bytes: Long): String = when {
 @Composable
 fun SelectorPlan(planes: List<PlanSummary>, elegido: String?, onElige: (String?) -> Unit) {
     if (planes.isEmpty()) return
-    Text("Ruta planificada", style = MaterialTheme.typography.titleSmall)
     Text(
-        "Al elegir una, la hora de salida y las predicciones van contra el plan.",
+        "Al elegir una previsión, la hora de salida y las predicciones van contra " +
+            "el plan.",
         style = MaterialTheme.typography.bodySmall,
+        color = Paleta.slate400,
     )
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(6.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         BotonElegible("Ninguna", elegido == null) { onElige(null) }
         planes.forEach { plan ->
@@ -301,10 +367,15 @@ fun SelectorPlan(planes: List<PlanSummary>, elegido: String?, onElige: (String?)
  */
 @Composable
 fun MandosAvanzados(ritmo: TrackingRules.Ritmo, onCambia: (TrackingRules.Ritmo) -> Unit) {
-    Text("Ajuste manual", style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(4.dp))
+    var abierto by remember { mutableStateOf(false) }
 
-    Text("Modo", style = MaterialTheme.typography.bodySmall)
+    TextButton(onClick = { abierto = !abierto }, contentPadding = PaddingValues(0.dp)) {
+        Text(if (abierto) "Avanzado ▾" else "Avanzado ▸")
+    }
+    if (!abierto) return
+
+    Spacer(Modifier.height(4.dp))
+    Text("Enviar", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         BotonElegible("Por distancia", ritmo.modo == TrackingRules.Modo.DISTANCIA) {
             onCambia(ritmo.copy(modo = TrackingRules.Modo.DISTANCIA))
@@ -316,7 +387,7 @@ fun MandosAvanzados(ritmo: TrackingRules.Ritmo, onCambia: (TrackingRules.Ritmo) 
 
     Spacer(Modifier.height(6.dp))
     if (ritmo.modo == TrackingRules.Modo.DISTANCIA) {
-        Text("Cada cuántos metros", style = MaterialTheme.typography.bodySmall)
+        Text("Cada cuántos metros", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TrackingRules.PASOS_DISTANCIA.forEach { m ->
                 BotonElegible("${m.toInt()} m", ritmo.distanciaMetros == m) {
@@ -325,7 +396,7 @@ fun MandosAvanzados(ritmo: TrackingRules.Ritmo, onCambia: (TrackingRules.Ritmo) 
             }
         }
     } else {
-        Text("Cada cuánto tiempo", style = MaterialTheme.typography.bodySmall)
+        Text("Cada cuánto tiempo", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TrackingRules.PASOS_INTERVALO.forEach { s ->
                 BotonElegible(etiquetaIntervalo(s), ritmo.intervaloSegundos == s) {
@@ -338,13 +409,12 @@ fun MandosAvanzados(ritmo: TrackingRules.Ritmo, onCambia: (TrackingRules.Ritmo) 
 
 @Composable
 fun SelectorRetencion(horas: Double, onElige: (Double) -> Unit) {
-    Text("Conservar al finalizar", style = MaterialTheme.typography.titleSmall)
     Text(
-        "Cuánto tiempo se podrá consultar la ruta después de terminar " +
-            "(o para siempre si la fijas con la chincheta).",
-        style = MaterialTheme.typography.bodySmall,
+        "Conservar la ruta",
+        style = MaterialTheme.typography.bodyMedium,
+        color = Paleta.slate100,
     )
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(6.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         TrackingRules.PASOS_RETENCION.forEach { h ->
             BotonElegible(TrackingRules.etiquetaRetencion(h), horas == h) { onElige(h) }
