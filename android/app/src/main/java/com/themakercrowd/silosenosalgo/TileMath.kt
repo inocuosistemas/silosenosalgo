@@ -44,6 +44,47 @@ object TileMath {
     }
 
     /**
+     * Proyección Web Mercator a coordenadas normalizadas 0…1, con el (0,0)
+     * arriba a la izquierda. Es la misma que usan las teselas, así que dibujar
+     * la ruta y los cuadros con ella hace que encajen exactamente.
+     */
+    fun proyecta(lat: Double, lon: Double): Pair<Double, Double> {
+        val x = (lon + 180.0) / 360.0
+        val latRad = Math.toRadians(lat.coerceIn(-85.05112878, 85.05112878))
+        val y = (1.0 - asinh(tan(latRad)) / PI) / 2.0
+        return x to y
+    }
+
+    /** Esquina noroeste de una tesela (la inversa de [teselaDe]). */
+    fun esquinaNoroeste(z: Int, x: Int, y: Int): Pair<Double, Double> {
+        val n = 1 shl z
+        val lon = x.toDouble() / n * 360.0 - 180.0
+        val latRad = kotlin.math.atan(kotlin.math.sinh(PI * (1 - 2.0 * y / n)))
+        return Math.toDegrees(latRad) to lon
+    }
+
+    /** Todas las teselas de un zoom que caen dentro de una caja geográfica. */
+    fun teselasEnCaja(
+        latMin: Double,
+        lonMin: Double,
+        latMax: Double,
+        lonMax: Double,
+        z: Int,
+    ): List<Tesela> {
+        // En Mercator la latitud MAYOR da la fila menor: si se toman al revés,
+        // el rango sale vacío y no se dibujaría ni un cuadro.
+        val (x1, y1) = teselaDe(latMax, lonMin, z)
+        val (x2, y2) = teselaDe(latMin, lonMax, z)
+        val teselas = ArrayList<Tesela>()
+        for (x in minOf(x1, x2)..maxOf(x1, x2)) {
+            for (y in minOf(y1, y2)..maxOf(y1, y2)) {
+                teselas.add(Tesela(z, x, y))
+            }
+        }
+        return teselas
+    }
+
+    /**
      * Las teselas que cubren un corredor de `corredorMetros` alrededor de la
      * ruta, en todos los zooms de `zMin` a `zMax`.
      *

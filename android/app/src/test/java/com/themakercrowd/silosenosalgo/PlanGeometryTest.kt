@@ -92,6 +92,67 @@ class PlanGeometryTest {
         assertNull(PlanGeometry.rutaParaDescargar(emptyList(), emptyList()))
     }
 
+    // ── Métricas de las notas sobre la ruta ──────────────────────────────────
+
+    private fun punto(lat: Double, lon: Double, ele: Double) =
+        PlanGeometry.PuntoPlan(lat, lon, ele)
+
+    private fun nota(id: String, lat: Double, lon: Double) = Note(
+        id = id, createdAt = 0.0, lat = lat, lon = lon, poiType = "water",
+    )
+
+    @Test fun `el desnivel ignora el ruido del altimetro`() {
+        // Diez oscilaciones de 30 cm: sin histéresis sumarían 3 m de subida en
+        // un tramo perfectamente llano, y una travesía entera se convertiría en
+        // una etapa de montaña imaginaria.
+        val ruido = (0 until 20).map { i ->
+            punto(42.0 + i * 0.0001, -7.0, if (i % 2 == 0) 500.0 else 500.3)
+        }
+        assertEquals(0.0, PlanGeometry.desnivelAcumulado(ruido).last(), 0.001)
+    }
+
+    @Test fun `una subida de verdad si se acumula`() {
+        val subida = (0 until 5).map { i -> punto(42.0 + i * 0.001, -7.0, 500.0 + i * 10) }
+        assertEquals(40.0, PlanGeometry.desnivelAcumulado(subida).last(), 0.001)
+    }
+
+    @Test fun `las bajadas no restan del desnivel positivo`() {
+        val puntos = listOf(
+            punto(42.0, -7.0, 500.0),
+            punto(42.001, -7.0, 600.0),
+            punto(42.002, -7.0, 400.0),
+        )
+        assertEquals(100.0, PlanGeometry.desnivelAcumulado(puntos).last(), 0.001)
+    }
+
+    @Test fun `una nota se situa en el km del punto mas cercano de la ruta`() {
+        // Ruta norte-sur; la nota cae al lado del tercer punto.
+        val puntos = (0 until 5).map { i -> punto(42.0 + i * 0.01, -7.0, 500.0 + i * 20) }
+        val m = PlanGeometry.metricasDeNotas(puntos, listOf(nota("n1", 42.0201, -7.0001)))
+        val km = PlanGeometry.kmAcumulado(puntos)
+        assertEquals(km[2], m["n1"]!!.kmDeRuta!!, 0.05)
+        assertEquals(40.0, m["n1"]!!.desnivelPositivoM!!, 0.001)
+    }
+
+    @Test fun `sin plan la nota cae a su propio recorrido y sin desnivel`() {
+        // No se inventa un kilometraje de ruta que no existe.
+        val suelta = nota("n1", 42.0, -7.0).copy(distM = 2500.0)
+        val m = PlanGeometry.metricasDeNotas(null, listOf(suelta))
+        assertEquals(2.5, m["n1"]!!.kmDeRuta!!, 0.001)
+        assertNull(m["n1"]!!.desnivelPositivoM)
+    }
+
+    @Test fun `un plan con algun punto sin altitud no da metricas a medias`() {
+        // Mezclar puntos con y sin altitud daría un desnivel inventado.
+        val mezclado = """
+            {"track":{"points":[
+              {"lat":42.0,"lon":-7.0,"ele":500},
+              {"lat":42.1,"lon":-7.0}
+            ]}}
+        """.trimIndent()
+        assertNull(PlanGeometry.puntosConAltitud(comprime(mezclado)))
+    }
+
     @Test fun `una bomba de descompresion no se traga la memoria`() {
         // 64 MB de ceros comprimen a unos pocos KB. Sin el tope, un blob
         // manipulado dejaría la app sin memoria.

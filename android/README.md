@@ -219,6 +219,17 @@ Android dando la altura en píxeles reales, y **solo si las unidades están rota
 de verdad**, para que deje de aplicarse solo el día que WebView lo arregle.
 Sustituir `dvh` por `vh` NO sirve: está igual de roto.
 
+**Un desplazamiento menor que la incertidumbre no cuenta como movimiento.** El
+recorrido descarta los tramos más cortos que la suma de los errores declarados
+por sus dos lecturas. Medido en el aparato: con el móvil QUIETO dentro de un
+edificio, doce lecturas sumaban **477 m**; con la regla puesta, **0 m** — porque
+ningún salto (20–118 m) superaba el error que el propio GPS declaraba (39–99 m).
+Dos posiciones así de imprecisas pueden estar cien metros separadas sin que nadie
+se haya movido. El precio es quedarse corto andando despacio con mala señal, y se
+asume: un número algo bajo es un error honesto, y uno inflado es una mentira que
+además estropea los ritmos y las predicciones de llegada. **Aquí Android se
+separa de iOS a propósito**, y habría que llevarlo allí.
+
 **A las notas se llega DESDE EL MAPA, no desde la pantalla de compartir.** Es la
 navegación de iOS (`LiveMapView`) y es deliberada: cuando surge algo que anotar
 —una fuente, un cruce dudoso, un peligro— se está mirando el mapa, y obligar a
@@ -261,10 +272,9 @@ se comería la batería de toda la travesía.
   edificio el GPS además pierde el enganche. Hay que ver cuánto se separa al aire
   libre antes de dar por buena la cadencia — si se confirma el retraso, el visor
   daría "señal perdida" a quien solo se ha parado a comer.
-- **El recorrido se infla estando parado.** En la prueba marcó 368 m sin
-  moverse: la distancia se suma punto a punto y el ruido del GPS se acumula. Lo
-  mismo pasa en iOS (`trailDistanceMeters` suma todo). Habría que descartar los
-  saltos por debajo de la precisión de la lectura antes de sumarlos.
+- **Portar a iOS el filtro de ruido del recorrido.** Allí `trailDistanceMeters`
+  sigue sumando todos los tramos, así que infla la distancia igual que hacía
+  Android antes (ver la decisión más abajo).
 - La capa de cobertura del mapa descargado (los cuadros verdes de iOS sobre el
   mapa de vista previa): hoy se sabe cuántas teselas hay, pero no se ven.
 - Guardar la foto original a máxima calidad en la galería del móvil. Aquí solo

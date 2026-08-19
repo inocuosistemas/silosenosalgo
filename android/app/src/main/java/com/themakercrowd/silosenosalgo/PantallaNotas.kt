@@ -53,6 +53,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Las notas de campo: marcar una fuente, un cruce dudoso o un peligro sin dejar
@@ -84,7 +85,13 @@ fun HojaAnadirNota(
     var ficheroCaptura by remember { mutableStateOf<File?>(null) }
     val camara = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = uriCaptura
-        if (ok && uri != null) foto = MediosNota.preparaFoto(context, uri)
+        if (ok && uri != null) {
+            foto = MediosNota.preparaFoto(context, uri)
+            // El original, a máxima calidad, se queda en la galería: la app solo
+            // conserva (y sube) la copia encogida, pero la foto buena es del
+            // usuario y puede ser la única que hizo de esa cima.
+            MediosNota.guardaEnGaleria(context, uri, "slsns_${System.currentTimeMillis()}.jpg")
+        }
         // El original de la cámara se borra en cuanto se ha encogido: son varios
         // megas por foto y en una travesía larga llenarían la caché.
         runCatching { ficheroCaptura?.delete() }
@@ -327,6 +334,20 @@ private fun HojaDetalleNota(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(detalleNota(nota), style = MaterialTheme.typography.labelSmall)
+
+            // Dónde cae sobre la ruta prevista. Solo sale si hay plan asociado:
+            // sin él no hay un kilómetro de ruta del que hablar.
+            val metricas = remember(nota.id) {
+                sessionId?.let { TrackingStore.metricasDeNotas(it, listOf(nota))[nota.id] }
+            }
+            metricas?.desnivelPositivoM?.let { desnivel ->
+                val km = metricas.kmDeRuta
+                Text(
+                    "En la ruta: km ${String.format(Locale.getDefault(), "%.1f", km ?: 0.0)} · " +
+                        "${desnivel.roundToInt()} m D+",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
 
             nota.body?.let {
                 Spacer(Modifier.height(12.dp))

@@ -188,6 +188,49 @@ class TrackingRulesTest {
         assertTrue("esperados ~85 km, salieron ${m / 1000}", m in 80_000.0..90_000.0)
     }
 
+    /** Una miga con precisión declarada, para las pruebas de ruido. */
+    private fun migaCon(t: Double, lat: Double, lon: Double, precision: Int) =
+        TrailPoint(t = t, lat = lat, lon = lon, a = precision)
+
+    @Test fun `quieto dentro de un edificio no se recorren cientos de metros`() {
+        // Caso REAL medido en el Galaxy A26: once lecturas con el móvil quieto
+        // dentro de un edificio sumaban 449 m. Los saltos (20-118 m) siempre
+        // eran menores que el error que el propio GPS declaraba (39-99 m).
+        val quieto = listOf(
+            migaCon(0.0, 42.37380, -7.41478, 39),
+            migaCon(160_000.0, 42.37397, -7.41498, 72),
+            migaCon(320_000.0, 42.37375, -7.41490, 76),
+            migaCon(480_000.0, 42.37480, -7.41520, 99),
+            migaCon(640_000.0, 42.37377, -7.41491, 75),
+            migaCon(800_000.0, 42.37370, -7.41495, 49),
+        )
+        assertEquals(0.0, TrackingRules.distanciaTraza(quieto), 0.001)
+    }
+
+    @Test fun `andar de verdad si cuenta`() {
+        // 500 m con lecturas buenas (±10 m): muy por encima del ruido.
+        val andando = listOf(
+            migaCon(0.0, 42.3700, -7.4000, 10),
+            migaCon(60_000.0, 42.3745, -7.4000, 10),
+        )
+        assertTrue(TrackingRules.distanciaTraza(andando) > 450)
+    }
+
+    @Test fun `sin precision declarada la lectura se cree`() {
+        // Es lo que se hacía antes de existir esta regla, y no hay base para
+        // desconfiar de una lectura que no dice nada de su error.
+        val sinPrecision = listOf(
+            miga(0.0, 42.3700, -7.4000),
+            miga(60_000.0, 42.3705, -7.4000),
+        )
+        assertTrue(TrackingRules.distanciaTraza(sinPrecision) > 50)
+    }
+
+    @Test fun `la incertidumbre suma el error de las dos lecturas`() {
+        assertEquals(120.0, TrackingRules.incertidumbre(70, 50), 0.001)
+        assertEquals(0.0, TrackingRules.incertidumbre(null, null), 0.001)
+    }
+
     @Test fun `el hueco con los seguidores es nulo hasta que hay las dos posiciones`() {
         assertNull(TrackingRules.huecoSeguidores(fix(41.0, 2.0), null))
         assertNull(TrackingRules.huecoSeguidores(null, fix(41.0, 2.0)))

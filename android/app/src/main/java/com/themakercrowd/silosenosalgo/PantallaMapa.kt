@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +104,19 @@ fun SeccionMapaOffline(
             style = MaterialTheme.typography.bodySmall,
         )
         return
+    }
+
+    // La vista previa: en verde lo que ya está en el móvil. Se redibuja al
+    // terminar una descarga (por eso depende de `yaEnDisco`).
+    ruta?.let { r ->
+        key(yaEnDisco) {
+            MapaCobertura(ruta = r, cache = teselas)
+        }
+        Text(
+            "Verde = mapa ya descargado. La línea azul es tu ruta.",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Spacer(Modifier.height(8.dp))
     }
 
     Text("Detalle del mapa", style = MaterialTheme.typography.bodySmall)

@@ -1,11 +1,14 @@
 package com.themakercrowd.silosenosalgo
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -51,6 +54,44 @@ object MediosNota {
             salida.toByteArray()
         }
     }.getOrNull()
+
+    /**
+     * Guarda el ORIGINAL a máxima calidad en la galería del móvil.
+     *
+     * La app se queda con una copia encogida (es la que se sube), pero la foto
+     * buena es del usuario y no tiene por qué perderla: puede ser la única que
+     * hizo de esa cima. Va a su propio álbum para no ensuciar el carrete.
+     *
+     * Al mejor esfuerzo: si falla, la nota conserva su copia igualmente. Desde
+     * Android 10 no hace falta permiso para escribir lo propio en MediaStore.
+     */
+    fun guardaEnGaleria(context: Context, origen: Uri, nombre: String): Boolean = runCatching {
+        val valores = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, nombre)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + File.separator + "SiLoSeNoSalgo",
+            )
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val destino = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, valores)
+            ?: return false
+
+        resolver.openInputStream(origen).use { entrada ->
+            resolver.openOutputStream(destino).use { salida ->
+                if (entrada == null || salida == null) return false
+                entrada.copyTo(salida)
+            }
+        }
+        // Hasta que se quita IS_PENDING, la galería no la enseña: así nadie ve
+        // una foto a medio escribir.
+        valores.clear()
+        valores.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(destino, valores, null, null)
+        true
+    }.getOrDefault(false)
 
     private fun reduce(origen: Bitmap, ladoMax: Int): Bitmap {
         val mayor = maxOf(origen.width, origen.height)

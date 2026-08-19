@@ -274,14 +274,39 @@ object TrackingRules {
         return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 
-    /** Distancia acumulada de la traza retenida (metros). */
+    /**
+     * Distancia acumulada de la traza retenida (metros), **descartando el ruido
+     * del GPS**.
+     *
+     * Un tramo solo cuenta si es más largo que la incertidumbre de las dos
+     * lecturas que lo forman. Suena conservador y no lo es: medido en el
+     * aparato, once lecturas seguidas con el móvil QUIETO dentro de un edificio
+     * sumaban 449 m, con saltos de hasta 118 m entre lecturas que el propio GPS
+     * declaraba con ±76 y ±99 m de error. Dos posiciones así de imprecisas
+     * pueden estar cien metros separadas sin que nadie se haya movido; sumarlas
+     * convierte una espera en una carrera.
+     *
+     * El precio es quedarse corto cuando se anda despacio con mala señal —bajo
+     * arbolado, en un barranco—, y se asume: un número algo bajo es un error
+     * honesto, y uno inflado es una mentira que además estropea los ritmos y las
+     * predicciones de llegada.
+     *
+     * Una lectura sin precisión declarada se trata como fiable: es lo que hacía
+     * antes de existir esta regla, y no hay base para desconfiar de ella.
+     */
     fun distanciaTraza(traza: List<TrailPoint>): Double {
         var total = 0.0
         for (i in 1 until traza.size) {
-            total += distanciaMetros(traza[i - 1].lat, traza[i - 1].lon, traza[i].lat, traza[i].lon)
+            val d = distanciaMetros(traza[i - 1].lat, traza[i - 1].lon, traza[i].lat, traza[i].lon)
+            if (d >= incertidumbre(traza[i - 1].a, traza[i].a)) total += d
         }
         return total
     }
+
+    /** El desplazamiento mínimo que hay que ver entre dos lecturas para creer
+     *  que ha habido movimiento: la suma de sus errores declarados. */
+    fun incertidumbre(precisionA: Int?, precisionB: Int?): Double =
+        (precisionA ?: 0).toDouble() + (precisionB ?: 0).toDouble()
 
     // ── Tipo de movimiento ───────────────────────────────────────────────────
 

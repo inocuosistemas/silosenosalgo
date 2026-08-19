@@ -48,6 +48,40 @@ class TileMathTest {
         assertTrue(TileMath.metrosPorTesela(60.0, 12) < TileMath.metrosPorTesela(0.0, 12))
     }
 
+    // ── Proyección y cajas ───────────────────────────────────────────────────
+
+    @Test fun `la proyeccion pone el origen arriba a la izquierda`() {
+        val (x, y) = TileMath.proyecta(0.0, 0.0)
+        assertEquals(0.5, x, 0.0001)
+        assertEquals(0.5, y, 0.0001)
+        // Más al norte = más arriba (y menor). Si se invierte, el mapa dibujado
+        // sale del revés y nadie reconoce su propia ruta.
+        assertTrue(TileMath.proyecta(45.0, 0.0).second < 0.5)
+    }
+
+    @Test fun `la esquina de una tesela deshace su calculo`() {
+        val z = 12
+        val (x, y) = TileMath.teselaDe(42.3737, -7.4149, z)
+        val (lat, lon) = TileMath.esquinaNoroeste(z, x, y)
+        // La esquina noroeste queda al norte y al oeste del punto original.
+        assertTrue(lat >= 42.3737)
+        assertTrue(lon <= -7.4149)
+        assertEquals(x to y, TileMath.teselaDe(lat - 0.0001, lon + 0.0001, z))
+    }
+
+    @Test fun `una caja geografica trae todas sus teselas`() {
+        val teselas = TileMath.teselasEnCaja(42.30, -7.50, 42.40, -7.30, 12)
+        assertTrue(teselas.isNotEmpty())
+        // La tesela del centro de la caja tiene que estar.
+        val (cx, cy) = TileMath.teselaDe(42.35, -7.40, 12)
+        assertTrue(teselas.contains(TileMath.Tesela(12, cx, cy)))
+        // Y las de las dos esquinas opuestas también.
+        val (x1, y1) = TileMath.teselaDe(42.40, -7.50, 12)
+        val (x2, y2) = TileMath.teselaDe(42.30, -7.30, 12)
+        assertTrue(teselas.contains(TileMath.Tesela(12, x1, y1)))
+        assertTrue(teselas.contains(TileMath.Tesela(12, x2, y2)))
+    }
+
     // ── El corredor ──────────────────────────────────────────────────────────
 
     private val puntoEnGalicia = 42.3737 to -7.4149

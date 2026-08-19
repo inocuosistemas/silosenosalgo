@@ -469,6 +469,16 @@ object TrackingStore {
     fun hayPlanDe(sessionId: String): Boolean = almacen.leePlan(sessionId) != null
 
     /**
+     * Dónde cae cada nota sobre la ruta prevista: kilómetro y desnivel
+     * acumulado. Es lo que convierte "una fuente en algún sitio" en "la fuente
+     * del km 23,4, tras 1.200 m de subida".
+     */
+    fun metricasDeNotas(sessionId: String, notas: List<Note>): Map<String, PlanGeometry.MetricasNota> {
+        val puntos = almacen.leePlan(sessionId)?.let { PlanGeometry.puntosConAltitud(it) }
+        return PlanGeometry.metricasDeNotas(puntos, notas)
+    }
+
+    /**
      * Se baja el plan de la sesión y lo deja en disco, para que el visor pueda
      * dibujar la ruta prevista sin cobertura. Al mejor esfuerzo y sin bloquear:
      * si no hay conexión al empezar, simplemente no habrá overlay hasta que se
