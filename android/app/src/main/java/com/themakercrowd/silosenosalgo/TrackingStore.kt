@@ -330,6 +330,9 @@ object TrackingStore {
         val t = token ?: return
         runCatching { api.listSessions(t) }
             .onSuccess { _sesiones.value = TrackingRules.ordenaSesiones(it) }
+        // De paso, barrer las carpetas vacías: no tienen nada que perder y sin
+        // esto se acumulan una por cada seguimiento que se haya listado.
+        almacen.limpiaVacias()
     }
 
     /**

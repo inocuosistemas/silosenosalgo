@@ -39,8 +39,19 @@ class LocalStore(context: Context) {
         val guardadoMs: Double = 0.0,
     )
 
-    private fun dir(sessionId: String): File =
+    /**
+     * El directorio de una sesión, creándolo. **Solo para escribir.**
+     *
+     * Leer NO puede crear nada: con `dir()` en las lecturas, basta con pintar la
+     * lista de seguimientos para dejar una carpeta vacía por cada uno, y luego
+     * parecen tener datos guardados cuando no tienen ninguno. Visto en el
+     * aparato: 15 carpetas y solo 3 con traza.
+     */
+    private fun dirEscritura(sessionId: String): File =
         File(raiz, sessionId).apply { if (!exists()) mkdirs() }
+
+    /** El directorio de una sesión, sin crearlo. Para leer. */
+    private fun dir(sessionId: String): File = File(raiz, sessionId)
 
     private fun ficheroPendientes(sessionId: String) = File(dir(sessionId), "pendientes.json")
     private fun ficheroTraza(sessionId: String) = File(dir(sessionId), "traza.json")
@@ -73,7 +84,7 @@ class LocalStore(context: Context) {
      *  sin tocar para que el visor pueda servirlo igual que lo haría el
      *  servidor: recomprimirlo sería arriesgarse a alterarlo por el camino. */
     fun guardaPlan(sessionId: String, gz: ByteArray) {
-        runCatching { File(dir(sessionId), "plan.gz").writeBytes(gz) }
+        runCatching { File(dirEscritura(sessionId), "plan.gz").writeBytes(gz) }
     }
 
     fun leePlan(sessionId: String): ByteArray? = runCatching {
@@ -97,7 +108,7 @@ class LocalStore(context: Context) {
     /** Los ánimos tal cual los devolvió el servidor, para releerlos sin
      *  cobertura: llegan de gente que te está esperando y no se tiran. */
     fun guardaAnimos(sessionId: String, json: ByteArray) {
-        runCatching { File(dir(sessionId), "animos.json").writeBytes(json) }
+        runCatching { File(dirEscritura(sessionId), "animos.json").writeBytes(json) }
     }
 
     fun leeAnimos(sessionId: String): ByteArray? = runCatching {
@@ -156,8 +167,7 @@ class LocalStore(context: Context) {
     /** El directorio de medios de una sesión. Los ficheros se conservan aunque
      *  ya se hayan subido: son la copia local que el visor sin cobertura
      *  necesita para poder enseñar la foto. */
-    fun dirMedios(sessionId: String): File =
-        File(dir(sessionId), "medios").apply { if (!exists()) mkdirs() }
+    fun dirMedios(sessionId: String): File = File(dir(sessionId), "medios")
 
     fun extension(kind: String): String = if (kind == "audio") "m4a" else "jpg"
 
@@ -171,7 +181,9 @@ class LocalStore(context: Context) {
     fun guardaMedio(sessionId: String, noteId: String, kind: String, datos: ByteArray): String? {
         val nombre = nombreMedio(noteId, kind)
         return runCatching {
-            ficheroMedio(sessionId, nombre).writeBytes(datos)
+            val destino = ficheroMedio(sessionId, nombre)
+            destino.parentFile?.mkdirs()
+            destino.writeBytes(datos)
             nombre
         }.getOrNull()
     }
@@ -270,6 +282,19 @@ class LocalStore(context: Context) {
         runCatching { raiz.listFiles()?.filter { it.isDirectory }?.map { it.name } }
             .getOrNull() ?: emptyList()
 
+    /**
+     * Tira las carpetas de sesión que no guardan nada. Limpia las que dejó el
+     * fallo de crear directorio al leer, y no puede llevarse nada por delante:
+     * una carpeta sin ficheros no tiene datos que perder.
+     */
+    fun limpiaVacias() {
+        runCatching {
+            raiz.listFiles()?.forEach { dir ->
+                if (dir.isDirectory && (dir.listFiles()?.isEmpty() != false)) dir.delete()
+            }
+        }
+    }
+
     // ── Fontanería ───────────────────────────────────────────────────────────
 
     /** Escritura atómica: se escribe a un temporal y se renombra. Si el sistema
@@ -277,6 +302,7 @@ class LocalStore(context: Context) {
      *  entera y no un JSON cortado que no se podría leer. */
     private fun escribe(destino: File, contenido: String) {
         runCatching {
+            destino.parentFile?.mkdirs()
             val tmp = File(destino.parentFile, destino.name + ".tmp")
             tmp.writeText(contenido)
             if (destino.exists()) destino.delete()
