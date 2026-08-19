@@ -329,9 +329,24 @@ object TrackingStore {
     suspend fun cargaSesiones() {
         val t = token ?: return
         runCatching { api.listSessions(t) }
-            .onSuccess { _sesiones.value = TrackingRules.ordenaSesiones(it) }
-        // De paso, barrer las carpetas vacías: no tienen nada que perder y sin
-        // esto se acumulan una por cada seguimiento que se haya listado.
+            .onSuccess { lista ->
+                _sesiones.value = TrackingRules.ordenaSesiones(lista)
+
+                // Poda, como `LocalStore.prune` en iOS: se tira lo local de las
+                // sesiones que el servidor YA NI LISTA. No es lo mismo que
+                // caducar —una caducada sigue en la lista y conserva su traza
+                // aquí—; esto es para las que se borraron de verdad. Sin ello,
+                // el móvil de quien sale a diario acumula trazas y fotos para
+                // siempre.
+                //
+                // Se conservan siempre la sesión en marcha y las guías
+                // importadas: esas no las lista el servidor y no son suyas.
+                val conservar = lista.map { it.id }.toMutableSet()
+                _estado.value.sessionId?.let { conservar.add(it) }
+                conservar.addAll(_guias.value.map { it.id })
+                almacen.poda(conservar)
+            }
+        // Y barrer las carpetas vacías, que no tienen nada que perder.
         almacen.limpiaVacias()
     }
 
