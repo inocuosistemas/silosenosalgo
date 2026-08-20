@@ -4,7 +4,10 @@ import Security
 /// Minimal Keychain wrapper for the session bearer token, so the login survives
 /// app restarts without storing the token in plain UserDefaults.
 enum Keychain {
-    private static let service = "app.silosenosalgo.tracker"
+    // Mismo identificador que el bundle (y que el `applicationId` de Android).
+    // Cambiarlo deja huérfano el token guardado con el nombre anterior: en una
+    // instalación de pruebas eso solo significa volver a iniciar sesión.
+    private static let service = "com.themakercrowd.silosenosalgo"
     private static let account = "session-token"
 
     static func save(_ token: String) {

@@ -5,6 +5,14 @@ local.properties
 *.apk
 *.aab
 
+# Firma de release. La clave es la identidad de la app: quien la tenga puede
+# publicar actualizaciones en vuestro nombre, y si se pierde no hay forma de
+# actualizar lo ya instalado. Copia de seguridad fuera del repositorio.
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
 # Visor web incrustado (copiado de dist/ por scripts/copy-webdist.sh)
 app/src/main/assets/web/
 

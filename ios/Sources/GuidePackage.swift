@@ -5,7 +5,11 @@ import ZIPFoundation
 import UIKit
 
 extension UTType {
-    static let slsnsGuide = UTType(exportedAs: "app.silosenosalgo.slsnsguide", conformingTo: .zip)
+    // Un UTI exportado tiene que ir bajo un dominio propio, y el nuestro es
+    // themakercrowd.com. Debe coincidir con `UTTypeIdentifier` de Info.plist.
+    // El formato en sí no depende de esto: `docs/slsnsguide-v1.md` identifica
+    // una guía por el ZIP y su manifiesto, no por el UTI, que es solo de iOS.
+    static let slsnsGuide = UTType(exportedAs: "com.themakercrowd.slsnsguide", conformingTo: .zip)
 }
 
 struct LocalGuide: Codable, Identifiable, Hashable {

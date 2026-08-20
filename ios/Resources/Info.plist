@@ -31,7 +31,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>app.silosenosalgo.slsnsguide</string>
+				<string>com.themakercrowd.slsnsguide</string>
 			</array>
 		</dict>
 	</array>
@@ -45,7 +45,7 @@
 			<key>UTTypeDescription</key>
 			<string>Guía offline SiLoSeNoSalgo</string>
 			<key>UTTypeIdentifier</key>
-			<string>app.silosenosalgo.slsnsguide</string>
+			<string>com.themakercrowd.slsnsguide</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

@@ -127,6 +127,36 @@ depuración USB activada):
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Firmar y repartir
+
+El APK de **debug** solo sirve para el móvil de desarrollo: va marcado como
+depurable y lo firma la clave automática del ordenador, distinta en cada
+máquina. Lo que se le da a otra persona es un artefacto de **release**, firmado
+con la clave de la empresa. Se crea una sola vez:
+
+```powershell
+.\scripts\crear-keystore.ps1     # Windows
+```
+```sh
+scripts/crear-keystore.sh        # macOS/Linux
+```
+
+Deja `silosenosalgo-release.jks` y `keystore.properties` en `android/`, los dos
+git-ignored. **Haz copia de seguridad de los dos antes de seguir**: sin esa
+clave no se puede publicar una actualización nunca más.
+
+```sh
+./gradlew assembleRelease   # APK para reparto directo (enlace, correo, USB)
+./gradlew bundleRelease     # AAB para Google Play
+```
+
+Sin clave, el build de release **falla a propósito** en vez de producir un APK
+sin firmar, que es lo que Gradle hace de serie y que el móvil rechaza al
+instalar con un escueto "aplicación no instalada".
+
+La identidad (nombre legal, editor, identificador) y los pasos de publicación en
+las dos tiendas están en [`../docs/firma-y-publicacion.md`](../docs/firma-y-publicacion.md).
+
 **El Bloqueo automático de Samsung deja la depuración USB en gris.** Comprobado
 en el Galaxy A26 de pruebas (One UI 8, Android 16): mientras esté activo, los
 interruptores de "Depuración USB" y "Depuración inalámbrica" salen

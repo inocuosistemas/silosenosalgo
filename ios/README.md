@@ -52,9 +52,12 @@ open SiLoSeNoSalgoTracker.xcodeproj
 
 En Xcode:
 1. Target **SiLoSeNoSalgoTracker** → pestaña **Signing & Capabilities**.
-2. Marca **Automatically manage signing** y selecciona tu **Personal Team**
-   (tu Apple ID gratis). Cambia el **Bundle Identifier** si `app.silosenosalgo.tracker`
-   ya está en uso en tu cuenta (p. ej. `org.iemed.silosenosalgo.tracker`).
+2. Marca **Automatically manage signing** y selecciona tu equipo. Con un **Apple
+   ID gratis** (Personal Team) puede que el Bundle Identifier
+   `com.themakercrowd.silosenosalgo` ya esté cogido en tu cuenta; para probar,
+   cámbialo a lo que quieras, pero **para publicar tiene que ser ese**: es el
+   mismo que el `applicationId` de Android y no se puede cambiar una vez subida
+   la app. Ver [`../docs/firma-y-publicacion.md`](../docs/firma-y-publicacion.md).
 3. Conecta el iPhone, selecciónalo como destino y pulsa **Run** (⌘R).
    - La primera vez: en el iPhone, **Ajustes → General → VPN y gestión de
      dispositivos** → confía en tu certificado de desarrollador.
@@ -63,6 +66,10 @@ En Xcode:
 
 > Para que el `DEVELOPMENT_TEAM` no se pierda al regenerar con XcodeGen, puedes
 > fijarlo en `project.yml` (`settings.base.DEVELOPMENT_TEAM: <TU_TEAM_ID>`).
+
+> El identificador cambió de `app.silosenosalgo.tracker` a
+> `com.themakercrowd.silosenosalgo`, así que la primera vez el iPhone la instala
+> como app **nueva**: borra la anterior y vuelve a iniciar sesión.
 
 ## Permisos de ubicación
 
