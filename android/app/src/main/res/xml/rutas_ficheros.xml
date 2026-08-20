@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo la caché: es donde la cámara deja la foto recién hecha, el único
+     fichero que se comparte con otra app. Lo que ya es de la sesión (traza,
+     notas, medios guardados) NO se expone: nada de fuera tiene por qué poder
+     leer por dónde ha ido nadie. -->
+<paths>
+    <cache-path name="capturas" path="." />
+</paths>

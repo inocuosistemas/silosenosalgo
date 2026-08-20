@@ -1094,6 +1094,9 @@ final class TrackingStore: ObservableObject {
                 // line (coarse location may deliver no callbacks while still).
                 self?.maybeBeginFromStandby()
                 self?.sampleBatteryIfDue()
+                // Los ánimos vienen del servidor (los escriben los seguidores),
+                // así que se traen con el mismo pulso que el resto.
+                ViewerDataProvider.shared.refreshCheers()
                 self?.heartbeatTick()
                 self?.persistActiveIfDue()
                 await self?.flush()

@@ -173,6 +173,7 @@ final class ViewerDataProvider {
         self.expiresAt = expiresAt; self.status = status
         self.activity = nil   // the store pushes it via setActivity() after registering
         self.notes = []   // the store pushes the loaded notes via setNotes() after registering
+        loadCheers(token)   // los ánimos ya recibidos, para poder releerlos sin cobertura
         // Re-hydrate any confirmed form factor/log for this session (survives relaunch).
         if let data = try? Data(contentsOf: LocalStore.formURL(token)),
            let saved = try? JSONDecoder().decode(SavedForm.self, from: data) {
@@ -229,6 +230,68 @@ final class ViewerDataProvider {
     /// True when `token` is the session currently served locally.
     func isCurrent(_ token: String) -> Bool { lock.lock(); defer { lock.unlock() }; return self.token == token }
 
+    /// La sesión que se está sirviendo en local.
+    var currentToken: String? { lock.lock(); defer { lock.unlock() }; return token }
+
+    // MARK: Ánimos
+
+    /// Los ánimos que dejan quienes siguen la ruta, tal cual llegaron del
+    /// servidor.
+    ///
+    /// Es lo ÚNICO del visor incrustado que no se puede fabricar en local: los
+    /// escriben otros. Se traen del endpoint PÚBLICO —el mismo que ven los
+    /// seguidores, para que la baliza vea exactamente lo mismo— y se guardan en
+    /// disco: un ánimo que ya llegó tiene que poder releerse sin cobertura, que
+    /// es justo cuando más apetece.
+    ///
+    /// Se conservan como bytes crudos, sin modelarlos: su forma la deciden el
+    /// backend y el visor, y copiarla aquí solo serviría para que se
+    /// desincronicen.
+    private var cheersJSON: Data?
+
+    private static func cheersURL(_ token: String) -> URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("cheers", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(token).json")
+    }
+
+    /// Cada cuánto se preguntan.
+    ///
+    /// Es lo que de verdad se nota: el backend solo los retiene 10 s
+    /// (`CHEER_GRACE_MS`, la ventana que tiene su autor para arrepentirse), así
+    /// que el resto de la espera sale de aquí. A 30 s, un ánimo aparece en menos
+    /// de medio minuto, que es lo que espera quien acaba de escribirlo. Bajarlo
+    /// mucho más solo gastaría batería y datos en el monte.
+    private static let cheersInterval: TimeInterval = 30
+    private var lastCheerFetch = Date.distantPast
+
+    /// Trae los ánimos del endpoint público si toca. Al mejor esfuerzo.
+    func refreshCheers() {
+        guard let token = currentToken else { return }
+        guard Date().timeIntervalSince(lastCheerFetch) >= Self.cheersInterval else { return }
+        lastCheerFetch = Date()
+
+        let url = Config.baseURL.appendingPathComponent("api/track/\(token)")
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
+            guard let self,
+                  let data,
+                  (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let cheers = obj["cheers"],
+                  let encoded = try? JSONSerialization.data(withJSONObject: cheers) else { return }
+            self.lock.lock()
+            if self.token == token { self.cheersJSON = encoded }
+            self.lock.unlock()
+            try? encoded.write(to: Self.cheersURL(token), options: .atomic)
+        }.resume()
+    }
+
+    private func loadCheers(_ token: String) {
+        cheersJSON = try? Data(contentsOf: Self.cheersURL(token))
+        lastCheerFetch = .distantPast
+    }
+
     /// Synthesized `TrackStateResponse` JSON for `token`, or nil if it isn't the
     /// current session (the handler then 404s).
     func trackStateJSON(token: String) -> Data? {
@@ -250,7 +313,18 @@ final class ViewerDataProvider {
             formLog: formLog,
             notes: notes.isEmpty ? nil : notes
         )
-        return try? JSONEncoder().encode(state)
+        guard let encoded = try? JSONEncoder().encode(state) else { return nil }
+
+        // Los ánimos se INJERTAN en el JSON ya codificado en vez de modelarse en
+        // `TrackStateWire`: así su forma sigue siendo la que decidan el backend y
+        // el visor, sin una copia aquí que se desincronice a la primera.
+        guard let cheersJSON,
+              let cheers = try? JSONSerialization.jsonObject(with: cheersJSON),
+              var obj = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            return encoded
+        }
+        obj["cheers"] = cheers
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? encoded
     }
 
     /// Cached gzipped plan bytes for `id` (== the session token we set as planShareId).

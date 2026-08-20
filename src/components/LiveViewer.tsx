@@ -1398,7 +1398,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const statusLine = reachedGoal
     ? <><span className="text-emerald-400">🏁 llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
     : ended
-    ? (fix && fr ? <>finalizado · última posición <span className="text-slate-300">visto {fr.label}</span></> : <>finalizado</>)
+    ? (fix && fr
+        ? <><span className="font-semibold text-slate-200">⏹️ finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
+        : <span className="font-semibold text-slate-200">⏹️ finalizado</span>)
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
@@ -1530,8 +1532,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     </div>
   )
 
-  // Pre-start → countdown; llegada → meta; si no → el próximo corte.
-  const topHero = preStart ? countdownHero : reachedGoal ? goalHero : cutoffHero
+  // Fin del seguimiento sin cruzar meta — y, en una baliza suelta, no hay meta
+  // que cruzar, así que este es SIEMPRE el final. Antes lo único que lo decía era
+  // una línea gris en la pastilla de abajo, del mismo tamaño y color que todo lo
+  // demás: quien abría el enlace veía el mapa, la última posición y unos datos
+  // que parecían de ahora, y lo leía como alguien que sigue andando pero lleva
+  // rato sin dar señal. Aquí se dice de frente y con el resumen de lo que fue.
+  const endedAtMs = state.endedAt ?? fix?.updatedAt ?? null
+  const endedHero = ended && (
+    <div className="rounded-xl border border-slate-600 bg-slate-800/70 p-3 text-center text-slate-100">
+      <p className="text-[11px] uppercase tracking-wide opacity-80">⏹️ Seguimiento finalizado</p>
+      <p className="text-3xl font-extrabold leading-tight">
+        {endedAtMs != null ? hhmm((endedAtMs - sessionStart.getTime()) / 60_000) : '—'}
+      </p>
+      <p className="text-xs opacity-90">
+        {distanceKm.toFixed(1)} km
+        {endedAtMs != null && <> · terminó {clockDay(new Date(endedAtMs), sessionStart)}</>}
+      </p>
+    </div>
+  )
+
+  // Pre-start → countdown; llegada → meta; terminada → el resumen de fin (nunca
+  // el próximo corte: una vez parada la baliza, "te faltan 20 min para el corte"
+  // ya no es una cuenta atrás, es ruido de una carrera que ya no está pasando);
+  // si no → el próximo corte.
+  const topHero = preStart ? countdownHero : reachedGoal ? goalHero : ended ? endedHero : cutoffHero
 
   // Runner-only: surface the detected form change and let the runner CONFIRM the
   // new forecast (they know if the slowdown was circumstantial). The card shows
