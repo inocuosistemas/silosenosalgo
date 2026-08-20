@@ -154,6 +154,10 @@ Sin clave, el build de release **falla a propósito** en vez de producir un APK
 sin firmar, que es lo que Gradle hace de serie y que el móvil rechaza al
 instalar con un escueto "aplicación no instalada".
 
+El `versionCode` no se toca a mano: es el número de commits del repositorio, así
+que crece solo. El release se para si no hay git o si el clon está truncado, que
+son los dos casos en los que saldría un número falso y bajo.
+
 La identidad (nombre legal, editor, identificador) y los pasos de publicación en
 las dos tiendas están en [`../docs/firma-y-publicacion.md`](../docs/firma-y-publicacion.md).
 

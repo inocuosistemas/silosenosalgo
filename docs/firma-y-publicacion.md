@@ -205,8 +205,36 @@ cd android
 **APK para reparto directo** (enlace, correo, USB) y **AAB para Google Play**,
 que desde 2021 no acepta APK para apps nuevas. Los dos salen de la misma clave.
 
-Cada subida a Play necesita un `versionCode` **mayor que el anterior**; está en
-`app/build.gradle.kts` y hoy va por `1`.
+### El versionCode se calcula solo
+
+Cada subida a Play necesita un `versionCode` **mayor que el anterior**, y un
+móvil tampoco instala encima un APK con uno menor. No se lleva a mano: sale del
+número de commits del repositorio (`git rev-list --count HEAD`), así que crece
+por su cuenta sin que nadie tenga que acordarse el día de publicar.
+
+Se cuenta el repositorio entero, no solo lo que toca `android/`: filtrar por
+ruta parece más fino, pero reescribir la historia o mover un fichero puede hacer
+que el número **baje**, que es justo lo que no puede pasar. Que un cambio en la
+web suba el número de la app es inofensivo — solo hace falta que crezca, los
+saltos dan igual.
+
+El build de release **se para** si no puede contar los commits o si el clon está
+truncado (`git clone --depth 1`, lo habitual en integración continua), donde git
+contaría 1 commit aunque haya mil. En GitHub Actions hay que pedir la historia
+completa con `fetch-depth: 0`.
+
+Al construir, el número aparece en la salida:
+
+```
+versionCode 240 (commits en git)
+```
+
+El `versionName` (`1.0`) sí es manual: es lo que lee la gente en la ficha de la
+tienda, y ahí un número que salta de 240 a 253 no dice nada.
+
+> Ojo con la primera publicación: el primer `versionCode` que subas queda
+> reservado para siempre y ya no se puede bajar de ahí. Publicar hoy significa
+> empezar en 240, no en 1.
 
 ### Play App Signing
 

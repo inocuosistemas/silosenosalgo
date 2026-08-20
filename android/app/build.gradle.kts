@@ -27,6 +27,39 @@ val ficheroDeClave: File? = datoDeFirma("storeFile", "SLSNS_STORE_FILE")
     ?.let { rootProject.file(it) }
     ?.takeIf { it.exists() }
 
+// El `versionCode` NO se toca a mano: es el número de commits. Play exige que
+// cada subida lleve uno mayor que el anterior, y un móvil se niega a instalar
+// encima un APK con uno menor — otra vez con el escueto "aplicación no
+// instalada". Contarlo de git lo hace crecer solo, sin que nadie tenga que
+// acordarse justo el día de publicar, que es cuando se olvida.
+//
+// Se cuenta el repositorio ENTERO, no solo los commits que tocan `android/`.
+// Filtrar por ruta parece más fino pero no lo es: reescribir la historia o
+// mover un fichero de sitio puede hacer que el número BAJE, y bajar es
+// exactamente lo que no puede pasar. Que la web haga subir el número de la app
+// es inofensivo: solo hace falta que crezca, los saltos dan igual.
+//
+// `providers.exec` y no `ProcessBuilder`: lo primero convive con la caché de
+// configuración de Gradle y lo segundo la invalida en cada build.
+val directorioRaiz = rootDir
+
+fun ordenGit(vararg argumentos: String): String? {
+    val salida = providers.exec {
+        workingDir = directorioRaiz
+        commandLine(listOf("git") + argumentos)
+        isIgnoreExitValue = true
+    }
+    if (salida.result.get().exitValue != 0) return null
+    return salida.standardOutput.asText.get().trim().ifBlank { null }
+}
+
+val commitsDeGit: Int? = ordenGit("rev-list", "--count", "HEAD")?.toIntOrNull()
+
+// Un clon truncado (`git clone --depth 1`, lo normal en integración continua)
+// cuenta 1 commit aunque haya mil. Publicar eso reservaría el `versionCode` 1
+// para siempre y dejaría la app sin poder actualizarse nunca más.
+val repositorioTruncado: Boolean = ordenGit("rev-parse", "--is-shallow-repository") == "true"
+
 android {
     namespace = "com.themakercrowd.silosenosalgo"
     compileSdk = 36
@@ -42,7 +75,9 @@ android {
         // dejaría la app en modo compatibilidad y probaríamos algo que no es lo
         // que verá el usuario cuando Play obligue a subir el objetivo.
         targetSdk = 36
-        versionCode = 1
+        // Sale de git (ver arriba). El 1 solo aparece sin git, y entonces el
+        // build de release se para antes de llegar a usarlo.
+        versionCode = commitsDeGit ?: 1
         versionName = "1.0"
     }
 
@@ -134,7 +169,9 @@ gradle.taskGraph.whenReady {
         (tarea.name.startsWith("assemble") || tarea.name.startsWith("bundle")) &&
             tarea.name.contains("Release")
     }
-    if (pideRelease && ficheroDeClave == null) {
+    if (!pideRelease) return@whenReady
+
+    if (ficheroDeClave == null) {
         throw GradleException(
             """
             No hay clave de firma y sin ella el artefacto de release no se puede instalar.
@@ -147,4 +184,28 @@ gradle.taskGraph.whenReady {
             """.trimIndent()
         )
     }
+
+    // Un versionCode equivocado no da la cara hasta que ya está publicado, y
+    // entonces no hay vuelta atrás: el número gastado queda gastado para
+    // siempre. Más vale no construir que construir con uno inventado.
+    if (commitsDeGit == null) {
+        throw GradleException(
+            "No consigo contar los commits con git, y el versionCode sale de ahí. " +
+                "¿Es esto un clon del repositorio y está `git` en el PATH?"
+        )
+    }
+    if (repositorioTruncado) {
+        throw GradleException(
+            """
+            El repositorio está truncado (clon superficial) y ahí git cuenta $commitsDeGit
+            commits en vez de todos. Publicar con ese versionCode lo dejaría bloqueado
+            para siempre en un número bajo.
+
+            Clónalo entero, o en integración continua pide la historia completa
+            (`fetch-depth: 0` en GitHub Actions).
+            """.trimIndent()
+        )
+    }
+
+    logger.lifecycle("versionCode $commitsDeGit (commits en git)")
 }
