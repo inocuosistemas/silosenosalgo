@@ -1,3 +1,4 @@
+import com.android.build.api.artifact.SingleArtifact
 import java.util.Properties
 
 plugins {
@@ -55,6 +56,11 @@ fun ordenGit(vararg argumentos: String): String? {
 
 val commitsDeGit: Int? = ordenGit("rev-list", "--count", "HEAD")?.toIntOrNull()
 
+// En un solo sitio porque los usan DOS cosas que tienen que decir lo mismo: lo
+// que se compila dentro del APK y el nombre del fichero que se reparte.
+val nombreVisible = "SiLoSeNoSalgo"
+val versionVisible = "1.0"
+
 // Un clon truncado (`git clone --depth 1`, lo normal en integración continua)
 // cuenta 1 commit aunque haya mil. Publicar eso reservaría el `versionCode` 1
 // para siempre y dejaría la app sin poder actualizarse nunca más.
@@ -78,7 +84,7 @@ android {
         // Sale de git (ver arriba). El 1 solo aparece sin git, y entonces el
         // build de release se para antes de llegar a usarlo.
         versionCode = commitsDeGit ?: 1
-        versionName = "1.0"
+        versionName = versionVisible
     }
 
     signingConfigs {
@@ -140,6 +146,45 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+// ── El APK que se reparte, con nombre reconocible ─────────────────────────────
+// `app-release.apk` no dice ni qué app es ni qué versión lleva, y es justo el
+// fichero que acaba en el correo de otra persona o en una carpeta de descargas
+// junto a otros diez. Peor aún: al mandar una versión nueva, los dos ficheros
+// se llaman igual y no hay forma de saber cuál es cuál.
+//
+// NO se renombra la salida de Gradle, se copia. En AGP 8.9 la API pública
+// (`VariantOutput`) solo expone versionCode/versionName: renombrar el fichero
+// obliga a castear a `VariantOutputImpl`, que es clase INTERNA del plugin y se
+// lleva por delante el build en cuanto se sube de versión. `SingleArtifact.APK`
+// sí es API pública y estable, y además declara la dependencia sola: pedir la
+// copia construye el APK si hace falta.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        // Se resuelve aquí, no dentro del `rename`: lo de dentro se ejecuta al
+        // correr la tarea y no puede tocar el proyecto (caché de configuración).
+        val etiqueta = "$nombreVisible-$versionVisible-${commitsDeGit ?: 1}"
+        val destino = layout.buildDirectory.dir("outputs/reparto")
+
+        val copia = tasks.register<Copy>("apkParaRepartir") {
+            group = "reparto"
+            description = "Deja el APK de release como $etiqueta.apk, listo para mandar."
+            // El directorio del artefacto lleva también `output-metadata.json` y
+            // los baseline profiles: solo queremos el APK.
+            from(variant.artifacts.get(SingleArtifact.APK)) { include("*.apk") }
+            into(destino)
+            rename { "$etiqueta.apk" }
+            doLast {
+                println("APK para repartir: ${destino.get().file("$etiqueta.apk").asFile}")
+            }
+        }
+
+        // `matching` y no `named`: la tarea `assembleRelease` puede no existir
+        // todavía cuando esto se configura, y `named` fallaría con un error que
+        // no dice nada. Así se ata cuando aparezca, y si no aparece no pasa nada.
+        tasks.matching { it.name == "assembleRelease" }.configureEach { finalizedBy(copia) }
     }
 }
 
