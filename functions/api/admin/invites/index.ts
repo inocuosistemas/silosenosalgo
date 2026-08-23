@@ -1,14 +1,15 @@
 /// <reference types="@cloudflare/workers-types" />
-import type { Env } from '../../lib/db'
-import { json, csrfOk, readJson } from '../../lib/http'
-import { getSessionUser } from '../../lib/session'
-import { genId } from '../../../shared/ids'
-import type { CreateInviteResponse, InvitesListResponse, InviteInfo } from '../../../shared/wireTypes'
+import type { Env } from '../../../lib/db'
+import { json, csrfOk, readJson } from '../../../lib/http'
+import { getSessionUser } from '../../../lib/session'
+import { genId } from '../../../../shared/ids'
+import type { CreateInviteResponse, InvitesListResponse, InviteInfo } from '../../../../shared/wireTypes'
 
 /**
  * Admin-only invitation management.
- *   POST /api/admin/invites  → create a single-use invite, returns { code }.
- *   GET  /api/admin/invites  → list invites (newest first) with their status.
+ *   POST   /api/admin/invites        → create a single-use invite, returns { code }.
+ *   GET    /api/admin/invites        → list invites (newest first) with their status.
+ *   DELETE /api/admin/invites/:code  → remove one (see `[code].ts`).
  */
 
 const MAX_TTL_DAYS = 90
@@ -42,11 +43,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
   if (!user.isAdmin) return json({ error: 'forbidden' }, 403)
 
+  // LEFT JOIN, no INNER: `used_by` is NULL for every unused invite, and it is
+  // NOT a foreign key — a deleted account would otherwise make its invitation
+  // vanish from the list, which is the opposite of what an audit list is for.
+  // `usedByUsername` then stays null and the UI says "usada por una cuenta que
+  // ya no existe" instead of hiding the row.
   const rows = await env.DB.prepare(
-    `SELECT code, grants_admin AS grantsAdmin, created_at AS createdAt, expires_at AS expiresAt,
-            used_by AS usedBy, used_at AS usedAt
-       FROM invitations ORDER BY created_at DESC LIMIT 100`,
-  ).all<{ code: string; grantsAdmin: number; createdAt: number; expiresAt: number | null; usedBy: string | null; usedAt: number | null }>()
+    `SELECT i.code, i.grants_admin AS grantsAdmin, i.created_at AS createdAt, i.expires_at AS expiresAt,
+            i.used_by AS usedBy, i.used_at AS usedAt, u.username AS usedByUsername
+       FROM invitations i LEFT JOIN users u ON u.id = i.used_by
+      ORDER BY i.created_at DESC LIMIT 100`,
+  ).all<{ code: string; grantsAdmin: number; createdAt: number; expiresAt: number | null; usedBy: string | null; usedAt: number | null; usedByUsername: string | null }>()
 
   const invites: InviteInfo[] = (rows.results ?? []).map((r) => ({
     code: r.code,
@@ -55,6 +62,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     expiresAt: r.expiresAt,
     used: r.usedBy !== null,
     usedAt: r.usedAt,
+    // El NOMBRE, nunca el id: es lo único que el administrador reconoce, y el
+    // id de usuario no le dice nada a nadie. `used` sigue saliendo de `used_by`
+    // y no de esto, para que una cuenta borrada no resucite la invitación.
+    usedByUsername: r.usedByUsername,
   }))
   const res: InvitesListResponse = { invites }
   return json(res, 200, { 'Cache-Control': 'no-store' })

@@ -64,6 +64,11 @@ export function listInvites(): Promise<InvitesListResponse> {
   return call<InvitesListResponse>('/api/admin/invites')
 }
 
+/** Borra una invitación (caducada, usada o intacta). Solo administradores. */
+export function deleteInvite(code: string): Promise<void> {
+  return call<void>(`/api/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' })
+}
+
 /** Map a server error code to a Spanish message. */
 export function authErrorMessage(code: string): string {
   switch (code) {

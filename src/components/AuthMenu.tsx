@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
-import { authErrorMessage, createInvite, listInvites } from '../lib/authClient'
+import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../lib/authClient'
 import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
@@ -257,6 +257,12 @@ function InviteManager() {
   const [grantsAdmin, setGrantsAdmin] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  // El código que está esperando confirmación de borrado, y el que se está
+  // borrando. Se confirma en la propia fila y no con un `confirm()` del
+  // navegador: el diálogo del sistema tapa la lista justo cuando hace falta
+  // verla para saber cuál se está borrando.
+  const [confirmando, setConfirmando] = useState<string | null>(null)
+  const [borrando, setBorrando] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -285,6 +291,20 @@ function InviteManager() {
     }
   }
 
+  async function borrar(code: string) {
+    setBorrando(code)
+    setError(null)
+    try {
+      await deleteInvite(code)
+      await refresh()
+    } catch (err) {
+      setError(authErrorMessage((err as { code?: string })?.code ?? 'network'))
+    } finally {
+      setBorrando(null)
+      setConfirmando(null)
+    }
+  }
+
   function linkFor(code: string) { return `${PUBLIC_BASE_URL}/?invite=${code}` }
 
   async function copy(code: string) {
@@ -295,10 +315,16 @@ function InviteManager() {
     } catch { /* clipboard may be blocked; the link is shown for manual copy */ }
   }
 
-  function statusOf(inv: InviteInfo): { label: string; cls: string } {
-    if (inv.used) return { label: 'Usada', cls: 'text-slate-500' }
-    if (inv.expiresAt !== null && inv.expiresAt < Date.now()) return { label: 'Caducada', cls: 'text-red-400' }
-    return { label: 'Disponible', cls: 'text-emerald-400' }
+  // `sirve` es lo que decide si tiene sentido copiar el enlace. Antes se miraba
+  // solo `used`, así que una CADUCADA seguía ofreciendo "Copiar enlace" — y ese
+  // enlace está muerto: el registro lo rechaza con un 410 y quien lo recibe se
+  // encuentra un formulario que falla al enviarlo.
+  function statusOf(inv: InviteInfo): { label: string; cls: string; sirve: boolean } {
+    if (inv.used) return { label: 'Usada', cls: 'text-slate-500', sirve: false }
+    if (inv.expiresAt !== null && inv.expiresAt < Date.now()) {
+      return { label: 'Caducada', cls: 'text-red-400', sirve: false }
+    }
+    return { label: 'Disponible', cls: 'text-emerald-400', sirve: true }
   }
 
   return (
@@ -327,18 +353,55 @@ function InviteManager() {
             const st = statusOf(inv)
             return (
               <div key={inv.code} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
                   <span className={`font-medium ${st.cls}`}>{st.label}</span>
                   {inv.grantsAdmin && <span className="text-[10px] text-amber-400">admin</span>}
-                  {!inv.used && (
-                    <button
-                      onClick={() => void copy(inv.code)}
-                      className="ml-auto px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400"
-                    >
-                      {copied === inv.code ? '¡Copiado!' : 'Copiar enlace'}
-                    </button>
-                  )}
+                  <span className="ml-auto flex items-center gap-1">
+                    {st.sirve && (
+                      <button
+                        onClick={() => void copy(inv.code)}
+                        className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400"
+                      >
+                        {copied === inv.code ? '¡Copiado!' : 'Copiar enlace'}
+                      </button>
+                    )}
+                    {confirmando === inv.code ? (
+                      <>
+                        <span className="text-slate-400">¿Borrar?</span>
+                        <button
+                          onClick={() => void borrar(inv.code)}
+                          disabled={borrando === inv.code}
+                          className="px-2 py-1 rounded bg-red-900/60 border border-red-800 text-red-200 hover:bg-red-800/60 disabled:opacity-50"
+                        >
+                          {borrando === inv.code ? 'Borrando…' : 'Sí'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmando(null)}
+                          className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+                        >
+                          No
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmando(inv.code)}
+                        title="Borrar esta invitación"
+                        aria-label="Borrar esta invitación"
+                        className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-red-400"
+                      >
+                        Borrar
+                      </button>
+                    )}
+                  </span>
                 </div>
+                {inv.used && (
+                  <p className="mt-1 text-slate-400">
+                    {inv.usedByUsername
+                      ? <>Cuenta creada: <span className="text-slate-300">{inv.usedByUsername}</span></>
+                      : 'La cuenta que se creó con ella ya no existe.'}
+                    {inv.usedAt !== null && ` · ${new Date(inv.usedAt).toLocaleDateString()}`}
+                  </p>
+                )}
                 <p className="mt-1 text-slate-500 break-all">{linkFor(inv.code)}</p>
               </div>
             )

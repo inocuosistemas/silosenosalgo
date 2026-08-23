@@ -25,6 +25,9 @@ export interface InviteInfo {
   expiresAt: number | null
   used: boolean
   usedAt: number | null
+  /** Nombre de la cuenta que se creó con ella. `null` si no se ha usado, y
+   *  también si esa cuenta ya no existe: `used` no depende de esto. */
+  usedByUsername: string | null
 }
 
 export interface CreateInviteResponse {
