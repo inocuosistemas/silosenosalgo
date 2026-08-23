@@ -14,7 +14,7 @@ intervalo que elijas, también con la app en **segundo plano**.
 - `project.yml` — definición del proyecto para [XcodeGen](https://github.com/yonaskolb/XcodeGen) (el `.xcodeproj` se genera, no se versiona).
 - `Resources/Info.plist` — modos en segundo plano (`location`) y textos de permiso de ubicación.
 - `Sources/`
-  - `Config.swift` — URL del backend (`https://silosenosalgo.pages.dev`) y formato del enlace `?t=`.
+  - `Config.swift` — URL del backend (`https://silosenosalgo.themakercrowd.com`) y formato del enlace `?t=`.
   - `API.swift` — cliente HTTP + modelos. Login/registro con `X-Auth-Mode: token`; el resto con `Authorization: Bearer`.
   - `Keychain.swift` — guarda el token de sesión.
   - `AuthStore.swift` — estado de sesión (login/registro/logout, `/api/auth/me`).
@@ -89,7 +89,7 @@ para que los seguidores noten cualquier corte.
 2. En la app: crea cuenta o inicia sesión → **Compartir mi ubicación**.
 3. Copia el enlace `?t=<token>` (botón **Compartir enlace**).
 4. Mientras llega el visor web, comprueba la posición consultando la API:
-   `GET https://silosenosalgo.pages.dev/api/track/<token>` → JSON con el último `fix`.
+   `GET https://silosenosalgo.themakercrowd.com/api/track/<token>` → JSON con el último `fix`.
 5. En el simulador puedes simular movimiento: **Features → Location → Freeway Drive**.
 
 ## Visor offline (mapa incrustado)

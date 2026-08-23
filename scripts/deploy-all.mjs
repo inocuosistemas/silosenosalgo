@@ -103,4 +103,7 @@ if (dryRun) {
 }
 
 console.log('\n' + c('32;1', dryRun ? '✓ Dry-run completado (sin desplegar)' : '✓ Despliegue completado'))
-console.log('  Producción: ' + c('36', `https://${PROJECT}.pages.dev`))
+// El dominio propio, NO el `${PROJECT}.pages.dev` de regalo: ese subdominio dejó
+// de responder sin avisar y las apps que lo llevaban escrito se quedaron sin
+// backend. Es también el único que ven los clientes (ver android/.../Config.kt).
+console.log('  Producción: ' + c('36', 'https://silosenosalgo.themakercrowd.com'))

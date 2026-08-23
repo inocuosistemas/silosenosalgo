@@ -11,7 +11,7 @@ import org.junit.Test
  *
  * Los otros tests usan manifiestos inventados, que prueban la lógica pero no
  * que el modelo case con lo que sirve el backend de verdad. El fichero de
- * `resources/` se descargó de https://silosenosalgo.pages.dev/ota-manifest.json:
+ * `resources/` se descargó de https://silosenosalgo.themakercrowd.com/ota-manifest.json:
  * si algún día el generador (`scripts/make-ota-manifest.mjs`) cambia de forma,
  * estas pruebas se caen aquí y no en el móvil de alguien en mitad del monte.
  */
