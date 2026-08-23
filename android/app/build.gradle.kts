@@ -108,6 +108,17 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Android identifica una app por la pareja (identificador, clave), y
+            // debug y release se firman con claves distintas: con el mismo
+            // identificador NO pueden convivir en un móvil, y cambiar de una a
+            // otra obliga a desinstalar y perder la sesión y los seguimientos
+            // locales. El sufijo le da al build de desarrollo un identificador
+            // propio, así que el móvil de pruebas puede tener las dos a la vez.
+            // El release NO se toca: su identificador es el publicado y ese no
+            // puede cambiar nunca.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")

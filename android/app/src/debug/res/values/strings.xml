@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo para el build de debug: con `applicationIdSuffix` las dos apps conviven
+     en el mismo móvil, y con el mismo nombre bajo el icono no habría forma de
+     saber cuál se está abriendo. Este fichero SUSTITUYE al de `src/main` en
+     debug; el release no lo ve. -->
+<resources>
+    <string name="app_name">SiLoSeNoSalgo dev</string>
+</resources>
