@@ -106,17 +106,11 @@ class Api(
         return decode(body)
     }
 
-    suspend fun register(username: String, password: String): AuthResponse {
-        val (body, status) = request(
-            "api/auth/register", "POST", null,
-            buildJsonObject {
-                put("username", JsonPrimitive(username))
-                put("password", JsonPrimitive(password))
-            },
-        )
-        if (!ok(status)) throw decodeError(body, status)
-        return decode(body)
-    }
+    // No hay `register`. El alta es solo por invitación y se hace en la web: el
+    // backend exige un código válido (`invite`) y contesta 400 sin él, así que
+    // un registro desde la app no puede funcionar por definición. Si algún día
+    // se quiere aquí, hay que pedir el código en la pantalla y mandarlo — no
+    // basta con resucitar esta llamada.
 
     suspend fun me(token: String): AuthUser? {
         val (body, status) = request("api/auth/me", "GET", token)

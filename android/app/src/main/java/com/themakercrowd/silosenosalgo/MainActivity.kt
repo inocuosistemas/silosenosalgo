@@ -162,6 +162,7 @@ private fun App() {
 
 @Composable
 private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
+    val context = LocalContext.current
     val api = remember { Api() }
     val scope = rememberCoroutineScope()
     var usuario by remember { mutableStateOf("") }
@@ -169,16 +170,13 @@ private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var trabajando by remember { mutableStateOf(false) }
 
-    /** Entrar y registrarse comparten todo salvo la llamada: el backend
-     *  devuelve el mismo tipo y los mismos códigos de error en ambos casos. */
-    fun intenta(registrar: Boolean) {
+    fun intenta() {
         if (usuario.isBlank() || clave.isBlank()) return
         trabajando = true
         error = null
         scope.launch {
             runCatching {
-                if (registrar) api.register(usuario.trim(), clave)
-                else api.login(usuario.trim(), clave)
+                api.login(usuario.trim(), clave)
             }.onSuccess { res ->
                 trabajando = false
                 val t = res.token
@@ -225,18 +223,36 @@ private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
 
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = { intenta(registrar = false) },
+            onClick = { intenta() },
             enabled = !trabajando,
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (trabajando) CircularProgressIndicator(Modifier.height(18.dp))
             else Text("Entrar")
         }
+
+        // Aquí había un botón de "Crear cuenta" que NO podía funcionar: el alta
+        // es solo por invitación y el backend rechaza cualquier registro sin un
+        // código válido (400 antes de mirar nada más). Prometer una cuenta y dar
+        // un error sin explicación es peor que no ofrecerla, sobre todo cuando
+        // el que lo intenta acaba de instalar la app y no sabe si el fallo es
+        // suyo, de la contraseña o de la red.
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "Las cuentas se crean por invitación, y solo desde la web: quien " +
+                "administra genera un enlace y con él se elige usuario y contraseña. " +
+                "Aquí solo se entra con una cuenta que ya exista.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         TextButton(
-            onClick = { intenta(registrar = true) },
-            enabled = !trabajando,
+            onClick = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Config.PUBLIC_URL)))
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Crear cuenta") }
+        ) { Text("Abrir la web") }
     }
 }
 
