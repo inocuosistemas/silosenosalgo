@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · SiLoSeNoSalgo</title>
+<meta name="description" content="Qué datos trata SiLoSeNoSalgo, para qué, cuánto se conservan y cómo ejercer tus derechos.">
+<meta name="robots" content="index, follow">
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root {
+    --fondo: #f8fafc;
+    --papel: #ffffff;
+    --texto: #1e293b;
+    --suave: #64748b;
+    --borde: #e2e8f0;
+    --acento: #0369a1;
+    --aviso-fondo: #fef9c3;
+    --aviso-borde: #eab308;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #020617;
+      --papel: #0f172a;
+      --texto: #e2e8f0;
+      --suave: #94a3b8;
+      --borde: #1e293b;
+      --acento: #38bdf8;
+      --aviso-fondo: #422006;
+      --aviso-borde: #a16207;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 5rem;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .35rem; }
+  h2 {
+    font-size: 1.2rem; margin: 2.5rem 0 .75rem;
+    padding-top: 1.25rem; border-top: 1px solid var(--borde);
+  }
+  h3 { font-size: 1rem; margin: 1.5rem 0 .4rem; }
+  p, li { margin: .6rem 0; }
+  ul { padding-left: 1.25rem; }
+  a { color: var(--acento); }
+  code { font-size: .9em; background: var(--papel); padding: .1em .35em; border-radius: 4px; }
+  .fecha { color: var(--suave); font-size: .9rem; margin: 0 0 2rem; }
+  .resumen {
+    background: var(--papel); border: 1px solid var(--borde);
+    border-radius: 12px; padding: 1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .resumen h2 { border: 0; padding: 0; margin: 0 0 .5rem; font-size: 1.05rem; }
+  .aviso {
+    background: var(--aviso-fondo); border-left: 4px solid var(--aviso-borde);
+    border-radius: 6px; padding: .85rem 1rem; margin: 1.25rem 0;
+  }
+  .tabla-envoltorio { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
+  th { color: var(--suave); font-weight: 600; }
+  footer { margin-top: 3rem; color: var(--suave); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Política de privacidad</h1>
+<p class="fecha">Aplicación y web <strong>SiLoSeNoSalgo</strong> · Última actualización: 24 de agosto de 2026</p>
+
+<div class="resumen">
+  <h2>Lo esencial, en cinco líneas</h2>
+  <ul>
+    <li><strong>No te pedimos el correo electrónico</strong>, ni el nombre real, ni el teléfono. Para tener cuenta basta un nombre de usuario y una contraseña.</li>
+    <li><strong>Tu ubicación solo se registra mientras tú tengas un seguimiento en marcha</strong>, y para eso hace falta que lo inicies a mano. Al pararlo, deja de registrarse.</li>
+    <li><strong>Quien tenga tu enlace ve dónde estás</strong>, sin necesidad de cuenta. Ese es justamente el propósito de la app; tú decides a quién se lo mandas.</li>
+    <li><strong>Los seguimientos caducan solos.</strong> Al caducar se borran la posición y el recorrido, y el enlace deja de funcionar.</li>
+    <li><strong>No hay publicidad, ni analítica, ni perfilado, ni venta de datos a nadie.</strong></li>
+  </ul>
+</div>
+
+<h2>1. Quién trata tus datos</h2>
+<p>
+  El responsable del tratamiento es <strong>Inocuo Sistemas Informáticos SL</strong>,
+  con domicilio en <strong>[DIRECCIÓN POSTAL]</strong> (España).
+</p>
+<p>
+  Para cualquier asunto relacionado con esta política o con tus datos, escribe a
+  <strong>[CORREO DE CONTACTO]</strong>.
+</p>
+
+<h2>2. Qué datos tratamos y para qué</h2>
+
+<h3>2.1 Tu cuenta</h3>
+<p>
+  Guardamos el <strong>nombre de usuario</strong> que elijas y la fecha de alta. No hace falta que
+  ese nombre te identifique: puede ser un apodo.
+</p>
+<p>
+  La <strong>contraseña no se guarda</strong>. Se almacena únicamente un resumen criptográfico
+  (PBKDF2-SHA256, con una sal distinta por usuario) del que no se puede recuperar la contraseña
+  original. Ni siquiera nosotros podemos leerla.
+</p>
+<p>
+  El alta es <strong>solo por invitación</strong>, y de cada invitación queda registrado quién la
+  generó y qué cuenta se creó con ella.
+</p>
+
+<h3>2.2 Tu ubicación</h3>
+<p>
+  Mientras tengas un seguimiento activo, la app registra y envía a nuestro servidor:
+</p>
+<ul>
+  <li>Latitud, longitud y altitud.</li>
+  <li>Velocidad, rumbo y precisión declarada por el GPS.</li>
+  <li>El instante de cada lectura.</li>
+  <li>Un <strong>recorrido</strong> con las últimas posiciones (aproximadamente las 60 más recientes).</li>
+</ul>
+<p>
+  Sirve para lo único que hace esta app: que quien te sigue sepa por dónde vas y pueda dar la
+  alarma si algo va mal.
+</p>
+
+<div class="aviso">
+  <strong>Ubicación en segundo plano.</strong> Para que la traza no se corte, la app sigue
+  registrando posiciones <strong>con la pantalla apagada y sin la app en primer plano</strong>.
+  Solo ocurre mientras haya un seguimiento en marcha, que empiezas tú expresamente, y mientras
+  dura verás siempre una <strong>notificación permanente</strong> en la barra de estado. Al parar
+  el seguimiento, el registro cesa. Puedes retirar el permiso de ubicación en cualquier momento
+  desde los ajustes de tu móvil.
+</div>
+
+<h3>2.3 Tus notas de campo</h3>
+<p>
+  Si tomas notas durante una salida (una fuente, un cruce dudoso, un peligro), guardamos su texto,
+  la <strong>fotografía</strong> o la <strong>nota de voz</strong> si las adjuntas, y las
+  coordenadas y la hora en que se tomaron. Las fotos se reducen de tamaño en tu móvil antes de
+  subirse.
+</p>
+
+<h3>2.4 Tus previsiones</h3>
+<p>
+  Las rutas que subes (archivos GPX) y los cálculos asociados se guardan en tu cuenta para que
+  puedas reutilizarlos.
+</p>
+
+<h3>2.5 Si sigues a otra persona</h3>
+<p>
+  Para seguir a alguien no hace falta cuenta ni instalar nada. Aun así, tratamos:
+</p>
+<ul>
+  <li>Un <strong>identificador anónimo</strong> generado en tu navegador, para contar cuántas
+    personas están mirando y no contarte dos veces.</li>
+  <li>Si mandas un <strong>ánimo</strong>: el mensaje, el apodo que pongas (es voluntario; puedes
+    ir en anónimo) y el momento del envío.</li>
+  <li>Un <strong>resumen truncado de tu dirección IP</strong> (hash SHA-256, no la IP), únicamente
+    para poder frenar abusos y mensajes ofensivos. No permite reconstruir tu IP ni identificarte.</li>
+</ul>
+
+<h2>3. Quién puede ver tus seguimientos</h2>
+<p>
+  Cuando compartes una salida se genera un <strong>enlace con un código imposible de adivinar</strong>
+  (<code>?t=…</code>). Ese enlace:
+</p>
+<ul>
+  <li>Permite ver tu posición, tu recorrido y tus notas <strong>sin cuenta y sin contraseña</strong>.</li>
+  <li>No aparece en buscadores ni se publica en ningún listado.</li>
+  <li><strong>Funciona para cualquiera que lo reciba</strong>: quien se lo reenvíe a un tercero le
+    está dando el mismo acceso. Mándalo solo a quien quieras que te siga.</li>
+  <li>Deja de funcionar en cuanto el seguimiento caduca.</li>
+</ul>
+<p>
+  Ni vendemos ni cedemos datos a terceros con fines comerciales. Solo los comunicaríamos si nos lo
+  exigiera una autoridad competente.
+</p>
+
+<h2>4. Cuánto tiempo se conservan</h2>
+<div class="tabla-envoltorio">
+<table>
+  <tr><th>Dato</th><th>Se conserva</th></tr>
+  <tr>
+    <td>Seguimiento en curso</td>
+    <td>Hasta <strong>16 horas</strong> desde su inicio, que es el máximo que puede durar.</td>
+  </tr>
+  <tr>
+    <td>Seguimiento terminado</td>
+    <td><strong>30 días</strong>, para que puedas repasar la salida. Después caduca.</td>
+  </tr>
+  <tr>
+    <td>Seguimiento caducado</td>
+    <td>Se borran <strong>posición y recorrido</strong>, y el enlace público deja de servir contenido. El borrado se ejecuta la primera vez que se consulta el enlace después de haber caducado.</td>
+  </tr>
+  <tr>
+    <td>Seguimiento con chincheta</td>
+    <td>Se conserva <strong>indefinidamente</strong>, porque lo has marcado tú para que no caduque. Puedes quitarle la chincheta o borrarlo cuando quieras.</td>
+  </tr>
+  <tr>
+    <td>Notas, fotos y audios</td>
+    <td>Lo que dure su seguimiento. Al borrarlo, se borran con él.</td>
+  </tr>
+  <tr>
+    <td>Sesión iniciada (el «recuérdame»)</td>
+    <td><strong>30 días</strong>, o hasta que cierres sesión.</td>
+  </tr>
+  <tr>
+    <td>Cuenta y previsiones</td>
+    <td>Mientras la mantengas abierta.</td>
+  </tr>
+</table>
+</div>
+<p>
+  Además, la copia guardada en tu propio móvil se limpia sola cuando el servidor deja de listar
+  esos seguimientos, y puedes borrarla a mano desde la app.
+</p>
+
+<h2>5. Dónde están alojados</h2>
+<p>
+  La aplicación y su base de datos funcionan sobre la infraestructura de
+  <strong>Cloudflare</strong>, que actúa como encargado del tratamiento. Los datos pueden
+  almacenarse y procesarse en servidores situados fuera del Espacio Económico Europeo, amparados
+  por las garantías contractuales previstas en el RGPD.
+</p>
+
+<h2>6. Servicios de terceros</h2>
+<p>
+  Para dibujar mapas y calcular previsiones, la app y la web consultan servicios ajenos. Al
+  hacerlo, esos servicios reciben tu dirección IP y, según el caso, las coordenadas de la zona
+  consultada. No les enviamos tu nombre de usuario ni ningún identificador de tu cuenta.
+</p>
+<ul>
+  <li><strong>OpenStreetMap</strong> — las teselas del mapa.</li>
+  <li><strong>Open-Meteo</strong> — predicción meteorológica, histórico y calidad del aire.</li>
+  <li><strong>RainViewer</strong> — el radar de lluvia.</li>
+  <li><strong>Overpass</strong> y <strong>Nominatim</strong> — puntos de interés y nombres de lugar.</li>
+</ul>
+<p>Cada uno se rige por su propia política de privacidad.</p>
+
+<h2>7. Base legal</h2>
+<ul>
+  <li><strong>Ejecución del servicio que solicitas</strong> (art. 6.1.b RGPD): la cuenta, los
+    seguimientos, las notas y las previsiones. Sin esos datos la app no puede funcionar.</li>
+  <li><strong>Tu consentimiento</strong> (art. 6.1.a RGPD): el acceso a la ubicación, la cámara y
+    el micrófono, que concedes desde el sistema operativo y puedes retirar cuando quieras.</li>
+  <li><strong>Interés legítimo</strong> (art. 6.1.f RGPD): el resumen truncado de la IP en los
+    ánimos, para evitar abusos.</li>
+</ul>
+
+<h2>8. Tus derechos</h2>
+<p>
+  Puedes ejercer los derechos de <strong>acceso, rectificación, supresión, limitación, portabilidad
+  y oposición</strong> escribiendo a <strong>[CORREO DE CONTACTO]</strong>. Responderemos en el plazo
+  máximo de un mes.
+</p>
+<p>
+  Buena parte puedes hacerla tú directamente: borrar un seguimiento (con sus notas, fotos y audios)
+  desde «Mis seguimientos», exportar una salida como paquete o como GPX, y retirar los permisos de
+  ubicación desde los ajustes del móvil.
+</p>
+
+<h3>Borrar tu cuenta</h3>
+<p>
+  Para eliminar tu cuenta y todo lo asociado a ella —seguimientos, notas, fotos, audios y
+  previsiones— escribe a <strong>[CORREO DE CONTACTO]</strong> desde la propia app o por correo
+  indicando tu nombre de usuario. La supresión es completa y no se conserva copia, salvo lo que
+  obligue a guardar la ley.
+</p>
+<p>
+  Si consideras que no hemos atendido bien tu solicitud, puedes reclamar ante la
+  <a href="https://www.aepd.es/">Agencia Española de Protección de Datos</a>.
+</p>
+
+<h2>9. Menores</h2>
+<p>
+  La app no está dirigida a menores de 14 años. Si eres menor de esa edad, necesitas autorización
+  de tu padre, madre o tutor para crear una cuenta.
+</p>
+
+<h2>10. Seguridad</h2>
+<p>
+  Todo el tráfico viaja cifrado (HTTPS). Las contraseñas se guardan como resumen criptográfico con
+  sal, nunca en claro. En el móvil, la sesión iniciada se guarda cifrada por el sistema. Los
+  enlaces de seguimiento usan códigos aleatorios lo bastante largos para no poder adivinarse.
+</p>
+
+<h2>11. Cambios en esta política</h2>
+<p>
+  Si cambia algo relevante, actualizaremos esta página y su fecha. Si el cambio afecta a datos
+  sensibles como la ubicación, te avisaremos también dentro de la app.
+</p>
+
+<footer>
+  <p>SiLoSeNoSalgo · Inocuo Sistemas Informáticos SL · <a href="/">Volver a la aplicación</a></p>
+</footer>
+
+</main>
+</body>
+</html>
