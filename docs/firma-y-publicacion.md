@@ -261,6 +261,40 @@ tienda, y ahí un número que salta de 240 a 253 no dice nada.
 > reservado para siempre y ya no se puede bajar de ahí. Publicar hoy significa
 > empezar en 240, no en 1.
 
+### Dar de alta la cuenta de Play Console
+
+Dos decisiones son **puertas de un solo sentido** y hay que acertarlas en el
+alta; el resto se cambia después sin drama.
+
+| Campo | Valor | ¿Se puede cambiar? |
+|---|---|---|
+| Tipo de cuenta | **Organización** | **No.** Personal→Organización obliga a empezar de cero |
+| Perfil de pagos | **Empresa** | **No.** El tipo se fija al crearlo |
+| Nombre legal | `INOCUO SISTEMAS INFORMATICOS SL` | Tiene que coincidir con D&B |
+| D-U-N-S | `462403905` | — |
+| Nombre de editor | `TheMakerCrowd` | Sí |
+| Cuenta de Google de acceso | la que sea | **Sí**, ver abajo |
+
+Cuesta 25 $, pago único. Quien da de alta declara tener **autoridad legal para
+obligar a la sociedad**, así que lo hace un administrador.
+
+**La cuenta de Google con la que entras da igual.** No aparece en la ficha de
+Play —lo que se ve es el nombre de editor y los datos de contacto— y se cambia
+de tres formas, de menos a más trámite:
+
+1. **Añadir usuarios** (*Usuarios y permisos*): otra cuenta con permisos de
+   administrador trabaja con todo. Instantáneo, y suele bastar.
+2. **Traspasar la titularidad**: *Usuarios y permisos* → el usuario → *Hacer
+   propietario*. El nuevo propietario verifica su identidad y la operación queda
+   **7 días en espera** (salvaguarda antisecuestro, no hay que hacer nada). No
+   sirve si esa cuenta ya es propietaria de otra cuenta de Play.
+3. **Transferir apps entre cuentas**: exige las dos cuentas dadas de alta y
+   pagadas, más una solicitud formal. Es el camino largo; evítalo.
+
+Por eso **no compensa** dar de alta una cuenta *Personal* "para ir empezando":
+lo que se ahorra es lo que sí era fácil de cambiar, y lo que se estropea es lo
+que no.
+
 ### Play App Signing
 
 Al publicar en Play se activa obligatoriamente. Cambia el papel de nuestra clave:
