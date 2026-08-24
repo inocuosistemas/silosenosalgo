@@ -44,11 +44,36 @@ posibilidad de actualizar a quien tenga la vieja.
   legal si consta como tal en el registro **D-U-N-S**.
 - **Identificador:** `com.themakercrowd.silosenosalgo`, **el mismo en las dos
   plataformas**.
+- **D-U-N-S:** `462403905`, el que ya tenía la sociedad (ver abajo).
 
-> El **D-U-N-S** es gratis pero puede tardar de días a semanas en concederse, y
-> sin él no hay cuenta de organización en Apple (solo cuenta personal, que
-> publica a nombre de una persona física). Si la App Store está en el plan, es
-> lo primero que hay que pedir porque es lo que más tarda.
+### El D-U-N-S ya lo teníamos
+
+El **D-U-N-S** es un identificador de nueve dígitos que emite Dun & Bradstreet
+y que **las dos tiendas exigen** para una cuenta de organización: sin él, en
+Apple solo hay cuenta personal (que publica a nombre de una persona física) y
+en Google Play no hay cuenta de empresa en absoluto.
+
+Se daba por hecho que había que pedirlo y que era lo que más iba a tardar. No
+hizo falta: **D&B asigna números por su cuenta** a partir de registros públicos
+y mercantiles, sin que nadie los solicite, así que una SL inscrita ya suele
+tener el suyo. Antes de pedir nada, **consúltalo** — el buscador de Apple lo
+resuelve en un minuto y sirve aunque no vayas a darte de alta con ellos:
+
+- <https://developer.apple.com/enroll/duns-lookup/> — por nombre legal y país.
+  Si no aparece, desde ahí se solicita gratis (Apple estima 5 días laborables).
+- En España lo asigna **Informa D&B** en exclusiva: <https://numero-duns.informa.es/>,
+  también gratis. Google, por su parte, avisa de que su vía puede llegar a
+  **30 días hábiles**, así que el buscador de Apple es el camino corto.
+
+> **Lo que de verdad importa no es el número, son los datos de la ficha.** Google
+> exige que el nombre legal y la dirección del perfil de pagos **coincidan con
+> los de D&B**, y si no cuadran la verificación se cae y hay que corregir la
+> ficha primero, con su propia espera. D&B nos tiene registrados como
+> `INOCUO SISTEMAS INFORMATICOS SL` — **en mayúsculas y sin tilde**. Al crear el
+> perfil de pagos, cópialo así, no como se escribe en castellano correcto.
+>
+> Es el reverso de lo que pasa con el certificado de Android: allí la tilde de
+> `Informáticos` se queda porque no la valida nadie; aquí sí la valida alguien.
 
 ## Por qué no hay una sola clave para las dos plataformas
 
@@ -260,7 +285,7 @@ settings:
 
 Pasos, en orden:
 
-1. **D-U-N-S** para `Inocuo Sistemas Informáticos SL` (gratis, lo que más tarda).
+1. **D-U-N-S**: ya lo tenemos, `462403905` (ver arriba). Nada que pedir.
 2. **Apple Developer Program**, cuenta de organización, 99 €/año.
 3. Registrar el App ID `com.themakercrowd.silosenosalgo` en el portal.
 4. En Xcode, *Automatically manage signing* con el Team de la empresa: los
