@@ -96,8 +96,20 @@ export default function EventLiveMap({ id }: { id: string }) {
       <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
         <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* El recorrido, una sola vez: es de la carrera, no de cada corredor. */}
-        {route && <Polyline positions={route.pts} pathOptions={{ color: '#a78bfa', weight: 3, opacity: 0.55, dashArray: '6 6' }} />}
+        {/* El recorrido, una sola vez: es de la carrera, no de cada corredor.
+            Va en DOS trazos, uno encima del otro: un halo blanco ancho debajo y
+            la línea de color encima. Sin el halo, en el mapa base se pierde —
+            OSM pinta los senderos en violeta discontinuo, exactamente lo que
+            parecía el recorrido, y en el valle de Canfranc hay decenas. El halo
+            lo despega de cualquier fondo (bosque, roca, nieve) sin depender de
+            acertar con un color que no choque con nada. Y sólida, no
+            discontinua: la discontinua es la de los senderos del mapa. */}
+        {route && (
+          <>
+            <Polyline positions={route.pts} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
+            <Polyline positions={route.pts} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
+          </>
+        )}
 
         {withFix.map((r) => {
           const color = r.color ? eventColorHex(r.color) : '#94a3b8'
@@ -105,12 +117,22 @@ export default function EventLiveMap({ id }: { id: string }) {
           const isSel = r.userId === selected
           return (
             <div key={r.userId}>
-              {/* La cola: por dónde viene. Apagada si ya no está en directo. */}
+              {/* La cola: por dónde viene. Apagada si ya no está en directo.
+                  Con una sombra oscura debajo: la paleta tiene colores claros
+                  —lima, ámbar— que sobre un mapa de fondo claro casi
+                  desaparecen, y la sombra los levanta sin cambiarles el tono,
+                  que es lo que identifica a cada corredor. */}
               {r.tail.length > 1 && (
-                <Polyline
-                  positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
-                  pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.3 : 0.75 }}
-                />
+                <>
+                  <Polyline
+                    positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                    pathOptions={{ color: '#020617', weight: isSel ? 8 : 6, opacity: stale ? 0.12 : 0.25 }}
+                  />
+                  <Polyline
+                    positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                    pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
+                  />
+                </>
               )}
               <Marker
                 position={[r.fix!.lat, r.fix!.lon]}
