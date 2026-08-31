@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { listEvents, createEvent, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import {
+  listEvents, createEvent, eventPhotoUrl, eventsErrorMessage, EventsError, EVENT_PHOTO_ASPECT,
+} from '../lib/eventsTransport'
 import type { EventInfo } from '../../shared/wireTypes'
 
 /**
@@ -75,17 +77,29 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
             <a
               key={e.id}
               href={`/?e=${encodeURIComponent(e.id)}`}
-              className="block rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 hover:border-sky-700 transition-colors"
+              className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 hover:border-sky-700 transition-colors"
             >
-              <p className="text-sm font-medium text-slate-200 truncate">
-                {e.name}
-                {e.isOwner && <span className="text-[10px] text-amber-400 font-normal"> · organizas</span>}
-                {e.endedAt && <span className="text-[10px] text-slate-500 font-normal"> · terminado</span>}
-              </p>
-              <p className="text-[11px] text-slate-500 truncate">
-                {e.planName ?? 'Sin recorrido todavía'}
-                {e.startsAt ? ` · ${fmtDate(e.startsAt)}` : ''}
-              </p>
+              {e.hasPhoto && (
+                <img
+                  src={eventPhotoUrl(e.id)}
+                  alt=""
+                  // Con la proporción del encuadre, no cuadrada: lo que el
+                  // organizador dejó en el marco es lo que se ve aquí también.
+                  style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
+                  className="w-16 shrink-0 object-cover rounded border border-slate-800"
+                />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-200 truncate">
+                  {e.name}
+                  {e.isOwner && <span className="text-[10px] text-amber-400 font-normal"> · organizas</span>}
+                  {e.endedAt && <span className="text-[10px] text-slate-500 font-normal"> · terminado</span>}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {e.planName ?? 'Sin recorrido todavía'}
+                  {e.startsAt ? ` · ${fmtDate(e.startsAt)}` : ''}
+                </p>
+              </div>
             </a>
           ))
         )}

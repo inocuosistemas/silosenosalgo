@@ -128,27 +128,14 @@ export function eventPhotoUrl(id: string): string {
 }
 
 /**
- * Deja una foto de cartel en algo que quepa en KV: JPEG con el lado mayor a
- * 1200 px y calidad 0,8. Se hace aquí y no en el servidor porque una foto
- * recién hecha con el móvil son varios megas y no tiene sentido subirlos para
- * que el servidor los rechace — y porque en las Functions no hay canvas.
+ * La proporción de la foto de un evento: tira apaisada de 3:1.
+ *
+ * Es una sola para TODOS los sitios donde sale —la cabecera del lobby y la
+ * miniatura del listado— y por eso el encuadre que elige quien la sube vale en
+ * los dos: si cada sitio recortara por su cuenta, lo que se encuadró con
+ * cuidado saldría cortado en el otro.
  */
-export async function shrinkToJpeg(file: File, maxSide = 1200, quality = 0.8): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
-  const w = Math.max(1, Math.round(bitmap.width * scale))
-  const h = Math.max(1, Math.round(bitmap.height * scale))
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new EventsError('network')
-  ctx.drawImage(bitmap, 0, 0, w, h)
-  bitmap.close()
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
-  if (!blob) throw new EventsError('network')
-  return blob
-}
+export const EVENT_PHOTO_ASPECT = 3
 
 /** El overlay personal se guarda como JSON en la membresía (fase 2 del editor). */
 export function serializeOverlay(overlay: EventPlanOverlay): string {

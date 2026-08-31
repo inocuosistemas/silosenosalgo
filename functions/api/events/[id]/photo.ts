@@ -51,10 +51,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   return new Response(body, {
     headers: {
       'Content-Type': 'image/jpeg',
-      // Inmutable de facto: al cambiar la foto se reescribe la misma clave, así
-      // que un día de caché es el compromiso entre no repetir descargas y que
-      // un cambio se vea el mismo día.
-      'Cache-Control': 'public, max-age=86400',
+      // Una hora, no un día: la URL es fija —al reencuadrar se reescribe la
+      // misma clave—, así que la caché es lo único que separa a los demás de
+      // ver el cambio. Quien la sube no espera: el lobby le rompe la caché con
+      // un parámetro. Una hora es el punto medio entre no repetir descargas de
+      // una imagen que casi nunca cambia y que un arreglo se vea el mismo día.
+      'Cache-Control': 'public, max-age=3600',
     },
   })
 }

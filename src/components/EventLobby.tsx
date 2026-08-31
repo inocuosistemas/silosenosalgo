@@ -4,8 +4,10 @@ import { EVENT_COLORS, eventColorHex } from '../../shared/eventColors'
 import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
-  setEventPhoto, shrinkToJpeg, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
+  setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
+  EVENT_PHOTO_ASPECT,
 } from '../lib/eventsTransport'
+import { PhotoCropper } from './PhotoCropper'
 
 /**
  * El lobby de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
@@ -31,6 +33,8 @@ export default function EventLobby({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [photoAt, setPhotoAt] = useState<number | null>(null)
+  /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
+  const [cropping, setCropping] = useState<File | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -88,10 +92,12 @@ export default function EventLobby({ id }: { id: string }) {
     } finally { setBusy(false) }
   }
 
-  async function uploadPhoto(file: File) {
+  /** Sube el recorte ya hecho: lo que se vio en el marco es lo que se guarda. */
+  async function uploadPhoto(jpeg: Blob) {
+    setCropping(null)
     setBusy(true); setError(null)
     try {
-      await setEventPhoto(id, await shrinkToJpeg(file))
+      await setEventPhoto(id, jpeg)
       setPhotoAt(Date.now())
       await refresh()
     } catch (e) {
@@ -138,7 +144,10 @@ export default function EventLobby({ id }: { id: string }) {
           // es siempre la misma y la respuesta se cachea un día.
           src={`${eventPhotoUrl(id)}${photoAt ? `?v=${photoAt}` : ''}`}
           alt=""
-          className="w-full h-32 object-cover rounded-xl border border-slate-800 mb-3"
+          // La misma proporción con la que se encuadró: así se ve entera la
+          // región elegida, sin un segundo recorte por el camino.
+          style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
+          className="w-full object-cover rounded-xl border border-slate-800 mb-3"
         />
       )}
       <h1 className="text-xl font-bold text-slate-100">{event.name}</h1>
@@ -215,10 +224,12 @@ export default function EventLobby({ id }: { id: string }) {
               accept="image/*"
               className="hidden"
               disabled={busy}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void uploadPhoto(f) }}
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setCropping(f) }}
             />
           </label>
-          <p className="mt-1.5 text-[11px] text-slate-500">Se reduce antes de subirla; no hace falta recortarla.</p>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Podrás encuadrarla: lo que dejes en el marco es lo que verán todos, aquí y en la lista.
+          </p>
         </section>
       )}
 
@@ -254,6 +265,16 @@ export default function EventLobby({ id }: { id: string }) {
           </button>
         )}
       </div>
+
+      {cropping && (
+        <PhotoCropper
+          file={cropping}
+          aspect={EVENT_PHOTO_ASPECT}
+          title="Encuadrar la foto del evento"
+          onCancel={() => setCropping(null)}
+          onDone={(jpeg) => void uploadPhoto(jpeg)}
+        />
+      )}
     </Shell>
   )
 }
