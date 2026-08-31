@@ -5,8 +5,9 @@ import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '.
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
-  EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink,
+  EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
 } from '../lib/eventsTransport'
+import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
 
 /**
@@ -107,6 +108,33 @@ export default function EventLobby({ id }: { id: string }) {
     } finally { setBusy(false) }
   }
 
+  /** Pide el dorsal y lo guarda. Vacío lo quita. */
+  async function pedirDorsal(userId: string, actual: string) {
+    const valor = window.prompt('Dorsal de la carrera (vacío para quitarlo)', actual)
+    if (valor === null) return
+    setBusy(true); setError(null)
+    try {
+      await setBib(id, valor.trim(), userId === user!.id ? undefined : userId)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  /** Guarda un enlace oficial de la carrera (solo el organizador). */
+  async function pedirEnlace(cual: 'trackingUrl' | 'websiteUrl') {
+    const etiqueta = cual === 'trackingUrl' ? 'Seguimiento oficial de la organización' : 'Web de la carrera'
+    const valor = window.prompt(`${etiqueta} (vacío para quitarlo)`, event[cual] ?? '')
+    if (valor === null) return
+    setBusy(true); setError(null)
+    try {
+      await setEventLinks(id, { [cual]: valor.trim() })
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   /** Une (o saca) del evento la baliza que ya se está emitiendo. */
   async function toggleBeacon(attach: boolean) {
     setBusy(true); setError(null)
@@ -198,7 +226,13 @@ export default function EventLobby({ id }: { id: string }) {
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Participantes</h2>
         <ul className="space-y-1.5">
           {members.map((m) => (
-            <MemberRow key={m.userId} m={m} now={now} isMe={m.userId === user.id} eventId={id} />
+            <MemberRow
+              key={m.userId} m={m} now={now} isMe={m.userId === user.id} eventId={id}
+              // El propio siempre; el de los demás, solo quien organiza — los
+              // dorsales se reparten juntos y quien los tiene delante es él.
+              canEditBib={m.userId === user.id || event.isOwner}
+              onBib={(userId, actual) => void pedirDorsal(userId, actual)}
+            />
           ))}
         </ul>
       </section>
@@ -231,6 +265,58 @@ export default function EventLobby({ id }: { id: string }) {
           </p>
         )}
       </section>
+
+      {/* Los enlaces de la ORGANIZACIÓN. No competimos con ellos: su
+          seguimiento cronometra por controles y esto enseña dónde va cada uno
+          ahora mismo. Tenerlos aquí ahorra ir a buscarlos en mitad de la
+          carrera. Se validan al pintar además de al guardar: en la base pueden
+          quedar enlaces de antes de que existiera la comprobación. */}
+      {(event.trackingUrl || event.websiteUrl || event.isOwner) && (
+        <section className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">La carrera</h2>
+          <div className="flex flex-wrap gap-2">
+            {isHttpUrl(event.trackingUrl) && (
+              <a
+                href={event.trackingUrl!} target="_blank" rel="noopener noreferrer"
+                className="rounded border border-slate-700 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40"
+              >
+                ⏱️ Seguimiento oficial ↗
+              </a>
+            )}
+            {isHttpUrl(event.websiteUrl) && (
+              <a
+                href={event.websiteUrl!} target="_blank" rel="noopener noreferrer"
+                className="rounded border border-slate-700 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40"
+              >
+                🌐 Web de la carrera ↗
+              </a>
+            )}
+            {event.isOwner && (
+              <>
+                <button
+                  onClick={() => void pedirEnlace('trackingUrl')}
+                  disabled={busy}
+                  className="rounded border border-dashed border-slate-700 px-2.5 py-1 text-xs text-slate-400 hover:text-sky-400 disabled:opacity-50"
+                >
+                  {event.trackingUrl ? 'Cambiar seguimiento' : '+ Seguimiento oficial'}
+                </button>
+                <button
+                  onClick={() => void pedirEnlace('websiteUrl')}
+                  disabled={busy}
+                  className="rounded border border-dashed border-slate-700 px-2.5 py-1 text-xs text-slate-400 hover:text-sky-400 disabled:opacity-50"
+                >
+                  {event.websiteUrl ? 'Cambiar web' : '+ Web de la carrera'}
+                </button>
+              </>
+            )}
+          </div>
+          {!event.trackingUrl && !event.websiteUrl && event.isOwner && (
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              El seguimiento por dorsal de la organización y la web del evento, a mano para todos.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* El directo: el mapa común y unir mi baliza */}
       <section className="mt-5 space-y-2">
@@ -395,7 +481,15 @@ export default function EventLobby({ id }: { id: string }) {
   )
 }
 
-function MemberRow({ m, now, isMe, eventId }: { m: EventMember; now: number; isMe: boolean; eventId: string }) {
+function MemberRow({ m, now, isMe, eventId, canEditBib, onBib }: {
+  m: EventMember
+  now: number
+  isMe: boolean
+  eventId: string
+  /** El propio siempre; los de los demás, solo el organizador. */
+  canEditBib: boolean
+  onBib: (userId: string, bib: string) => void
+}) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
   return (
@@ -404,6 +498,24 @@ function MemberRow({ m, now, isMe, eventId }: { m: EventMember; now: number; isM
         className="h-3.5 w-3.5 rounded-full shrink-0 border border-slate-700"
         style={{ background: m.color ? eventColorHex(m.color) : '#475569' }}
       />
+      {/* El dorsal, delante del nombre: ese día es el nombre. */}
+      {canEditBib ? (
+        <button
+          onClick={() => onBib(m.userId, m.bib ?? '')}
+          title={m.bib ? 'Cambiar el dorsal' : 'Poner dorsal'}
+          className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition-colors ${
+            m.bib
+              ? 'border-slate-700 bg-slate-800 text-slate-100 hover:border-sky-700'
+              : 'border-dashed border-slate-700 text-slate-500 hover:text-sky-400'
+          }`}
+        >
+          {m.bib ?? '+ dorsal'}
+        </button>
+      ) : m.bib ? (
+        <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-100">
+          {m.bib}
+        </span>
+      ) : null}
       <span className="text-sm text-slate-200 truncate">
         {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
       </span>

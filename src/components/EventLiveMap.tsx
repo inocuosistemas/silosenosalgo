@@ -12,6 +12,7 @@ import type { SharePayloadV1 } from '../lib/sharePayload'
 import {
   eventCutoffs, marginToNextCutoff, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
+import { isHttpUrl } from '../../shared/validate'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -43,6 +44,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const isPublic = source.kind === 'public'
   const [runners, setRunners] = useState<Runner[] | null>(null)
   const [eventName, setEventName] = useState<string | null>(null)
+  const [links, setLinks] = useState<{ trackingUrl: string | null; websiteUrl: string | null }>(
+    { trackingUrl: null, websiteUrl: null })
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -58,6 +61,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         const live = await getEventPublic(source.token)
         setRunners(live.runners)
         setEventName(live.name)
+        setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
@@ -201,9 +205,30 @@ export default function EventLiveMap({ source }: { source: Source }) {
       {/* Cabecera: volver, nombre (en el público, que no tiene lobby) y vistas */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
         {isPublic ? (
-          <span className="pointer-events-none max-w-[55%] truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
-            {eventName ?? 'Evento'}
-          </span>
+          <div className="pointer-events-auto flex max-w-[60%] flex-col items-start gap-1">
+            <span className="max-w-full truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
+              {eventName ?? 'Evento'}
+            </span>
+            {/* Los enlaces de la organización: quien espera en meta los quiere
+                tanto o más que los participantes —el seguimiento por dorsal es
+                lo que dan las webs oficiales—, y aquí no tiene lobby donde
+                buscarlos. Se validan al pintar: en la base puede haber enlaces
+                anteriores a la comprobación. */}
+            <div className="flex flex-wrap gap-1">
+              {isHttpUrl(links.trackingUrl) && (
+                <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
+                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
+                  ⏱️ Oficial ↗
+                </a>
+              )}
+              {isHttpUrl(links.websiteUrl) && (
+                <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
+                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
+                  🌐 Web ↗
+                </a>
+              )}
+            </div>
+          </div>
         ) : (
           <a
             href={`/?e=${encodeURIComponent(source.id)}`}
@@ -309,6 +334,14 @@ function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
               <div className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">{km !== null ? i + 1 : '·'}</span>
                 <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+                {/* El dorsal es como se le conoce ese dia: va delante del
+                    nombre, que es lo que hace comparable esta lista con la
+                    clasificacion oficial. */}
+                {r.bib && (
+                  <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-[10px] font-bold tabular-nums text-slate-200">
+                    {r.bib}
+                  </span>
+                )}
                 <button onClick={() => onPick(key)} className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-slate-100">
                   {r.username}
                 </button>
@@ -362,6 +395,11 @@ function RunnerCard({ row, now, totalKm, eventId, onClose }: {
     <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+        {r.bib && (
+          <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-200">
+            {r.bib}
+          </span>
+        )}
         <span className="truncate text-sm font-bold text-slate-100">{r.username}</span>
         {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
         <button onClick={onClose} className="ml-auto shrink-0 text-lg leading-none text-slate-500 hover:text-slate-300">×</button>

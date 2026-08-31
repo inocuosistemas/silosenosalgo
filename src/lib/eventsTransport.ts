@@ -113,6 +113,31 @@ export async function setEventColor(id: string, color: string): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Pone (o quita, con cadena vacía) un dorsal. Sin `userId` es el propio; con
+ * él, el de otro participante — solo el organizador puede.
+ */
+export async function setBib(id: string, bib: string, userId?: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/bib`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userId ? { bib, userId } : { bib }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** Los enlaces oficiales de la carrera (solo el organizador). */
+export async function setEventLinks(
+  id: string, links: { trackingUrl?: string | null; websiteUrl?: string | null },
+): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/links`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(links),
+  })
+  if (!res.ok) throw errFrom(res)
+}
+
 export async function leaveEvent(id: string): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/leave`, {
     method: 'POST', credentials: 'same-origin',
@@ -219,6 +244,11 @@ function errFrom(res: Response): EventsError {
   if (res.status === 409) {
     return new EventsError(res.url.includes('/beacon') ? 'no_session' : 'color_taken')
   }
+  // 400 lo devuelven varias rutas; la que respondió dice cuál es el problema.
+  if (res.status === 400) {
+    if (res.url.includes('/bib')) return new EventsError('bad_bib')
+    if (res.url.includes('/links')) return new EventsError('bad_url')
+  }
   if (res.status === 410) return new EventsError('invalid_invite')
   if (res.status === 413) return new EventsError('too_large')
   if (res.status === 429) return new EventsError('rate_limited')
@@ -231,6 +261,8 @@ export function eventsErrorMessage(code: string): string {
     case 'forbidden': return 'Solo un administrador puede crear eventos.'
     case 'not_found': return 'Este evento ya no existe o no participas en él.'
     case 'no_session': return 'No tienes ninguna baliza emitiendo ahora mismo. Empieza a compartir tu posición y vuelve.'
+    case 'bad_bib': return 'Ese dorsal no vale: hasta 12 caracteres, letras y números.'
+    case 'bad_url': return 'El enlace tiene que empezar por http:// o https://.'
     case 'color_taken': return 'Ese color acaba de cogerlo otro participante. Elige otro.'
     case 'invalid_invite': return 'El código no vale o el evento ya terminó.'
     case 'too_large': return 'La ruta es demasiado grande para el evento.'

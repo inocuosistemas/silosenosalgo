@@ -328,6 +328,8 @@ export const EVENT_PRESENCE_MS = 60_000
 export interface EventMember {
   userId: string
   username: string
+  /** Dorsal de la carrera. Lo pone cada uno, y el organizador para cualquiera. */
+  bib: string | null
   /** Slug de la paleta (shared/eventColors.ts); null = aún sin color asignado. */
   color: string | null
   joinedAt: number
@@ -348,6 +350,11 @@ export interface EventInfo {
   planShareId: string | null
   /** Nombre de la previsión de la que salió la base (informativo). */
   planName: string | null
+  /** Seguimiento OFICIAL de la organización (esas webs de dorsales con los
+   *  tiempos por control) y web de la carrera. Los pone el organizador; nulos
+   *  si no los hay. Siempre http(s) — ver `isHttpUrl`. */
+  trackingUrl?: string | null
+  websiteUrl?: string | null
   /** Si el evento tiene foto (se sirve en /api/events/:id/photo). */
   hasPhoto: boolean
   /** Cuándo se subió la foto (epoch ms). Va en la URL como `?v=` para que un
@@ -377,6 +384,7 @@ export interface EventInfo {
  */
 export interface EventPublicRunner {
   username: string
+  bib: string | null
   color: string | null
   status: TrackStatus
   activity?: BeaconActivity | null
@@ -389,6 +397,10 @@ export interface EventPublicRunner {
 export interface EventPublicResponse {
   name: string
   planShareId: string | null
+  /** Los enlaces oficiales de la carrera, que a quien espera en meta le sirven
+   *  tanto o más que a los participantes. */
+  trackingUrl: string | null
+  websiteUrl: string | null
   runners: EventPublicRunner[]
 }
 
@@ -411,6 +423,8 @@ export interface EventsListResponse {
 export interface EventLiveRunner {
   userId: string
   username: string
+  /** Dorsal, para cruzar lo que se ve aquí con la clasificación oficial. */
+  bib: string | null
   /** Su color en el mapa; null = aún sin asignar (se pinta en gris). */
   color: string | null
   /** Token público de su sesión: con él se abre su baliza completa. */

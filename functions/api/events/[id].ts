@@ -24,12 +24,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt,
-            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken
+            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
+            tracking_url AS trackingUrl, website_url AS websiteUrl
        FROM events WHERE id = ?`,
   ).bind(id).first<{
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
+    trackingUrl: string | null; websiteUrl: string | null
   }>()
   if (!ev) return json({ error: 'not_found' }, 404)
 
@@ -48,7 +50,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // el LEFT JOIN trae el token público de quien está emitiendo ahora mismo, que
   // es lo que convierte un nombre del lobby en un punto del mapa.
   const rows = await env.DB.prepare(
-    `SELECT m.user_id AS userId, u.username AS username, m.color AS color,
+    `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
             m.joined_at AS joinedAt, m.last_seen AS lastSeen,
             m.plan_overlay IS NOT NULL AS hasPlan,
             (SELECT t.id FROM tracking_sessions t
@@ -59,7 +61,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       WHERE m.event_id = ?
       ORDER BY m.joined_at ASC`,
   ).bind(now, id).all<{
-    userId: string; username: string; color: string | null
+    userId: string; username: string; color: string | null; bib: string | null
     joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null
   }>()
 
@@ -67,6 +69,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     userId: r.userId,
     username: r.username,
     color: r.color,
+    bib: r.bib,
     joinedAt: r.joinedAt,
     lastSeen: r.lastSeen,
     hasPlan: !!r.hasPlan,
@@ -81,6 +84,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     planName: ev.planName,
     hasPhoto: ev.photoKey !== null,
     photoAt: ev.photoAt,
+    // Los enlaces oficiales los ve todo el mundo: son de la carrera. Ponerlos,
+    // solo el organizador (ver links.ts).
+    trackingUrl: ev.trackingUrl,
+    websiteUrl: ev.websiteUrl,
     startsAt: ev.startsAt,
     createdAt: ev.createdAt,
     endedAt: ev.endedAt,

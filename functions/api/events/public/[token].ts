@@ -26,15 +26,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   if (!TOKEN_RE.test(token)) return json({ error: 'bad_id' }, 400)
 
   const ev = await env.DB.prepare(
-    'SELECT id, name, plan_share_id AS planShareId FROM events WHERE public_token = ?',
-  ).bind(token).first<{ id: string; name: string; planShareId: string | null }>()
+    `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl
+       FROM events WHERE public_token = ?`,
+  ).bind(token).first<{
+    id: string; name: string; planShareId: string | null
+    trackingUrl: string | null; websiteUrl: string | null
+  }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
   // enlace que no lleva a ningún sitio, y no hay nada que explicarle a quien lo
   // tenga guardado.
   if (!ev) return json({ error: 'not_found' }, 404)
 
   const rows = await env.DB.prepare(
-    `SELECT u.username AS username, m.color AS color, t.status, t.activity,
+    `SELECT u.username AS username, m.color AS color, m.bib AS bib, t.status, t.activity,
             t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail
@@ -46,7 +50,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
                              WHERE t2.event_id = t.event_id AND t2.owner_user_id = t.owner_user_id)
       ORDER BY u.username`,
   ).bind(ev.id).all<{
-    username: string; color: string | null; status: string; activity: string | null
+    username: string; color: string | null; bib: string | null; status: string; activity: string | null
     startedAt: number; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
@@ -70,6 +74,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     return {
       username: r.username,
       color: r.color,
+      bib: r.bib,
       status: (r.status === 'ended' ? 'ended' : 'active') as TrackStatus,
       activity: isBeaconActivity(r.activity) ? r.activity : null,
       fix,
@@ -79,6 +84,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     }
   })
 
-  const res: EventPublicResponse = { name: ev.name, planShareId: ev.planShareId, runners }
+  const res: EventPublicResponse = {
+    name: ev.name,
+    planShareId: ev.planShareId,
+    trackingUrl: ev.trackingUrl,
+    websiteUrl: ev.websiteUrl,
+    runners,
+  }
   return json(res, 200, { 'Cache-Control': 'no-store' })
 }
