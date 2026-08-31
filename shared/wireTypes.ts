@@ -346,6 +346,11 @@ export interface EventInfo {
   planName: string | null
   /** Si el evento tiene foto (se sirve en /api/events/:id/photo). */
   hasPhoto: boolean
+  /** Cuándo se subió la foto (epoch ms). Va en la URL como `?v=` para que un
+   *  reencuadre lo vean TODOS y no solo quien lo hizo: la clave de la imagen
+   *  no cambia, así que sin esto manda la caché de cada navegador. `null` en
+   *  fotos anteriores a que esto existiera. */
+  photoAt: number | null
   startsAt: number | null
   createdAt: number
   endedAt: number | null

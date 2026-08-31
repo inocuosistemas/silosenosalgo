@@ -123,8 +123,18 @@ export async function setEventPhoto(id: string, jpeg: Blob): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
-export function eventPhotoUrl(id: string): string {
-  return `/api/events/${encodeURIComponent(id)}/photo`
+/**
+ * La URL de la foto, VERSIONADA con la hora de subida.
+ *
+ * La imagen vive siempre bajo la misma clave, así que sin el `?v=` reencuadrar
+ * no cambia ninguna url y cada navegador sigue enseñando la que tuviera
+ * cacheada: la misma pantalla acababa mostrando dos fotos distintas según
+ * quién mirase. Con la versión, la url cambia exactamente cuando cambia la
+ * foto — y por eso el servidor puede cachearla un año.
+ */
+export function eventPhotoUrl(id: string, photoAt?: number | null): string {
+  const base = `/api/events/${encodeURIComponent(id)}/photo`
+  return photoAt ? `${base}?v=${photoAt}` : base
 }
 
 /**

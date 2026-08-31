@@ -60,14 +60,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   // formas parte no es asunto tuyo aunque seas administrador del sitio.
   const rows = await env.DB.prepare(
     `SELECT e.id, e.name, e.plan_share_id AS planShareId, e.plan_name AS planName,
-            e.photo_key AS photoKey, e.starts_at AS startsAt, e.created_at AS createdAt,
-            e.ended_at AS endedAt, e.created_by AS createdBy, e.invite_code AS inviteCode
+            e.photo_key AS photoKey, e.photo_at AS photoAt, e.starts_at AS startsAt,
+            e.created_at AS createdAt, e.ended_at AS endedAt, e.created_by AS createdBy,
+            e.invite_code AS inviteCode
        FROM events e JOIN event_members m ON m.event_id = e.id
       WHERE m.user_id = ?
       ORDER BY COALESCE(e.starts_at, e.created_at) DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; name: string; planShareId: string | null; planName: string | null
-    photoKey: string | null; startsAt: number | null; createdAt: number
+    photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null
   }>()
 
@@ -79,6 +80,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       planShareId: r.planShareId,
       planName: r.planName,
       hasPhoto: r.photoKey !== null,
+      photoAt: r.photoAt,
       startsAt: r.startsAt,
       createdAt: r.createdAt,
       endedAt: r.endedAt,

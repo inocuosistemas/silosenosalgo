@@ -32,7 +32,6 @@ export default function EventLobby({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [photoAt, setPhotoAt] = useState<number | null>(null)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
   const [cropping, setCropping] = useState<File | null>(null)
 
@@ -98,7 +97,7 @@ export default function EventLobby({ id }: { id: string }) {
     setBusy(true); setError(null)
     try {
       await setEventPhoto(id, jpeg)
-      setPhotoAt(Date.now())
+      // El refresco trae el `photoAt` nuevo, y con él la url nueva.
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -140,9 +139,10 @@ export default function EventLobby({ id }: { id: string }) {
     <Shell>
       {event.hasPhoto && (
         <img
-          // `photoAt` rompe la caché del navegador al cambiar la foto: la URL
-          // es siempre la misma y la respuesta se cachea un día.
-          src={`${eventPhotoUrl(id)}${photoAt ? `?v=${photoAt}` : ''}`}
+          // La versión sale del servidor (`event.photoAt`), no de un estado
+          // local: si dependiera de haber subido tú la foto, los demás
+          // seguirían viendo la anterior mientras su caché aguantase.
+          src={eventPhotoUrl(id, event.photoAt)}
           alt=""
           // La misma proporción con la que se encuadró: así se ve entera la
           // región elegida, sin un segundo recorte por el camino.

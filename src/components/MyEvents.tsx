@@ -87,7 +87,7 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
             >
               <div className="relative w-full" style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}>
                 {e.hasPhoto ? (
-                  <img src={eventPhotoUrl(e.id)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  <img src={eventPhotoUrl(e.id, e.photoAt)} alt="" className="absolute inset-0 h-full w-full object-cover" />
                 ) : (
                   // Sin foto se mantiene el hueco: una lista donde unas fichas
                   // son altas y otras bajas se lee peor que una con ritmo, y el

@@ -38,25 +38,27 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
 
   const key = photoKvKey(id)
   await env.SHARE_KV.put(key, buf, { expirationTtl: TTL_SECONDS })
-  await env.DB.prepare('UPDATE events SET photo_key = ? WHERE id = ? AND created_by = ?')
-    .bind(key, id, user.id).run()
+  // `photo_at` es la versión de la URL: sin ella, reencuadrar no cambia nada
+  // que las cachés puedan notar y cada uno ve la foto que le tocó.
+  await env.DB.prepare('UPDATE events SET photo_key = ?, photo_at = ? WHERE id = ? AND created_by = ?')
+    .bind(key, Date.now(), id, user.id).run()
   return new Response(null, { status: 204 })
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
   const body = await env.SHARE_KV.get(photoKvKey(id), 'arrayBuffer')
   if (!body) return json({ error: 'not_found' }, 404)
+  // Con versión en la URL (`?v=<photo_at>`) el contenido de ESA url no va a
+  // cambiar nunca: se puede cachear a lo bestia, y un reencuadre llega igual
+  // porque estrena url. Sin versión —eventos con foto anterior a photo_at— la
+  // caché tiene que ser corta o quien mire se quedaría clavado en la vieja.
+  const versioned = new URL(request.url).searchParams.has('v')
   return new Response(body, {
     headers: {
       'Content-Type': 'image/jpeg',
-      // Una hora, no un día: la URL es fija —al reencuadrar se reescribe la
-      // misma clave—, así que la caché es lo único que separa a los demás de
-      // ver el cambio. Quien la sube no espera: el lobby le rompe la caché con
-      // un parámetro. Una hora es el punto medio entre no repetir descargas de
-      // una imagen que casi nunca cambia y que un arreglo se vea el mismo día.
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
     },
   })
 }

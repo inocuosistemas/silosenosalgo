@@ -23,12 +23,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
 
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
-            starts_at AS startsAt, created_at AS createdAt, ended_at AS endedAt,
-            created_by AS createdBy, invite_code AS inviteCode
+            photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt,
+            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode
        FROM events WHERE id = ?`,
   ).bind(id).first<{
     id: string; name: string; planShareId: string | null; planName: string | null
-    photoKey: string | null; startsAt: number | null; createdAt: number
+    photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null
   }>()
   if (!ev) return json({ error: 'not_found' }, 404)
@@ -80,6 +80,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     planShareId: ev.planShareId,
     planName: ev.planName,
     hasPhoto: ev.photoKey !== null,
+    photoAt: ev.photoAt,
     startsAt: ev.startsAt,
     createdAt: ev.createdAt,
     endedAt: ev.endedAt,
