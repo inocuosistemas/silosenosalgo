@@ -789,106 +789,95 @@ struct TrackingView: View {
         // Whether its trail is still on this device — what decides that an
         // expired session can still show its map offline and be exported.
         let hasLocal = LocalStore.hasTrail(session.id)
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
-                    if session.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.sky500)
-                    }
-                    Text(session.title ?? "Sin nombre")
-                        .foregroundStyle(Theme.slate100)
-                        .lineLimit(1)
-                    if let act = session.activity {
-                        // Movement type this session had (declared, or inferred at the
-                        // moment it last stopped). Compact chip so it reads at a glance.
-                        Text("\(act.emoji) \(act.label)")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.slate400)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Theme.slate800.opacity(0.7))
-                            .clipShape(Capsule())
-                    }
+        // El TEXTO manda y ocupa el ancho: el nombre de una carrera es largo
+        // ("ultra.100k.canfranccanfranc.2025") y antes competía por el sitio con
+        // tres controles en la misma línea, así que se leía en un canal estrecho
+        // y truncado. Ahora solo el menú acompaña al título; la chincheta y
+        // "Reanudar" viven dentro de él, y "Continuar" —que es la única acción
+        // frecuente— baja a su propia línea.
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                if session.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.sky500)
                 }
-                HStack(spacing: 8) {
-                    Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))
+                Text(session.title ?? "Sin nombre")
+                    .foregroundStyle(Theme.slate100)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sessionMenu(session, purged: purged, hasLocal: hasLocal)
+            }
+            HStack(spacing: 8) {
+                Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background((active ? Color.green : (purged ? Color.orange : Theme.slate700)).opacity(0.25))
+                    .foregroundStyle(active ? .green : (purged ? .orange : Theme.slate400))
+                    .clipShape(Capsule())
+                if let act = session.activity {
+                    // Movement type this session had (declared, or inferred at the
+                    // moment it last stopped). Compact chip so it reads at a glance.
+                    Text("\(act.emoji) \(act.label)")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.slate400)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Theme.slate800.opacity(0.7))
+                        .clipShape(Capsule())
+                }
+                if hasLocal {
+                    // Lo que decide si una sesión caducada sirve para algo:
+                    // con traza en el móvil su mapa se sigue viendo offline.
+                    Text("En el móvil")
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background((active ? Color.green : (purged ? Color.orange : Theme.slate700)).opacity(0.25))
-                        .foregroundStyle(active ? .green : (purged ? .orange : Theme.slate400))
+                        .background(Theme.sky600.opacity(0.25))
+                        .foregroundStyle(Theme.sky500)
                         .clipShape(Capsule())
-                    if hasLocal {
-                        // Lo que decide si una sesión caducada sirve para algo:
-                        // con traza en el móvil su mapa se sigue viendo offline.
-                        Text("En el móvil")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(Theme.sky600.opacity(0.25))
-                            .foregroundStyle(Theme.sky500)
-                            .clipShape(Capsule())
-                    }
-                    Text("Salida \(startedLabel(session.startedAt))")
-                        .font(.caption)
-                        .foregroundStyle(Theme.slate400)
-                }
-                if purged {
-                    Text("Ruta ya no disponible")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                } else if let activity = activityLabel(session, active: active) {
-                    Text(activity)
-                        .font(.caption2)
-                        .foregroundStyle(Theme.slate400)
-                }
-                // Retention countdown: how long a finished session stays viewable
-                // before its route is purged. Pinned ones are kept indefinitely
-                // (the chincheta says so); active ones keep extending, so neither
-                // shows a countdown.
-                if !active && !purged {
-                    if session.isPinned {
-                        Text("Sin caducidad (fijado)")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.slate400)
-                    } else if let exp = expiryRemainingLabel(session.expiresAt) {
-                        Text("Caduca \(exp)")
-                            .font(.caption2)
-                            .foregroundStyle(expiryTint(session.expiresAt))
-                    }
                 }
             }
-            Spacer(minLength: 8)
+            Text("Salida \(startedLabel(session.startedAt))")
+                .font(.caption)
+                .foregroundStyle(Theme.slate400)
+            if purged {
+                Text("Ruta ya no disponible")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            } else if let activity = activityLabel(session, active: active) {
+                Text(activity)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.slate400)
+            }
+            // Retention countdown: how long a finished session stays viewable
+            // before its route is purged. Pinned ones are kept indefinitely
+            // (the chincheta says so); active ones keep extending, so neither
+            // shows a countdown.
+            if !active && !purged {
+                if session.isPinned {
+                    Text("Sin caducidad (fijado)")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.slate400)
+                } else if let exp = expiryRemainingLabel(session.expiresAt) {
+                    Text("Caduca \(exp)")
+                        .font(.caption2)
+                        .foregroundStyle(expiryTint(session.expiresAt))
+                }
+            }
+            // Continuar se queda a la vista: es lo que se pulsa al recuperar una
+            // salida en marcha, con prisa y a veces con frío. Reanudar, que es
+            // excepcional, se fue al menú.
             if active {
-                Button("Continuar") { store.continueSession(session.id) }
+                Button("Continuar →") { store.continueSession(session.id) }
                     .buttonStyle(.borderless)
+                    .font(.caption)
                     .foregroundStyle(Theme.sky500)
-            } else if !purged {
-                // Reanudar keeps the original started_at, so it only makes sense for
-                // a recently-ended session with data intact ("stop & re-share").
-                // A purged one would resume with a stale start and no route — start
-                // a new session instead — so it offers no primary action.
-                Button("Reanudar") { store.resumeSession(session.id) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Theme.sky500)
+                    .padding(.top, 2)
             }
-            // A purged session can't be preserved (its data is already gone), so
-            // the chincheta is meaningless — hide it.
-            if !purged {
-                Button {
-                    Task { await store.setPinned(session.id, !session.isPinned) }
-                } label: {
-                    Image(systemName: session.isPinned ? "pin.fill" : "pin")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(session.isPinned ? Theme.sky500 : Theme.slate400)
-                .accessibilityLabel(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta")
-            }
-            sessionMenu(session, purged: purged, hasLocal: hasLocal)
         }
     }
 
@@ -900,6 +889,26 @@ struct TrackingView: View {
     private func sessionMenu(_ session: TrackSessionSummary, purged: Bool, hasLocal: Bool) -> some View {
         let link = store.shareLink(for: session.id)
         Menu {
+            // Reanudar conserva el started_at original, así que solo tiene
+            // sentido en una sesión recién terminada con sus datos intactos
+            // ("parar y volver a compartir"). Una caducada resucitaría con una
+            // salida vieja y sin ruta: mejor empezar otra, y por eso no se
+            // ofrece.
+            if !store.isActive(session) && !purged {
+                Button { store.resumeSession(session.id) } label: {
+                    Label("Reanudar", systemImage: "play.circle")
+                }
+            }
+            // Una caducada no se puede conservar (sus datos ya no están), así
+            // que la chincheta no significaría nada.
+            if !purged {
+                Button {
+                    Task { await store.setPinned(session.id, !session.isPinned) }
+                } label: {
+                    Label(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta",
+                          systemImage: session.isPinned ? "pin.slash" : "pin")
+                }
+            }
             Button {
                 renameText = session.title ?? ""
                 pendingRename = session
