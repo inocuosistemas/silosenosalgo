@@ -1471,32 +1471,38 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // cabecera y el de las casillas: el cuadro mide lo mismo que antes.
   const header = (
     <div>
-      {/* La vuelta al evento, cuando se ha llegado desde su mapa. Lleva el
-          NOMBRE del evento y no un "volver" a secas: así dice de dónde vienes y
-          a la vez recuerda que esta baliza corre esa carrera, que es justo lo
-          que se pierde al saltar del mapa común a una baliza suelta. */}
-      {eventId && (
-        <a
-          href={`/?e=${encodeURIComponent(eventId)}&mapa=1`}
-          className="mb-1 inline-flex max-w-full items-center gap-1 rounded-full border border-sky-800 bg-sky-950/50 px-2 py-0.5 text-[11px] text-sky-300 hover:bg-sky-900/50"
+      {/* Título y —si se llegó desde el mapa de un evento— la vuelta, en la
+          MISMA línea: el panel tapa el mapa, y una fila más de alto se paga en
+          mapa escondido. El título cede el sitio (min-w-0 + AutoScroll: si no
+          cabe, se desplaza solo en vez de estirar la fila). */}
+      <div className="flex items-center gap-1.5">
+        {/* Lleva el NOMBRE del evento y no un "volver" a secas: dice de dónde
+            vienes y a la vez recuerda que esta baliza corre esa carrera, que es
+            justo lo que se pierde al saltar del mapa común a una baliza suelta. */}
+        {eventId && (
+          <a
+            href={`/?e=${encodeURIComponent(eventId)}&mapa=1`}
+            title={eventName ? `Volver al mapa de ${eventName}` : 'Volver al mapa del evento'}
+            className="inline-flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-sky-800 bg-sky-950/50 px-2 py-0.5 text-[11px] text-sky-300 hover:bg-sky-900/50"
+          >
+            <span aria-hidden="true">←</span>
+            <span className="truncate">{eventName ?? 'Evento'}</span>
+          </a>
+        )}
+        {/* El nombre hace de barra de titulo: tocarlo pliega y despliega, para no
+            depender solo del tirador de abajo (que desplegado queda lejos, al
+            final de todo el panel). py-1 con -my-1 agranda la zona sensible sin
+            mover nada: una linea de texto sola es un blanco pequeño para el dedo. */}
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+          aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados'}
+          className="-my-1 min-w-0 flex-1 py-1 text-left"
         >
-          <span aria-hidden="true">←</span>
-          <span className="truncate">{eventName ?? 'Volver al mapa del evento'}</span>
-        </a>
-      )}
-      {/* El nombre hace de barra de titulo: tocarlo pliega y despliega, para no
-          depender solo del tirador de abajo (que desplegado queda lejos, al
-          final de todo el panel). py-1 con -my-1 agranda la zona sensible sin
-          mover nada: una linea de texto sola es un blanco pequeño para el dedo. */}
-      <button
-        type="button"
-        onClick={() => setShowAdvanced((v) => !v)}
-        aria-expanded={showAdvanced}
-        aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados'}
-        className="-my-1 block w-full py-1 text-left"
-      >
-        <AutoScroll className="font-semibold leading-tight">{headline}</AutoScroll>
-      </button>
+          <AutoScroll className="font-semibold leading-tight">{headline}</AutoScroll>
+        </button>
+      </div>
       <div className="mt-0.5 flex items-center gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-400">
           {state.username && (
