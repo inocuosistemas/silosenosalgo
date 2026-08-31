@@ -796,12 +796,10 @@ struct TrackingView: View {
         // "Reanudar" viven dentro de él, y "Continuar" —que es la única acción
         // frecuente— baja a su propia línea.
         VStack(alignment: .leading, spacing: 4) {
-            // Título y etiquetas en la MISMA línea: las etiquetas son cortas y
-            // dejaban medio renglón vacío a su derecha, mientras el título se
-            // truncaba en el de arriba. Juntos, cada uno ocupa lo que necesita
-            // y la ficha baja de altura. Si el nombre es muy largo se recorta
-            // él —las etiquetas no se pueden leer a medias— y el nombre entero
-            // sigue estando en "Renombrar".
+            // El título, para él solo: es lo que identifica la salida y los
+            // nombres de carrera son largos. Todo lo demás —etiquetas, fecha,
+            // caducidad— se reparte a lo ancho en las dos líneas de abajo en
+            // vez de apilarse en cuatro renglones.
             HStack(spacing: 5) {
                 if session.isPinned {
                     Image(systemName: "pin.fill")
@@ -812,6 +810,10 @@ struct TrackingView: View {
                     .foregroundStyle(Theme.slate100)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sessionMenu(session, purged: purged, hasLocal: hasLocal)
+            }
+            HStack(spacing: 6) {
                 Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))
                     .font(.caption2)
                     .fontWeight(.semibold)
@@ -846,35 +848,42 @@ struct TrackingView: View {
                         .clipShape(Capsule())
                         .fixedSize()
                 }
-                Spacer(minLength: 4)
-                sessionMenu(session, purged: purged, hasLocal: hasLocal)
-            }
-            Text("Salida \(startedLabel(session.startedAt))")
-                .font(.caption)
-                .foregroundStyle(Theme.slate400)
-            if purged {
-                Text("Ruta ya no disponible")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            } else if let activity = activityLabel(session, active: active) {
-                Text(activity)
-                    .font(.caption2)
+                Text("Salida \(startedLabel(session.startedAt))")
+                    .font(.caption)
                     .foregroundStyle(Theme.slate400)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
-            // Retention countdown: how long a finished session stays viewable
-            // before its route is purged. Pinned ones are kept indefinitely
-            // (the chincheta says so); active ones keep extending, so neither
-            // shows a countdown.
-            if !active && !purged {
-                if session.isPinned {
-                    Text("Sin caducidad (fijado)")
+            // Lo que era una pila de renglones sueltos —cuándo se la vio, si
+            // caduca y cuándo— cabe en uno: son datos cortos que se leen de
+            // corrido, y separados en líneas hacían la ficha el doble de alta
+            // sin decir más. La caducidad conserva su color, que es lo único
+            // que ahí avisa de algo.
+            HStack(spacing: 6) {
+                if purged {
+                    Text("Ruta ya no disponible")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if let activity = activityLabel(session, active: active) {
+                    Text(activity)
                         .font(.caption2)
                         .foregroundStyle(Theme.slate400)
-                } else if let exp = expiryRemainingLabel(session.expiresAt) {
-                    Text("Caduca \(exp)")
-                        .font(.caption2)
-                        .foregroundStyle(expiryTint(session.expiresAt))
+                        .lineLimit(1)
                 }
+                if !active && !purged {
+                    if session.isPinned {
+                        Text("· Sin caducidad (fijado)")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.slate400)
+                            .lineLimit(1)
+                    } else if let exp = expiryRemainingLabel(session.expiresAt) {
+                        Text("· Caduca \(exp)")
+                            .font(.caption2)
+                            .foregroundStyle(expiryTint(session.expiresAt))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
             }
             // Continuar se queda a la vista: es lo que se pulsa al recuperar una
             // salida en marcha, con prisa y a veces con frío. Reanudar, que es
