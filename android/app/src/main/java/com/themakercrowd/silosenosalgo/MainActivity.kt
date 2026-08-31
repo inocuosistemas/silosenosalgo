@@ -460,7 +460,24 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // —allí el enlace y las cifras viven al final—, porque en marcha esta
         // pantalla se abre para mirar cómo va, y repartir esa información entre
         // el principio y el final obliga a recorrerla entera cada vez.
-        EstadoCompacto(estado)
+        EstadoCompacto(
+            estado = estado,
+            arrancando = arrancando,
+            hayPermiso = permisoUbicacion,
+            onParar = { TrackingService.para(context) },
+            onEmpezar = {
+                arrancando = true
+                scope.launch {
+                    TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                    arrancando = false
+                    // El servicio se arranca DESPUÉS de que exista la sesión:
+                    // así su notificación nace con el enlace y el estado reales,
+                    // y nunca queda una notificación vacía si la creación falla
+                    // por falta de cobertura.
+                    if (TrackingStore.estado.value.compartiendo) TrackingService.arranca(context)
+                }
+            },
+        )
 
         if (estado.compartiendo) {
             Seccion(titulo = "En directo") { DatosDeLaSesion(estado) }
@@ -591,44 +608,6 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         avisoGuia?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
-        }
-
-        // El botón de empezar o parar cierra la parte "de ahora", antes de lo
-        // guardado. Como en iOS, es el final del recorrido de decisiones.
-        if (estado.compartiendo) {
-            // En rojo, no en el azul de todo lo demás: es la única acción que
-            // DESHACE algo, y pulsarla por error corta la traza.
-            Button(
-                onClick = { TrackingService.para(context) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Paleta.rojo,
-                    contentColor = Paleta.slate950,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Dejar de compartir") }
-        } else {
-            Button(
-                onClick = {
-                    arrancando = true
-                    scope.launch {
-                        TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
-                        arrancando = false
-                        // El servicio se arranca DESPUÉS de que exista la sesión:
-                        // así su notificación nace con el enlace y el estado
-                        // reales, y nunca queda una notificación vacía si la
-                        // creación falla por falta de cobertura.
-                        if (TrackingStore.estado.value.compartiendo) {
-                            TrackingService.arranca(context)
-                            desplazamiento.animateScrollTo(0)
-                        }
-                    }
-                },
-                enabled = permisoUbicacion && !arrancando,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
-                else Text("Empezar a compartir")
-            }
         }
 
         // Y abajo del todo, lo GUARDADO: guías y seguimientos pasados. No es lo
@@ -773,7 +752,13 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
  * miran después, y por eso viven abajo.
  */
 @Composable
-private fun EstadoCompacto(estado: TrackingStore.Estado) {
+private fun EstadoCompacto(
+    estado: TrackingStore.Estado,
+    arrancando: Boolean,
+    hayPermiso: Boolean,
+    onEmpezar: () -> Unit,
+    onParar: () -> Unit,
+) {
     Seccion {
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
@@ -822,6 +807,41 @@ private fun EstadoCompacto(estado: TrackingStore.Estado) {
                     color = if ((restante ?: 99.0) < 3) Paleta.rojo else Paleta.slate400,
                 )
             }
+        }
+
+        // La acción va JUNTO al estado y no al final de la pantalla: es LA
+        // acción, y donde se lee "detenido" es donde se busca cómo dejar de
+        // estarlo. Además deja la misma posición que iOS, que antes no
+        // coincidía —allí estaba al final y aquí en medio— y obligaba a
+        // explicar la app dos veces.
+        Spacer(Modifier.height(14.dp))
+        if (estado.compartiendo) {
+            // En rojo, no en el azul de todo lo demás: es la única acción que
+            // DESHACE algo, y pulsarla por error corta la traza.
+            Button(
+                onClick = onParar,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Paleta.rojo,
+                    contentColor = Paleta.slate950,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Dejar de compartir") }
+        } else {
+            Button(
+                onClick = onEmpezar,
+                enabled = hayPermiso && !arrancando,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
+                else Text("Empezar a compartir")
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Al iniciar uno nuevo, el seguimiento anterior se conserva para " +
+                    "poder consultarlo (o para siempre si lo fijas con la chincheta).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
         }
     }
 }

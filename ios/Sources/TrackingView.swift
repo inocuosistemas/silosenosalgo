@@ -124,6 +124,34 @@ struct TrackingView: View {
             Form {
                 Section {
                     statusContent
+                    // El botón, junto al estado y no al final de la pantalla:
+                    // es LA acción, y donde se lee "detenido" es donde se va a
+                    // buscar cómo dejar de estarlo. Además deja la misma
+                    // posición en las dos apps, que antes no coincidía.
+                    Button {
+                        Task {
+                            if store.isSharing {
+                                await store.stopSharing()
+                            } else {
+                                await store.startSharing(title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title)
+                            }
+                        }
+                    } label: {
+                        Text(store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .background(store.isSharing ? Color.red.opacity(0.85) : Theme.sky600)
+                    .foregroundStyle(.white)
+                    .cornerRadius(12)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 6, trailing: 16))
+                } footer: {
+                    if !store.isSharing {
+                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 48 h para poder consultarlo (o para siempre si lo fijas con la chincheta).")
+                            .font(.caption)
+                            .foregroundStyle(Theme.slate400)
+                    }
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -489,33 +517,6 @@ struct TrackingView: View {
                 }
                 .listRowBackground(Theme.slate900)
 
-                Section {
-                    Button {
-                        Task {
-                            if store.isSharing {
-                                await store.stopSharing()
-                            } else {
-                                await store.startSharing(title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title)
-                            }
-                        }
-                    } label: {
-                        Text(store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                    }
-                    .background(store.isSharing ? Color.red.opacity(0.85) : Theme.sky600)
-                    .foregroundStyle(.white)
-                    .cornerRadius(12)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-
-                    if !store.isSharing {
-                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 48 h para poder consultarlo (o para siempre si lo fijas con la chincheta).")
-                            .font(.caption)
-                            .foregroundStyle(Theme.slate400)
-                    }
-                }
-                .listRowBackground(Color.clear)
             }
             .alert("Eliminar seguimiento", isPresented: Binding(
                 get: { pendingDelete != nil },
