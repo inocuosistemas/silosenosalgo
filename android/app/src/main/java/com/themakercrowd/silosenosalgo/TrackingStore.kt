@@ -604,6 +604,21 @@ object TrackingStore {
      * De paso guarda el blob tal cual llegó, que es lo que luego permitirá al
      * visor incrustado dibujar la ruta prevista encima del mapa sin cobertura.
      */
+    /**
+     * El recorrido del EVENTO elegido (la base que publicó la organización).
+     *
+     * Sirve para preparar el mapa sin cobertura cuando no se ha elegido
+     * previsión propia: "la del evento" es un recorrido como cualquier otro,
+     * solo que vive en el evento y no en tus previsiones, así que se pide al
+     * share público en vez de a `/api/plans`.
+     */
+    suspend fun trazadoDelEvento(): List<Pair<Double, Double>>? {
+        val shareId = eventoActual()?.planShareId ?: return null
+        val bytes = runCatching { api.fetchSharePayload(shareId) }.getOrNull() ?: return null
+        _estado.value.sessionId?.let { almacen.guardaPlan(it, bytes) }
+        return PlanGeometry.trazado(bytes)
+    }
+
     suspend fun trazadoDelPlan(planId: String): List<Pair<Double, Double>>? {
         val t = token ?: return null
         val bytes = runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() ?: return null

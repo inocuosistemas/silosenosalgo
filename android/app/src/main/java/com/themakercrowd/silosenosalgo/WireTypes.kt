@@ -106,6 +106,10 @@ data class TrackSessionSummary(
 data class EventSummary(
     val id: String,
     val name: String,
+    /** Id KV del recorrido publicado por la organización (base común). Mismo
+     *  formato que sirve `/api/share/:id`, así que vale para descargar el mapa
+     *  sin tener que guardarse una previsión propia. */
+    val planShareId: String? = null,
     val planName: String? = null,
     val startsAt: Double? = null,
     /** Terminado por el organizador: no se ofrece para emitir. */

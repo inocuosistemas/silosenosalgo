@@ -50,6 +50,9 @@ import java.util.Locale
 fun SeccionMapaOffline(
     planId: String?,
     trazaActual: List<TrailPoint>,
+    /** Se corre "la del evento": el recorrido no es una previsión propia y hay
+     *  que traerlo del share público de la carrera. */
+    conEvento: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -68,10 +71,17 @@ fun SeccionMapaOffline(
     var cancelar by remember { mutableStateOf(false) }
     var ocupado by remember { mutableStateOf(teselas.bytesOcupados()) }
 
-    // La ruta: la planificada si hay plan elegido, y si no lo ya recorrido.
-    LaunchedEffect(planId, trazaActual.size) {
+    // La ruta: la previsión elegida; si no, la del evento; y si tampoco, lo ya
+    // recorrido.
+    LaunchedEffect(planId, conEvento, trazaActual.size) {
         cargandoRuta = true
-        val planificada = planId?.let { TrackingStore.trazadoDelPlan(it) }
+        val planificada = if (planId != null) {
+            TrackingStore.trazadoDelPlan(planId)
+        } else if (conEvento) {
+            TrackingStore.trazadoDelEvento()
+        } else {
+            null
+        }
         ruta = PlanGeometry.rutaParaDescargar(planificada, trazaActual)
         cargandoRuta = false
     }

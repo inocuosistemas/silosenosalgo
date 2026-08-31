@@ -921,6 +921,16 @@ final class TrackingStore: ObservableObject {
     /// Fetch + decode a saved plan's route polyline so its map corridor can be
     /// pre-downloaded BEFORE sharing (the night before). Needs connectivity; nil
     /// offline or on error.
+    /// El recorrido del EVENTO elegido (la base que publicó la organización).
+    /// Sirve para preparar el mapa cuando no se ha elegido previsión propia:
+    /// "la del evento" es un recorrido como cualquier otro, solo que vive en el
+    /// evento y no en tus previsiones.
+    func eventPolyline() async -> [(lat: Double, lon: Double)]? {
+        guard let shareId = activeEvent?.planShareId ?? events.first(where: { $0.id == selectedEventId })?.planShareId,
+              let bytes = try? await API.fetchSharePayload(shareId: shareId) else { return nil }
+        return PlanGeometry.polyline(fromGzip: bytes)
+    }
+
     func planPolyline(for planId: String) async -> [(lat: Double, lon: Double)]? {
         guard let bytes = try? await API.fetchPlanPayload(token: token, planId: planId) else { return nil }
         return PlanGeometry.polyline(fromGzip: bytes)

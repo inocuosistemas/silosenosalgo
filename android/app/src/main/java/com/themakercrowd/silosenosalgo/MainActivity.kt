@@ -758,6 +758,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 SeccionMapaOffline(
                     planId = estado.planId,
                     trazaActual = TrackingStore.trazaActual(),
+                    conEvento = estado.eventoId != null,
                 )
             }
         }

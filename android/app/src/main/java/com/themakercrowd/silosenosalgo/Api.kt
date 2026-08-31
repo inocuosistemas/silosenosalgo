@@ -223,6 +223,24 @@ class Api(
         return decode<SessionsWrapper>(body).sessions
     }
 
+    /**
+     * Los bytes gzip de un recorrido COMPARTIDO (`/api/share/:id`).
+     *
+     * Es el camino para el recorrido de un evento, que no es una previsión
+     * propia y por tanto no vive en `/api/plans`. Público: va sin sesión.
+     */
+    suspend fun fetchSharePayload(shareId: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$baseUrl/api/share/$shareId").build()
+        try {
+            client.newCall(req).execute().use { resp ->
+                if (!ok(resp.code)) throw ApiException(resp.code, "not_found")
+                resp.body?.bytes() ?: ByteArray(0)
+            }
+        } catch (e: IOException) {
+            throw ApiException(0, "network")
+        }
+    }
+
     // ── Eventos ──────────────────────────────────────────────────────────────
 
     /** Los eventos en los que participo. Al mejor esfuerzo desde la interfaz:

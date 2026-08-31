@@ -298,6 +298,11 @@ struct TrackingView: View {
                             Text("72 h").tag(72.0)
                             Text("1 semana").tag(168.0)
                         }
+                        // El consejo de bajo consumo vive aquí y no en una
+                        // sección aparte: habla del gasto, que es justo de lo
+                        // que trata esta sección, y suelto era una tarjeta más
+                        // en una pantalla que ya tenía demasiadas.
+                        lowPowerTip
                     } label: {
                         Text(recordingSummary)
                             .font(.subheadline)
@@ -312,11 +317,6 @@ struct TrackingView: View {
                         Text("El gasto lo manda el GPS, no la frecuencia de envío: ahorrar es pedirle menos al GPS, y parado no gasta.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
-                }
-                .listRowBackground(Theme.slate900)
-
-                Section {
-                    lowPowerTip
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -1058,12 +1058,18 @@ struct TrackingView: View {
 
     /// Resolve the selected plan's route (fetches + decodes its geometry) and open
     /// the offline-map screen — usable before sharing, to prepare the map ahead.
+    /// Prepara el mapa del recorrido que se va a seguir: la previsión elegida
+    /// o, si se corre "la del evento", la base publicada por la organización —
+    /// que no es una previsión propia y hay que traerla del share público.
     private func openMapDownloadForSelectedPlan() {
-        guard let id = store.selectedPlanId else { return }
         resolvingRoute = true
-        downloadRouteName = store.plans.first(where: { $0.id == id })?.name
+        let planId = store.selectedPlanId
+        downloadRouteName = planId.flatMap { id in store.plans.first(where: { $0.id == id })?.name }
+            ?? store.activeEvent?.name
         Task {
-            downloadPolyline = await store.planPolyline(for: id)
+            downloadPolyline = planId != nil
+                ? await store.planPolyline(for: planId!)
+                : await store.eventPolyline()
             resolvingRoute = false
             showMapDownload = true
         }

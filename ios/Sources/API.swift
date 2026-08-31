@@ -92,6 +92,10 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
 struct EventSummary: Codable, Identifiable, Equatable {
     let id: String
     let name: String
+    /// Id KV del recorrido publicado por la organización (base común). Es el
+    /// mismo formato que sirve `/api/share/:id`, así que vale para descargar
+    /// el mapa sin tener que guardarse una previsión propia.
+    let planShareId: String?
     let planName: String?
     let startsAt: Double?
     /// Terminado por el organizador: no se ofrece para emitir.
@@ -255,6 +259,15 @@ enum API {
     /// the bytes verbatim (NOT JSON-decoded).
     static func fetchPlanPayload(token: String, planId: String) async throws -> Data {
         let (data, http) = try await request("api/plans/\(planId)", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return data
+    }
+
+    /// Los bytes gzip de un recorrido COMPARTIDO (`/api/share/:id`). Es el
+    /// camino para el recorrido de un evento, que no es una previsión propia y
+    /// por tanto no está en `/api/plans`. Público: no lleva sesión.
+    static func fetchSharePayload(shareId: String) async throws -> Data {
+        let (data, http) = try await request("api/share/\(shareId)", method: "GET", token: nil)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return data
     }
