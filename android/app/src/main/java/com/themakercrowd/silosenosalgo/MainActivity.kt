@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -356,7 +358,24 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     }
 
     val desplazamiento = rememberScrollState()
+    var refrescando by remember { mutableStateOf(false) }
+    var confirmandoSalida by remember { mutableStateOf(false) }
 
+    // Arrastrar hacia abajo refresca, como en iOS: recoge lo hecho en otro
+    // sitio (una previsión recién creada en la web) sin salir de la pantalla.
+    PullToRefreshBox(
+        isRefreshing = refrescando,
+        onRefresh = {
+            refrescando = true
+            scope.launch {
+                TrackingStore.cargaPlanes()
+                TrackingStore.cargaSesiones()
+                TrackingStore.refrescaAlmacenamiento()
+                refrescando = false
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(desplazamiento).padding(20.dp),
     ) {
@@ -375,7 +394,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
                 }
             }
-            TextButton(onClick = onSalir, enabled = !estado.compartiendo) { Text("Salir") }
+            // Se pregunta antes de salir, como en iOS: al lado del título es
+            // fácil rozarlo, y en marcha además hay que detener la baliza.
+            TextButton(onClick = { confirmandoSalida = true }) { Text("Salir") }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -527,6 +548,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
             Spacer(Modifier.height(12.dp))
             SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
+            // La hora de salida, editable como en iOS. En marcha se oculta: la
+            // sesión ya está creada en el backend con la suya.
+            if (!estado.compartiendo) {
+                Spacer(Modifier.height(12.dp))
+                SelectorSalida(estado.salidaMs, estado.salidaTocada) {
+                    TrackingStore.ajustaSalida(it)
+                }
+            }
         }
 
         if (!estado.compartiendo) {
@@ -682,6 +711,46 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+    }
+
+    if (confirmandoSalida) {
+        AlertDialog(
+            onDismissRequest = { confirmandoSalida = false },
+            title = { Text("Salir de la cuenta") },
+            text = {
+                Text(
+                    if (estado.compartiendo) {
+                        "Estás compartiendo tu ubicación. Al salir se detiene el " +
+                            "seguimiento y se cierra la sesión."
+                    } else {
+                        "Se cerrará tu sesión en este dispositivo."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmandoSalida = false
+                    scope.launch {
+                        // Primero se para la baliza (con el token aún vivo, para
+                        // que el `end` llegue al backend) y luego se despide el
+                        // servicio; el logout del servidor es cortesía — la
+                        // sesión local se borra igual aunque no haya cobertura.
+                        if (TrackingStore.estado.value.compartiendo) {
+                            TrackingStore.para()
+                            TrackingService.para(context)
+                        }
+                        runCatching {
+                            TokenStore(context).token?.let { Api().logout(it) }
+                        }
+                        onSalir()
+                    }
+                }) { Text(if (estado.compartiendo) "Detener y salir" else "Salir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmandoSalida = false }) { Text("Cancelar") }
+            },
+        )
     }
 
     // La pantalla de preparar el mapa se abre desde la ruta elegida, igual que

@@ -3,7 +3,12 @@
 // que poder saltar de línea, y la alternativa sin API experimental —una fila con
 // desplazamiento horizontal— escondería acciones fuera de pantalla, que en una
 // pantalla de móvil estrecha significa que nadie las encuentra.
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    // Los selectores de fecha y hora de Material 3 siguen marcados como
+    // experimentales; se asumen igual que FlowRow, no hay alternativa estable.
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.themakercrowd.silosenosalgo
 
@@ -24,6 +29,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -34,6 +41,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -644,6 +654,108 @@ fun SelectorRetencion(horas: Double, onElige: (Double) -> Unit) {
         valueRange = 0f..(pasos.size - 1).toFloat(),
         steps = pasos.size - 2,
     )
+}
+
+/**
+ * La hora de salida prevista. Espejo del DatePicker de iOS: por defecto "Ahora"
+ * —y "ahora" se resuelve al pulsar "Empezar", no al abrir la pantalla—, y si se
+ * fija una hora futura la baliza queda ARMADA sin gastar GPS hasta que llegue.
+ *
+ * Material 3 no trae un diálogo único de fecha y hora: se encadenan el
+ * calendario y el reloj, que es lo que hacen los propios ajustes del sistema.
+ */
+@Composable
+fun SelectorSalida(salidaMs: Double, tocada: Boolean, onElige: (Double) -> Unit) {
+    var eligiendoFecha by remember { mutableStateOf(false) }
+    var eligiendoHora by remember { mutableStateOf(false) }
+    var diaElegidoMs by remember { mutableStateOf(0L) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Hora de salida prevista",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Paleta.slate400,
+        )
+        TextButton(onClick = { eligiendoFecha = true }) {
+            Text(if (tocada) fecha(salidaMs) else "Ahora")
+        }
+    }
+    Text(
+        "Por defecto, ahora. Si activas el seguimiento más tarde, ajústala a la " +
+            "hora real de salida para mantener ritmos y previsiones correctos.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Paleta.slate400,
+    )
+
+    if (eligiendoFecha) {
+        val estadoFecha = rememberDatePickerState(
+            initialSelectedDateMillis = if (tocada) salidaMs.toLong() else System.currentTimeMillis(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { eligiendoFecha = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    diaElegidoMs = estadoFecha.selectedDateMillis ?: System.currentTimeMillis()
+                    eligiendoFecha = false
+                    eligiendoHora = true
+                }) { Text("Siguiente") }
+            },
+            dismissButton = {
+                TextButton(onClick = { eligiendoFecha = false }) { Text("Cancelar") }
+            },
+        ) { DatePicker(state = estadoFecha) }
+    }
+
+    if (eligiendoHora) {
+        val inicial = remember {
+            java.util.Calendar.getInstance().apply { if (tocada) timeInMillis = salidaMs.toLong() }
+        }
+        val estadoHora = rememberTimePickerState(
+            initialHour = inicial.get(java.util.Calendar.HOUR_OF_DAY),
+            initialMinute = inicial.get(java.util.Calendar.MINUTE),
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { eligiendoHora = false },
+            title = { Text("Hora de salida") },
+            text = { TimePicker(state = estadoHora) },
+            confirmButton = {
+                TextButton(onClick = {
+                    eligiendoHora = false
+                    onElige(componSalida(diaElegidoMs, estadoHora.hour, estadoHora.minute))
+                }) { Text("Aceptar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { eligiendoHora = false }) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
+/**
+ * El `DatePicker` devuelve la medianoche del día elegido EN UTC; la hora la
+ * pone quien mira su reloj local. Se recompone el instante con el día leído en
+ * UTC y la hora en la zona del móvil, que es la que tiene en la cabeza quien
+ * dice "salgo a las 7".
+ */
+private fun componSalida(diaUtcMs: Long, hora: Int, minuto: Int): Double {
+    val utc = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        .apply { timeInMillis = diaUtcMs }
+    val local = java.util.Calendar.getInstance().apply {
+        clear()
+        set(
+            utc.get(java.util.Calendar.YEAR),
+            utc.get(java.util.Calendar.MONTH),
+            utc.get(java.util.Calendar.DAY_OF_MONTH),
+            hora,
+            minuto,
+        )
+    }
+    return local.timeInMillis.toDouble()
 }
 
 @Composable

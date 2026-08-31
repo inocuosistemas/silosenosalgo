@@ -47,6 +47,10 @@ object TrackingStore {
         /** Ruta planificada asociada, si se eligió una antes de empezar. */
         val planId: String? = null,
         val salidaMs: Double = 0.0,
+        /** Si la salida la fijó alguien (el plan, o la mano). Sin tocar, la
+         *  salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la
+         *  pantalla: espejo de `startAtTouched` en iOS. */
+        val salidaTocada: Boolean = false,
         val retenerHoras: Double = 48.0,
         /** Posiciones registradas y aún sin subir (atasco sin cobertura). */
         val pendientes: Int = 0,
@@ -179,7 +183,9 @@ object TrackingStore {
     suspend fun empieza(
         titulo: String?,
         planId: String? = _estado.value.planId,
-        salidaMs: Double = _estado.value.salidaMs.takeIf { it > 0 } ?: ahoraMs,
+        // Sin salida fijada se usa "ahora" EN EL MOMENTO de compartir, no el
+        // valor rancio de cuando se abrió la pantalla (como en iOS).
+        salidaMs: Double = _estado.value.salidaMs.takeIf { _estado.value.salidaTocada } ?: ahoraMs,
         actividad: BeaconActivity? = _estado.value.actividad,
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
@@ -385,12 +391,22 @@ object TrackingStore {
      */
     fun eligePlan(planId: String?) {
         val plan = _planes.value.firstOrNull { it.id == planId }
-        val salida = TrackingRules.parseaIso(plan?.startTime) ?: ahoraMs
-        _estado.value = _estado.value.copy(planId = planId, salidaMs = salida)
+        val salida = TrackingRules.parseaIso(plan?.startTime)
+        // Sin plan (o sin hora en el plan) la salida vuelve a "ahora", que se
+        // resuelve al pulsar "Empezar": dejar aquí la hora de este instante la
+        // volvería rancia si se comparte más tarde.
+        _estado.value = _estado.value.copy(
+            planId = planId,
+            salidaMs = salida ?: 0.0,
+            salidaTocada = salida != null,
+        )
     }
 
+    /** Fija a mano la hora de salida prevista (el DatePicker de iOS): ritmos y
+     *  previsiones van contra ella, y una hora futura deja la baliza ARMADA sin
+     *  gastar GPS hasta que se acerque. */
     fun ajustaSalida(salidaMs: Double) {
-        _estado.value = _estado.value.copy(salidaMs = salidaMs)
+        _estado.value = _estado.value.copy(salidaMs = salidaMs, salidaTocada = true)
         guardaActivo()
     }
 

@@ -37,6 +37,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -170,6 +172,14 @@ fun HojaAnadirNota(
             }
             if (grabando) Text("Grabando…", style = MaterialTheme.typography.bodySmall)
 
+            // El medidor a la vista al adjuntar, como en iOS: descubrir que no
+            // caben las fotos a mitad de travesía no tiene arreglo desde el
+            // monte.
+            Spacer(Modifier.height(12.dp))
+            val estado by TrackingStore.estado.collectAsState()
+            LaunchedEffect(Unit) { TrackingStore.refrescaAlmacenamiento() }
+            MedidorAlmacenamiento(estado)
+
             Spacer(Modifier.height(12.dp))
             Text(
                 "Se ancla a tu posición actual y se sube al recuperar cobertura. " +
@@ -249,6 +259,12 @@ fun HojaListaNotas(
                 Text("Notas", style = MaterialTheme.typography.titleMedium)
                 Text("${notas.size}", style = MaterialTheme.typography.titleMedium)
             }
+            Spacer(Modifier.height(8.dp))
+            // El medidor arriba de la lista, como en iOS: es donde se decide si
+            // caben más fotos, y donde se viene a borrar cuando no.
+            val estadoAlmacen by TrackingStore.estado.collectAsState()
+            LaunchedEffect(Unit) { TrackingStore.refrescaAlmacenamiento() }
+            MedidorAlmacenamiento(estadoAlmacen)
             Spacer(Modifier.height(8.dp))
             if (notas.isEmpty()) {
                 Text("Todavía no hay notas", style = MaterialTheme.typography.bodyMedium)
