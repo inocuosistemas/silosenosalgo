@@ -531,6 +531,37 @@ fun SelectorPlan(planes: List<PlanSummary>, elegido: String?, onElige: (String?)
 }
 
 /**
+ * El evento al que se atribuye la salida.
+ *
+ * Solo aparece si participo en alguno: para el 99% de las salidas, que son
+ * sueltas, esta sección no existe. Se puede cambiar EN MARCHA —el store lo
+ * negocia con el servidor— porque acordarse a mitad de carrera es lo normal, y
+ * obligar a parar y volver a empezar partiría la traza en dos.
+ */
+@Composable
+fun SelectorEvento(eventos: List<EventSummary>, elegido: String?, onElige: (String?) -> Unit) {
+    if (eventos.isEmpty()) return
+    Text("Evento", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(4.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        BotonElegible("Ninguno", elegido == null) { onElige(null) }
+        eventos.forEach { ev ->
+            BotonElegible(ev.name, elegido == ev.id) { onElige(ev.id) }
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        if (elegido != null) {
+            "Apareces en el mapa del evento con tu color. Se puede cambiar sobre la marcha."
+        } else {
+            "Si corres una carrera con otros, elígela para que os veáis en el mismo mapa."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = Paleta.slate400,
+    )
+}
+
+/**
  * Los mandos manuales. Tocar cualquiera pasa el perfil a "personalizado": si no,
  * la pantalla enseñaría "Equilibrado" mientras el ritmo real es otro.
  */

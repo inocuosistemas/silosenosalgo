@@ -223,12 +223,37 @@ class Api(
         return decode<SessionsWrapper>(body).sessions
     }
 
+    // ── Eventos ──────────────────────────────────────────────────────────────
+
+    /** Los eventos en los que participo. Al mejor esfuerzo desde la interfaz:
+     *  sin eventos, la baliza funciona exactamente como siempre. */
+    suspend fun listEvents(token: String): List<EventSummary> {
+        val (body, status) = request("api/events", "GET", token)
+        if (!ok(status)) throw decodeError(body, status)
+        return decode<EventsWrapper>(body).events
+    }
+
+    /**
+     * Une (o saca) del evento la baliza que YA se está emitiendo.
+     *
+     * Es el camino para quien se acuerda a mitad de carrera, que es lo normal:
+     * no obliga a parar y volver a empezar, que partiría la traza en dos.
+     */
+    suspend fun attachBeacon(token: String, eventId: String, attach: Boolean) {
+        val (body, status) = request(
+            "api/events/$eventId/beacon", "POST", token,
+            buildJsonObject { put("attach", JsonPrimitive(attach)) },
+        )
+        if (!ok(status)) throw decodeError(body, status)
+    }
+
     suspend fun createTrack(
         token: String,
         title: String? = null,
         planId: String? = null,
         startAt: Double? = null,
         activity: BeaconActivity? = null,
+        eventId: String? = null,
     ): CreateTrackResponse {
         val (body, status) = request(
             "api/track", "POST", token,
@@ -237,6 +262,10 @@ class Api(
                 if (planId != null) put("planId", JsonPrimitive(planId))
                 if (startAt != null) put("startAt", JsonPrimitive(startAt))
                 if (activity != null) put("activity", JsonPrimitive(activity.wire))
+                // Evento al que se atribuye la salida. El servidor exige ser
+                // miembro; si no lo eres nace suelta en vez de fallar, que lo
+                // importante es salir a correr.
+                if (eventId != null) put("eventId", JsonPrimitive(eventId))
             },
         )
         if (!ok(status)) throw decodeError(body, status)

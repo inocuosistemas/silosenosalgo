@@ -267,6 +267,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val estado by TrackingStore.estado.collectAsState()
     val sesiones by TrackingStore.sesiones.collectAsState()
     val planes by TrackingStore.planes.collectAsState()
+    val eventos by TrackingStore.eventos.collectAsState()
     val notas by TrackingStore.notas.collectAsState()
     val portapapeles = LocalClipboardManager.current
 
@@ -353,6 +354,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
         TrackingStore.cargaSesiones()
         TrackingStore.cargaPlanes()
+        TrackingStore.cargaEventos()
         TrackingStore.refrescaAlmacenamiento()
         TrackingStore.cargaGuias()
     }
@@ -369,6 +371,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             refrescando = true
             scope.launch {
                 TrackingStore.cargaPlanes()
+                TrackingStore.cargaEventos()
                 TrackingStore.cargaSesiones()
                 TrackingStore.refrescaAlmacenamiento()
                 refrescando = false
@@ -518,6 +521,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Paleta.slate400,
                 )
+            }
+        }
+
+        // El evento va ANTES del modo de seguimiento: es una decisión sobre
+        // "qué salida es esta", no sobre cómo se registra.
+        if (eventos.isNotEmpty()) {
+            Seccion(titulo = "Evento") {
+                SelectorEvento(eventos, estado.eventoId) { TrackingStore.ajustaEvento(it) }
             }
         }
 
@@ -803,6 +814,16 @@ private fun EstadoCompacto(estado: TrackingStore.Estado) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (estado.titulo.isNullOrBlank()) Paleta.slate400 else Paleta.slate100,
             )
+            // En qué carrera se está emitiendo: al abrir la app a mitad de ruta,
+            // saber que la baliza cuenta para el evento importa tanto como
+            // saber que sigue transmitiendo.
+            TrackingStore.eventoActual()?.let {
+                Text(
+                    "🏁 ${it.name}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Paleta.sky500,
+                )
+            }
             estado.actividadEfectiva?.let {
                 Text(
                     "${it.emoji} ${it.label}" + if (estado.actividad == null) " · auto" else "",

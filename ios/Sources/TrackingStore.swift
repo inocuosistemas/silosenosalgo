@@ -51,6 +51,11 @@ final class TrackingStore: ObservableObject {
     @Published var startAt: Date = Date()
     var startAtTouched = false
     @Published var sessions: [TrackSessionSummary] = []
+    /// Eventos en los que participo (los que puedo elegir al salir).
+    @Published var events: [EventSummary] = []
+    /// Evento al que se atribuye esta salida. nil = baliza suelta, que es lo
+    /// normal: los eventos son la excepción, no el modo por defecto.
+    @Published var selectedEventId: String? = nil
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
     @Published var retainHours: Double = 48
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
@@ -214,6 +219,50 @@ final class TrackingStore: ObservableObject {
         return f2.date(from: s)
     }
 
+    /// Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
+    /// igual que siempre y el selector simplemente no aparece.
+    func loadEvents() async {
+        if let result = try? await API.listEvents(token: token) {
+            events = result.filter { !$0.isOver }
+        }
+    }
+
+    /// El evento de la salida en curso, para enseñarlo mientras se emite.
+    var activeEvent: EventSummary? {
+        guard let id = selectedEventId else { return nil }
+        return events.first { $0.id == id }
+    }
+
+    /**
+     * Cambia el evento al que se atribuye la salida.
+     *
+     * Antes de salir es solo una elección local (viaja al crear la sesión). En
+     * marcha, en cambio, hay que decírselo al servidor: la sesión ya existe, y
+     * obligar a pararla y volver a empezar para corregir el evento partiría la
+     * traza en dos. Es el mismo camino que usa el lobby de la web.
+     */
+    func setEvent(_ eventId: String?) {
+        let previous = selectedEventId
+        selectedEventId = eventId
+        guard isSharing else { return }
+        Task {
+            // Quitar primero del anterior: una sesión pertenece a un evento, no
+            // a dos, y el servidor solo conoce la petición que le llega.
+            if let previous, previous != eventId {
+                try? await API.attachBeacon(token: token, eventId: previous, attach: false)
+            }
+            if let eventId {
+                do { try await API.attachBeacon(token: token, eventId: eventId, attach: true) }
+                catch {
+                    // Sin baliza viva o sin permiso: se deshace la elección para
+                    // no enseñar un evento al que en realidad no se está unido.
+                    selectedEventId = previous
+                    lastError = "No se pudo unir la baliza al evento."
+                }
+            }
+        }
+    }
+
     func loadSessions() async {
         // Best-effort: if it fails we keep whatever we had; never crash.
         if let result = try? await API.listSessions(token: token) {
@@ -278,6 +327,9 @@ final class TrackingStore: ObservableObject {
         let summary = sessions.first(where: { $0.id == id })
         activePlanName = summary?.planName
         activity = summary?.activity
+        // El evento viene de la sesión, no de lo que estuviera elegido: al
+        // retomar una salida de ayer, el evento es el suyo.
+        selectedEventId = summary?.eventId
         isSharing = true
         pingCount = 0
         lastSentAt = nil
@@ -374,7 +426,7 @@ final class TrackingStore: ObservableObject {
             // If the user didn't set a departure time, use "now" at share time
             // (not the stale value from when the screen opened).
             let start = startAtTouched ? startAt : Date()
-            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity)
+            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId)
             sessionToken = res.id
             activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true

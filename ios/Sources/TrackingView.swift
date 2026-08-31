@@ -46,6 +46,12 @@ struct TrackingView: View {
         Binding(get: { store.activity }, set: { store.setActivity($0) })
     }
 
+    /// Elegir evento: antes de salir es local, en marcha lo negocia con el
+    /// servidor (ver TrackingStore.setEvent).
+    private var eventBinding: Binding<String?> {
+        Binding(get: { store.selectedEventId }, set: { store.setEvent($0) })
+    }
+
     private var intervalIndexBinding: Binding<Double> {
         Binding(
             get: { Double(intervalSteps.firstIndex(of: store.intervalSeconds) ?? 2) },
@@ -113,6 +119,28 @@ struct TrackingView: View {
                         .font(.caption).foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)
+
+                // Evento: la carrera compartida a la que se atribuye esta
+                // salida. Solo aparece si participo en alguno — para el 99% de
+                // las salidas, que son sueltas, esta sección no existe.
+                if !store.events.isEmpty {
+                    Section {
+                        Picker("Evento", selection: eventBinding) {
+                            Text("Ninguno · salida suelta").tag(String?.none)
+                            ForEach(store.events) { ev in
+                                Text(ev.name).tag(Optional(ev.id))
+                            }
+                        }
+                    } header: {
+                        Text("Evento").foregroundStyle(Theme.slate400)
+                    } footer: {
+                        Text(store.selectedEventId != nil
+                             ? "Apareces en el mapa del evento con tu color. Se puede cambiar en marcha."
+                             : "Si corres una carrera con otros, elígela para que os veáis en el mismo mapa.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
 
                 Section {
                     if !store.isSharing {
@@ -467,12 +495,15 @@ struct TrackingView: View {
                 // portal (like Android's POST_NOTIFICATIONS), not mid-route.
                 CheerNotifier.shared.requestAuthorization()
                 await store.loadPlans()
+                await store.loadEvents()
                 await store.loadSessions()
             }
             .refreshable {
                 // Pull down to pick up changes made elsewhere (e.g. a route just
-                // created on the web) without leaving the screen.
+                // created on the web, o un evento al que te acaban de invitar)
+                // without leaving the screen.
                 await store.loadPlans()
+                await store.loadEvents()
                 await store.loadSessions()
             }
             .fullScreenCover(isPresented: $showLiveMap) {
@@ -579,6 +610,14 @@ struct TrackingView: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.slate400)
             }
+        }
+        // En qué carrera se está emitiendo: al abrir la app a mitad de ruta,
+        // saber que la baliza cuenta para el evento es tan importante como
+        // saber que sigue transmitiendo.
+        if store.isSharing, let ev = store.activeEvent {
+            Label(ev.name, systemImage: "flag.checkered")
+                .font(.subheadline)
+                .foregroundStyle(Theme.sky500)
         }
         if store.isSharing, let act = store.effectiveActivity {
             HStack(spacing: 6) {

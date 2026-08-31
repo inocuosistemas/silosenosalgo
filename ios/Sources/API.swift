@@ -78,9 +78,26 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let endedAt: Double?     // when ended (epoch ms), nil if active
     let pinned: Bool?        // "chincheta": kept indefinitely; nil on old servers
     let activity: BeaconActivity?  // movement type; nil = auto/unset (or old server)
+    /// Evento al que pertenece la salida; nil = baliza suelta (o servidor viejo).
+    let eventId: String?
 
     /// Pinned state with a safe default for responses predating the field.
     var isPinned: Bool { pinned ?? false }
+}
+
+/// Un evento en el que participo, tal y como lo necesita la baliza: lo justo
+/// para elegirlo al empezar a compartir. El lobby, los colores y el mapa de
+/// todos viven en la web (ver docs); aquí solo hace falta saber a qué carrera
+/// se atribuye esta salida.
+struct EventSummary: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let planName: String?
+    let startsAt: Double?
+    /// Terminado por el organizador: no se ofrece para emitir.
+    let endedAt: Double?
+
+    var isOver: Bool { endedAt != nil }
 }
 
 /// A saved race plan ("previsión") belonging to the user. The server returns
@@ -256,12 +273,36 @@ enum API {
         return try JSONDecoder().decode(Wrapper.self, from: data).sessions
     }
 
-    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil) async throws -> CreateTrackResponse {
+    // MARK: Eventos
+
+    /// Los eventos en los que participo. Al mejor esfuerzo en la UI: sin
+    /// eventos, la baliza funciona exactamente como siempre.
+    static func listEvents(token: String) async throws -> [EventSummary] {
+        struct Wrapper: Codable { let events: [EventSummary] }
+        let (data, http) = try await request("api/events", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(Wrapper.self, from: data).events
+    }
+
+    /// Une (o saca) del evento la baliza que YA se está emitiendo. Es el camino
+    /// para quien se acuerda a mitad de carrera, que es lo normal: no obliga a
+    /// parar y volver a empezar, que partiría la traza en dos.
+    static func attachBeacon(token: String, eventId: String, attach: Bool) async throws {
+        let (data, http) = try await request(
+            "api/events/\(eventId)/beacon", method: "POST", token: token, body: ["attach": attach])
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+    }
+
+    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil, eventId: String? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
         if let planId { body["planId"] = planId }
         if let startAt { body["startAt"] = startAt }
         if let activity { body["activity"] = activity.rawValue }
+        // Evento al que se atribuye la salida. El servidor exige ser miembro;
+        // si no lo eres, la sesión nace suelta en vez de fallar — lo importante
+        // es salir a correr.
+        if let eventId { body["eventId"] = eventId }
         let (data, http) = try await request("api/track", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)

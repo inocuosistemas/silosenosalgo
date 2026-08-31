@@ -124,12 +124,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const { results } = await env.DB.prepare(
     `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt,
-            updated_at AS updatedAt, ended_at AS endedAt, pinned, activity
+            updated_at AS updatedAt, ended_at AS endedAt, pinned, activity, event_id AS eventId
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; title: string | null; planName: string | null; status: string
     startedAt: number; expiresAt: number; updatedAt: number | null; endedAt: number | null
-    pinned: number | null; activity: string | null
+    pinned: number | null; activity: string | null; eventId: string | null
   }>()
 
   const now = Date.now()
@@ -151,6 +151,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       endedAt: r.endedAt ?? (r.status === 'active' && expired ? r.expiresAt : null),
       pinned,
       activity: isBeaconActivity(r.activity) ? r.activity : null,
+      // A qué evento pertenece esta salida (null = baliza suelta). Lo necesitan
+      // las apps para enseñar en qué carrera están emitiendo al retomar una
+      // sesión que empezó en otro momento.
+      eventId: r.eventId,
     }
   })
 

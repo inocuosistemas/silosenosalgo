@@ -46,6 +46,9 @@ object TrackingStore {
         val actividad: BeaconActivity? = null,
         /** Ruta planificada asociada, si se eligió una antes de empezar. */
         val planId: String? = null,
+        /** Evento al que se atribuye esta salida. null = baliza suelta, que es
+         *  lo normal: los eventos son la excepción, no el modo por defecto. */
+        val eventoId: String? = null,
         val salidaMs: Double = 0.0,
         /** Si la salida la fijó alguien (el plan, o la mano). Sin tocar, la
          *  salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la
@@ -102,6 +105,10 @@ object TrackingStore {
     /** Las rutas planificadas que se pueden asociar a una sesión. */
     private val _planes = MutableStateFlow<List<PlanSummary>>(emptyList())
     val planes: StateFlow<List<PlanSummary>> = _planes.asStateFlow()
+
+    /** Los eventos en los que participo, para elegir uno al salir. */
+    private val _eventos = MutableStateFlow<List<EventSummary>>(emptyList())
+    val eventos: StateFlow<List<EventSummary>> = _eventos.asStateFlow()
 
     /** Las guías `.slsnsguide` importadas, para consultarlas sin conexión. */
     private val _guias = MutableStateFlow<List<GuideRules.GuiaLocal>>(emptyList())
@@ -190,7 +197,7 @@ object TrackingStore {
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
         return runCatching {
-            val res = api.createTrack(t, titulo, planId, salidaMs, actividad)
+            val res = api.createTrack(t, titulo, planId, salidaMs, actividad, _estado.value.eventoId)
             pendientes = emptyList()
             traza = emptyList()
             notasPendientes = emptyList()
@@ -262,6 +269,7 @@ object TrackingStore {
                 distanciaMetros = guardado.distanciaMetros,
             ),
             actividad = BeaconActivity.fromWire(guardado.actividad),
+            eventoId = guardado.eventoId,
             salidaMs = guardado.salidaMs,
             retenerHoras = guardado.retenerHoras,
             pendientes = pendientes.size,
@@ -384,6 +392,53 @@ object TrackingStore {
         runCatching { api.listPlans(t) }.onSuccess { _planes.value = it }
     }
 
+    /** Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
+     *  igual que siempre y el selector simplemente no aparece. */
+    suspend fun cargaEventos() {
+        val t = token ?: return
+        runCatching { api.listEvents(t) }.onSuccess { lista ->
+            _eventos.value = lista.filter { !it.isOver }
+        }
+    }
+
+    /** El evento de la salida en curso, para enseñarlo mientras se emite. */
+    fun eventoActual(): EventSummary? =
+        _estado.value.eventoId?.let { id -> _eventos.value.firstOrNull { it.id == id } }
+
+    /**
+     * Cambia el evento al que se atribuye la salida.
+     *
+     * Antes de salir es solo una elección local (viaja al crear la sesión). En
+     * marcha hay que decírselo al servidor: la sesión ya existe, y obligar a
+     * pararla y volver a empezar para corregir el evento partiría la traza en
+     * dos. Mismo camino que el lobby de la web.
+     */
+    fun ajustaEvento(eventoId: String?) {
+        val anterior = _estado.value.eventoId
+        _estado.value = _estado.value.copy(eventoId = eventoId)
+        guardaActivo()
+        if (!_estado.value.compartiendo) return
+        val t = token ?: return
+        scope.launch {
+            // Quitar primero del anterior: una sesión pertenece a un evento, no
+            // a dos, y el servidor solo conoce la petición que le llega.
+            if (anterior != null && anterior != eventoId) {
+                runCatching { api.attachBeacon(t, anterior, false) }
+            }
+            if (eventoId != null) {
+                runCatching { api.attachBeacon(t, eventoId, true) }.onFailure {
+                    // Sin baliza viva o sin permiso: se deshace la elección para
+                    // no enseñar un evento al que en realidad no se está unido.
+                    _estado.value = _estado.value.copy(
+                        eventoId = anterior,
+                        error = "No se pudo unir la baliza al evento.",
+                    )
+                    guardaActivo()
+                }
+            }
+        }
+    }
+
     /**
      * Asocia una ruta planificada. La salida por defecto pasa a ser la DEL PLAN
      * y no el momento de activar, para que los ritmos y las predicciones que ve
@@ -432,6 +487,9 @@ object TrackingStore {
             perfil = _estado.value.perfil,
             ritmo = _estado.value.ritmo,
             actividad = resumen?.activity,
+            // El evento sale de la sesion, no de lo que estuviera elegido: al
+            // retomar una salida de ayer, el evento es el suyo.
+            eventoId = resumen?.eventId,
             salidaMs = resumen?.startedAt ?: ahoraMs,
             retenerHoras = _estado.value.retenerHoras,
             pendientes = pendientes.size,
@@ -1163,6 +1221,7 @@ object TrackingStore {
                 retenerHoras = e.retenerHoras,
                 actividad = e.actividad?.wire,
                 titulo = e.titulo,
+                eventoId = e.eventoId,
                 guardadoMs = ahoraMs,
             ),
         )

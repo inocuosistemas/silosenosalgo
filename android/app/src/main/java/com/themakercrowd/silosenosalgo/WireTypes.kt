@@ -83,6 +83,9 @@ data class TrackSessionSummary(
     val endedAt: Double? = null,
     val pinned: Boolean? = null,
     val activity: BeaconActivity? = null,
+    /** Evento al que pertenece la salida; null = baliza suelta (o servidor
+     *  viejo que no manda el campo). */
+    val eventId: String? = null,
 ) {
     val isActive: Boolean get() = status == "active"
 
@@ -90,6 +93,29 @@ data class TrackSessionSummary(
      *  trata como "sin chincheta", que es el valor por defecto real. */
     val isPinned: Boolean get() = pinned == true
 }
+
+/**
+ * Un evento en el que participo, tal y como lo necesita la baliza: lo justo
+ * para elegirlo al empezar a compartir.
+ *
+ * El lobby, los colores y el mapa de todos viven en la web y necesitan
+ * cobertura; aquí solo hace falta saber a qué carrera se atribuye esta salida,
+ * que es lo único que la app tiene que decidir sin conexión.
+ */
+@Serializable
+data class EventSummary(
+    val id: String,
+    val name: String,
+    val planName: String? = null,
+    val startsAt: Double? = null,
+    /** Terminado por el organizador: no se ofrece para emitir. */
+    val endedAt: Double? = null,
+) {
+    val isOver: Boolean get() = endedAt != null
+}
+
+@Serializable
+data class EventsWrapper(val events: List<EventSummary> = emptyList())
 
 /** Una posición enviada al backend. */
 @Serializable

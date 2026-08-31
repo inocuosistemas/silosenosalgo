@@ -36,6 +36,10 @@ class LocalStore(context: Context) {
         val retenerHoras: Double = 48.0,
         val actividad: String? = null,
         val titulo: String? = null,
+        /** Evento al que se atribuye la salida; null = baliza suelta. Nullable
+         *  con default para que un estado guardado por una version anterior
+         *  siga decodificando. */
+        val eventoId: String? = null,
         val guardadoMs: Double = 0.0,
     )
 

@@ -302,6 +302,10 @@ export interface TrackSessionSummary {
   /** Movement type of the session, or null when auto/unset (see BeaconActivity).
    *  Lets the owner's list and the beacon show the activity icon. */
   activity?: BeaconActivity | null
+  /** Evento al que se atribuye esta salida (null = baliza suelta). Lo usan las
+   *  apps para enseñar en qué carrera se está emitiendo al retomar una sesión
+   *  que empezó en otro momento. */
+  eventId?: string | null
 }
 
 export interface TrackSessionsResponse {

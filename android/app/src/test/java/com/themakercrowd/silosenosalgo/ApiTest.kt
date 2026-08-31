@@ -76,6 +76,38 @@ class ApiTest {
         assertEquals("p1", cuerpo["planId"]?.jsonPrimitive?.content)
     }
 
+    @Test fun `crear sesion en un evento manda su id y sigue omitiendo el resto`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"id":"s1","expiresAt":123}"""))
+        api.createTrack("tok", title = null, eventId = "ev_123456789012")
+        val cuerpo = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals(setOf("eventId"), cuerpo.keys)
+        assertEquals("ev_123456789012", cuerpo["eventId"]?.jsonPrimitive?.content)
+    }
+
+    @Test fun `la baliza se une y se saca de un evento por la misma ruta`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"sessionId":"s1"}"""))
+        api.attachBeacon("tok", "ev_123456789012", attach = true)
+        val unir = server.takeRequest()
+        assertEquals("/api/events/ev_123456789012/beacon", unir.path)
+        assertEquals(true, Json.parseToJsonElement(unir.body.readUtf8()).jsonObject["attach"]?.jsonPrimitive?.content?.toBoolean())
+
+        server.enqueue(MockResponse().setResponseCode(204))
+        api.attachBeacon("tok", "ev_123456789012", attach = false)
+        val quitar = server.takeRequest()
+        assertEquals(false, Json.parseToJsonElement(quitar.body.readUtf8()).jsonObject["attach"]?.jsonPrimitive?.content?.toBoolean())
+    }
+
+    @Test fun `los eventos terminados llegan marcados para no ofrecerlos`() = runBlocking {
+        server.enqueue(MockResponse().setBody(
+            """{"events":[{"id":"e1","name":"Vivo"},{"id":"e2","name":"Pasado","endedAt":1700000000000}]}""",
+        ))
+        val eventos = api.listEvents("tok")
+        assertEquals("/api/events", server.takeRequest().path)
+        assertEquals(2, eventos.size)
+        assertEquals(false, eventos[0].isOver)
+        assertEquals(true, eventos[1].isOver)
+    }
+
     @Test fun `un ping solo manda los datos que trae la posicion`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(204))
         api.ping("tok", "s1", Fix(lat = 43.1, lon = -7.5, accuracy = 8.0))
