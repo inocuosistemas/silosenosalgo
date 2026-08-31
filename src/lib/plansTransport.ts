@@ -60,6 +60,18 @@ export async function updatePlan(id: string, payload: SharePayloadV1, name: stri
   if (!res.ok) throw errFrom(res)
 }
 
+/**
+ * El payload TAL CUAL está guardado, sin revivir. Para lo que lo reenvía en
+ * vez de cargarlo en la app — convertir una previsión en la base de un evento,
+ * donde revivirlo y volver a construirlo solo añadiría oportunidades de perder
+ * un campo por el camino.
+ */
+export async function getPlanPayload(id: string): Promise<SharePayloadV1> {
+  const res = await fetchSafe(`/api/plans/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return JSON.parse(await gunzipToString(await res.arrayBuffer())) as SharePayloadV1
+}
+
 /** Fetch + gunzip + revive a plan into in-memory shapes. */
 export async function getPlan(id: string): Promise<RevivedShare> {
   const res = await fetchSafe(`/api/plans/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' })

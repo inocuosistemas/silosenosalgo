@@ -5,6 +5,7 @@ import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../li
 import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
+import { MyEvents } from './MyEvents'
 
 /**
  * Header auth control. Registration is INVITE-ONLY: there is no "create account"
@@ -20,6 +21,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   })
   const [showLogin, setShowLogin] = useState(false)
   const [showInvites, setShowInvites] = useState(false)
+  const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
   const clearInvite = useCallback(() => {
@@ -63,6 +65,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     📁 Mis previsiones
                   </button>
                 )}
+                <button
+                  onClick={() => { setMenuOpen(false); setShowEvents(true) }}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                >
+                  🏁 Mis eventos
+                </button>
                 {user.isAdmin && (
                   <button
                     onClick={() => { setMenuOpen(false); setShowInvites(true) }}
@@ -107,6 +115,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       {showInvites && user?.isAdmin && (
         <Modal title="Invitaciones" onClose={() => setShowInvites(false)}>
           <InviteManager />
+        </Modal>
+      )}
+
+      {showEvents && user && (
+        <Modal title="Mis eventos" onClose={() => setShowEvents(false)}>
+          <MyEvents isAdmin={user.isAdmin} />
         </Modal>
       )}
     </>

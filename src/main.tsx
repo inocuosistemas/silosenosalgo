@@ -4,7 +4,7 @@ import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { reloadOnceForChunkError } from './lib/chunkReload'
 import { AuthProvider } from './lib/AuthContext'
-import { TOKEN_RE } from '../shared/validate'
+import { TOKEN_RE, INVITE_RE } from '../shared/validate'
 
 // After a deploy the hashed chunk names change; a tab opened on the previous
 // build fails to fetch its (now-missing) chunks — and since `App` is lazy, that
@@ -19,9 +19,18 @@ window.addEventListener('vite:preloadError', (e) => {
 // must not pull in the full planning App, and vice-versa.
 const App = lazy(() => import('./App'))
 const LiveViewer = lazy(() => import('./components/LiveViewer'))
+// El lobby de un evento es otra pantalla lean: no arrastra el planificador
+// entero, igual que el visor.
+const EventLobby = lazy(() => import('./components/EventLobby'))
+const EventJoin = lazy(() => import('./components/EventJoin'))
 
-const trackToken = new URLSearchParams(window.location.search).get('t')
+const params = new URLSearchParams(window.location.search)
+const trackToken = params.get('t')
 const isViewer = !!trackToken && TOKEN_RE.test(trackToken)
+const eventId = params.get('e')
+const isEvent = !isViewer && !!eventId && TOKEN_RE.test(eventId)
+const joinCode = params.get('evento')
+const isJoin = !isViewer && !isEvent && !!joinCode && INVITE_RE.test(joinCode)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -29,6 +38,16 @@ createRoot(document.getElementById('root')!).render(
       <Suspense fallback={<div style={{ minHeight: '100vh', background: '#020617' }} />}>
         {isViewer ? (
           <LiveViewer token={trackToken!} />
+        ) : isEvent ? (
+          // Con sesión, porque un evento es de sus participantes: el lobby
+          // necesita saber quién mira para decirle cuál es su color.
+          <AuthProvider>
+            <EventLobby id={eventId!} />
+          </AuthProvider>
+        ) : isJoin ? (
+          <AuthProvider>
+            <EventJoin code={joinCode!} />
+          </AuthProvider>
         ) : (
           <AuthProvider>
             <App />

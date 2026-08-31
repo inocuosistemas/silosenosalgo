@@ -308,6 +308,79 @@ export interface TrackSessionsResponse {
   sessions: TrackSessionSummary[]
 }
 
+// ── Eventos ──────────────────────────────────────────────────────────────────
+// Una carrera compartida por varios participantes. Cada uno sigue emitiendo con
+// su propia sesión (su traza, sus notas, su enlace); el evento solo añade la
+// etiqueta común y el sitio donde verse. Lo de la CARRERA —recorrido, controles
+// y horarios de cierre— es común y vive en `planShareId`; lo del CORREDOR
+// —ritmos, margen, objetivos por tramo— es de cada uno y vive en su overlay.
+
+/** Cuánto vale un `lastSeen` para decir que alguien "está" en el lobby. La
+ *  presencia se refresca al mirar, así que pasada esta ventana simplemente ya
+ *  no está mirando (mismo criterio que los seguidores de una baliza). */
+export const EVENT_PRESENCE_MS = 60_000
+
+/** Un participante del evento, tal y como lo ve el lobby y el mapa. */
+export interface EventMember {
+  userId: string
+  username: string
+  /** Slug de la paleta (shared/eventColors.ts); null = aún sin color asignado. */
+  color: string | null
+  joinedAt: number
+  /** Última vez que se le vio en el lobby (epoch ms), o null si nunca. */
+  lastSeen: number | null
+  /** Si tiene planificación propia sobre la base. El contenido del overlay no
+   *  se publica a los demás: solo si existe, para que el lobby lo indique. */
+  hasPlan: boolean
+  /** Id de su sesión de seguimiento emitiendo en este evento, o null si no está
+   *  emitiendo. Es el token público: con él se abre su baliza completa. */
+  sessionId: string | null
+}
+
+export interface EventInfo {
+  id: string
+  name: string
+  /** Base común: id KV del SharePayload con recorrido, controles y cierres. */
+  planShareId: string | null
+  /** Nombre de la previsión de la que salió la base (informativo). */
+  planName: string | null
+  /** Si el evento tiene foto (se sirve en /api/events/:id/photo). */
+  hasPhoto: boolean
+  startsAt: number | null
+  createdAt: number
+  endedAt: number | null
+  /** El que lo creó puede editarlo: base, foto, código y borrado. */
+  isOwner: boolean
+  /** Código de unión MULTIUSO. Solo se envía al dueño del evento. */
+  inviteCode?: string
+}
+
+/** GET /api/events/:id — el lobby: el evento y quién está en él. */
+export interface EventDetailResponse {
+  event: EventInfo
+  members: EventMember[]
+  /** Colores ya cogidos por otros, para deshabilitarlos en el selector. */
+  takenColors: string[]
+  /** El overlay del que consulta (su planificación personal), o null si no
+   *  planifica. Solo el suyo: la de los demás no es asunto de nadie. */
+  myPlanOverlay: string | null
+}
+
+export interface EventsListResponse {
+  events: EventInfo[]
+}
+
+export interface CreateEventResponse {
+  id: string
+}
+
+/** POST /api/events/join — unirse con el código del evento. */
+export interface JoinEventResponse {
+  id: string
+  /** El color que se le ha asignado al entrar, o null si la paleta está llena. */
+  color: string | null
+}
+
 /** GET /api/storage — the caller's note-media use vs their per-user budget. */
 export interface StorageInfo {
   /** Bytes of the user's stored note media (photos + voice memos). */

@@ -4,9 +4,10 @@ import { useAuth } from '../lib/AuthContext'
 import type { SharePayloadV1, RevivedShare } from '../lib/sharePayload'
 import type { PlanMeta } from '../../shared/wireTypes'
 import {
-  listPlans, createPlan, updatePlan, getPlan, renamePlan, deletePlan,
+  listPlans, createPlan, updatePlan, getPlan, getPlanPayload, renamePlan, deletePlan,
   suggestPlanName, plansErrorMessage, PlansError,
 } from '../lib/plansTransport'
+import { ConvertToEvent } from './ConvertToEvent'
 
 type Current = { id: string; name: string } | null
 
@@ -36,6 +37,7 @@ export function MyPlansPanel({
         getPayload={getPayload}
         hasTrack={hasTrack}
         current={current}
+        canCreateEvents={user.isAdmin}
         onSaved={(id, name) => setCurrent({ id, name })}
         onLoaded={(id, name, revived) => { setCurrent({ id, name }); onLoad(revived); onClose() }}
         onDeleted={(id) => setCurrent((c) => (c && c.id === id ? null : c))}
@@ -45,11 +47,13 @@ export function MyPlansPanel({
 }
 
 function PlansBody({
-  getPayload, hasTrack, current, onSaved, onLoaded, onDeleted,
+  getPayload, hasTrack, current, canCreateEvents, onSaved, onLoaded, onDeleted,
 }: {
   getPayload: () => SharePayloadV1
   hasTrack: boolean
   current: Current
+  /** Solo un administrador crea eventos: es quien organiza, no cada cuenta. */
+  canCreateEvents: boolean
   onSaved: (id: string, name: string) => void
   onLoaded: (id: string, name: string, revived: RevivedShare) => void
   onDeleted: (id: string) => void
@@ -58,6 +62,8 @@ function PlansBody({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
+  /** La previsión que se está convirtiendo en evento (con su payload ya leído). */
+  const [converting, setConverting] = useState<{ payload: SharePayloadV1; name: string } | null>(null)
 
   const refresh = useCallback(async () => {
     try { setPlans(await listPlans()); setError(null) }
@@ -107,6 +113,15 @@ function PlansBody({
     if (!next || next === p.name) return
     setBusy(true); setError(null)
     try { await renamePlan(p.id, next); if (current?.id === p.id) onSaved(p.id, next); await refresh() }
+    catch (e) { setError(plansErrorMessage(codeOf(e))) }
+    finally { setBusy(false) }
+  }
+
+  /** Abre "convertir en evento" con el payload de esa previsión, tal cual está
+   *  guardado (el recorte a base común lo hace el propio diálogo). */
+  async function convert(p: PlanMeta) {
+    setBusy(true); setError(null)
+    try { setConverting({ payload: await getPlanPayload(p.id), name: p.name }) }
     catch (e) { setError(plansErrorMessage(codeOf(e))) }
     finally { setBusy(false) }
   }
@@ -177,12 +192,21 @@ function PlansBody({
               <div className="mt-2 flex gap-2">
                 <RowBtn onClick={() => void load(p)} disabled={busy} primary>Cargar</RowBtn>
                 <RowBtn onClick={() => void rename(p)} disabled={busy}>Renombrar</RowBtn>
+                {canCreateEvents && <RowBtn onClick={() => void convert(p)} disabled={busy}>Evento</RowBtn>}
                 <RowBtn onClick={() => void remove(p)} disabled={busy} danger>Borrar</RowBtn>
               </div>
             </div>
           ))
         )}
       </div>
+
+      {converting && (
+        <ConvertToEvent
+          payload={converting.payload}
+          planName={converting.name}
+          onClose={() => setConverting(null)}
+        />
+      )}
     </div>
   )
 }
