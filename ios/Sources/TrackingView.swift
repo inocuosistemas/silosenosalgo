@@ -796,6 +796,12 @@ struct TrackingView: View {
         // "Reanudar" viven dentro de él, y "Continuar" —que es la única acción
         // frecuente— baja a su propia línea.
         VStack(alignment: .leading, spacing: 4) {
+            // Título y etiquetas en la MISMA línea: las etiquetas son cortas y
+            // dejaban medio renglón vacío a su derecha, mientras el título se
+            // truncaba en el de arriba. Juntos, cada uno ocupa lo que necesita
+            // y la ficha baja de altura. Si el nombre es muy largo se recorta
+            // él —las etiquetas no se pueden leer a medias— y el nombre entero
+            // sigue estando en "Renombrar".
             HStack(spacing: 5) {
                 if session.isPinned {
                     Image(systemName: "pin.fill")
@@ -805,10 +811,7 @@ struct TrackingView: View {
                 Text(session.title ?? "Sin nombre")
                     .foregroundStyle(Theme.slate100)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                sessionMenu(session, purged: purged, hasLocal: hasLocal)
-            }
-            HStack(spacing: 8) {
+                    .truncationMode(.tail)
                 Text(active ? "Activo" : (purged ? "Caducado" : "Finalizado"))
                     .font(.caption2)
                     .fontWeight(.semibold)
@@ -817,6 +820,7 @@ struct TrackingView: View {
                     .background((active ? Color.green : (purged ? Color.orange : Theme.slate700)).opacity(0.25))
                     .foregroundStyle(active ? .green : (purged ? .orange : Theme.slate400))
                     .clipShape(Capsule())
+                    .fixedSize()
                 if let act = session.activity {
                     // Movement type this session had (declared, or inferred at the
                     // moment it last stopped). Compact chip so it reads at a glance.
@@ -827,6 +831,7 @@ struct TrackingView: View {
                         .padding(.vertical, 1)
                         .background(Theme.slate800.opacity(0.7))
                         .clipShape(Capsule())
+                        .fixedSize()
                 }
                 if hasLocal {
                     // Lo que decide si una sesión caducada sirve para algo:
@@ -839,7 +844,10 @@ struct TrackingView: View {
                         .background(Theme.sky600.opacity(0.25))
                         .foregroundStyle(Theme.sky500)
                         .clipShape(Capsule())
+                        .fixedSize()
                 }
+                Spacer(minLength: 4)
+                sessionMenu(session, purged: purged, hasLocal: hasLocal)
             }
             Text("Salida \(startedLabel(session.startedAt))")
                 .font(.caption)
