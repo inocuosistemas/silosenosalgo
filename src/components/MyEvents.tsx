@@ -74,32 +74,41 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
           </p>
         ) : (
           events.map((e) => (
+            // Una carrera se reconoce por su cartel, no por su nombre en una
+            // linea de texto: la foto manda, a todo lo ancho y con la misma
+            // proporcion con la que se encuadro. El nombre va ENCIMA, sobre un
+            // degradado que lo hace legible sea cual sea la foto —los carteles
+            // suelen ser blancos—, y el recorrido debajo, sobre el fondo de la
+            // tarjeta, donde se lee sin pelearse con la imagen.
             <a
               key={e.id}
               href={`/?e=${encodeURIComponent(e.id)}`}
-              className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 hover:border-sky-700 transition-colors"
+              className="block overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 hover:border-sky-700 transition-colors"
             >
-              {e.hasPhoto && (
-                <img
-                  src={eventPhotoUrl(e.id)}
-                  alt=""
-                  // Con la proporción del encuadre, no cuadrada: lo que el
-                  // organizador dejó en el marco es lo que se ve aquí también.
-                  style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
-                  className="w-16 shrink-0 object-cover rounded border border-slate-800"
-                />
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-200 truncate">
-                  {e.name}
-                  {e.isOwner && <span className="text-[10px] text-amber-400 font-normal"> · organizas</span>}
-                  {e.endedAt && <span className="text-[10px] text-slate-500 font-normal"> · terminado</span>}
-                </p>
-                <p className="text-[11px] text-slate-500 truncate">
-                  {e.planName ?? 'Sin recorrido todavía'}
-                  {e.startsAt ? ` · ${fmtDate(e.startsAt)}` : ''}
-                </p>
+              <div className="relative w-full" style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}>
+                {e.hasPhoto ? (
+                  <img src={eventPhotoUrl(e.id)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  // Sin foto se mantiene el hueco: una lista donde unas fichas
+                  // son altas y otras bajas se lee peor que una con ritmo, y el
+                  // hueco vacio invita a ponerle cartel.
+                  <div className="absolute inset-0 grid place-items-center bg-slate-900 text-xl opacity-60">🏁</div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-slate-950 via-slate-950/75 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 flex items-end gap-1.5 px-3 pb-2">
+                  <h3 className="min-w-0 truncate text-[15px] font-bold text-slate-50">{e.name}</h3>
+                  {e.isOwner && (
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">organizas</span>
+                  )}
+                  {e.endedAt && (
+                    <span className="shrink-0 rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">terminado</span>
+                  )}
+                </div>
               </div>
+              <p className="truncate px-3 py-2 text-[11px] text-slate-500">
+                {e.planName ?? 'Sin recorrido todavía'}
+                {e.startsAt ? ` · ${fmtDate(e.startsAt)}` : ''}
+              </p>
             </a>
           ))
         )}
