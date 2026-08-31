@@ -503,15 +503,69 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             Spacer(Modifier.height(22.dp))
         }
 
+        // Las decisiones, agrupadas por NATURALEZA y plegadas: cada sección
+        // enseña lo que hay elegido y se abre para cambiarlo. Antes estaban
+        // todas desplegadas a la vez —evento, actividad, ruta, perfil, mandos,
+        // retención, hora— y eso es un muro de mandos donde cuesta encontrar el
+        // que se busca y, peor, cuesta ver de un vistazo QUÉ está puesto.
+        //
+        // Son dos preguntas distintas y por eso son dos secciones: "qué salida
+        // es esta" (el evento, la ruta, el nombre, la hora) y "cómo se registra"
+        // (la actividad, el ritmo, cuánto se conserva).
+        SeccionPlegable(
+            titulo = "Qué salida es esta",
+            resumen = resumenSalida(estado, eventos, planes),
+            // Sin decidir todavía, abierta: es la única sección que hay que
+            // mirar antes de la primera salida.
+            abiertaPorDefecto = !estado.compartiendo && estado.planId == null && estado.eventoId == null,
+        ) {
+            if (eventos.isNotEmpty()) {
+                SelectorEvento(eventos, estado.eventoId) { TrackingStore.ajustaEvento(it) }
+                Spacer(Modifier.height(14.dp))
+            }
+            if (!estado.compartiendo) {
+                // La ruta y la hora se ocultan en marcha: la sesión ya está
+                // creada en el backend con las suyas.
+                SelectorPlan(planes, estado.planId, estado.eventoId) { TrackingStore.eligePlan(it) }
+                if (estado.planId != null || estado.eventoId != null) {
+                    Spacer(Modifier.height(10.dp))
+                    // El mapa sin cobertura cuelga de la ruta: sin recorrido no
+                    // hay corredor que preparar, solo lo ya andado.
+                    OutlinedButton(
+                        onClick = { descargandoMapa = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Descargar mapa offline") }
+                }
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = titulo,
+                    onValueChange = { titulo = it },
+                    label = { Text("Nombre (opcional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+                SelectorSalida(estado.salidaMs, estado.salidaTocada) {
+                    TrackingStore.ajustaSalida(it)
+                }
+            }
+        }
+
         // La actividad y el ritmo se ajustan TAMBIÉN en marcha, como en iOS. No
-        // es un extra: el perfil que se elige en el portal es una apuesta, y a
+        // es un extra: el perfil que se elige antes de salir es una apuesta, y a
         // mitad de ruta es cuando de verdad se sabe si sobra precisión o falta
         // batería. Obligar a parar el seguimiento para cambiarlo sería obligar a
         // partir la traza en dos.
-        Seccion(
-            titulo = "Actividad",
-            pie = "Define cómo ven tu velocidad quienes te siguen y ayuda a " +
-                "descartar saltos de GPS imposibles.",
+        SeccionPlegable(
+            titulo = "Cómo se registra",
+            resumen = resumenRegistro(estado),
+            pie = if (estado.compartiendo) {
+                "Se puede cambiar sobre la marcha: el ritmo nuevo se aplica al " +
+                    "momento, sin cortar la traza."
+            } else {
+                "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
+                    "ahorrar es pedirle menos al GPS, y parado no gasta."
+            },
         ) {
             SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
             estado.actividadEfectiva?.takeIf { estado.actividad == null }?.let {
@@ -522,87 +576,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     color = Paleta.slate400,
                 )
             }
-        }
-
-        // El evento va ANTES del modo de seguimiento: es una decisión sobre
-        // "qué salida es esta", no sobre cómo se registra.
-        if (eventos.isNotEmpty()) {
-            Seccion(titulo = "Evento") {
-                SelectorEvento(eventos, estado.eventoId) { TrackingStore.ajustaEvento(it) }
-            }
-        }
-
-        Seccion(
-            titulo = "Modo de seguimiento",
-            pie = if (estado.compartiendo) {
-                "Se puede cambiar sobre la marcha: el ritmo nuevo se aplica al " +
-                    "momento, sin cortar la traza."
-            } else {
-                "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
-                    "ahorrar es pedirle menos al GPS, y parado no gasta."
-            },
-        ) {
-            // El nombre vive aquí y no en "Ruta", como en iOS: forma parte de
-            // cómo se va a registrar la sesión, no de qué ruta se sigue.
-            if (!estado.compartiendo) {
-                OutlinedTextField(
-                    value = titulo,
-                    onValueChange = { titulo = it },
-                    label = { Text("Nombre (opcional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-            }
+            Spacer(Modifier.height(14.dp))
             SelectorPerfil(estado.perfil) { TrackingStore.eligePerfil(it) }
             Spacer(Modifier.height(12.dp))
             MandosAvanzados(estado.ritmo) { TrackingStore.ajustaRitmo(it) }
             Spacer(Modifier.height(12.dp))
             SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
-            // La hora de salida, editable como en iOS. En marcha se oculta: la
-            // sesión ya está creada en el backend con la suya.
-            if (!estado.compartiendo) {
-                Spacer(Modifier.height(12.dp))
-                SelectorSalida(estado.salidaMs, estado.salidaTocada) {
-                    TrackingStore.ajustaSalida(it)
-                }
-            }
         }
 
-        if (!estado.compartiendo) {
-            // La ruta planificada se oculta en marcha: la sesión ya está creada
-            // en el backend con la suya.
-            Seccion(
-                titulo = "Ruta",
-                pie = if (estado.planId != null) {
-                    "Prepara el mapa la víspera (con conexión) para verlo sin " +
-                        "cobertura durante la salida."
-                } else {
-                    null
-                },
-            ) {
-                SelectorPlan(planes, estado.planId, estado.eventoId) { TrackingStore.eligePlan(it) }
-                // El acceso al mapa sin cobertura cuelga de la ruta y solo
-                // aparece con una elegida, igual que en iOS: sin plan no hay
-                // corredor que preparar, solo lo ya recorrido.
-                if (estado.planId != null) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Tus seguidores verán la ruta planificada y tu progreso.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Paleta.slate400,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // Perfilado y no relleno: es una preparación previa, no la
-                    // acción principal de la pantalla. Pero botón, no texto.
-                    OutlinedButton(
-                        onClick = { descargandoMapa = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Descargar mapa offline") }
-                }
-            }
-
-        }
         estado.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
@@ -1032,6 +1013,56 @@ private fun pideSinRestricciones(context: Context) {
         }
     }
 }
+
+/**
+ * Lo que se lee sin desplegar "Qué salida es esta".
+ *
+ * Es la razón de ser de una sección plegada: si el resumen no dice lo que hay
+ * elegido, plegarla solo esconde información. Se nombra el evento, el
+ * recorrido y la hora, en ese orden, porque es el orden en que se decide.
+ */
+private fun resumenSalida(
+    estado: TrackingStore.Estado,
+    eventos: List<EventSummary>,
+    planes: List<PlanSummary>,
+): String {
+    val partes = buildList {
+        eventos.firstOrNull { it.id == estado.eventoId }?.let { add("🏁 ${it.name}") }
+        val plan = planes.firstOrNull { it.id == estado.planId }
+        add(
+            when {
+                plan != null -> plan.name ?: plan.routeName ?: "Ruta guardada"
+                estado.eventoId != null -> "Recorrido del evento"
+                else -> "Sin ruta · trazado en vivo"
+            },
+        )
+        if (estado.salidaTocada && estado.salidaMs > 0) add(salidaCorta(estado.salidaMs))
+    }
+    return partes.joinToString(" · ")
+}
+
+/** Lo que se lee sin desplegar "Cómo se registra". */
+private fun resumenRegistro(estado: TrackingStore.Estado): String {
+    val actividad = estado.actividadEfectiva?.let {
+        "${it.emoji} ${it.label}" + if (estado.actividad == null) " · auto" else ""
+    } ?: "🤖 Automático"
+    val ritmo = when (estado.perfil) {
+        TrackingRules.Perfil.EQUILIBRADO -> "Equilibrado"
+        TrackingRules.Perfil.AHORRO -> "Ahorro"
+        TrackingRules.Perfil.PRECISION -> "Alta precisión"
+        TrackingRules.Perfil.PERSONALIZADO -> if (estado.ritmo.modo == TrackingRules.Modo.DISTANCIA) {
+            "Cada ${TrackingRules.etiquetaDistancia(estado.ritmo.distanciaMetros)}"
+        } else {
+            "Cada ${TrackingRules.etiquetaIntervalo(estado.ritmo.intervaloSegundos)}"
+        }
+    }
+    return "$actividad · $ritmo · ${TrackingRules.etiquetaRetencion(estado.retenerHoras)}"
+}
+
+/** La hora de salida en el resumen: día y hora, sin segundos —que ahí no
+ *  significan nada— al contrario que en "último envío". */
+private fun salidaCorta(epochMs: Double): String =
+    SimpleDateFormat("d MMM HH:mm", Locale.getDefault()).format(Date(epochMs.toLong()))
 
 private fun hora(epochMs: Double): String =
     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMs.toLong()))

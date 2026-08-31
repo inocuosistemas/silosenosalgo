@@ -31,6 +31,11 @@ struct TrackingView: View {
     @State private var guideShareItem: GuideShareItem?
     @State private var guideError: String?
     @State private var guideWorking = false
+    /// Plegado de las dos secciones de decisiones. Las dos nacen cerradas: su
+    /// resumen ya dice lo que hay puesto, que es lo que se viene a mirar, y
+    /// abrir cuesta un toque.
+    @State private var outingOpen = false
+    @State private var recordingOpen = false
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
@@ -50,6 +55,48 @@ struct TrackingView: View {
     /// servidor (ver TrackingStore.setEvent).
     private var eventBinding: Binding<String?> {
         Binding(get: { store.selectedEventId }, set: { store.setEvent($0) })
+    }
+
+    /// Lo que se lee sin desplegar "Qué salida es esta".
+    ///
+    /// Es la razón de ser de una sección plegada: si el resumen no dice lo que
+    /// hay elegido, plegarla solo esconde información. Se nombran el evento, el
+    /// recorrido y la hora, en ese orden, porque es el orden en que se decide.
+    private var outingSummary: String {
+        var parts: [String] = []
+        if let ev = store.events.first(where: { $0.id == store.selectedEventId }) {
+            parts.append("🏁 \(ev.name)")
+        }
+        if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
+            parts.append(plan.name)
+        } else if store.selectedEventId != nil {
+            parts.append("Recorrido del evento")
+        } else {
+            parts.append("Sin ruta · trazado en vivo")
+        }
+        if store.startAtTouched {
+            parts.append(store.startAt.formatted(date: .abbreviated, time: .shortened))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Lo que se lee sin desplegar "Cómo se registra".
+    private var recordingSummary: String {
+        let activity = store.effectiveActivity.map {
+            "\($0.emoji) \($0.label)" + (store.activity == nil ? " · auto" : "")
+        } ?? "🤖 Automático"
+        let pace: String
+        switch store.profile {
+        case .balanced: pace = "Equilibrado"
+        case .saver: pace = "Ahorro"
+        case .precision: pace = "Alta precisión"
+        case .custom:
+            pace = store.sendMode == .distance
+                ? "Cada \(distanceLabel(store.distanceMeters))"
+                : "Cada \(intervalLabel(store.intervalSeconds))"
+        }
+        let keep = store.retainHours >= 168 ? "1 semana" : "\(Int(store.retainHours)) h"
+        return "\(activity) · \(pace) · \(keep)"
     }
 
     private var intervalIndexBinding: Binding<Double> {
@@ -96,117 +143,175 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
                 }
 
+                // Las decisiones, agrupadas por NATURALEZA y plegadas: cada
+                // sección enseña lo elegido y se abre para cambiarlo. Antes
+                // estaban todas desplegadas —actividad, evento, perfil, mandos,
+                // retención, hora, ruta— y eso es un muro de mandos donde cuesta
+                // encontrar el que se busca y, peor, cuesta ver de un vistazo QUÉ
+                // está puesto.
+                //
+                // Son dos preguntas distintas y por eso son dos secciones: "qué
+                // salida es esta" y "cómo se registra".
                 Section {
-                    Picker("Actividad", selection: activityBinding) {
-                        Label("Automático", systemImage: "wand.and.stars").tag(BeaconActivity?.none)
-                        ForEach(BeaconActivity.allCases) { a in
-                            Text("\(a.emoji)  \(a.label)").tag(Optional(a))
+                    DisclosureGroup(isExpanded: $outingOpen) {
+                        if !store.events.isEmpty {
+                            Picker("Evento", selection: eventBinding) {
+                                Text("Ninguno · salida suelta").tag(String?.none)
+                                ForEach(store.events) { ev in
+                                    Text(ev.name).tag(Optional(ev.id))
+                                }
+                            }
                         }
-                    }
-                    if store.activity == nil {
-                        if let inferred = store.effectiveActivity {
-                            Text("Detectado: \(inferred.emoji) \(inferred.label). Se ajusta según tu velocidad.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        } else {
-                            Text("Se detecta según tu velocidad: ritmo (min/km) al caminar o correr; km/h en bici o transporte.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
+                        if !store.isSharing {
+                            // Con evento elegido, la ruta cambia de significado: lo
+                            // que se elige ya no es "por dónde voy" —eso lo pone la
+                            // carrera— sino CON QUÉ RITMOS. Por eso las previsiones
+                            // hechas sobre ese recorrido van primero y aparte: son
+                            // las únicas que cuadran con el evento.
+                            Picker(store.selectedEventId == nil ? "Ruta (previsión)" : "Mi previsión", selection: $store.selectedPlanId) {
+                                Text(store.selectedEventId == nil
+                                     ? "Sin ruta · trazado en vivo"
+                                     : "La del evento").tag(String?.none)
+                                if store.selectedEventId != nil {
+                                    Section("De este evento") {
+                                        ForEach(store.plansOfEvent) { plan in
+                                            Text(plan.name).tag(Optional(plan.id))
+                                        }
+                                    }
+                                    Section("Otras previsiones") {
+                                        ForEach(store.plansNotOfEvent) { plan in
+                                            Text(plan.name).tag(Optional(plan.id))
+                                        }
+                                    }
+                                } else {
+                                    ForEach(store.plans) { plan in
+                                        Text(plan.name).tag(Optional(plan.id))
+                                    }
+                                }
+                            }
+                            // Elegir una previsión ajena al evento no rompe nada
+                            // —la tuya siempre manda— pero deja el visor calculando
+                            // contra un recorrido que no estás corriendo, y eso no
+                            // puede pasar en silencio.
+                            if store.planMismatchesEvent {
+                                Label("Esta previsión no es del recorrido del evento: tus ritmos y cortes se calcularán sobre otra ruta.",
+                                      systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                            if store.selectedPlanId != nil || store.selectedEventId != nil {
+                                Button {
+                                    openMapDownloadForSelectedPlan()
+                                } label: {
+                                    HStack {
+                                        Label("Descargar mapa offline", systemImage: "arrow.down.circle")
+                                        if resolvingRoute { Spacer(); ProgressView().tint(Theme.sky500) }
+                                    }
+                                }
+                                .foregroundStyle(Theme.sky500)
+                                .disabled(resolvingRoute)
+                            }
+                            TextField("Nombre (opcional)", text: $title)
+                            DatePicker("Hora de salida prevista", selection: $store.startAt, displayedComponents: [.date, .hourAndMinute])
+                                .onChange(of: store.startAt) { _ in store.startAtTouched = true }
                         }
+                    } label: {
+                        Text(outingSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.slate100)
+                            .lineLimit(2)
                     }
+                    .tint(Theme.sky500)
                 } header: {
-                    Text("Actividad").foregroundStyle(Theme.slate400)
+                    Text("Qué salida es esta").foregroundStyle(Theme.slate400)
                 } footer: {
-                    Text("Define cómo ven tu velocidad quienes te siguen y ayuda a descartar saltos de GPS imposibles.")
-                        .font(.caption).foregroundStyle(Theme.slate400)
+                    if outingOpen {
+                        Text(store.selectedEventId != nil
+                             ? "Apareces en el mapa del evento con tu color. Sin previsión propia corres con el recorrido y los cortes de la carrera."
+                             : "La hora de salida es la referencia de tus ritmos y previsiones; por defecto, el momento de empezar.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
                 }
                 .listRowBackground(Theme.slate900)
 
-                // Evento: la carrera compartida a la que se atribuye esta
-                // salida. Solo aparece si participo en alguno — para el 99% de
-                // las salidas, que son sueltas, esta sección no existe.
-                if !store.events.isEmpty {
-                    Section {
-                        Picker("Evento", selection: eventBinding) {
-                            Text("Ninguno · salida suelta").tag(String?.none)
-                            ForEach(store.events) { ev in
-                                Text(ev.name).tag(Optional(ev.id))
-                            }
-                        }
-                    } header: {
-                        Text("Evento").foregroundStyle(Theme.slate400)
-                    } footer: {
-                        Text(store.selectedEventId != nil
-                             ? "Apareces en el mapa del evento con tu color. Se puede cambiar en marcha."
-                             : "Si corres una carrera con otros, elígela para que os veáis en el mismo mapa.")
-                            .font(.caption).foregroundStyle(Theme.slate400)
-                    }
-                    .listRowBackground(Theme.slate900)
-                }
-
+                // La actividad y el ritmo se ajustan TAMBIÉN en marcha: el perfil
+                // que se elige antes de salir es una apuesta, y a mitad de ruta es
+                // cuando de verdad se sabe si sobra precisión o falta batería.
                 Section {
-                    if !store.isSharing {
-                        TextField("Nombre (opcional)", text: $title)
-                    }
-                    profileRow(.balanced, title: "Equilibrado",
-                               detail: "Por distancia (~100 m). Buena precisión y batería.",
-                               autonomy: "Buena autonomía", color: .green, recommended: true)
-                    profileRow(.saver, title: "Ahorro · ultra",
-                               detail: "Por distancia (~500 m). Parado no gasta batería.",
-                               autonomy: "Máxima autonomía", color: .green)
-                    profileRow(.precision, title: "Alta precisión",
-                               detail: "Por tiempo (cada 10 s). Máximo detalle.",
-                               autonomy: "Menor autonomía", color: .orange)
+                    DisclosureGroup(isExpanded: $recordingOpen) {
+                        Picker("Actividad", selection: activityBinding) {
+                            Label("Automático", systemImage: "wand.and.stars").tag(BeaconActivity?.none)
+                            ForEach(BeaconActivity.allCases) { a in
+                                Text("\(a.emoji)  \(a.label)").tag(Optional(a))
+                            }
+                        }
+                        profileRow(.balanced, title: "Equilibrado",
+                                   detail: "Por distancia (~100 m). Buena precisión y batería.",
+                                   autonomy: "Buena autonomía", color: .green, recommended: true)
+                        profileRow(.saver, title: "Ahorro · ultra",
+                                   detail: "Por distancia (~500 m). Parado no gasta batería.",
+                                   autonomy: "Máxima autonomía", color: .green)
+                        profileRow(.precision, title: "Alta precisión",
+                                   detail: "Por tiempo (cada 10 s). Máximo detalle.",
+                                   autonomy: "Menor autonomía", color: .orange)
 
-                    DisclosureGroup("Avanzado") {
-                        Picker("Enviar", selection: modeBinding) {
-                            Text("Por tiempo").tag(SendMode.time)
-                            Text("Por distancia").tag(SendMode.distance)
-                        }
-                        .pickerStyle(.segmented)
-                        VStack(alignment: .leading, spacing: 6) {
-                            if store.sendMode == .time {
-                                HStack {
-                                    Text("Cada \(intervalLabel(store.intervalSeconds))").fontWeight(.semibold)
-                                    Spacer()
-                                    Text(batteryLabel(store.intervalSeconds))
-                                        .font(.caption).fontWeight(.semibold)
-                                        .foregroundStyle(batteryColor(store.intervalSeconds))
-                                }
-                                Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
-                            } else {
-                                HStack {
-                                    Text("Cada \(distanceLabel(store.distanceMeters))").fontWeight(.semibold)
-                                    Spacer()
-                                    Text(batteryLabelDist(store.distanceMeters))
-                                        .font(.caption).fontWeight(.semibold)
-                                        .foregroundStyle(batteryColorDist(store.distanceMeters))
-                                }
-                                Slider(value: distanceIndexBinding, in: 0...Double(distanceSteps.count - 1), step: 1)
+                        DisclosureGroup("Avanzado") {
+                            Picker("Enviar", selection: modeBinding) {
+                                Text("Por tiempo").tag(SendMode.time)
+                                Text("Por distancia").tag(SendMode.distance)
                             }
-                            HStack {
-                                Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
-                                Spacer()
-                                Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
+                            .pickerStyle(.segmented)
+                            VStack(alignment: .leading, spacing: 6) {
+                                if store.sendMode == .time {
+                                    HStack {
+                                        Text("Cada \(intervalLabel(store.intervalSeconds))").fontWeight(.semibold)
+                                        Spacer()
+                                        Text(batteryLabel(store.intervalSeconds))
+                                            .font(.caption).fontWeight(.semibold)
+                                            .foregroundStyle(batteryColor(store.intervalSeconds))
+                                    }
+                                    Slider(value: intervalIndexBinding, in: 0...Double(intervalSteps.count - 1), step: 1)
+                                } else {
+                                    HStack {
+                                        Text("Cada \(distanceLabel(store.distanceMeters))").fontWeight(.semibold)
+                                        Spacer()
+                                        Text(batteryLabelDist(store.distanceMeters))
+                                            .font(.caption).fontWeight(.semibold)
+                                            .foregroundStyle(batteryColorDist(store.distanceMeters))
+                                    }
+                                    Slider(value: distanceIndexBinding, in: 0...Double(distanceSteps.count - 1), step: 1)
+                                }
+                                HStack {
+                                    Text("Más precisión").font(.caption2).foregroundStyle(Theme.slate400)
+                                    Spacer()
+                                    Text("Más batería").font(.caption2).foregroundStyle(Theme.slate400)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                        .tint(Theme.sky500)
+                        Picker("Conservar al finalizar", selection: $store.retainHours) {
+                            Text("6 h").tag(6.0)
+                            Text("12 h").tag(12.0)
+                            Text("24 h").tag(24.0)
+                            Text("48 h").tag(48.0)
+                            Text("72 h").tag(72.0)
+                            Text("1 semana").tag(168.0)
+                        }
+                    } label: {
+                        Text(recordingSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.slate100)
+                            .lineLimit(2)
                     }
                     .tint(Theme.sky500)
-                    Picker("Conservar al finalizar", selection: $store.retainHours) {
-                        Text("6 h").tag(6.0)
-                        Text("12 h").tag(12.0)
-                        Text("24 h").tag(24.0)
-                        Text("48 h").tag(48.0)
-                        Text("72 h").tag(72.0)
-                        Text("1 semana").tag(168.0)
-                    }
-                    if !store.isSharing {
-                        DatePicker("Hora de salida prevista", selection: $store.startAt, displayedComponents: [.date, .hourAndMinute])
-                            .onChange(of: store.startAt) { _ in store.startAtTouched = true }
-                        Text("Por defecto, ahora. Si activas el seguimiento más tarde, ajústala a la hora real de salida para mantener ritmos y previsiones correctos.")
+                } header: {
+                    Text("Cómo se registra").foregroundStyle(Theme.slate400)
+                } footer: {
+                    if recordingOpen {
+                        Text("El gasto lo manda el GPS, no la frecuencia de envío: ahorrar es pedirle menos al GPS, y parado no gasta.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
-                } header: {
-                    Text("Modo de seguimiento").foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)
 
@@ -216,68 +321,6 @@ struct TrackingView: View {
                 .listRowBackground(Theme.slate900)
 
                 if !store.isSharing {
-                    Section {
-                        // Con evento elegido, la ruta cambia de significado: lo
-                        // que se elige ya no es "por dónde voy" —eso lo pone la
-                        // carrera— sino CON QUÉ RITMOS. Por eso las previsiones
-                        // hechas sobre ese recorrido van primero y aparte: son
-                        // las únicas que cuadran con el evento.
-                        Picker(store.selectedEventId == nil ? "Ruta (previsión)" : "Mi previsión", selection: $store.selectedPlanId) {
-                            Text(store.selectedEventId == nil
-                                 ? "Sin ruta · trazado en vivo"
-                                 : "La del evento").tag(String?.none)
-                            if store.selectedEventId != nil {
-                                Section("De este evento") {
-                                    ForEach(store.plansOfEvent) { plan in
-                                        Text(plan.name).tag(Optional(plan.id))
-                                    }
-                                }
-                                Section("Otras previsiones") {
-                                    ForEach(store.plansNotOfEvent) { plan in
-                                        Text(plan.name).tag(Optional(plan.id))
-                                    }
-                                }
-                            } else {
-                                ForEach(store.plans) { plan in
-                                    Text(plan.name).tag(Optional(plan.id))
-                                }
-                            }
-                        }
-                        // Elegir una previsión ajena al evento no rompe nada
-                        // —la tuya siempre manda— pero deja el visor calculando
-                        // contra un recorrido que no estás corriendo, y eso no
-                        // puede pasar en silencio.
-                        if store.planMismatchesEvent {
-                            Label("Esta previsión no es del recorrido del evento: tus ritmos y cortes se calcularán sobre otra ruta.",
-                                  systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                        if store.selectedPlanId != nil {
-                            Text("Tus seguidores verán la ruta planificada y tu progreso.")
-                                .font(.caption)
-                                .foregroundStyle(Theme.slate400)
-                            Button {
-                                openMapDownloadForSelectedPlan()
-                            } label: {
-                                HStack {
-                                    Label("Descargar mapa offline", systemImage: "arrow.down.circle")
-                                    if resolvingRoute { Spacer(); ProgressView().tint(Theme.sky500) }
-                                }
-                            }
-                            .foregroundStyle(Theme.sky500)
-                            .disabled(resolvingRoute)
-                        }
-                    } header: {
-                        Text("Ruta").foregroundStyle(Theme.slate400)
-                    } footer: {
-                        if store.selectedPlanId != nil {
-                            Text("Prepara el mapa la víspera (con conexión) para verlo sin cobertura durante la salida.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        }
-                    }
-                    .listRowBackground(Theme.slate900)
-
                     Section {
                         Button { showGuideImporter = true } label: {
                             Label("Importar .slsnsguide", systemImage: "square.and.arrow.down")

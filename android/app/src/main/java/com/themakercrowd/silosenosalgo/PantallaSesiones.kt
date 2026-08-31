@@ -538,7 +538,10 @@ fun SelectorPlan(
     Spacer(Modifier.height(6.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         BotonElegible(if (eventoId == null) "Ninguna" else "La del evento", elegido == null) { onElige(null) }
-        delEvento.forEach { plan ->
+        // Sin evento, aquí van TODAS: `delEvento` está vacío por definición y
+        // el bloque de "otras" solo se pinta cuando hay evento.
+        val primeras = if (eventoId == null) otras else delEvento
+        primeras.forEach { plan ->
             BotonElegible(plan.name ?: plan.routeName ?: "Sin nombre", elegido == plan.id) {
                 onElige(plan.id)
             }

@@ -1,7 +1,11 @@
 package com.themakercrowd.silosenosalgo
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,6 +17,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -112,6 +121,55 @@ fun Seccion(
                 color = Paleta.slate400,
                 modifier = Modifier.padding(horizontal = 6.dp),
             )
+        }
+    }
+}
+
+/**
+ * Una sección PLEGADA que enseña lo elegido y se abre para cambiarlo.
+ *
+ * La pantalla de la baliza acumula decisiones que se toman una vez —el evento,
+ * la ruta, la hora, el ritmo, la retención— y luego solo se consultan. Con todo
+ * desplegado a la vez, lo que hay es un muro de mandos donde cuesta encontrar
+ * el que se busca y, peor, cuesta ver de un vistazo QUÉ está elegido.
+ *
+ * Plegada muestra el resumen —lo que está puesto— y basta tocarla para
+ * cambiarlo. Abierta es exactamente la sección de siempre.
+ */
+@Composable
+fun SeccionPlegable(
+    titulo: String,
+    resumen: String,
+    pie: String? = null,
+    /** Abierta de partida: para lo que aún está sin decidir. */
+    abiertaPorDefecto: Boolean = false,
+    contenido: @Composable () -> Unit,
+) {
+    var abierta by remember { mutableStateOf(abiertaPorDefecto) }
+    Seccion(titulo = titulo, pie = if (abierta) pie else null) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { abierta = !abierta },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                resumen,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Paleta.slate100,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (abierta) "▾" else "▸",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Paleta.sky500,
+            )
+        }
+        if (abierta) {
+            Spacer(Modifier.height(12.dp))
+            contenido()
         }
     }
 }
