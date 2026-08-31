@@ -23,6 +23,9 @@ const LiveViewer = lazy(() => import('./components/LiveViewer'))
 // entero, igual que el visor.
 const EventLobby = lazy(() => import('./components/EventLobby'))
 const EventJoin = lazy(() => import('./components/EventJoin'))
+// El mapa del evento arrastra Leaflet, así que va aparte del lobby: quien solo
+// entra a elegir color no tiene por qué descargarse un mapa entero.
+const EventLiveMap = lazy(() => import('./components/EventLiveMap'))
 
 const params = new URLSearchParams(window.location.search)
 const trackToken = params.get('t')
@@ -42,7 +45,7 @@ createRoot(document.getElementById('root')!).render(
           // Con sesión, porque un evento es de sus participantes: el lobby
           // necesita saber quién mira para decirle cuál es su color.
           <AuthProvider>
-            <EventLobby id={eventId!} />
+            {params.get('mapa') ? <EventLiveMap id={eventId!} /> : <EventLobby id={eventId!} />}
           </AuthProvider>
         ) : isJoin ? (
           <AuthProvider>

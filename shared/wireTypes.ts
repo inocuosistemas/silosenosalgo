@@ -375,6 +375,42 @@ export interface EventsListResponse {
   events: EventInfo[]
 }
 
+/** Un participante EMITIENDO, tal y como se pinta en el mapa del evento. */
+export interface EventLiveRunner {
+  userId: string
+  username: string
+  /** Su color en el mapa; null = aún sin asignar (se pinta en gris). */
+  color: string | null
+  /** Token público de su sesión: con él se abre su baliza completa. */
+  sessionId: string
+  status: TrackStatus
+  activity?: BeaconActivity | null
+  /** Última posición conocida, o null si aún no ha mandado ninguna. */
+  fix: TrackFix | null
+  /**
+   * Solo el final de su traza, no la entera.
+   *
+   * En el mapa del evento la traza es contexto —hacia dónde va y por dónde
+   * viene—, no el recorrido completo: eso está en su baliza individual, a un
+   * toque. Con treinta participantes, mandar 2000 puntos de cada uno cada diez
+   * segundos convertiría la pantalla en una descarga continua.
+   */
+  tail: TrailPoint[]
+  startedAt: number
+  /** Cuándo llegó su última posición al servidor (frescura). */
+  updatedAt: number | null
+}
+
+/** GET /api/events/:id/live — todos los participantes, de una vez. */
+export interface EventLiveResponse {
+  /** La base común, para pintar el recorrido una sola vez. */
+  planShareId: string | null
+  runners: EventLiveRunner[]
+}
+
+/** Cuántos puntos del final de la traza viajan por participante. */
+export const EVENT_TAIL_POINTS = 60
+
 export interface CreateEventResponse {
   id: string
 }

@@ -5,7 +5,7 @@ import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '.
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
-  EVENT_PHOTO_ASPECT,
+  EVENT_PHOTO_ASPECT, attachBeacon,
 } from '../lib/eventsTransport'
 import { PhotoCropper } from './PhotoCropper'
 
@@ -76,6 +76,8 @@ export default function EventLobby({ id }: { id: string }) {
 
   const { event, members, takenColors, myPlanOverlay } = data
   const me = members.find((m) => m.userId === user.id)
+  /** ¿Mi baliza está ya unida a este evento? (la lista lo dice: trae mi sesión) */
+  const meLive = !!me?.sessionId
   const now = Date.now()
 
   async function pickColor(slug: string) {
@@ -98,6 +100,17 @@ export default function EventLobby({ id }: { id: string }) {
     try {
       await setEventPhoto(id, jpeg)
       // El refresco trae el `photoAt` nuevo, y con él la url nueva.
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  /** Une (o saca) del evento la baliza que ya se está emitiendo. */
+  async function toggleBeacon(attach: boolean) {
+    setBusy(true); setError(null)
+    try {
+      await attachBeacon(id, attach)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -200,6 +213,35 @@ export default function EventLobby({ id }: { id: string }) {
         )}
       </section>
 
+      {/* El directo: el mapa común y unir mi baliza */}
+      <section className="mt-5 space-y-2">
+        <a
+          href={`/?e=${encodeURIComponent(id)}&mapa=1`}
+          className="block rounded-lg bg-sky-600 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-sky-500"
+        >
+          Ver el mapa del evento
+        </a>
+        {/* Se sale a correr como siempre y desde aquí se dice a qué carrera
+            pertenece esta salida: no hace falta empezar la baliza "dentro" del
+            evento, que en mitad de una salida ya empezada sería tarde. */}
+        <button
+          onClick={() => void toggleBeacon(!meLive)}
+          disabled={busy}
+          className={`w-full rounded-lg border py-2 text-sm transition-colors disabled:opacity-50 ${
+            meLive
+              ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+              : 'border-sky-800 text-sky-400 hover:bg-sky-950/40'
+          }`}
+        >
+          {meLive ? 'Quitar mi baliza del evento' : 'Unir mi baliza a este evento'}
+        </button>
+        <p className="text-[11px] text-slate-500">
+          {meLive
+            ? 'Los demás participantes te ven en el mapa del evento.'
+            : 'Empieza a compartir tu posición con la app y pulsa aquí para aparecer en el mapa.'}
+        </p>
+      </section>
+
       {/* Mi planificación: lo personal sobre la base común */}
       <section className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">Mi planificación</h2>
@@ -208,6 +250,22 @@ export default function EventLobby({ id }: { id: string }) {
             ? 'Tienes ritmos y objetivos propios sobre el recorrido del evento.'
             : 'Corres con la previsión del evento. Puedes ponerte tus propios ritmos y objetivos sin cambiar nada a los demás.'}
         </p>
+        {event.planShareId && (
+          <>
+            {/* El recorrido del evento se abre en el planificador como COPIA
+                editable (el mismo camino que un enlace compartido): nadie tiene
+                que buscarse el GPX por su cuenta ni puede tocar el del evento. */}
+            <a
+              href={`/?s=${encodeURIComponent(event.planShareId)}`}
+              className="mt-2 block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
+            >
+              Planificar sobre el recorrido del evento →
+            </a>
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              Se abre en el planificador con el recorrido, los controles y los cierres ya puestos. Guárdala en tus previsiones y elígela al empezar a compartir.
+            </p>
+          </>
+        )}
         <p className="mt-1.5 text-[11px] text-slate-500">
           El recorrido, los controles y los horarios de cierre son de la carrera, iguales para todos. Los ritmos son tuyos y no se comparten.
         </p>

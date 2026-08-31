@@ -3,7 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
-import { PLAN_ID_RE, isBeaconActivity } from '../../../shared/validate'
+import { PLAN_ID_RE, TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
 import type { BeaconActivity, CreateTrackResponse, TrackSessionsResponse, TrackSessionSummary } from '../../../shared/wireTypes'
 
 /**
@@ -24,7 +24,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body =
-    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown }>(request)) || {}
+    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown; eventId?: string }>(request)) || {}
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
   // Movement type (nullable): store only a recognised value, else NULL = auto.
@@ -77,13 +77,36 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     "UPDATE tracking_sessions SET status='ended', ended_at=?, expires_at=? WHERE owner_user_id=? AND status='active'",
   ).bind(now, now + KEEP_AFTER_END_MS, user.id).run()
 
+  // Evento al que pertenece esta salida (nullable: la baliza suelta, que es lo
+  // habitual, no pertenece a ninguno). Se exige ser MIEMBRO: si no, cualquiera
+  // que adivinase un id se colaría en el mapa de una carrera ajena. Un evento
+  // que no vale no tumba el arranque —lo importante es salir a correr—, la
+  // sesión nace sin etiqueta y se puede unir después desde el lobby.
+  let eventId: string | null = null
+  if (typeof body.eventId === 'string' && TOKEN_RE.test(body.eventId)) {
+    const member = await env.DB.prepare(
+      'SELECT 1 AS ok FROM event_members WHERE event_id = ? AND user_id = ?',
+    ).bind(body.eventId, user.id).first<{ ok: number }>()
+    if (member) eventId = body.eventId
+  }
+  // Sin ruta propia, la del evento: quien te siga por tu enlace verá el
+  // recorrido de la carrera y sus cortes. Con ruta elegida, manda la tuya.
+  if (eventId && !planShareId) {
+    const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId, plan_name AS planName FROM events WHERE id = ?')
+      .bind(eventId).first<{ planShareId: string | null; planName: string | null }>()
+    if (ev?.planShareId) {
+      planShareId = ev.planShareId
+      planName = planName ?? ev.planName
+    }
+  }
+
   const id = genId(16)
   // Expiry anchored to the LATER of now / planned start, so a session activated
   // before the race survives through it (and the retention window after).
   const expiresAt = Math.max(now, startedAt) + ttl
   await env.DB.prepare(
-    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at, activity) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
-  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt, activity).run()
+    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at, activity, event_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt, activity, eventId).run()
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)

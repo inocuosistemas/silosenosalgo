@@ -8,7 +8,7 @@ import type { SharePayloadV1 } from './sharePayload'
 import type { EventPlanOverlay } from './eventPlan'
 import type {
   CreateEventResponse, EventDetailResponse, EventInfo, EventsListResponse, JoinEventResponse,
-  CreateInviteResponse,
+  CreateInviteResponse, EventLiveResponse,
 } from '../../shared/wireTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 
@@ -59,6 +59,26 @@ export async function joinEvent(code: string): Promise<JoinEventResponse> {
   })
   if (!res.ok) throw errFrom(res)
   return (await res.json()) as JoinEventResponse
+}
+
+/** Dónde está cada participante ahora mismo (el pulso del mapa del evento). */
+export async function getEventLive(id: string): Promise<EventLiveResponse> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/live`, { credentials: 'same-origin', cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return (await res.json()) as EventLiveResponse
+}
+
+/**
+ * Une (o saca) al evento la baliza que ya se está emitiendo. Es lo que permite
+ * salir a correr como siempre y decir después a qué carrera pertenece.
+ */
+export async function attachBeacon(id: string, attach: boolean): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/beacon`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ attach }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
 export async function setEventColor(id: string, color: string): Promise<void> {
@@ -170,7 +190,12 @@ function errFrom(res: Response): EventsError {
   if (res.status === 401) return new EventsError('unauthorized')
   if (res.status === 403) return new EventsError('forbidden')
   if (res.status === 404) return new EventsError('not_found')
-  if (res.status === 409) return new EventsError('color_taken')
+  // 409 lo usan dos cosas distintas: el color pillado y "no hay baliza que
+  // unir". El cuerpo trae el código exacto, pero para el mensaje basta con
+  // saber cuál de las dos rutas respondió.
+  if (res.status === 409) {
+    return new EventsError(res.url.includes('/beacon') ? 'no_session' : 'color_taken')
+  }
   if (res.status === 410) return new EventsError('invalid_invite')
   if (res.status === 413) return new EventsError('too_large')
   if (res.status === 429) return new EventsError('rate_limited')
@@ -182,6 +207,7 @@ export function eventsErrorMessage(code: string): string {
     case 'unauthorized': return 'Inicia sesión para acceder a los eventos.'
     case 'forbidden': return 'Solo un administrador puede crear eventos.'
     case 'not_found': return 'Este evento ya no existe o no participas en él.'
+    case 'no_session': return 'No tienes ninguna baliza emitiendo ahora mismo. Empieza a compartir tu posición y vuelve.'
     case 'color_taken': return 'Ese color acaba de cogerlo otro participante. Elige otro.'
     case 'invalid_invite': return 'El código no vale o el evento ya terminó.'
     case 'too_large': return 'La ruta es demasiado grande para el evento.'
