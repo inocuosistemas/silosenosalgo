@@ -8,7 +8,7 @@ import type { SharePayloadV1 } from './sharePayload'
 import type { EventPlanOverlay } from './eventPlan'
 import type {
   CreateEventResponse, EventDetailResponse, EventInfo, EventsListResponse, JoinEventResponse,
-  CreateInviteResponse, EventLiveResponse,
+  CreateInviteResponse, EventLiveResponse, EventPublicResponse,
 } from '../../shared/wireTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 
@@ -66,6 +66,29 @@ export async function getEventLive(id: string): Promise<EventLiveResponse> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/live`, { credentials: 'same-origin', cache: 'no-store' })
   if (!res.ok) throw errFrom(res)
   return (await res.json()) as EventLiveResponse
+}
+
+/** Lo mismo, pero por el enlace público: sin sesión y con datos recortados. */
+export async function getEventPublic(token: string): Promise<EventPublicResponse> {
+  const res = await fetchSafe(`/api/events/public/${encodeURIComponent(token)}`, { cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return (await res.json()) as EventPublicResponse
+}
+
+/** Publica el evento (o lo deja de publicar). Devuelve el token, o null. */
+export async function setEventPublic(id: string, share: boolean): Promise<string | null> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/public`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ share }),
+  })
+  if (!res.ok) throw errFrom(res)
+  return ((await res.json()) as { publicToken: string | null }).publicToken
+}
+
+/** El enlace que se pega en el grupo de la familia. */
+export function eventPublicLink(token: string): string {
+  return `${PUBLIC_BASE_URL}/?ev=${encodeURIComponent(token)}`
 }
 
 /**

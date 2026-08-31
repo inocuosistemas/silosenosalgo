@@ -43,6 +43,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const isShareLink = !!id && /^[A-Za-z0-9_-]{8,32}$/.test(id)
   const track = url.searchParams.get('t')
   const isTrackLink = !!track && /^[A-Za-z0-9_-]{16,32}$/.test(track)
+  const eventToken = url.searchParams.get('ev')
+  const isEventLink = !!eventToken && /^[A-Za-z0-9_-]{16,32}$/.test(eventToken)
 
   // Share links get a per-link image (the rendered track card, served by
   // /og/<id>.png with a brand-card fallback). Everything else gets the brand
@@ -103,6 +105,38 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         }
       }
     } catch { /* si algo falla, vista previa de marca y a seguir */ }
+  }
+
+  // Enlace público de un evento (`?ev=`). Es el que se pega en el grupo de la
+  // familia, así que la vista previa importa más que en ningún otro: quien lo
+  // recibe no conoce la aplicación y decide si tocar por lo que ve ahí. Lleva
+  // el CARTEL de la carrera como imagen —ya está subido y encuadrado— y dice
+  // cuántos van en directo, que es lo que hace tocar el enlace.
+  if (isEventLink) {
+    try {
+      const row = await ctx.env.DB.prepare(
+        `SELECT e.id, e.name, e.photo_key AS photoKey, e.photo_at AS photoAt,
+                (SELECT COUNT(*) FROM tracking_sessions t
+                  WHERE t.event_id = e.id AND t.status = 'active') AS live
+           FROM events e WHERE e.public_token = ?`,
+      ).bind(eventToken).first<{ id: string; name: string; photoKey: string | null; photoAt: number | null; live: number }>()
+      if (row) {
+        const raw = row.name.trim()
+        const name = raw.length > 48 ? `${raw.slice(0, 47).trimEnd()}…` : raw
+        title = row.live > 0 ? `🔴 En directo · ${name}` : `🏁 ${name}`
+        desc = row.live > 0
+          ? `Sigue en el mapa a ${row.live} ${row.live === 1 ? 'participante' : 'participantes'}: posición, ritmo y margen sobre los cortes.`
+          : 'Sigue a los participantes en el mapa cuando empiecen a compartir su posición.'
+        // El cartel del evento vale como vista previa aunque sea 3:1 y no
+        // 1200×630: los previsualizadores recortan, y un cartel recortado sigue
+        // diciendo qué carrera es. Sin foto, la tarjeta de "en directo".
+        if (row.photoKey) {
+          imageUrl = `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
+        } else {
+          imageUrl = `${url.origin}/og-live.png`
+        }
+      }
+    } catch { /* sin datos del evento, vista previa de marca */ }
   }
 
   if (isShareLink) {

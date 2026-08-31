@@ -24,12 +24,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt,
-            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode
+            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken
        FROM events WHERE id = ?`,
   ).bind(id).first<{
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
-    endedAt: number | null; createdBy: string; inviteCode: string | null
+    endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
   }>()
   if (!ev) return json({ error: 'not_found' }, 404)
 
@@ -86,7 +86,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     endedAt: ev.endedAt,
     isOwner,
   }
-  if (isOwner && ev.inviteCode) event.inviteCode = ev.inviteCode
+  if (isOwner) {
+    if (ev.inviteCode) event.inviteCode = ev.inviteCode
+    event.publicToken = ev.publicToken
+  }
 
   const res: EventDetailResponse = {
     event,

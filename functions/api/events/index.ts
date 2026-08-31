@@ -62,14 +62,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `SELECT e.id, e.name, e.plan_share_id AS planShareId, e.plan_name AS planName,
             e.photo_key AS photoKey, e.photo_at AS photoAt, e.starts_at AS startsAt,
             e.created_at AS createdAt, e.ended_at AS endedAt, e.created_by AS createdBy,
-            e.invite_code AS inviteCode
+            e.invite_code AS inviteCode, e.public_token AS publicToken
        FROM events e JOIN event_members m ON m.event_id = e.id
       WHERE m.user_id = ?
       ORDER BY COALESCE(e.starts_at, e.created_at) DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
-    endedAt: number | null; createdBy: string; inviteCode: string | null
+    endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
   }>()
 
   const events: EventInfo[] = (rows.results ?? []).map((r) => {
@@ -87,8 +87,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       isOwner,
     }
     // El código solo al dueño: es la llave de entrada, y repartirla es una
-    // decisión suya. Un participante que quiera invitar se lo pide.
-    if (isOwner && r.inviteCode) info.inviteCode = r.inviteCode
+    // decisión suya. Un participante que quiera invitar se lo pide. Lo mismo
+    // con el enlace público: publicarlo o no es decisión del organizador.
+    if (isOwner) {
+      if (r.inviteCode) info.inviteCode = r.inviteCode
+      info.publicToken = r.publicToken
+    }
     return info
   })
   const res: EventsListResponse = { events }

@@ -358,6 +358,34 @@ export interface EventInfo {
   isOwner: boolean
   /** Código de unión MULTIUSO. Solo se envía al dueño del evento. */
   inviteCode?: string
+  /** Token del enlace público (para quien no participa). Solo al dueño;
+   *  ausente = el evento no está publicado. */
+  publicToken?: string | null
+}
+
+/**
+ * Lo que ve quien abre el enlace público: la carrera y por dónde va cada uno.
+ *
+ * Deliberadamente RECORTADO frente a `EventLiveResponse`: sin ids de cuenta y
+ * sin los tokens de las balizas individuales. Que el organizador publique el
+ * evento no puede publicar de paso la baliza de cada participante — eso lo
+ * decide cada uno repartiendo su propio enlace.
+ */
+export interface EventPublicRunner {
+  username: string
+  color: string | null
+  status: TrackStatus
+  activity?: BeaconActivity | null
+  fix: TrackFix | null
+  tail: TrailPoint[]
+  startedAt: number
+  updatedAt: number | null
+}
+
+export interface EventPublicResponse {
+  name: string
+  planShareId: string | null
+  runners: EventPublicRunner[]
 }
 
 /** GET /api/events/:id — el lobby: el evento y quién está en él. */

@@ -5,7 +5,7 @@ import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '.
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
-  EVENT_PHOTO_ASPECT, attachBeacon,
+  EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink,
 } from '../lib/eventsTransport'
 import { PhotoCropper } from './PhotoCropper'
 
@@ -32,6 +32,7 @@ export default function EventLobby({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedPublic, setCopiedPublic] = useState(false)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
   const [cropping, setCropping] = useState<File | null>(null)
 
@@ -115,6 +116,24 @@ export default function EventLobby({ id }: { id: string }) {
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     } finally { setBusy(false) }
+  }
+
+  /** Publica el evento, regenera el enlace, o lo deja de compartir. */
+  async function togglePublic(share: boolean) {
+    if (!share && !window.confirm('El enlace dejará de funcionar para quien lo tenga. ¿Seguro?')) return
+    setBusy(true); setError(null)
+    try { await setEventPublic(id, share); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
+  }
+
+  async function copyPublic() {
+    if (!event.publicToken) return
+    try {
+      await navigator.clipboard.writeText(eventPublicLink(event.publicToken))
+      setCopiedPublic(true)
+      window.setTimeout(() => setCopiedPublic(false), 2000)
+    } catch { /* sin portapapeles: el enlace está a la vista para copiarlo a mano */ }
   }
 
   async function copyInvite() {
@@ -288,6 +307,45 @@ export default function EventLobby({ id }: { id: string }) {
           <p className="mt-1.5 text-[11px] text-slate-500">
             Podrás encuadrarla: lo que dejes en el marco es lo que verán todos, aquí y en la lista.
           </p>
+        </section>
+      )}
+
+      {/* El enlace para quien NO participa: familia, amigos, la organización.
+          Es otra llave distinta de la de unirse — con esta se mira, no se
+          entra— y se puede quitar sin tocar el evento. */}
+      {event.isOwner && (
+        <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Seguimiento para quien no corre</h2>
+          {event.publicToken ? (
+            <>
+              <code className="block break-all rounded bg-slate-900 border border-slate-800 px-2 py-1.5 text-[11px] text-slate-300">
+                {eventPublicLink(event.publicToken)}
+              </code>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => void copyPublic()} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50">
+                  {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
+                </button>
+                <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+                  Generar otro
+                </button>
+                <button onClick={() => void togglePublic(false)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
+                  Dejar de compartir
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
+              </p>
+            </>
+          ) : (
+            <>
+              <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-sky-800 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
+                Crear enlace público
+              </button>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Para que la familia siga la carrera sin tener cuenta. Se puede revocar cuando quieras.
+              </p>
+            </>
+          )}
         </section>
       )}
 

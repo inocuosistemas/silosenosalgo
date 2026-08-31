@@ -4,9 +4,14 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
 import { eventColorHex } from '../../shared/eventColors'
-import type { EventLiveRunner } from '../../shared/wireTypes'
-import { getEventLive, getEventPlan, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import type { EventPublicRunner } from '../../shared/wireTypes'
+import {
+  getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError,
+} from '../lib/eventsTransport'
 import type { SharePayloadV1 } from '../lib/sharePayload'
+import {
+  eventCutoffs, marginToNextCutoff, formatMargin, marginTone, type EventCutoff,
+} from '../lib/eventCutoffs'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -14,23 +19,34 @@ import type { SharePayloadV1 } from '../lib/sharePayload'
  * Es una pantalla APARTE del visor individual y no un modo suyo. El visor de
  * una baliza cuenta UNA carrera con todo el detalle —perfil, cortes, notas,
  * ánimos, previsiones—; aquí la pregunta es otra y mucho más simple: quién va
- * dónde. Meterlo dentro del visor habría sido empujar dos productos distintos
- * dentro de las mismas dos mil líneas.
+ * dónde, y si llega a los cortes.
  *
- * Al tocar a alguien se abre su ficha, y de ahí se salta a su baliza completa:
- * lo detallado sigue viviendo donde ya estaba, sin duplicar nada.
+ * Sirve a dos públicos con la misma pantalla:
+ *  - PARTICIPANTES (`?e=<id>&mapa=1`), con sesión, que además pueden saltar a
+ *    la baliza completa de cualquiera;
+ *  - QUIEN ESPERA EN META (`?ev=<token>`), sin cuenta, con el enlace que
+ *    reparte el organizador. Ve lo mismo en el mapa, sin ids ni enlaces a las
+ *    balizas individuales — publicar el evento no publica la baliza de cada uno.
  */
 
 const POLL_MS = 10_000
 /** Pasado esto sin noticias, el punto se apaga: quieto no es lo mismo que sin señal. */
 const STALE_MS = 6 * 60_000
 
-export default function EventLiveMap({ id }: { id: string }) {
+/** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
+type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
+
+type Source = { kind: 'member'; id: string } | { kind: 'public'; token: string }
+
+export default function EventLiveMap({ source }: { source: Source }) {
   const { user, status } = useAuth()
-  const [runners, setRunners] = useState<EventLiveRunner[] | null>(null)
+  const isPublic = source.kind === 'public'
+  const [runners, setRunners] = useState<Runner[] | null>(null)
+  const [eventName, setEventName] = useState<string | null>(null)
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [view, setView] = useState<'mapa' | 'lista'>('mapa')
   const [now, setNow] = useState(Date.now())
   // La ruta se descarga UNA vez: son cientos de KB y no cambia en toda la
   // carrera, al revés que las posiciones.
@@ -38,39 +54,65 @@ export default function EventLiveMap({ id }: { id: string }) {
 
   const poll = useCallback(async () => {
     try {
-      const live = await getEventLive(id)
-      setRunners(live.runners)
-      setError(null)
-      if (live.planShareId && planLoaded.current !== live.planShareId) {
-        planLoaded.current = live.planShareId
-        try { setPlan(await getEventPlan(live.planShareId)) } catch { /* sin ruta se pinta igual */ }
+      if (source.kind === 'public') {
+        const live = await getEventPublic(source.token)
+        setRunners(live.runners)
+        setEventName(live.name)
+        await loadPlan(live.planShareId)
+      } else {
+        const live = await getEventLive(source.id)
+        setRunners(live.runners as Runner[])
+        await loadPlan(live.planShareId)
       }
+      setError(null)
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     }
-  }, [id])
+    async function loadPlan(shareId: string | null) {
+      if (!shareId || planLoaded.current === shareId) return
+      planLoaded.current = shareId
+      try { setPlan(await getEventPlan(shareId)) } catch { /* sin ruta se pinta igual */ }
+    }
+  }, [source])
 
   useEffect(() => {
-    if (status !== 'ready' || !user) return
+    // El público no necesita sesión; el de participantes sí, y hasta que se
+    // sabe quién mira no se pide nada.
+    if (!isPublic && (status !== 'ready' || !user)) return
     void poll()
     const t = window.setInterval(() => void poll(), POLL_MS)
     // Un segundo reloj, solo para que "hace 3 min" envejezca a la vista aunque
     // no llegue nada nuevo: sin esto un mapa sin cobertura parece fresco.
     const t2 = window.setInterval(() => setNow(Date.now()), 1000)
     return () => { window.clearInterval(t); window.clearInterval(t2) }
-  }, [poll, status, user])
+  }, [poll, status, user, isPublic])
 
   const route = useMemo(() => {
     if (!plan) return null
     const pts = plan.track.points.map((p) => [p.lat, p.lon] as [number, number])
     return { pts, cumKm: plan.track.cumKm, totalKm: plan.track.totalDistanceKm }
   }, [plan])
+  // Los cierres son de la CARRERA: se calculan una vez para todos, no por
+  // corredor.
+  const cutoffs = useMemo<EventCutoff[]>(() => (plan ? eventCutoffs(plan) : []), [plan])
 
-  const withFix = useMemo(() => (runners ?? []).filter((r) => r.fix), [runners])
-  const sel = useMemo(() => withFix.find((r) => r.userId === selected) ?? null, [withFix, selected])
+  /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
+  const rows = useMemo(() => {
+    return (runners ?? []).map((r) => {
+      const km = route && r.fix ? projectKm(r.fix.lat, r.fix.lon, route) : null
+      const margin = km !== null && cutoffs.length > 0 && r.status === 'active'
+        ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
+        : null
+      const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
+      return { r, km, margin, stale, key: r.userId ?? r.username }
+    }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
+  }, [runners, route, cutoffs, now])
 
-  if (status !== 'ready') return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
-  if (!user) {
+  const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
+
+  if (!isPublic && status !== 'ready') return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
+  if (!isPublic && !user) {
     return (
       <Shell>
         <p className="text-sm text-slate-300">Inicia sesión para ver el mapa del evento.</p>
@@ -82,120 +124,148 @@ export default function EventLiveMap({ id }: { id: string }) {
     return (
       <Shell>
         <p className="text-sm text-red-400">{error}</p>
-        <a href={`/?e=${encodeURIComponent(id)}`} className="mt-3 inline-block text-sm text-sky-400 hover:text-sky-300">← Volver al evento</a>
+        {!isPublic && (
+          <a href={`/?e=${encodeURIComponent((source as { id: string }).id)}`} className="mt-3 inline-block text-sm text-sky-400 hover:text-sky-300">← Volver al evento</a>
+        )}
       </Shell>
     )
   }
 
-  const center: [number, number] = withFix[0]?.fix
-    ? [withFix[0].fix!.lat, withFix[0].fix!.lon]
+  const center: [number, number] = withFix[0]?.r.fix
+    ? [withFix[0].r.fix!.lat, withFix[0].r.fix!.lon]
     : route?.pts[0] ?? [42.7, -0.52]
 
   return (
     <div className="relative h-[100dvh] w-full bg-slate-950">
-      <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
-        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      {view === 'mapa' ? (
+        <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
+          <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* El recorrido, una sola vez: es de la carrera, no de cada corredor.
-            Va en DOS trazos, uno encima del otro: un halo blanco ancho debajo y
-            la línea de color encima. Sin el halo, en el mapa base se pierde —
-            OSM pinta los senderos en violeta discontinuo, exactamente lo que
-            parecía el recorrido, y en el valle de Canfranc hay decenas. El halo
-            lo despega de cualquier fondo (bosque, roca, nieve) sin depender de
-            acertar con un color que no choque con nada. Y sólida, no
-            discontinua: la discontinua es la de los senderos del mapa. */}
-        {route && (
-          <>
-            <Polyline positions={route.pts} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
-            <Polyline positions={route.pts} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
-          </>
-        )}
+          {/* El recorrido, una sola vez: es de la carrera, no de cada corredor.
+              Va en DOS trazos, uno encima del otro: un halo blanco ancho debajo
+              y la línea de color encima. Sin el halo se pierde — OSM pinta los
+              senderos en violeta discontinuo, exactamente lo que parecía el
+              recorrido. Sólida, además, que la discontinua es la de ellos. */}
+          {route && (
+            <>
+              <Polyline positions={route.pts} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
+              <Polyline positions={route.pts} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
+            </>
+          )}
 
-        {withFix.map((r) => {
-          const color = r.color ? eventColorHex(r.color) : '#94a3b8'
-          const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
-          const isSel = r.userId === selected
-          return (
-            <div key={r.userId}>
-              {/* La cola: por dónde viene. Apagada si ya no está en directo.
-                  Con una sombra oscura debajo: la paleta tiene colores claros
-                  —lima, ámbar— que sobre un mapa de fondo claro casi
-                  desaparecen, y la sombra los levanta sin cambiarles el tono,
-                  que es lo que identifica a cada corredor. */}
-              {r.tail.length > 1 && (
-                <>
-                  <Polyline
-                    positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
-                    pathOptions={{ color: '#020617', weight: isSel ? 8 : 6, opacity: stale ? 0.12 : 0.25 }}
-                  />
-                  <Polyline
-                    positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
-                    pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
-                  />
-                </>
-              )}
-              <Marker
-                position={[r.fix!.lat, r.fix!.lon]}
-                icon={runnerIcon(color, isSel, stale)}
-                eventHandlers={{ click: () => setSelected(isSel ? null : r.userId) }}
-              />
-              {isSel && (
-                <CircleMarker
-                  center={[r.fix!.lat, r.fix!.lon]}
-                  radius={18}
-                  pathOptions={{ color, weight: 2, fill: false, opacity: 0.8 }}
-                />
-              )}
-            </div>
-          )
-        })}
-
-        <FitAll runners={withFix} routeFirst={route?.pts[0]} />
-      </MapContainer>
-
-      {/* Cabecera: volver y cuántos hay en directo */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
-        <a
-          href={`/?e=${encodeURIComponent(id)}`}
-          className="pointer-events-auto rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
-        >
-          ← Evento
-        </a>
-        <span className="pointer-events-none rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-300 backdrop-blur">
-          {withFix.filter((r) => r.status === 'active').length} en directo
-        </span>
-      </div>
-
-      {/* Tira de participantes: tocar uno lo enfoca. Es la leyenda del mapa y
-          el selector a la vez — con diez puntos de colores, una leyenda que no
-          sirve para seleccionar obliga a acertarle al punto con el dedo. */}
-      <div className="absolute inset-x-0 bottom-0 z-[1000] p-3">
-        {sel && <RunnerCard r={sel} now={now} route={route} eventId={id} onClose={() => setSelected(null)} />}
-        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
-          {(runners ?? []).map((r) => {
+          {withFix.map(({ r, stale, key }) => {
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
-            const isSel = r.userId === selected
+            const isSel = key === selected
             return (
-              <button
-                key={r.userId}
-                onClick={() => setSelected(isSel ? null : r.userId)}
-                disabled={!r.fix}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-40 ${
-                  isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100' : 'border-slate-700 bg-slate-900/90 text-slate-300'
-                }`}
-              >
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
-                {r.username}
-              </button>
+              <div key={key}>
+                {/* La cola: por dónde viene, con sombra debajo. La paleta tiene
+                    colores claros —lima, ámbar— que sobre un mapa de fondo claro
+                    casi desaparecen; la sombra los levanta sin tocarles el tono,
+                    que es lo que identifica a cada corredor. */}
+                {r.tail.length > 1 && (
+                  <>
+                    <Polyline
+                      positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                      pathOptions={{ color: '#020617', weight: isSel ? 8 : 6, opacity: stale ? 0.12 : 0.25 }}
+                    />
+                    <Polyline
+                      positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                      pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
+                    />
+                  </>
+                )}
+                <Marker
+                  position={[r.fix!.lat, r.fix!.lon]}
+                  icon={runnerIcon(color, isSel, stale)}
+                  eventHandlers={{ click: () => setSelected(isSel ? null : key) }}
+                />
+                {isSel && (
+                  <CircleMarker
+                    center={[r.fix!.lat, r.fix!.lon]}
+                    radius={18}
+                    pathOptions={{ color, weight: 2, fill: false, opacity: 0.8 }}
+                  />
+                )}
+              </div>
             )
           })}
+
+          <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} routeFirst={route?.pts[0]} />
+        </MapContainer>
+      ) : (
+        <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
+                  eventId={source.kind === 'member' ? source.id : null}
+                  onPick={(k) => { setSelected(k); setView('mapa') }} />
+      )}
+
+      {/* Cabecera: volver, nombre (en el público, que no tiene lobby) y vistas */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
+        {isPublic ? (
+          <span className="pointer-events-none max-w-[55%] truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
+            {eventName ?? 'Evento'}
+          </span>
+        ) : (
+          <a
+            href={`/?e=${encodeURIComponent(source.id)}`}
+            className="pointer-events-auto rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
+          >
+            ← Evento
+          </a>
+        )}
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
+          {(['mapa', 'lista'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`rounded px-2 py-1 text-xs capitalize transition-colors ${
+                view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
         </div>
       </div>
 
-      {runners !== null && withFix.length === 0 && (
+      {/* Tira de participantes: leyenda y selector a la vez — con diez puntos de
+          colores, una leyenda que no sirve para seleccionar obliga a acertarle
+          al punto con el dedo. Solo en el mapa; la lista ya es su propia
+          leyenda. */}
+      {view === 'mapa' && (
+        <div className="absolute inset-x-0 bottom-0 z-[1000] p-3">
+          {sel && (
+            <RunnerCard
+              row={sel} now={now} totalKm={route?.totalKm ?? null}
+              eventId={source.kind === 'member' ? source.id : null}
+              onClose={() => setSelected(null)}
+            />
+          )}
+          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+            {rows.map(({ r, key }) => {
+              const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+              const isSel = key === selected
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelected(isSel ? null : key)}
+                  disabled={!r.fix}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-40 ${
+                    isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100' : 'border-slate-700 bg-slate-900/90 text-slate-300'
+                  }`}
+                >
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                  {r.username}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {runners !== null && withFix.length === 0 && view === 'mapa' && (
         <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-6">
           <p className="pointer-events-auto max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-center text-sm text-slate-300">
-            Todavía no hay nadie emitiendo en este evento. Cuando alguien empiece a compartir su posición y una su baliza al evento, aparecerá aquí.
+            Todavía no hay nadie emitiendo en este evento. Cuando alguien empiece a compartir su posición, aparecerá aquí.
           </p>
         </div>
       )}
@@ -203,18 +273,91 @@ export default function EventLiveMap({ id }: { id: string }) {
   )
 }
 
-/** La ficha del corredor elegido: lo justo para saber cómo va. */
-function RunnerCard({ r, now, route, eventId, onClose }: {
-  r: EventLiveRunner
+type Row = {
+  r: Runner
+  km: number | null
+  margin: ReturnType<typeof marginToNextCutoff>
+  stale: boolean
+  key: string
+}
+
+/**
+ * La lista: la misma información que el mapa, ordenada por kilómetro.
+ *
+ * En el móvil responde mejor que el mapa a "¿cómo van todos?" —diez puntos
+ * repartidos por un valle no se comparan de un vistazo— y de paso es la
+ * clasificación oficiosa del grupo.
+ */
+function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
+  rows: Row[]
+  totalKm: number | null
   now: number
-  route: { pts: [number, number][]; cumKm: number[]; totalKm: number } | null
-  eventId: string
+  isPublic: boolean
+  eventId: string | null
+  onPick: (key: string) => void
+}) {
+  return (
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-16">
+      {rows.length === 0 && (
+        <p className="mt-8 text-center text-sm text-slate-400">Todavía no hay participantes emitiendo.</p>
+      )}
+      <ul className="space-y-1.5">
+        {rows.map(({ r, km, margin, stale, key }, i) => {
+          const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+          return (
+            <li key={key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">{km !== null ? i + 1 : '·'}</span>
+                <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+                <button onClick={() => onPick(key)} className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-slate-100">
+                  {r.username}
+                </button>
+                {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+                <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
+                  {km !== null ? `${km.toFixed(1)}` : '—'}
+                  <span className="ml-0.5 text-[10px] font-normal text-slate-500">{totalKm ? `/${totalKm.toFixed(0)} km` : 'km'}</span>
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-3 pl-7 text-[11px]">
+                <span className="text-slate-400">
+                  {r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
+                </span>
+                {margin && (
+                  <span className={marginClass(margin.minutes)}>
+                    {formatMargin(margin.minutes)} · {margin.cutoff.name}
+                  </span>
+                )}
+                <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
+                  {r.updatedAt !== null ? `hace ${agoLabel(now - r.updatedAt)}` : 'sin señal'}
+                </span>
+                {!isPublic && r.sessionId && eventId && (
+                  <a
+                    href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
+                    className="shrink-0 text-sky-400 hover:text-sky-300"
+                  >
+                    ver
+                  </a>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+/** La ficha del corredor elegido: lo justo para saber cómo va. */
+function RunnerCard({ row, now, totalKm, eventId, onClose }: {
+  row: Row
+  now: number
+  totalKm: number | null
+  eventId: string | null
   onClose: () => void
 }) {
+  const { r, km, margin, stale } = row
   const color = r.color ? eventColorHex(r.color) : '#94a3b8'
-  const km = route && r.fix ? projectKm(r.fix.lat, r.fix.lon, route) : null
   const ago = r.updatedAt !== null ? agoLabel(now - r.updatedAt) : null
-  const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
       <div className="flex items-center gap-2">
@@ -224,19 +367,27 @@ function RunnerCard({ r, now, route, eventId, onClose }: {
         <button onClick={onClose} className="ml-auto shrink-0 text-lg leading-none text-slate-500 hover:text-slate-300">×</button>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        <Dato valor={km !== null ? `${km.toFixed(1)}` : '—'} unidad={route ? `de ${route.totalKm.toFixed(0)} km` : 'km'} />
+        <Dato valor={km !== null ? km.toFixed(1) : '—'} unidad={totalKm ? `de ${totalKm.toFixed(0)} km` : 'km'} />
         <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />
         <Dato valor={ago ?? '—'} unidad="última señal" tono={stale ? 'text-amber-400' : 'text-slate-100'} />
       </div>
-      {/* El `&e=` viaja con el enlace para que la baliza sepa de qué evento se
-          viene y pueda ofrecer la vuelta: si no, saltar al detalle es un
-          callejón sin salida. */}
-      <a
-        href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
-        className="mt-2 block rounded-lg border border-slate-700 py-1.5 text-center text-xs text-sky-400 hover:bg-sky-950/40"
-      >
-        Ver su baliza completa →
-      </a>
+      {/* El margen sobre el cierre: en una carrera con cortes, es LA pregunta.
+          Proyectado con el ritmo que lleva, no con el planificado (ver
+          lib/eventCutoffs). */}
+      {margin && (
+        <div className={`mt-2 rounded-lg border px-2 py-1.5 text-center text-xs ${marginBox(margin.minutes)}`}>
+          <span className="font-bold">{formatMargin(margin.minutes)}</span>
+          <span className="opacity-80"> sobre el corte de {margin.cutoff.name} (km {margin.cutoff.km.toFixed(1)})</span>
+        </div>
+      )}
+      {eventId && r.sessionId && (
+        <a
+          href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
+          className="mt-2 block rounded-lg border border-slate-700 py-1.5 text-center text-xs text-sky-400 hover:bg-sky-950/40"
+        >
+          Ver su baliza completa →
+        </a>
+      )}
     </div>
   )
 }
@@ -250,20 +401,32 @@ function Dato({ valor, unidad, tono = 'text-slate-100' }: { valor: string; unida
   )
 }
 
+function marginClass(min: number): string {
+  const t = marginTone(min)
+  return t === 'late' ? 'text-red-400' : t === 'tight' ? 'text-amber-400' : 'text-emerald-400'
+}
+
+function marginBox(min: number): string {
+  const t = marginTone(min)
+  return t === 'late'
+    ? 'border-red-900/70 bg-red-950/40 text-red-300'
+    : t === 'tight'
+      ? 'border-amber-900/70 bg-amber-950/40 text-amber-300'
+      : 'border-emerald-900/70 bg-emerald-950/40 text-emerald-300'
+}
+
 /** Encuadra a todos la PRIMERA vez que hay posiciones; después no toca el mapa
  *  —moverlo bajo el dedo de quien está mirando es lo más molesto que puede
  *  hacer un mapa en vivo. */
-function FitAll({ runners, routeFirst }: { runners: EventLiveRunner[]; routeFirst?: [number, number] }) {
+function FitAll({ points, routeFirst }: { points: [number, number][]; routeFirst?: [number, number] }) {
   const map = useMap()
   const done = useRef(false)
   useEffect(() => {
-    if (done.current) return
-    const pts = runners.filter((r) => r.fix).map((r) => [r.fix!.lat, r.fix!.lon] as [number, number])
-    if (pts.length === 0) return
+    if (done.current || points.length === 0) return
     done.current = true
-    if (pts.length === 1) { map.setView(pts[0], 14); return }
-    map.fitBounds(L.latLngBounds(pts.concat(routeFirst ? [routeFirst] : [])), { padding: [48, 48] })
-  }, [runners, routeFirst, map])
+    if (points.length === 1) { map.setView(points[0], 14); return }
+    map.fitBounds(L.latLngBounds(points.concat(routeFirst ? [routeFirst] : [])), { padding: [48, 48] })
+  }, [points, routeFirst, map])
   return null
 }
 
