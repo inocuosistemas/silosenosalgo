@@ -526,6 +526,27 @@ type LiveViewerProps =
 
 export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const localGuide = guide ?? null
+  // Contexto de evento: cuando se llega aquí desde el mapa de un evento, el
+  // enlace trae `&e=<evento>`. Sin esto, entrar a una baliza desde el mapa era
+  // un callejón sin salida — ni vuelta, ni pista de que esa persona forma parte
+  // de una carrera. El id no es sensible: quien no participe no ve nada del
+  // evento (el servidor lo comprueba), y esta pantalla es pública de todos modos.
+  const eventId = useMemo(() => {
+    const e = new URLSearchParams(window.location.search).get('e')
+    return e && /^[A-Za-z0-9_-]{16,32}$/.test(e) ? e : null
+  }, [])
+  const [eventName, setEventName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!eventId) return
+    void (async () => {
+      try {
+        const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { credentials: 'same-origin', cache: 'no-store' })
+        if (!res.ok) return // no participa (o no hay sesión): la vuelta vale igual sin nombre
+        const data = (await res.json()) as { event?: { name?: string } }
+        if (data.event?.name) setEventName(data.event.name)
+      } catch { /* al mejor esfuerzo: el enlace de vuelta no depende de esto */ }
+    })()
+  }, [eventId])
   const storageToken = token ?? `guide-${guide?.state.startedAt ?? 'local'}`
   const [state, setState] = useState<TrackStateResponse | null>(guide?.state ?? null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -1450,6 +1471,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // cabecera y el de las casillas: el cuadro mide lo mismo que antes.
   const header = (
     <div>
+      {/* La vuelta al evento, cuando se ha llegado desde su mapa. Lleva el
+          NOMBRE del evento y no un "volver" a secas: así dice de dónde vienes y
+          a la vez recuerda que esta baliza corre esa carrera, que es justo lo
+          que se pierde al saltar del mapa común a una baliza suelta. */}
+      {eventId && (
+        <a
+          href={`/?e=${encodeURIComponent(eventId)}&mapa=1`}
+          className="mb-1 inline-flex max-w-full items-center gap-1 rounded-full border border-sky-800 bg-sky-950/50 px-2 py-0.5 text-[11px] text-sky-300 hover:bg-sky-900/50"
+        >
+          <span aria-hidden="true">←</span>
+          <span className="truncate">{eventName ?? 'Volver al mapa del evento'}</span>
+        </a>
+      )}
       {/* El nombre hace de barra de titulo: tocarlo pliega y despliega, para no
           depender solo del tirador de abajo (que desplegado queda lejos, al
           final de todo el panel). py-1 con -my-1 agranda la zona sensible sin

@@ -170,7 +170,7 @@ export default function EventLiveMap({ id }: { id: string }) {
           el selector a la vez — con diez puntos de colores, una leyenda que no
           sirve para seleccionar obliga a acertarle al punto con el dedo. */}
       <div className="absolute inset-x-0 bottom-0 z-[1000] p-3">
-        {sel && <RunnerCard r={sel} now={now} route={route} onClose={() => setSelected(null)} />}
+        {sel && <RunnerCard r={sel} now={now} route={route} eventId={id} onClose={() => setSelected(null)} />}
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
           {(runners ?? []).map((r) => {
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
@@ -204,10 +204,11 @@ export default function EventLiveMap({ id }: { id: string }) {
 }
 
 /** La ficha del corredor elegido: lo justo para saber cómo va. */
-function RunnerCard({ r, now, route, onClose }: {
+function RunnerCard({ r, now, route, eventId, onClose }: {
   r: EventLiveRunner
   now: number
   route: { pts: [number, number][]; cumKm: number[]; totalKm: number } | null
+  eventId: string
   onClose: () => void
 }) {
   const color = r.color ? eventColorHex(r.color) : '#94a3b8'
@@ -227,8 +228,11 @@ function RunnerCard({ r, now, route, onClose }: {
         <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />
         <Dato valor={ago ?? '—'} unidad="última señal" tono={stale ? 'text-amber-400' : 'text-slate-100'} />
       </div>
+      {/* El `&e=` viaja con el enlace para que la baliza sepa de qué evento se
+          viene y pueda ofrecer la vuelta: si no, saltar al detalle es un
+          callejón sin salida. */}
       <a
-        href={`/?t=${encodeURIComponent(r.sessionId)}`}
+        href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
         className="mt-2 block rounded-lg border border-slate-700 py-1.5 text-center text-xs text-sky-400 hover:bg-sky-950/40"
       >
         Ver su baliza completa →

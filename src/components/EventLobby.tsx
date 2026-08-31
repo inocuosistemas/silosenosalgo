@@ -179,7 +179,7 @@ export default function EventLobby({ id }: { id: string }) {
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Participantes</h2>
         <ul className="space-y-1.5">
           {members.map((m) => (
-            <MemberRow key={m.userId} m={m} now={now} isMe={m.userId === user.id} />
+            <MemberRow key={m.userId} m={m} now={now} isMe={m.userId === user.id} eventId={id} />
           ))}
         </ul>
       </section>
@@ -337,7 +337,7 @@ export default function EventLobby({ id }: { id: string }) {
   )
 }
 
-function MemberRow({ m, now, isMe }: { m: EventMember; now: number; isMe: boolean }) {
+function MemberRow({ m, now, isMe, eventId }: { m: EventMember; now: number; isMe: boolean; eventId: string }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
   return (
@@ -362,7 +362,8 @@ function MemberRow({ m, now, isMe }: { m: EventMember; now: number; isMe: boolea
       {/* La baliza completa de cada uno sigue siendo su visor de siempre: ahí
           están su traza entera, sus notas y sus ánimos. */}
       {live && (
-        <a href={`/?t=${encodeURIComponent(m.sessionId!)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
+        // Con el evento a cuestas, para poder volver desde la baliza.
+        <a href={`/?t=${encodeURIComponent(m.sessionId!)}&e=${encodeURIComponent(eventId)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
       )}
     </li>
   )
