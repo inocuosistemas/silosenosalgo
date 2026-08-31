@@ -64,6 +64,14 @@ enum LocalStore {
 
     static func hasPlan(_ token: String) -> Bool { fm.fileExists(atPath: planURL(token).path) }
 
+    /// Whether a session keeps a non-empty trail on this device — what decides
+    /// that it can still be reviewed offline (and exported) after expiring.
+    /// A size check, not a decode: it runs once per row of "Mis seguimientos".
+    static func hasTrail(_ token: String) -> Bool {
+        let size = (try? trailURL(token).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        return size > 2 // "[]" — an empty trail file counts as no data
+    }
+
     /// Delete all artifacts for a session (on hard-delete).
     static func remove(_ token: String) {
         try? fm.removeItem(at: trailURL(token))
@@ -284,6 +292,9 @@ final class ViewerDataProvider {
             if self.token == token { self.cheersJSON = encoded }
             self.lock.unlock()
             try? encoded.write(to: Self.cheersURL(token), options: .atomic)
+            // Un ánimo nuevo AVISA, como en Android: el móvil va en el bolsillo
+            // y un mensaje que solo se ve al abrir el mapa no lo lee nadie.
+            CheerNotifier.shared.notifyNew(cheers as? [[String: Any]] ?? [])
         }.resume()
     }
 

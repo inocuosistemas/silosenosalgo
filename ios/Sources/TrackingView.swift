@@ -9,6 +9,11 @@ struct TrackingView: View {
     @State private var title = ""
     @State private var pendingDelete: TrackSessionSummary?
     @State private var pendingRename: TrackSessionSummary?
+    /// The expired-and-nothing-kept sessions queued for the bulk "Limpiar".
+    @State private var pendingCleanup: [TrackSessionSummary]?
+    /// Present the in-app viewer OFFLINE for a finished session whose trail is
+    /// still on this device (its notes and photos included; no coverage needed).
+    @State private var reviewSession: TrackSessionSummary?
     @State private var renameText = ""
     /// Present the in-app "live" viewer for the current (offline) session.
     @State private var showLiveMap = false
@@ -264,6 +269,24 @@ struct TrackingView: View {
                                 .font(.caption)
                                 .foregroundStyle(Theme.slate400)
                         } else {
+                            // Las que ya no sirven para nada: el servidor borró su
+                            // ruta y en el móvil no queda traza. Borrarlas de una
+                            // en una por una lista larga es un trabajo tonto.
+                            let unusable = store.sessions.filter {
+                                !store.isActive($0) && store.isPurged($0) && !LocalStore.hasTrail($0.id)
+                            }
+                            if !unusable.isEmpty {
+                                HStack {
+                                    Text("\(unusable.count) caducadas sin nada guardado")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.slate400)
+                                    Spacer()
+                                    Button("Limpiar") { pendingCleanup = unusable }
+                                        .buttonStyle(.borderless)
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.sky500)
+                                }
+                            }
                             ForEach(store.sessions) { session in
                                 sessionRow(session)
                             }
@@ -311,6 +334,12 @@ struct TrackingView: View {
                         if store.pendingCount > 0 {
                             LabeledContent("En cola (sin cobertura)", value: "\(store.pendingCount)")
                                 .foregroundStyle(.orange)
+                        }
+                        if store.heldReadings > 0 {
+                            // Lecturas que no superaron el ruido del GPS y se
+                            // registraron manteniendo la posición (como Android):
+                            // si andando salen muchas, el umbral está alto.
+                            LabeledContent("Lecturas descartadas", value: "\(store.heldReadings)")
                         }
                         if let gap = store.followerGapMeters {
                             let stale = store.lastSentAt.map { Date().timeIntervalSince($0) } ?? 0
@@ -399,6 +428,19 @@ struct TrackingView: View {
             } message: { session in
                 Text("Se borrará por completo \"\(session.title ?? "Sin nombre")\". Esta acción no se puede deshacer.")
             }
+            .alert("¿Limpiar seguimientos?", isPresented: Binding(
+                get: { pendingCleanup != nil },
+                set: { if !$0 { pendingCleanup = nil } }
+            ), presenting: pendingCleanup) { sessions in
+                Button("Limpiar", role: .destructive) {
+                    let ids = sessions.map(\.id)
+                    pendingCleanup = nil
+                    Task { await store.deleteSessions(ids) }
+                }
+                Button("Cancelar", role: .cancel) { pendingCleanup = nil }
+            } message: { sessions in
+                Text("Son \(sessions.count): las que ya han caducado y de las que no queda nada en este móvil. No se puede ver su mapa ni exportarlas, y su enlace ya no funciona. Solo se quita la entrada de la lista.")
+            }
             .alert("Renombrar seguimiento", isPresented: Binding(
                 get: { pendingRename != nil },
                 set: { if !$0 { pendingRename = nil } }
@@ -421,6 +463,9 @@ struct TrackingView: View {
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
+                // Cheer alerts need permission; asked here, on opening the
+                // portal (like Android's POST_NOTIFICATIONS), not mid-route.
+                CheerNotifier.shared.requestAuthorization()
                 await store.loadPlans()
                 await store.loadSessions()
             }
@@ -439,6 +484,14 @@ struct TrackingView: View {
                 if let url = URL(string: store.shareLink(for: session.id)) {
                     LiveMapView(source: .online(url: url), offlineToken: nil)
                 }
+            }
+            .fullScreenCover(item: $reviewSession) { session in
+                // A finished session with its trail still on this device: served
+                // locally like a guide, read-only (it's already over).
+                LiveMapView(
+                    source: .offline(token: session.id), offlineToken: session.id,
+                    allowsEditing: false, title: session.title ?? "Seguimiento"
+                )
             }
             .fullScreenCover(item: $selectedGuide) { guide in
                 LiveMapView(
@@ -620,6 +673,9 @@ struct TrackingView: View {
         // Purged = route already gone server-side (unpinned + past retention). Its
         // public link is dead, so we flag it "Caducado" and drop link-sharing.
         let purged = !active && store.isPurged(session)
+        // Whether its trail is still on this device — what decides that an
+        // expired session can still show its map offline and be exported.
+        let hasLocal = LocalStore.hasTrail(session.id)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
@@ -652,6 +708,18 @@ struct TrackingView: View {
                         .background((active ? Color.green : (purged ? Color.orange : Theme.slate700)).opacity(0.25))
                         .foregroundStyle(active ? .green : (purged ? .orange : Theme.slate400))
                         .clipShape(Capsule())
+                    if hasLocal {
+                        // Lo que decide si una sesión caducada sirve para algo:
+                        // con traza en el móvil su mapa se sigue viendo offline.
+                        Text("En el móvil")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Theme.sky600.opacity(0.25))
+                            .foregroundStyle(Theme.sky500)
+                            .clipShape(Capsule())
+                    }
                     Text("Salida \(startedLabel(session.startedAt))")
                         .font(.caption)
                         .foregroundStyle(Theme.slate400)
@@ -707,7 +775,7 @@ struct TrackingView: View {
                 .foregroundStyle(session.isPinned ? Theme.sky500 : Theme.slate400)
                 .accessibilityLabel(session.isPinned ? "Quitar chincheta" : "Fijar con chincheta")
             }
-            sessionMenu(session, purged: purged)
+            sessionMenu(session, purged: purged, hasLocal: hasLocal)
         }
     }
 
@@ -716,7 +784,7 @@ struct TrackingView: View {
     /// delete. Consolidated in a "⋯" menu to keep the row uncluttered. A purged
     /// session's link is dead, so link-sharing is dropped for it.
     @ViewBuilder
-    private func sessionMenu(_ session: TrackSessionSummary, purged: Bool) -> some View {
+    private func sessionMenu(_ session: TrackSessionSummary, purged: Bool, hasLocal: Bool) -> some View {
         let link = store.shareLink(for: session.id)
         Menu {
             Button {
@@ -725,10 +793,15 @@ struct TrackingView: View {
             } label: {
                 Label("Renombrar", systemImage: "pencil")
             }
-            if !purged {
-                Button { mapSession = session } label: {
+            // Ver su mapa: con la traza en el móvil se abre el visor incrustado
+            // sin cobertura (con sus notas y fotos); si no, queda el enlace
+            // público, que solo existe mientras la ruta no haya caducado.
+            if hasLocal || !purged {
+                Button { openSessionMap(session, hasLocal: hasLocal, purged: purged) } label: {
                     Label("Ver mapa", systemImage: "map")
                 }
+            }
+            if !purged {
                 Button {
                     UIPasteboard.general.string = link
                 } label: {
@@ -753,6 +826,23 @@ struct TrackingView: View {
         .buttonStyle(.borderless)
         .foregroundStyle(Theme.slate400)
         .accessibilityLabel("Más opciones")
+    }
+
+    /// "Ver mapa" for a finished session: offline (from the local trail) when
+    /// this device still keeps it, else the public link in the online viewer.
+    private func openSessionMap(_ session: TrackSessionSummary, hasLocal: Bool, purged: Bool) {
+        if hasLocal {
+            do {
+                try store.prepareOfflineReview(session)
+                reviewSession = session
+                return
+            } catch {
+                // A corrupt local trail shouldn't dead-end the action: fall back
+                // to the online viewer while the route still exists server-side.
+                if purged { guideError = "No se pudo leer la traza guardada en este móvil."; return }
+            }
+        }
+        mapSession = session
     }
 
     private func exportGuide(_ session: TrackSessionSummary) {

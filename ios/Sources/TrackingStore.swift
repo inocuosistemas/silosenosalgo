@@ -120,6 +120,14 @@ final class TrackingStore: ObservableObject {
     private let trailMax = 2000 // mirror PATH_MAX in functions/api/track/[id]/ping.ts
     /// The most recent fix recorded locally (the REAL position, known even offline).
     private var lastRecordedFix: Fix?
+    /// The last position taken as good. Movement is judged against it — not the
+    /// previous reading — so a slow real advance accumulates until detected
+    /// instead of being lost step by step (mirror of Android's `anclaPosicion`).
+    private var anchorFix: Fix?
+    /// Readings that didn't clear the GPS noise and were recorded holding the
+    /// anchored position. Shown so the threshold can be judged with data: many
+    /// of these while walking means it's set too high.
+    @Published var heldReadings = 0
     /// The most recent fix actually UPLOADED to the server — i.e. what followers
     /// currently see. Frozen while offline; catches up when the backlog flushes.
     private var lastReportedFix: TrackFixWire?
@@ -274,6 +282,8 @@ final class TrackingStore: ObservableObject {
         pingCount = 0
         lastSentAt = nil
         lastSendAttempt = .distantPast
+        anchorFix = nil
+        heldReadings = 0
         loadPending(id)
         // Re-hydrate the full trail from disk so the offline viewer shows the whole
         // route (and last position) immediately, before the next fix arrives.
@@ -324,6 +334,39 @@ final class TrackingStore: ObservableObject {
         await loadSessions()
     }
 
+    /// Bulk-delete (the "Limpiar" sweep over expired sessions with nothing kept
+    /// locally): one list refresh at the end instead of one per deletion.
+    func deleteSessions(_ ids: [String]) async {
+        for id in ids {
+            await API.deleteSession(token: token, id: id)
+            LocalStore.remove(id)
+        }
+        await loadSessions()
+    }
+
+    /// Serve a FINISHED session's locally kept trail, notes and plan to the
+    /// embedded viewer, so "Ver mapa" works with no coverage (mirror of
+    /// Android's `ViewerData.abreConsulta`; same mechanism as an imported
+    /// guide). Registered as "ended" and never expiring — what you're
+    /// reviewing shouldn't die under you.
+    func prepareOfflineReview(_ session: TrackSessionSummary) throws {
+        let trailData = try Data(contentsOf: LocalStore.trailURL(session.id))
+        let localTrail = try JSONDecoder().decode([TrailPoint].self, from: trailData)
+        let localNotes = (try? Data(contentsOf: LocalStore.notesURL(session.id)))
+            .flatMap { try? JSONDecoder().decode([Note].self, from: $0) } ?? []
+        let fix = localTrail.last.map {
+            TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil,
+                         accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t)
+        }
+        ViewerDataProvider.shared.register(
+            token: session.id, title: session.title, startedAt: session.startedAt,
+            expiresAt: .greatestFiniteMagnitude, status: "ended"
+        )
+        ViewerDataProvider.shared.setActivity(token: session.id, activity: session.activity)
+        ViewerDataProvider.shared.update(token: session.id, fix: fix, reportedFix: nil, trail: localTrail)
+        ViewerDataProvider.shared.setNotes(token: session.id, notes: localNotes)
+    }
+
     func startSharing(title: String?) async {
         lastError = nil
         location.requestAuthorization()
@@ -346,6 +389,8 @@ final class TrackingStore: ObservableObject {
             trail = []
             lastRecordedFix = nil
             lastReportedFix = nil
+            anchorFix = nil
+            heldReadings = 0
             persistTrail()
             notes = []
             pendingNotes = []
@@ -438,15 +483,36 @@ final class TrackingStore: ObservableObject {
         if sendMode == .time {
             guard Date().timeIntervalSince(lastSendAttempt) >= intervalSeconds else { return }
         }
-        recordFix(from: loc)
+        ingest(loc)
+    }
+
+    /// Quality-gate a raw location and record it (the same filters, in the same
+    /// order, as Android's `alLlegarLectura`): drop warm-up readings with
+    /// hundreds of metres of error, duplicate deliveries, and physically
+    /// impossible jumps; and while the displacement stays under the GPS noise,
+    /// record the anchored position — "still here, still alive" — instead of
+    /// drawing followers a walk that never happened.
+    private func ingest(_ loc: CLLocation) {
+        let accuracy = loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : nil
+        guard TrackingRules.acceptableAccuracy(accuracy, hasAny: !trail.isEmpty) else { return }
+        let fix = makeFix(from: loc)
+        if TrackingRules.isRepeated(previous: lastRecordedFix, new: fix) { return }
+        if TrackingRules.impossibleJump(previous: lastRecordedFix, new: fix,
+                                        activity: effectiveActivity, declared: activity != nil) { return }
+        let toRecord: Fix
+        if TrackingRules.hasMovement(anchor: anchorFix, new: fix) {
+            anchorFix = fix
+            toRecord = fix
+        } else {
+            heldReadings += 1
+            toRecord = TrackingRules.holdPosition(anchor: anchorFix!, new: fix)
+        }
+        recordFix(toRecord)
         Task { await flush() }
     }
 
-    /// Build a fix from a location and queue it (recorded locally first; the
-    /// upload is a separate, retried step so nothing is lost without coverage).
-    private func recordFix(from loc: CLLocation) {
-        lastSendAttempt = Date()
-        let fix = Fix(
+    private func makeFix(from loc: CLLocation) -> Fix {
+        Fix(
             lat: loc.coordinate.latitude,
             lon: loc.coordinate.longitude,
             trackKm: nil,
@@ -456,6 +522,12 @@ final class TrackingStore: ObservableObject {
             altitude: loc.verticalAccuracy >= 0 ? loc.altitude : nil,
             fixAt: loc.timestamp.timeIntervalSince1970 * 1000
         )
+    }
+
+    /// Queue a (already quality-gated) fix: recorded locally first; the upload
+    /// is a separate, retried step so nothing is lost without coverage.
+    private func recordFix(_ fix: Fix) {
+        lastSendAttempt = Date()
         pending.append(fix)
         if pending.count > 10_000 { pending.removeFirst(pending.count - 10_000) }
         persistPending()
@@ -530,16 +602,12 @@ final class TrackingStore: ObservableObject {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    /// Cumulative distance travelled so far (metres), summed over the retained trail.
+    /// Cumulative distance travelled so far (metres), summed over the retained
+    /// trail with the shared noise rule — a segment under the GPS uncertainty
+    /// of its two readings adds nothing, so a note's km mark doesn't inflate
+    /// while standing still (mirror of Android's `distanciaTraza`).
     private func trailDistanceMeters() -> Double {
-        guard trail.count >= 2 else { return 0 }
-        var d = 0.0
-        for i in 1..<trail.count {
-            let a = CLLocation(latitude: trail[i - 1].lat, longitude: trail[i - 1].lon)
-            let b = CLLocation(latitude: trail[i].lat, longitude: trail[i].lon)
-            d += b.distance(from: a)
-        }
-        return d
+        TrackingRules.trailDistanceMeters(trail)
     }
 
     /// Anchor a note to the CURRENT position and queue it (recorded locally first;
@@ -867,6 +935,8 @@ final class TrackingStore: ObservableObject {
         lastSentAt = nil
         lastSendAttempt = .distantPast
         lastReportedFix = nil
+        anchorFix = nil
+        heldReadings = 0
         loadPending(s.token)   // offline backlog recorded before the relaunch
         loadTrail(s.token)     // full route for the offline viewer
         loadNotes(s.token)
@@ -961,9 +1031,9 @@ final class TrackingStore: ObservableObject {
         isStandby = false
         applyLocationConfig()           // full profile (GPS + interval/distance)
         lastSendAttempt = .distantPast  // don't throttle the first live fix
+        anchorFix = nil                 // the standby fix is coarse; re-anchor live
         if let loc = lastLocation {
-            recordFix(from: loc)
-            Task { await flush() }
+            ingest(loc)
         }
     }
 

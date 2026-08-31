@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct SiLoSeNoSalgoTrackerApp: App {
@@ -43,11 +44,12 @@ struct SiLoSeNoSalgoTrackerApp: App {
 /// Handles LAUNCH — including a headless background relaunch by iOS for a
 /// significant-location-change (the SwiftUI scene/`.task` may not run then). If a
 /// beacon was left active, resume it right away so it survives an app kill.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
         // UIKit lifecycle callbacks run on the main thread, where TrackingStore
         // (a @MainActor singleton) is safe to touch.
         MainActor.assumeIsolated {
@@ -57,5 +59,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         return true
+    }
+
+    /// Show cheer banners even while the app is frontmost (e.g. the embedded
+    /// viewer is open full screen): mirror of Android, where the "ánimos"
+    /// channel is allowed to interrupt — that's its whole point.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }

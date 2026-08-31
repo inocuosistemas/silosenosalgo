@@ -52,7 +52,8 @@ final class GuidePackageTests: XCTestCase {
             expiresAt: trail[1].t,
             updatedAt: trail[1].t,
             endedAt: trail[1].t,
-            pinned: true
+            pinned: true,
+            activity: nil
         )
 
         let packageURL = try GuideArchive.export(session: session)
