@@ -16,8 +16,8 @@ export class PlansError extends Error {
   }
 }
 
-function planHeaders(p: SharePayloadV1, name: string): Record<string, string> {
-  return {
+function planHeaders(p: SharePayloadV1, name: string, eventId?: string | null): Record<string, string> {
+  const h: Record<string, string> = {
     'Content-Type': 'application/octet-stream',
     'X-Plan-Name': encodeURIComponent(name),
     'X-Plan-Route': encodeURIComponent(p.track.name || ''),
@@ -25,6 +25,10 @@ function planHeaders(p: SharePayloadV1, name: string): Record<string, string> {
     'X-Plan-Elev': String(p.track.elevGainM ?? ''),
     'X-Plan-Start': encodeURIComponent(p.startTimeISO || ''),
   }
+  // De qué evento salió, cuando se está planificando sobre su recorrido. Va por
+  // cabecera como el resto de metadatos: el cuerpo son bytes comprimidos.
+  if (eventId) h['X-Plan-Event'] = encodeURIComponent(eventId)
+  return h
 }
 
 /** Suggested name when first saving the current route. */
@@ -40,11 +44,11 @@ export async function listPlans(): Promise<PlanMeta[]> {
   return ((await res.json()) as PlansListResponse).plans
 }
 
-export async function createPlan(payload: SharePayloadV1, name: string): Promise<PlanMeta> {
+export async function createPlan(payload: SharePayloadV1, name: string, eventId?: string | null): Promise<PlanMeta> {
   const gz = await gzipBytes(JSON.stringify(payload))
   if (gz.byteLength > MAX_PLAN_BYTES) throw new PlansError('too_large')
   const res = await fetchSafe('/api/plans', {
-    method: 'POST', credentials: 'same-origin', headers: planHeaders(payload, name), body: new Blob([gz]),
+    method: 'POST', credentials: 'same-origin', headers: planHeaders(payload, name, eventId), body: new Blob([gz]),
   })
   if (!res.ok) throw errFrom(res)
   return (await res.json()) as PlanMeta

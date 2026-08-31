@@ -1190,8 +1190,12 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
         }
       } finally {
         // Strip `?s=` so reloading doesn't re-fetch and the fork is independent.
+        // `de` (el evento del que viene el recorrido) se limpia igual: ya está
+        // guardado en el estado, y dejarlo en la barra solo invitaría a que se
+        // comparta un enlace que marca como "de ese evento" cualquier cosa.
         const url = new URL(window.location.href)
         url.searchParams.delete('s')
+        url.searchParams.delete('de')
         window.history.replaceState({}, '', url.toString())
         setShareLoading(false)
       }
@@ -1199,6 +1203,16 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     // Mount-only: we read the URL once on first render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── Procedencia del recorrido ─────────────────────────────────────────────
+  // Cuando se llega desde el lobby de un evento (`?s=<base>&de=<evento>`), lo
+  // que se está planificando son LOS RITMOS DE ESA CARRERA. Guardarlo permite
+  // marcar la previsión al guardarla, y que la baliza sepa después cuál de tus
+  // previsiones es la de ese evento en vez de ofrecerlas todas revueltas.
+  const [planEventId] = useState<string | null>(() => {
+    const de = new URLSearchParams(window.location.search).get('de')
+    return de && /^[A-Za-z0-9_-]{16,32}$/.test(de) ? de : null
+  })
 
   // ── User-POI handlers ─────────────────────────────────────────────────────
   function handleAddPois(materialised: MaterialisedPoi[]) {
@@ -2006,6 +2020,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                 onClose={() => setPlansOpen(false)}
                 getPayload={buildCurrentSharePayload}
                 hasTrack={!!track}
+                eventId={planEventId}
                 onLoad={applyRevivedShare}
               />
               {isDone ? (

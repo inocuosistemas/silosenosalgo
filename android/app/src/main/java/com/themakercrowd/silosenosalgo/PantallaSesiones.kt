@@ -511,22 +511,66 @@ private fun formateaBytes(bytes: Long): String = when {
 // ── Mandos previos a compartir ───────────────────────────────────────────────
 
 @Composable
-fun SelectorPlan(planes: List<PlanSummary>, elegido: String?, onElige: (String?) -> Unit) {
+fun SelectorPlan(
+    planes: List<PlanSummary>,
+    elegido: String?,
+    /** Evento que se va a correr, si hay: cambia lo que significa elegir ruta. */
+    eventoId: String? = null,
+    onElige: (String?) -> Unit,
+) {
     if (planes.isEmpty()) return
+    // Con evento elegido, la ruta cambia de significado: lo que se elige ya no
+    // es "por dónde voy" —eso lo pone la carrera— sino CON QUÉ RITMOS. Las
+    // previsiones hechas sobre ese recorrido van primero y aparte: son las
+    // únicas que cuadran con el evento.
+    val delEvento = if (eventoId == null) emptyList() else planes.filter { it.eventId == eventoId }
+    val otras = if (eventoId == null) planes else planes.filter { it.eventId != eventoId }
+
     Text(
-        "Al elegir una previsión, la hora de salida y las predicciones van contra " +
-            "el plan.",
+        if (eventoId == null) {
+            "Al elegir una previsión, la hora de salida y las predicciones van contra el plan."
+        } else {
+            "Sin elegir nada corres con el recorrido y los cortes del evento. Elige una previsión para usar TUS ritmos."
+        },
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,
     )
     Spacer(Modifier.height(6.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        BotonElegible("Ninguna", elegido == null) { onElige(null) }
-        planes.forEach { plan ->
+        BotonElegible(if (eventoId == null) "Ninguna" else "La del evento", elegido == null) { onElige(null) }
+        delEvento.forEach { plan ->
             BotonElegible(plan.name ?: plan.routeName ?: "Sin nombre", elegido == plan.id) {
                 onElige(plan.id)
             }
         }
+    }
+
+    if (eventoId != null && otras.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Text("Otras previsiones", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
+        Spacer(Modifier.height(4.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            otras.forEach { plan ->
+                BotonElegible(plan.name ?: plan.routeName ?: "Sin nombre", elegido == plan.id) {
+                    onElige(plan.id)
+                }
+            }
+        }
+    }
+
+    // Elegir una previsión ajena al evento no rompe nada —la tuya siempre manda
+    // sobre la del evento— pero deja el visor calculando ritmos y cortes contra
+    // un recorrido que no estás corriendo, y eso no puede pasar en silencio.
+    val descuadra = eventoId != null && elegido != null &&
+        planes.firstOrNull { it.id == elegido }?.eventId != eventoId
+    if (descuadra) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "⚠️ Esta previsión no es del recorrido del evento: tus ritmos y cortes " +
+                "se calcularán sobre otra ruta.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Paleta.ambar,
+        )
     }
 }
 

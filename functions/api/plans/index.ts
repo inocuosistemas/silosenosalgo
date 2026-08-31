@@ -3,6 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
+import { TOKEN_RE } from '../../../shared/validate'
 import type { PlanMeta, PlansListResponse } from '../../../shared/wireTypes'
 
 /** Under D1's ~2 MB row cap. Client mirrors this. */
@@ -25,7 +26,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const rows = await env.DB.prepare(
     `SELECT id, name, route_name AS routeName, distance_km AS distanceKm, elev_gain_m AS elevGainM,
-            start_time AS startTime, created_at AS createdAt, updated_at AS updatedAt
+            start_time AS startTime, created_at AS createdAt, updated_at AS updatedAt,
+            event_id AS eventId
        FROM plans WHERE user_id=? ORDER BY updated_at DESC LIMIT 200`,
   ).bind(user.id).all<PlanMeta>()
   const res: PlansListResponse = { plans: rows.results ?? [] }
@@ -47,14 +49,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const distanceKm = numOrNull(request.headers.get('X-Plan-Distance'))
   const elevGainM = numOrNull(request.headers.get('X-Plan-Elev'))
   const startTime = decodeHeader(request.headers.get('X-Plan-Start')).slice(0, 40) || null
+  // De qué evento salió esta previsión, si se creó abriendo su recorrido. Es
+  // una anotación de procedencia: sirve para que la baliza sepa cuál de tus
+  // previsiones es la de ESA carrera, y no se comprueba contra nada — el
+  // evento puede haberse borrado y la previsión sigue siendo tuya.
+  const eventIdRaw = decodeHeader(request.headers.get('X-Plan-Event')).trim()
+  const eventId = TOKEN_RE.test(eventIdRaw) ? eventIdRaw : null
   const now = Date.now()
   const id = genId(8)
 
   await env.DB.prepare(
-    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now).run()
+    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at, event_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now, eventId).run()
 
-  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now }
+  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now, eventId }
   return json(meta, 201)
 }

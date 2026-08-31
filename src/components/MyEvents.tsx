@@ -18,6 +18,8 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
+  /** El formulario de crear, plegado hasta que se pide con el "+". */
+  const [creating, setCreating] = useState(false)
 
   const refresh = useCallback(async () => {
     try { setEvents(await listEvents()); setError(null) }
@@ -40,23 +42,46 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="space-y-3">
-      {isAdmin && (
+      {/* Crear es lo excepcional —un evento se monta una vez y se mira muchas—,
+          así que el formulario no ocupa el sitio de arriba a diario: se pide
+          con el "+" y aparece. Y solo para quien puede crearlos. */}
+      {isAdmin && !creating && (
+        <button
+          onClick={() => setCreating(true)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 transition-colors hover:border-sky-700 hover:text-sky-400"
+        >
+          <span className="text-base leading-none">+</span> Crear un evento
+        </button>
+      )}
+
+      {isAdmin && creating && (
         <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
           <p className="text-xs text-slate-400 mb-2">Crear un evento</p>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void create() }}
             placeholder="Nombre del evento"
             disabled={busy}
+            autoFocus
             className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50 mb-2"
           />
-          <button
-            onClick={() => void create()}
-            disabled={busy || !name.trim()}
-            className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-sm font-medium py-2 transition-colors"
-          >
-            Crear
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void create()}
+              disabled={busy || !name.trim()}
+              className="flex-1 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-sm font-medium py-2 transition-colors"
+            >
+              Crear
+            </button>
+            <button
+              onClick={() => { setCreating(false); setName('') }}
+              disabled={busy}
+              className="rounded-lg border border-slate-700 px-3 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          </div>
           <p className="mt-2 text-[11px] text-slate-500">
             El recorrido se le pone después, o desde Mis previsiones → Evento.
           </p>

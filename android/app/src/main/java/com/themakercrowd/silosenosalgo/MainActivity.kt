@@ -581,7 +581,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     null
                 },
             ) {
-                SelectorPlan(planes, estado.planId) { TrackingStore.eligePlan(it) }
+                SelectorPlan(planes, estado.planId, estado.eventoId) { TrackingStore.eligePlan(it) }
                 // El acceso al mapa sin cobertura cuelga de la ruta y solo
                 // aparece con una elegida, igual que en iOS: sin plan no hay
                 // corredor que preparar, solo lo ya recorrido.

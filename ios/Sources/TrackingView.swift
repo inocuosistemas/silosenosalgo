@@ -217,11 +217,41 @@ struct TrackingView: View {
 
                 if !store.isSharing {
                     Section {
-                        Picker("Ruta (previsión)", selection: $store.selectedPlanId) {
-                            Text("Sin ruta · trazado en vivo").tag(String?.none)
-                            ForEach(store.plans) { plan in
-                                Text(plan.name).tag(Optional(plan.id))
+                        // Con evento elegido, la ruta cambia de significado: lo
+                        // que se elige ya no es "por dónde voy" —eso lo pone la
+                        // carrera— sino CON QUÉ RITMOS. Por eso las previsiones
+                        // hechas sobre ese recorrido van primero y aparte: son
+                        // las únicas que cuadran con el evento.
+                        Picker(store.selectedEventId == nil ? "Ruta (previsión)" : "Mi previsión", selection: $store.selectedPlanId) {
+                            Text(store.selectedEventId == nil
+                                 ? "Sin ruta · trazado en vivo"
+                                 : "La del evento").tag(String?.none)
+                            if store.selectedEventId != nil {
+                                Section("De este evento") {
+                                    ForEach(store.plansOfEvent) { plan in
+                                        Text(plan.name).tag(Optional(plan.id))
+                                    }
+                                }
+                                Section("Otras previsiones") {
+                                    ForEach(store.plansNotOfEvent) { plan in
+                                        Text(plan.name).tag(Optional(plan.id))
+                                    }
+                                }
+                            } else {
+                                ForEach(store.plans) { plan in
+                                    Text(plan.name).tag(Optional(plan.id))
+                                }
                             }
+                        }
+                        // Elegir una previsión ajena al evento no rompe nada
+                        // —la tuya siempre manda— pero deja el visor calculando
+                        // contra un recorrido que no estás corriendo, y eso no
+                        // puede pasar en silencio.
+                        if store.planMismatchesEvent {
+                            Label("Esta previsión no es del recorrido del evento: tus ritmos y cortes se calcularán sobre otra ruta.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         }
                         if store.selectedPlanId != nil {
                             Text("Tus seguidores verán la ruta planificada y tu progreso.")

@@ -1,0 +1,21 @@
+-- De qué evento salió una previsión.
+--
+-- La planificación de un evento son dos capas: el recorrido, los controles y
+-- los cierres los pone la organización (la base del evento), y los ritmos los
+-- pone cada uno encima. Esa segunda capa se guarda como una previsión normal y
+-- corriente —se crea abriendo el recorrido del evento en el planificador—, así
+-- que hasta ahora la relación entre "mi previsión" y "la carrera" solo existía
+-- en la cabeza de quien la hizo.
+--
+-- Eso se notaba justo donde más molesta: en la baliza, al salir. La app te deja
+-- elegir un evento y una ruta, y sin esta marca las ofrece todas revueltas, sin
+-- distinguir la que hiciste PARA esa carrera de una de otro día. Elegir la que
+-- no es no rompe nada —tu previsión siempre manda sobre la del evento— pero te
+-- deja el visor calculando ritmos contra un recorrido que no estás corriendo.
+--
+-- Nullable y sin clave foránea, como `invitations.used_by`: una previsión
+-- normal no viene de ningún evento, y si el evento se borra la previsión sigue
+-- siendo tuya y perfectamente utilizable. Es una anotación de procedencia, no
+-- una dependencia.
+
+ALTER TABLE plans ADD COLUMN event_id TEXT;

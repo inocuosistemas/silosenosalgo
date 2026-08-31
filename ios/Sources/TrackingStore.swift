@@ -227,6 +227,28 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /// Las previsiones hechas SOBRE el recorrido del evento elegido: las únicas
+    /// que cuadran con la carrera que se va a correr.
+    var plansOfEvent: [PlanSummary] {
+        guard let ev = selectedEventId else { return [] }
+        return plans.filter { $0.eventId == ev }
+    }
+
+    /// El resto. No se esconden —una previsión vieja puede ser justo la que
+    /// quieres— pero van aparte y avisadas.
+    var plansNotOfEvent: [PlanSummary] {
+        guard let ev = selectedEventId else { return plans }
+        return plans.filter { $0.eventId != ev }
+    }
+
+    /// ¿La previsión elegida es de otra cosa que el evento que se va a correr?
+    /// Solo con evento y previsión elegidos: sin previsión se hereda la del
+    /// evento, que es exactamente lo correcto.
+    var planMismatchesEvent: Bool {
+        guard selectedEventId != nil, let planId = selectedPlanId else { return false }
+        return plans.first { $0.id == planId }?.eventId != selectedEventId
+    }
+
     /// El evento de la salida en curso, para enseñarlo mientras se emite.
     var activeEvent: EventSummary? {
         guard let id = selectedEventId else { return nil }

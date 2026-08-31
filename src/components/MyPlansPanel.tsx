@@ -19,12 +19,15 @@ type Current = { id: string; name: string } | null
  * null) until `open`, so `current` survives opening/closing.
  */
 export function MyPlansPanel({
-  open, onClose, getPayload, hasTrack, onLoad,
+  open, onClose, getPayload, hasTrack, eventId, onLoad,
 }: {
   open: boolean
   onClose: () => void
   getPayload: () => SharePayloadV1
   hasTrack: boolean
+  /** Evento del que viene el recorrido cargado (`?s=…&de=…`), para marcar la
+   *  previsión como suya al guardarla. */
+  eventId?: string | null
   onLoad: (revived: RevivedShare) => void
 }) {
   const { user, status } = useAuth()
@@ -37,6 +40,7 @@ export function MyPlansPanel({
         getPayload={getPayload}
         hasTrack={hasTrack}
         current={current}
+        eventId={eventId}
         canCreateEvents={user.isAdmin}
         onSaved={(id, name) => setCurrent({ id, name })}
         onLoaded={(id, name, revived) => { setCurrent({ id, name }); onLoad(revived); onClose() }}
@@ -47,11 +51,12 @@ export function MyPlansPanel({
 }
 
 function PlansBody({
-  getPayload, hasTrack, current, canCreateEvents, onSaved, onLoaded, onDeleted,
+  getPayload, hasTrack, current, eventId, canCreateEvents, onSaved, onLoaded, onDeleted,
 }: {
   getPayload: () => SharePayloadV1
   hasTrack: boolean
   current: Current
+  eventId?: string | null
   /** Solo un administrador crea eventos: es quien organiza, no cada cuenta. */
   canCreateEvents: boolean
   onSaved: (id: string, name: string) => void
@@ -84,7 +89,9 @@ function PlansBody({
     if (!hasTrack || !name.trim()) return
     setBusy(true); setError(null)
     try {
-      const meta = await createPlan(getPayload(), name.trim())
+      // La procedencia solo se marca al CREAR: actualizar una previsión
+      // existente conserva la que ya tuviera (el servidor no la toca).
+      const meta = await createPlan(getPayload(), name.trim(), eventId)
       onSaved(meta.id, meta.name)
       await refresh()
     } catch (e) { setError(plansErrorMessage(codeOf(e))) }

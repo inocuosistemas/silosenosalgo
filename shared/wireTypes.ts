@@ -48,6 +48,11 @@ export interface PlanMeta {
   startTime: string | null
   createdAt: number
   updatedAt: number
+  /** Evento del que salió esta previsión (se creó abriendo su recorrido), o
+   *  null si es una previsión suelta. Anotación de PROCEDENCIA: sirve para que
+   *  la baliza distinga cuál de tus previsiones es la de esa carrera, y
+   *  sobrevive a que el evento se borre. */
+  eventId?: string | null
 }
 
 export interface PlansListResponse {

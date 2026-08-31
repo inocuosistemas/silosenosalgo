@@ -176,6 +176,10 @@ data class PlanSummary(
      *  aquí y no del momento de darle a compartir. */
     val startTime: String? = null,
     val updatedAt: Double? = null,
+    /** Evento del que salió esta previsión (se creó sobre su recorrido), o null
+     *  si es suelta. Sirve para ofrecer primero la de la carrera que se está
+     *  corriendo en vez de todas revueltas. */
+    val eventId: String? = null,
 )
 
 /** Error del API con el mismo repertorio de códigos y textos que iOS: los dos

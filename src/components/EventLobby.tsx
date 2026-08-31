@@ -360,8 +360,11 @@ export default function EventLobby({ id }: { id: string }) {
             {/* El recorrido del evento se abre en el planificador como COPIA
                 editable (el mismo camino que un enlace compartido): nadie tiene
                 que buscarse el GPX por su cuenta ni puede tocar el del evento. */}
+            {/* `de=` marca la procedencia: al guardar la previsión quedará
+                anotada como de este evento, y así la baliza sabrá cuál de
+                todas es la de esta carrera. */}
             <a
-              href={`/?s=${encodeURIComponent(event.planShareId)}`}
+              href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}`}
               className="mt-2 block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
             >
               Planificar sobre el recorrido del evento →

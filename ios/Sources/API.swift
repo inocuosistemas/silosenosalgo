@@ -109,6 +109,10 @@ struct PlanSummary: Codable, Identifiable, Equatable {
     let routeName: String?
     let distanceKm: Double?
     let startTime: String?   // ISO; the plan's planned departure
+    /// Evento del que salió esta previsión (se creó sobre su recorrido), o nil
+    /// si es suelta. Sirve para ofrecer primero la del evento que se está
+    /// corriendo en vez de todas revueltas.
+    let eventId: String?
 }
 
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.
