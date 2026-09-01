@@ -631,6 +631,41 @@ export default function EventLobby({ id }: { id: string }) {
           carrera, y luego se mira cero veces: plegado por defecto, con el
           estado en el encabezado para no tener que abrir para comprobar. Quien
           organiza también corre, y ese día lo que necesita es lo de arriba. */}
+      {/* El recorrido, para quien organiza. Estaba SOLO dentro de "Mi
+          planificación", que es de quien corre: un organizador que no corre se
+          quedaba sin manera de abrir la base para retocar un POI, que es la
+          edición más normal de todas —la organización mueve el avituallamiento
+          tres días antes—. El editor sigue siendo el planificador de siempre;
+          lo que faltaba era la puerta. */}
+      {event.isOwner && (
+        <Plegable
+          title="Recorrido del evento"
+          summary={event.planName ?? (event.planShareId ? 'puesto' : 'sin recorrido')}
+        >
+          {event.planShareId ? (
+            <>
+              <a
+                href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
+                  event.startsAt ? `&salida=${event.startsAt}` : ''
+                }`}
+                className="block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
+              >
+                Abrir el recorrido para ajustarlo →
+              </a>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Se abre en el planificador con el recorrido, los controles y los cierres. Mueve o añade puntos y
+                pulsa «Actualizar el recorrido del evento» en la barra de arriba: se publica para todos.
+              </p>
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Este evento aún no tiene recorrido. Abre una previsión tuya y usa «Convertir en evento» para
+              ponérselo.
+            </p>
+          )}
+        </Plegable>
+      )}
+
       {event.isOwner && (
         <Plegable
           title="Salida oficial"

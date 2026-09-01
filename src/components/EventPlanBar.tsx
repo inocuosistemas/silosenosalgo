@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import type { PlanMeta } from '../../shared/wireTypes'
 import { listPlans, createPlan, updatePlan } from '../lib/plansTransport'
-import { getEvent, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import { getEvent, setEventPlan, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import { stripToEventBase } from '../lib/eventPlan'
+import { useAuth } from '../lib/AuthContext'
 
 /**
  * La barra de "vengo de una carrera".
@@ -28,11 +30,17 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
   getPayload: () => SharePayloadV1 | null
   hasTrack: boolean
 }) {
+  const { user } = useAuth()
   const [eventName, setEventName] = useState<string | null>(null)
+  /** ¿Corro esta carrera? Quien solo la organiza no tiene "mi previsión". */
+  const [corro, setCorro] = useState(true)
+  /** ¿Organizo esta carrera? Entonces además puedo cambiar el recorrido de todos. */
+  const [isOwner, setIsOwner] = useState(false)
   /** La previsión que YA tengo para esta carrera, si la hay. */
   const [mine, setMine] = useState<PlanMeta | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [publicado, setPublicado] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
@@ -41,10 +49,14 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
         getEvent(eventId).catch(() => null),
         listPlans().catch(() => [] as PlanMeta[]),
       ])
-      if (ev) setEventName(ev.event.name)
+      if (ev) {
+        setEventName(ev.event.name)
+        setIsOwner(ev.event.isOwner)
+        setCorro(ev.members.some((m) => m.userId === user?.id))
+      }
       setMine(planes.find((p) => p.eventId === eventId) ?? null)
     } catch { /* sin cuenta o sin red: la barra sigue sirviendo de contexto */ }
-  }, [eventId])
+  }, [eventId, user?.id])
 
   useEffect(() => { void cargar() }, [cargar])
 
@@ -68,6 +80,31 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
     } finally { setBusy(false) }
   }
 
+  /**
+   * Publicar lo que hay en pantalla como recorrido del evento.
+   *
+   * Es la misma costura que "Convertir en evento" —fuera ritmos, margen y
+   * objetivos por tramo, que son de cada corredor— pero sin el diálogo: aquí ya
+   * sabemos a qué evento va, porque se ha llegado desde él. Se confirma porque
+   * esto lo ven TODOS: es la única acción de esta barra que no es personal.
+   */
+  async function publicarRecorrido() {
+    const payload = getPayload()
+    if (!payload) return
+    if (!window.confirm(
+      'Se publica este recorrido, con sus puntos y horarios de cierre, para todos los participantes. ' +
+      'Sus ritmos y objetivos propios no se tocan. ¿Actualizar?',
+    )) return
+    setBusy(true); setError(null)
+    try {
+      await setEventPlan(eventId, stripToEventBase(payload), eventName ?? 'Recorrido del evento')
+      setPublicado(true)
+      window.setTimeout(() => setPublicado(false), 2500)
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   return (
     <div className="sticky top-0 z-[1090] border-b border-slate-800 bg-slate-900/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2">
@@ -79,10 +116,24 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
           ← Parrilla
         </a>
         <p className="min-w-0 flex-1 truncate text-xs text-slate-300">
-          🏁 Ajustando <span className="font-medium text-slate-100">mi previsión</span>
-          {eventName ? <> para <span className="font-medium text-slate-100">{eventName}</span></> : null}
+          🏁 Ajustando{' '}
+          <span className="font-medium text-slate-100">{corro ? 'mi previsión' : 'el recorrido'}</span>
+          {eventName ? <> {corro ? 'para' : 'de'} <span className="font-medium text-slate-100">{eventName}</span></> : null}
         </p>
         {error && <span className="shrink-0 text-[11px] text-red-400">{error}</span>}
+        {isOwner && (
+          <button
+            onClick={() => void publicarRecorrido()}
+            disabled={busy || !hasTrack}
+            title="Publica este recorrido y sus cierres como los de la carrera, para todos"
+            className="shrink-0 rounded-lg border border-amber-800 px-3 py-1.5 text-xs text-amber-400 transition-colors hover:bg-amber-950/40 disabled:opacity-50"
+          >
+            {publicado ? 'Publicado ✓' : 'Actualizar el recorrido del evento'}
+          </button>
+        )}
+        {/* "Mi planificación" es de quien corre: a quien solo organiza le
+            sobra, y un botón que no viene a cuento hace dudar del que sí. */}
+        {corro && (
         <button
           onClick={() => void guardar()}
           disabled={busy || !hasTrack}
@@ -91,6 +142,7 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
         >
           {saved ? 'Guardada ✓' : busy ? 'Guardando…' : mine ? 'Actualizar mi planificación' : 'Guardar mi planificación'}
         </button>
+        )}
       </div>
     </div>
   )
