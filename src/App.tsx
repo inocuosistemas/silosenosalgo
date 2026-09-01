@@ -535,6 +535,21 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   // ── App mode ───────────────────────────────────────────────────────────────
   const [appMode, setAppMode] = useState<AppMode>('plan')
 
+  // ── Cabecera en dos alturas ───────────────────────────────────────────────
+  // Arriba del todo va holgada: la marca en su línea y los mandos debajo, que
+  // en un móvil no caben juntos sin comerse el título. Al desplazar se compacta
+  // en una sola línea, que pegada arriba lo que importa es robar poca pantalla.
+  // Con histéresis (48 baja, 16 sube): compactar cambia la altura de la propia
+  // cabecera, y un umbral único haría parpadear el diseño justo en el borde.
+  const [cabeceraCompacta, setCabeceraCompacta] = useState(() => window.scrollY > 48)
+  useEffect(() => {
+    const alDesplazar = () => {
+      setCabeceraCompacta((prev) => (prev ? window.scrollY > 16 : window.scrollY > 48))
+    }
+    window.addEventListener('scroll', alDesplazar, { passive: true })
+    return () => window.removeEventListener('scroll', alDesplazar)
+  }, [])
+
   // ── GPS simulation (dev only) ─────────────────────────────────────────────
   // simKm !== null means simulation is active: livePos is replaced by a fake
   // position at that km, and realPaceMinPerKm is replaced by simPace.
@@ -2002,16 +2017,16 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* ── Header ── */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-[1100]">
-        {/* En un móvil no caben la marca y los seis mandos en la misma línea:
-            `flex-wrap` los baja a una segunda fila en vez de empujarlos fuera de
-            la pantalla, que es lo que hacían. El subtítulo desaparece por debajo
-            de `sm`: ocupaba tres líneas para contar lo que ya cuenta la primera
-            pantalla. */}
-        <div className="max-w-6xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* En un móvil no caben la marca y los seis mandos en la misma línea.
+            Holgada (arriba del todo): los mandos bajan a su propia fila con
+            `w-full` y el título respira entero. Compacta (al desplazar): todo en
+            una línea y el título se recorta, que ahí ya se sabe dónde se está.
+            En `sm+` siempre cabe todo en una y las clases compactas no aplican. */}
+        <div className={`max-w-6xl mx-auto px-4 sm:py-4 flex flex-wrap items-center gap-x-3 gap-y-2 ${cabeceraCompacta ? 'py-2' : 'py-3'}`}>
           <span className="text-2xl shrink-0">🌧️</span>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg sm:text-xl font-bold tracking-tight truncate">SiLoSeNoSalgo</h1>
-            <p className="hidden sm:block text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
+            <p className={`${cabeceraCompacta ? 'hidden' : 'block'} sm:block text-slate-500 text-xs`}>Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
           {(() => {
             const disabledTitle = 'Disponible al calcular el plan (botón Calcular)'
@@ -2020,7 +2035,9 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             // Y si aun así no cupieran —un botón más, una pantalla más
             // estrecha—, la fila se desplaza en horizontal ella sola en vez de
             // estirar la página entera.
-            <div className="ml-auto flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-fantasma">
+            <div className={`flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-fantasma ${
+              cabeceraCompacta ? 'ml-auto' : 'w-full justify-end sm:w-auto sm:ml-auto'
+            }`}>
               <GuideLoader onLoad={onGuideLoaded} />
               <AuthMenu onOpenPlans={() => setPlansOpen(true)} />
               <MyPlansPanel
