@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
-import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
+import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -44,6 +44,8 @@ export default function EventLobby({ id }: { id: string }) {
   const [fav, setFav] = useState<{ favEmoji: string | null; favColor: string | null } | null>(null)
   /** Participante cuya marca está editando el organizador (su userId). */
   const [editing, setEditing] = useState<string | null>(null)
+  /** El tablón, en edición (solo quien organiza). */
+  const [editandoNotas, setEditandoNotas] = useState(false)
   /** Llega con `&marca=1` desde la unión cuando su emoji favorito estaba cogido. */
   const [emojiTaken] = useState(() => new URLSearchParams(window.location.search).has('marca'))
 
@@ -138,6 +140,13 @@ export default function EventLobby({ id }: { id: string }) {
     } catch {
       setError('No se pudo guardar tu marca favorita.')
     } finally { setBusy(false) }
+  }
+
+  async function guardarNotas(texto: string) {
+    setBusy(true); setError(null)
+    try { await setEventNotes(id, texto); await refresh(); setEditandoNotas(false) }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
   }
 
   async function toggleColorsLocked(locked: boolean) {
@@ -293,6 +302,47 @@ export default function EventLobby({ id }: { id: string }) {
       </p>
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+
+      {/* El tablón de la carrera: bolsa de vida, autobuses, avituallamientos.
+          Va ARRIBA, antes que los participantes: es lo que hay que leer, y una
+          nota que hay que ir a buscar al final de la página no la lee nadie.
+          Se ve tal cual se escribió (`whitespace-pre-wrap`), sin interpretar
+          nada: quien escribe una lista con guiones quiere una lista con
+          guiones, y lo que llega es texto de otra persona, no marcado. */}
+      {(event.notes || (event.isOwner && editandoNotas)) && (
+        <section className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-1.5 flex items-center gap-2">
+            <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Notas de la carrera</h2>
+            {event.isOwner && !editandoNotas && (
+              <button
+                onClick={() => setEditandoNotas(true)}
+                className="ml-auto text-[11px] text-slate-400 hover:text-sky-400"
+              >
+                Editar
+              </button>
+            )}
+          </div>
+          {editandoNotas ? (
+            <NotasEditor
+              inicial={event.notes ?? ''}
+              busy={busy}
+              onGuardar={(t) => void guardarNotas(t)}
+              onCancelar={() => setEditandoNotas(false)}
+            />
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-sm text-slate-200">{event.notes}</p>
+          )}
+        </section>
+      )}
+
+      {event.isOwner && !event.notes && !editandoNotas && (
+        <button
+          onClick={() => setEditandoNotas(true)}
+          className="mt-3 w-full rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 transition-colors hover:border-sky-700 hover:text-sky-400"
+        >
+          + Notas de la carrera
+        </button>
+      )}
 
       {/* Participantes */}
       <section className="mt-4">
@@ -671,6 +721,63 @@ export default function EventLobby({ id }: { id: string }) {
         />
       )}
     </Shell>
+  )
+}
+
+/**
+ * El tablón, en edición. Con borrador propio y guardado explícito: no es un
+ * campo que se autoguarde mientras se teclea —lo van a leer treinta personas y
+ * media frase a medio escribir no es lo que se quiere publicar—.
+ */
+function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
+  inicial: string
+  busy: boolean
+  onGuardar: (texto: string) => void
+  onCancelar: () => void
+}) {
+  const [texto, setTexto] = useState(inicial)
+  const pasado = texto.length > EVENT_NOTES_MAX
+  return (
+    <div>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={6}
+        autoFocus
+        placeholder={'Dónde está la bolsa de vida, a qué hora sale el autobús, qué hay en cada avituallamiento…'}
+        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-sky-600 focus:outline-none"
+      />
+      <div className="mt-1.5 flex items-center gap-2">
+        <button
+          onClick={() => onGuardar(texto)}
+          disabled={busy || pasado}
+          className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+        >
+          Guardar
+        </button>
+        <button
+          onClick={onCancelar}
+          disabled={busy}
+          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+        >
+          Cancelar
+        </button>
+        {texto.trim() && (
+          <button
+            onClick={() => onGuardar('')}
+            disabled={busy}
+            className="ml-auto text-[11px] text-slate-500 hover:text-red-400 disabled:opacity-50"
+          >
+            Quitar las notas
+          </button>
+        )}
+      </div>
+      {pasado && (
+        <p className="mt-1 text-[11px] text-red-400">
+          Te has pasado por {texto.length - EVENT_NOTES_MAX} caracteres del máximo ({EVENT_NOTES_MAX}).
+        </p>
+      )}
+    </div>
   )
 }
 

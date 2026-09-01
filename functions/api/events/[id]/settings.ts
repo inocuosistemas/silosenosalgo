@@ -3,13 +3,20 @@ import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE } from '../../../../shared/validate'
+import { EVENT_NOTES_MAX as NOTES_MAX } from '../../../../shared/wireTypes'
 
 /**
  * POST /api/events/:id/settings — los ajustes del evento que decide quien organiza.
  *
- * De momento uno solo: `{ colorsLocked }`. Con los colores reservados, el
- * reparto lo hace el organizador y los participantes no pueden cambiarse el
- * suyo; es lo que hace falta cuando el color significa algo (el club, el
+ * Dos: `{ colorsLocked }` y `{ notes }`. Se mandan por separado o juntos; lo
+ * que no viene, no se toca.
+ *
+ * Las NOTAS son el tablón de la carrera —bolsa de vida, autobuses, qué hay en
+ * cada avituallamiento—, texto suelto que escribe quien organiza y leen los
+ * participantes. Vacío las quita.
+ *
+ * Con los COLORES reservados, el reparto lo hace el organizador y los
+ * participantes no pueden cambiarse el suyo; es lo que hace falta cuando el color significa algo (el club, el
  * relevo, la categoría) en vez de ser un gusto. Por defecto está suelto.
  *
  * Reservarlos NO revuelve lo ya elegido: cada uno se queda con el color que
@@ -25,8 +32,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = (await readJson<{ colorsLocked?: unknown }>(request)) || {}
-  if (typeof body.colorsLocked !== 'boolean') return json({ error: 'invalid_request' }, 400)
+  const body = (await readJson<{ colorsLocked?: unknown; notes?: unknown }>(request)) || {}
+  const tocaColores = typeof body.colorsLocked === 'boolean'
+  const tocaNotas = body.notes !== undefined
+  if (!tocaColores && !tocaNotas) return json({ error: 'invalid_request' }, 400)
+
+  // Un tope generoso pero real: esto viaja en cada carga de la parrilla, y sin
+  // límite un pegote de mil líneas la volvería lenta para todos.
+  let notes: string | null = null
+  if (tocaNotas) {
+    const raw = typeof body.notes === 'string' ? body.notes.trim() : ''
+    if (raw.length > NOTES_MAX) return json({ error: 'too_large' }, 413)
+    notes = raw || null
+  }
 
   // La propiedad se comprueba con un SELECT y se repite en el WHERE: nunca se
   // ramifica sobre `meta.changes`, que en producción no es de fiar.
@@ -35,7 +53,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!ev) return json({ error: 'not_found' }, 404)
   if (ev.createdBy !== user.id) return json({ error: 'forbidden' }, 403)
 
-  await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ? AND created_by = ?')
-    .bind(body.colorsLocked ? 1 : 0, id, user.id).run()
+  if (tocaColores) {
+    await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ? AND created_by = ?')
+      .bind(body.colorsLocked ? 1 : 0, id, user.id).run()
+  }
+  if (tocaNotas) {
+    await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ? AND created_by = ?')
+      .bind(notes, id, user.id).run()
+  }
   return new Response(null, { status: 204 })
 }

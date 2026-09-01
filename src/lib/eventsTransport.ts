@@ -134,10 +134,19 @@ export async function setEventEmoji(id: string, emoji: string, userId?: string):
 
 /** Reservar los colores para el organizador (o volver a soltarlos). */
 export async function setEventColorsLocked(id: string, colorsLocked: boolean): Promise<void> {
+  return setEventSettings(id, { colorsLocked })
+}
+
+/** El tablón de la carrera. Vacío lo quita. Solo quien organiza. */
+export async function setEventNotes(id: string, notes: string): Promise<void> {
+  return setEventSettings(id, { notes })
+}
+
+async function setEventSettings(id: string, patch: { colorsLocked?: boolean; notes?: string }): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ colorsLocked }),
+    body: JSON.stringify(patch),
   })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
@@ -293,7 +302,7 @@ export function eventsErrorMessage(code: string): string {
     case 'bad_emoji': return 'Tiene que ser un solo emoji, y no una bandera de país.'
     case 'colors_locked': return 'En este evento los colores agrupan y los reparte quien organiza.'
     case 'invalid_invite': return 'El código no vale o el evento ya terminó.'
-    case 'too_large': return 'La ruta es demasiado grande para el evento.'
+    case 'too_large': return 'El texto es demasiado largo.'
     case 'rate_limited': return 'Demasiados intentos. Espera un poco.'
     default: return 'No se pudo completar la operación. Revisa tu conexión.'
   }

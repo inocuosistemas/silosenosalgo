@@ -87,6 +87,15 @@ cobertura, no con el móvil en la mano y el dorsal puesto.
 > viejo aparece en el mapa común con su emoji igualmente —lo pinta la web—,
 > simplemente no lo ve en su teléfono.
 
+### Notas de la carrera
+
+**Web · desplegado.** El evento tiene un tablón donde quien organiza cuenta lo
+que hasta ahora acababa en el grupo de chat: dónde está la bolsa de vida, a qué
+hora sale el autobús, qué hay en cada avituallamiento. Sale arriba de la
+parrilla, lo escribe solo el organizador y lo leen los participantes.
+
+**Android / iOS** · *Compatible*. Campo nuevo en la parrilla, que es de la web.
+
 ### Organizar sin correr
 
 **Web · desplegado.** Crear un evento ya no obliga a figurar entre los que lo

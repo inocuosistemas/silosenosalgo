@@ -402,6 +402,9 @@ export interface EventInfo {
    *  no cambia, así que sin esto manda la caché de cada navegador. `null` en
    *  fotos anteriores a que esto existiera. */
   photoAt: number | null
+  /** El tablón de la carrera: lo que quien organiza cuenta a todos (bolsa de
+   *  vida, autobuses, avituallamientos). Texto suelto; null si no hay nada. */
+  notes?: string | null
   /** Los colores los reparte solo el organizador. Por defecto false: los elige
    *  cada uno, y pueden repetirse. */
   colorsLocked: boolean
@@ -515,6 +518,9 @@ export interface EventLiveResponse {
 
 /** Cuántos puntos del final de la traza viajan por participante. */
 export const EVENT_TAIL_POINTS = 60
+
+/** Tope de las notas del evento: viajan en cada carga de la parrilla. */
+export const EVENT_NOTES_MAX = 4000
 
 export interface CreateEventResponse {
   id: string
