@@ -65,6 +65,16 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [panelOpen, setPanelOpen] = useState(true)
   /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
   const [profileOpen, setProfileOpen] = useState(true)
+  /**
+   * Las dos gráficas, enlazadas por el ratón.
+   *
+   * `hoverKm` es el punto del recorrido que se está señalando en el perfil: el
+   * mapa lo marca a la vez, que es la unica forma de saber a qué sitio del
+   * valle corresponde esa pared. `hoverKey` es el corredor señalado en una de
+   * las dos, resaltado en la otra.
+   */
+  const [hoverKm, setHoverKm] = useState<number | null>(null)
+  const [hoverKey, setHoverKey] = useState<string | null>(null)
   /** Zoom actual: por debajo de cierto acercamiento los emojis no se leen. */
   const [zoom, setZoom] = useState(13)
   /**
@@ -200,6 +210,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [plan, cutoffs, startMs])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  /** Dónde cae en el mapa el kilómetro que se está señalando en el perfil. */
+  const hoverCoords = useMemo(
+    () => (route && hoverKm !== null ? coordsAtKm(route, hoverKm) : null),
+    [route, hoverKm],
+  )
+
   /** La pantalla de espera: nadie ha mandado posición todavía. */
   const waiting = runners !== null && withFix.length === 0
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
@@ -301,18 +317,39 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 <Marker
                   position={[r.fix!.lat, r.fix!.lon]}
                   icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji)}
-                  eventHandlers={{ click: () => setSelected(isSel ? null : key) }}
+                  eventHandlers={{
+                    click: () => setSelected(isSel ? null : key),
+                    // Señalar aquí lo enciende en el perfil, y al revés: son la
+                    // misma carrera contada de dos maneras.
+                    mouseover: () => setHoverKey(key),
+                    mouseout: () => setHoverKey((k) => (k === key ? null : k)),
+                  }}
                 />
-                {isSel && (
+                {(isSel || key === hoverKey) && (
                   <CircleMarker
                     center={[r.fix!.lat, r.fix!.lon]}
                     radius={18}
-                    pathOptions={{ color, weight: 2, fill: false, opacity: 0.8 }}
+                    pathOptions={{ color, weight: 2, fill: false, opacity: isSel ? 0.8 : 0.5, dashArray: isSel ? undefined : '3 3' }}
                   />
                 )}
               </div>
             )
           })}
+
+          {/* El km que señala el ratón en el perfil, marcado aquí: sin esto,
+              "esa pared del km 22" no se sabe dónde cae. */}
+          {hoverCoords && (
+            <CircleMarker
+              center={hoverCoords}
+              radius={7}
+              pathOptions={{ color: '#f8fafc', weight: 2, fillColor: '#a78bfa', fillOpacity: 0.95 }}
+            >
+              <Tooltip direction="top" offset={[0, -6]} permanent className="poi-tip">
+                {`km ${hoverKm!.toFixed(1)}`}
+                {profile ? ` · ${Math.round(profile.eleAtKm(hoverKm!))} m` : ''}
+              </Tooltip>
+            </CircleMarker>
+          )}
 
           {followed?.r.fix && (
             <FollowRunner
@@ -496,6 +533,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onSelect={(k) => setSelected(k === selected ? null : k)}
               open={profileOpen}
               onToggle={() => setProfileOpen((v) => !v)}
+              hoverKm={hoverKm}
+              onHoverKm={setHoverKm}
+              hoverKey={hoverKey}
+              onHoverKey={setHoverKey}
             />
           )}
         </div>
@@ -945,6 +986,22 @@ function projectKm(lat: number, lon: number, route: { pts: [number, number][]; c
   return bi >= 0 ? route.cumKm[bi] ?? null : null
 }
 
+/** Lat/lon del punto que está en el km `km` del recorrido, interpolando. */
+function coordsAtKm(route: { pts: [number, number][]; cumKm: number[] }, km: number): [number, number] | null {
+  const { pts, cumKm } = route
+  if (pts.length === 0) return null
+  if (km <= cumKm[0]) return pts[0]
+  if (km >= cumKm[cumKm.length - 1]) return pts[pts.length - 1]
+  let lo = 0, hi = cumKm.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (cumKm[mid] <= km) lo = mid; else hi = mid
+  }
+  const span = cumKm[hi] - cumKm[lo]
+  const t = span > 0 ? (km - cumKm[lo]) / span : 0
+  return [pts[lo][0] + t * (pts[hi][0] - pts[lo][0]), pts[lo][1] + t * (pts[hi][1] - pts[lo][1])]
+}
+
 function isFoot(a?: string | null): boolean { return a === 'walk' || a === 'run' || a == null }
 
 function paceOrSpeed(speedMs: number, activity?: string | null): string {
@@ -1083,7 +1140,7 @@ function buildProfile(track: { points: { ele: number }[]; cumKm: number[]; total
  * meta aunque los dos vayan por el km 22. Antes de la salida sirve solo: es la
  * carrera que se va a correr, de un vistazo.
  */
-function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle }: {
+function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle, hoverKm, onHoverKm, hoverKey, onHoverKey }: {
   profile: Profile
   rows: Row[]
   pois: { km: number; name: string; cutoffAt: number | null }[]
@@ -1091,6 +1148,10 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle 
   onSelect: (key: string) => void
   open: boolean
   onToggle: () => void
+  hoverKm: number | null
+  onHoverKm: (km: number | null) => void
+  hoverKey: string | null
+  onHoverKey: (key: string | null) => void
 }) {
   const { totalKm } = profile
   return (
@@ -1102,7 +1163,16 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle 
         </button>
       </div>
       {open && (
-        <div className="relative h-24 w-full">
+        <div
+          className="relative h-24 w-full cursor-crosshair"
+          onMouseMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            if (r.width <= 0) return
+            const t = (e.clientX - r.left) / r.width
+            onHoverKm(Math.max(0, Math.min(1, t)) * totalKm)
+          }}
+          onMouseLeave={() => onHoverKm(null)}
+        >
           <svg viewBox={`0 0 ${PROF_W} ${PROF_H}`} preserveAspectRatio="none" className="block h-full w-full">
             <defs>
               <linearGradient id="profFill" x1="0" y1="0" x2="0" y2="1">
@@ -1127,27 +1197,58 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle 
               />
             ))}
           </svg>
+          {/* El rastro del ratón: la vertical con su altura, y el mismo punto
+              encendido en el mapa (lo pinta la pantalla, no el perfil). */}
+          {hoverKm !== null && (
+            <div
+              className="pointer-events-none absolute inset-y-0 w-px bg-violet-300/70"
+              style={{ left: `${(hoverKm / totalKm) * 100}%` }}
+            >
+              <span
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-200 ring-2 ring-slate-950"
+                style={{ top: `${(profile.y(profile.eleAtKm(hoverKm)) / PROF_H) * 100}%`, width: 8, height: 8 }}
+              />
+              <span className={`absolute top-0.5 whitespace-nowrap rounded bg-slate-950/90 px-1 text-[10px] tabular-nums text-slate-200 ${
+                hoverKm > totalKm / 2 ? 'right-1.5' : 'left-1.5'
+              }`}>
+                km {hoverKm.toFixed(1)} · {Math.round(profile.eleAtKm(hoverKm))} m
+              </span>
+            </div>
+          )}
           {/* Los corredores van como HTML encima y no como <circle>: el SVG se
               estira a lo ancho y un círculo dentro saldría ovalado. */}
           {rows.map(({ r, km, key }) => {
             if (km === null) return null
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
+            const isHover = key === hoverKey
+            const big = isSel || isHover
             return (
               <button
                 key={key}
                 onClick={() => onSelect(key)}
+                onMouseEnter={() => onHoverKey(key)}
+                onMouseLeave={() => onHoverKey(null)}
                 title={`${r.username} · km ${km.toFixed(1)} · ${Math.round(profile.eleAtKm(km))} m`}
-                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-950 transition-transform hover:scale-125"
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-950 transition-transform"
                 style={{
                   left: `${Math.max(0, Math.min(100, (km / totalKm) * 100))}%`,
                   top: `${(profile.y(profile.eleAtKm(km)) / PROF_H) * 100}%`,
-                  width: isSel ? 16 : 12,
-                  height: isSel ? 16 : 12,
+                  width: big ? 16 : 12,
+                  height: big ? 16 : 12,
                   background: color,
-                  boxShadow: isSel ? `0 0 0 2px ${color}` : undefined,
+                  boxShadow: big ? `0 0 0 2px ${color}` : undefined,
+                  zIndex: big ? 2 : 1,
                 }}
-              />
+              >
+                {/* Señalado, dice quién es: en el perfil los puntos no llevan
+                    nombre —no cabe— y sin esto hay que ir a buscarlo al mapa. */}
+                {isHover && (
+                  <span className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950/90 px-1 text-[10px] text-slate-100">
+                    {r.emoji ?? ''} {r.username}
+                  </span>
+                )}
+              </button>
             )
           })}
           <span className="pointer-events-none absolute bottom-0.5 left-2 text-[10px] tabular-nums text-slate-500">0</span>
