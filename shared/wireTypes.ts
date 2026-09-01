@@ -505,8 +505,12 @@ export interface EventPublicResponse {
  * nombre. Los ids se quedan en la base.
  */
 export type BetKind =
-  /** A la carrera entera: quién cruza meta el primero. `value` = nombre. */
+  /** A la carrera entera: quién cruza meta el primero. `value` = nombre.
+   *  Sustituida por `order` (el puesto 1 dice lo mismo); se sigue puntuando
+   *  para no tirar las porras ya echadas. */
   | 'winner'
+  /** A un participante: en qué puesto llega. `value` = el puesto, en texto. */
+  | 'order'
   /** A un participante: si acaba o no. `value` = 'si' | 'no'. */
   | 'finish'
   /** A un participante: a qué hora cruza meta. `value` = epoch ms en texto. */
@@ -532,18 +536,21 @@ export interface EventBetsResponse {
   /** Quién pregunta, si trae sesión. */
   me: string | null
   /**
-   * Si QUIEN PREGUNTA puede pronosticar: hace falta cuenta y no estar en la
-   * parrilla. Cuando es `false`, `whyNot` dice por qué, que un botón apagado
-   * sin explicación es lo más irritante que hay.
+   * Si QUIEN PREGUNTA puede pronosticar: basta con tener cuenta, corra o no
+   * corra. Cuando es `false`, `whyNot` dice por qué, que un botón apagado sin
+   * explicación es lo más irritante que hay.
    */
   canBet: boolean
-  whyNot?: 'anon' | 'participante' | 'cerrada' | 'desactivada'
+  whyNot?: 'anon' | 'cerrada' | 'desactivada'
   bets: EventBet[]
 }
 
 /** POST /api/events/:id/bets — la porra de quien la manda, entera. */
 export interface EventBetsInput {
-  /** Nombre del participante que cruzará meta el primero, o null. */
+  /** El orden de llegada: nombres, del primero al último que se quiera decir.
+   *  No hace falta ordenarlos todos; lo que no se dice, no se pronostica. */
+  order?: string[]
+  /** Nombre del participante que cruzará meta el primero, o null. (Antigua.) */
   winner?: string | null
   /** Por participante: si acaba o no. */
   finish?: Record<string, boolean>

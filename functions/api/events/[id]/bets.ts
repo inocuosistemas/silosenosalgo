@@ -21,10 +21,15 @@ import type { EventBet, EventBetsResponse, EventBetsInput, BetKind } from '../..
  * reparte ids por ahí. Los nombres son únicos (`users.username_ci`), así que la
  * traducción es exacta en los dos sentidos.
  *
- * Quien corre NO pronostica. Decide con las piernas lo que los demás solo
- * adivinan, y una porra donde un jugador mueve el resultado deja de tener
- * gracia. Y se cierra en la salida: a las dos horas, acertar quién acaba no
- * tiene mérito.
+ * Juega todo el mundo, incluidos los que corren y sobre sí mismos. Se probó lo
+ * contrario —fuera quien esté en la parrilla, que decide el resultado con las
+ * piernas— y el purismo salía caro: en una carrera de amigos, el que la monta
+ * suele correrla, así que la regla dejaba fuera justo a quien más ganas tenía
+ * de jugar. Entre un sistema íntegro que nadie usa y uno confiado que se llena
+ * de gente, en una porra sin dinero gana el segundo.
+ *
+ * Lo que sí se mantiene es el cierre en la salida: a las dos horas de carrera,
+ * acertar quién acaba no tiene mérito.
  */
 
 /** Tope por jugador y evento: una parrilla enorme no puede volverse un ataque. */
@@ -68,14 +73,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   let whyNot: EventBetsResponse['whyNot']
   if (!enabled) whyNot = 'desactivada'
   else if (!user) whyNot = 'anon'
-  else {
-    const corre = await env.DB.prepare(
-      'SELECT 1 AS ok FROM event_members WHERE event_id = ? AND user_id = ?',
-    ).bind(id, user.id).first<{ ok: number }>()
-    if (corre) whyNot = 'participante'
-    else if (!abierta) whyNot = 'cerrada'
-    else canBet = true
-  }
+  else if (!abierta) whyNot = 'cerrada'
+  else canBet = true
 
   const res: EventBetsResponse = {
     enabled,
@@ -101,11 +100,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (ev.betsEnabled !== 1) return json({ error: 'bets_disabled' }, 409)
   if (ev.startsAt === null || Date.now() >= ev.startsAt) return json({ error: 'bets_closed' }, 409)
 
-  const corre = await env.DB.prepare(
-    'SELECT 1 AS ok FROM event_members WHERE event_id = ? AND user_id = ?',
-  ).bind(id, user.id).first<{ ok: number }>()
-  if (corre) return json({ error: 'is_participant' }, 403)
-
   const body = (await readJson<EventBetsInput>(request)) || {}
 
   // La parrilla, por nombre: solo se pronostica sobre quien corre de verdad.
@@ -115,6 +109,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const idPorNombre = new Map((miembros.results ?? []).map((m) => [m.username, m.id]))
 
   const filas: { target: string; kind: BetKind; value: string }[] = []
+
+  // El orden de llegada: una fila por participante con su puesto. Se manda tal
+  // cual lo ordenó quien juega, y el puesto es la posición en esa lista.
+  if (Array.isArray(body.order)) {
+    const vistos = new Set<string>()
+    for (const [i, nombre] of body.order.entries()) {
+      if (typeof nombre !== 'string') return json({ error: 'invalid_request' }, 400)
+      const target = idPorNombre.get(nombre)
+      // Sin repetidos: dos personas no pueden llegar las dos terceras.
+      if (!target || vistos.has(target)) return json({ error: 'invalid_request' }, 400)
+      vistos.add(target)
+      filas.push({ target, kind: 'order', value: String(i + 1) })
+    }
+  }
 
   if (typeof body.winner === 'string' && body.winner) {
     const target = idPorNombre.get(body.winner)

@@ -249,6 +249,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       const finished = total !== null && km !== null && km >= total * 0.97
       return {
         username: r.username,
+        tracked: r.fix !== null,
         finished,
         finishedAt: finished ? r.updatedAt : null,
         settled: finished || r.status === 'ended',
@@ -413,6 +414,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           runners={betRunners}
           outcomes={outcomes}
           startsAt={startsAt}
+          limitMin={raceStats?.limitMin ?? null}
           onBack={() => setView('mapa')}
         />
       ) : (
@@ -424,7 +426,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
       )}
 
       {/* Cabecera: volver, nombre (en el público, que no tiene parrilla) y vistas */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
+      {/* Ancho acotado en todo lo que es TEXTO, aquí y abajo: el mapa gana con
+          la pantalla entera, pero una fila de un participante estirada a 1400
+          px deja el nombre a un lado y el dato al otro, con medio metro de
+          nada en medio. El mapa y la silueta siguen a lo ancho. */}
+      <div className={`pointer-events-none absolute inset-x-0 top-0 z-[1000] ${
+        // Sobre el mapa flota; sobre la lista y la porra es una barra de
+        // verdad, con fondo: si no, el contenido se cuela por debajo y la
+        // tarjeta del nombre acaba encima de un botón.
+        view === 'mapa' ? '' : 'border-b border-slate-800 bg-slate-950/95 backdrop-blur'
+      }`}>
+      <div className="mx-auto flex max-w-5xl items-start justify-between gap-2 p-3">
         {isPublic ? (
           <div className="pointer-events-auto flex w-fit max-w-[min(19rem,62vw)] flex-col items-start gap-1">
             {/* La carrera en la esquina: el nombre y los tres números que la
@@ -504,6 +516,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           ))}
         </div>
       </div>
+      </div>
 
       {/* Tira de participantes: leyenda y selector a la vez — con diez puntos de
           colores, una leyenda que no sirve para seleccionar obliga a acertarle
@@ -511,7 +524,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           leyenda. */}
       {view === 'mapa' && (
         <div className="absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
-          <div className="p-3 pb-1">
+          <div className="mx-auto w-full max-w-5xl p-3 pb-1">
           {sel && (
             <RunnerCard
               row={sel} now={now} totalKm={route?.totalKm ?? null}
@@ -731,7 +744,8 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-24 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 pb-6 pt-24 scrollbar-fantasma">
+      <div className="mx-auto w-full max-w-2xl px-3">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
           gente como para que buscar sea más rápido que mirar. */}
@@ -830,6 +844,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
           )
         })}
       </ul>
+      </div>
     </div>
   )
 }
@@ -1231,7 +1246,7 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
   const { totalKm } = profile
   return (
     <div className="pointer-events-auto border-t border-slate-800 bg-slate-950/90 backdrop-blur">
-      <div className="flex items-center justify-between px-3 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
         <span>Perfil · {Math.round(profile.minE)}–{Math.round(profile.maxE)} m</span>
         <button onClick={onToggle} className="rounded px-1.5 py-0.5 text-slate-400 hover:text-slate-200">
           {open ? 'ocultar ▼' : 'ver el perfil ▲'}
@@ -1239,7 +1254,7 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
       </div>
       {open && (
         <div
-          className="relative h-24 w-full cursor-crosshair"
+          className="relative mx-auto h-24 w-full max-w-6xl cursor-crosshair"
           // `touch-action: none` es lo que hace que el dedo ARRASTRE en vez de
           // desplazar la página: sin esto el navegador se queda el gesto y en
           // el móvil solo quedaba ir dando toques uno a uno.
