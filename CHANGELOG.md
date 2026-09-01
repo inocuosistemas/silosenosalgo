@@ -71,8 +71,9 @@ elige en la parrilla, y cada cuenta puede guardar su marca favorita para todas
 las carreras. Las banderas de país no valen como emoji. El organizador puede
 reservarse el reparto de colores ("agrupar por colores").
 
-**Android · pendiente de repartir** · *Mejora al actualizar*
-**iOS · pendiente de repartir** · *Mejora al actualizar*
+**Android · 1.0 (281)** · *Mejora al actualizar* — instalada en el móvil propio;
+el APK firmado espera en `reparto/` a que se pase al compañero.
+**iOS · instalada en el iPhone** · *Mejora al actualizar*
 
 Las apps enseñan tu marca junto al evento, en el selector y en el resumen
 plegado, para poder confirmar en la línea de salida con qué te van a ver. Elegir
