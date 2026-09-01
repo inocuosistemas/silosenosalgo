@@ -29,8 +29,9 @@ export function eventLink(id: string): string {
   return `${PUBLIC_BASE_URL}/?e=${encodeURIComponent(id)}`
 }
 
+/** En la web se piden también los que uno organiza sin correr; ver el endpoint. */
 export async function listEvents(): Promise<EventInfo[]> {
-  const res = await fetchSafe('/api/events', { credentials: 'same-origin', cache: 'no-store' })
+  const res = await fetchSafe('/api/events?organising=1', { credentials: 'same-origin', cache: 'no-store' })
   if (!res.ok) throw errFrom(res)
   return ((await res.json()) as EventsListResponse).events
 }
@@ -41,11 +42,12 @@ export async function getEvent(id: string): Promise<EventDetailResponse> {
   return (await res.json()) as EventDetailResponse
 }
 
-export async function createEvent(name: string, startsAt?: number | null): Promise<string> {
+/** `join: false` monta el evento sin apuntarse a correrlo. */
+export async function createEvent(name: string, startsAt?: number | null, join = true): Promise<string> {
   const res = await fetchSafe('/api/events', {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, startsAt: startsAt ?? null }),
+    body: JSON.stringify({ name, startsAt: startsAt ?? null, join }),
   })
   if (!res.ok) throw errFrom(res)
   return ((await res.json()) as CreateEventResponse).id

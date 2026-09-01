@@ -36,15 +36,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!ev) return json({ error: 'not_found' }, 404)
 
   // Pertenecer es la condición para ver: un evento del que no formas parte
-  // responde 404 y no 403, para no confirmar que ese id existe.
+  // responde 404 y no 403, para no confirmar que ese id existe. Con una
+  // excepción: QUIEN LO ORGANIZA, aunque no corra. Organizar y correr son cosas
+  // distintas, y dejar al organizador fuera de su propia parrilla —sin poder
+  // repartir el código ni tocar la foto— sería absurdo.
+  const isOwner = ev.createdBy === user.id
   const me = await env.DB.prepare(
     'SELECT color, plan_overlay AS planOverlay FROM event_members WHERE event_id = ? AND user_id = ?',
   ).bind(id, user.id).first<{ color: string | null; planOverlay: string | null }>()
-  if (!me) return json({ error: 'not_found' }, 404)
+  if (!me && !isOwner) return json({ error: 'not_found' }, 404)
 
   const now = Date.now()
-  await env.DB.prepare('UPDATE event_members SET last_seen = ? WHERE event_id = ? AND user_id = ?')
-    .bind(now, id, user.id).run()
+  // La presencia es de los que corren: quien solo organiza no aparece "en la
+  // parrilla" por mirarla.
+  if (me) {
+    await env.DB.prepare('UPDATE event_members SET last_seen = ? WHERE event_id = ? AND user_id = ?')
+      .bind(now, id, user.id).run()
+  }
 
   // Una sola consulta para los participantes y su sesión activa en el evento:
   // el LEFT JOIN trae el token público de quien está emitiendo ahora mismo, que
@@ -78,7 +86,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     sessionId: r.sessionId,
   }))
 
-  const isOwner = ev.createdBy === user.id
   const event: EventInfo = {
     id: ev.id,
     name: ev.name,
@@ -111,7 +118,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     takenEmojis: (rows.results ?? [])
       .filter((r) => r.userId !== user.id && r.emojiKey)
       .map((r) => r.emojiKey as string),
-    myPlanOverlay: me.planOverlay,
+    myPlanOverlay: me?.planOverlay ?? null,
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
 }

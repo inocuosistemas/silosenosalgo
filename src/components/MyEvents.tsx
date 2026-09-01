@@ -20,6 +20,8 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
   const [name, setName] = useState('')
   /** El formulario de crear, plegado hasta que se pide con el "+". */
   const [creating, setCreating] = useState(false)
+  /** ¿Quien monta la carrera también la corre? Casi siempre sí, pero no toca. */
+  const [tambienCorro, setTambienCorro] = useState(true)
 
   const refresh = useCallback(async () => {
     try { setEvents(await listEvents()); setError(null) }
@@ -32,7 +34,7 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
     if (!name.trim()) return
     setBusy(true); setError(null)
     try {
-      const id = await createEvent(name.trim())
+      const id = await createEvent(name.trim(), null, tambienCorro)
       window.location.href = `/?e=${encodeURIComponent(id)}`
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -66,6 +68,19 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
             autoFocus
             className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50 mb-2"
           />
+          {/* Como crear eventos es cosa de administradores, dar por hecho que
+              quien lo monta lo corre falseaba la lista de participantes de cada
+              carrera que organiza. */}
+          <label className="mb-2 flex items-center gap-2 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={tambienCorro}
+              onChange={(e) => setTambienCorro(e.target.checked)}
+              disabled={busy}
+              className="accent-sky-500"
+            />
+            Yo también corro esta carrera
+          </label>
           <div className="flex gap-2">
             <button
               onClick={() => void create()}
@@ -95,7 +110,7 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-xs text-slate-500">Cargando…</p>
         ) : events.length === 0 ? (
           <p className="text-xs text-slate-500">
-            No participas en ningún evento. Con el enlace que te pase quien organiza, entras solo.
+            No participas en ningún evento ni organizas ninguno. Con el enlace que te pase quien organiza, entras solo.
           </p>
         ) : (
           events.map((e) => (
@@ -123,7 +138,11 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
                 <div className="absolute inset-x-0 bottom-0 flex items-end gap-1.5 px-3 pb-2">
                   <h3 className="min-w-0 truncate text-[15px] font-bold text-slate-50">{e.name}</h3>
                   {e.isOwner && (
-                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">organizas</span>
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                      {/* Que organizas se sabe; que además NO corres, no, y
+                          cambia lo que esperas ver dentro. */}
+                      {e.isMember === false ? 'organizas · no corres' : 'organizas'}
+                    </span>
                   )}
                   {e.endedAt && (
                     <span className="shrink-0 rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">terminado</span>

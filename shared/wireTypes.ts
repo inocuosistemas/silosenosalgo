@@ -410,6 +410,10 @@ export interface EventInfo {
    *  viene dentro de `members`, junto a la de todos. */
   myEmoji?: string | null
   myColor?: string | null
+  /** Si quien pregunta CORRE esta carrera. Organizar y correr son cosas
+   *  distintas: quien la monta puede no salir. Solo en la lista; en la parrilla
+   *  se sabe mirando si estás en `members`. */
+  isMember?: boolean
   startsAt: number | null
   createdAt: number
   endedAt: number | null

@@ -6,7 +6,7 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked,
+  setEventEmoji, setEventColorsLocked, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -237,10 +237,27 @@ export default function EventLobby({ id }: { id: string }) {
   }
 
   async function leave() {
-    if (!window.confirm('¿Salir del evento? Tus seguimientos se conservan; solo dejas de aparecer en el mapa del evento.')) return
+    // Quien organiza no se va a ningún sitio al salirse: deja de correrla y se
+    // queda en su parrilla, así que ni el aviso ni el destino son los mismos.
+    const soyDueño = event.isOwner
+    const aviso = soyDueño
+      ? '¿Dejas de correr esta carrera? Sigues organizándola: el código, la foto y el recorrido siguen siendo tuyos.'
+      : '¿Salir del evento? Tus seguimientos se conservan; solo dejas de aparecer en el mapa del evento.'
+    if (!window.confirm(aviso)) return
     setBusy(true)
-    try { await leaveEvent(id); window.location.href = '/' }
-    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')); setBusy(false) }
+    try {
+      await leaveEvent(id)
+      if (soyDueño) { await refresh(); setBusy(false) } else { window.location.href = '/' }
+    } catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')); setBusy(false) }
+  }
+
+  /** Apuntarse a la propia carrera: con el código, que el organizador ya tiene. */
+  async function apuntarme() {
+    if (!event.inviteCode) return
+    setBusy(true); setError(null)
+    try { await joinEvent(event.inviteCode); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
   }
 
   async function destroy() {
@@ -309,6 +326,30 @@ export default function EventLobby({ id }: { id: string }) {
           con marca—: es una decisión que se toma una vez y luego solo estorba
           entre uno y el botón de salir. El resumen del encabezado enseña cuál
           es, así que abrirla solo hace falta para cambiarla. */}
+      {/* Organizar y correr no son lo mismo: quien monta la carrera puede no
+          salir, y entonces nada de lo personal —marca, planificación, unir la
+          baliza— pinta nada en su pantalla. Lo que sí necesita es poder
+          apuntarse si al final corre. */}
+      {!me && (
+        <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-sm text-slate-200">Organizas esta carrera, pero no la corres.</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            No apareces entre los participantes ni en el mapa. Sigues repartiendo el código, la foto y el
+            recorrido, y puedes seguir la carrera en directo como todos.
+          </p>
+          {event.inviteCode && (
+            <button
+              onClick={() => void apuntarme()}
+              disabled={busy}
+              className="mt-2 rounded border border-sky-800 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50"
+            >
+              Apuntarme también
+            </button>
+          )}
+        </section>
+      )}
+
+      {me && (
       <Plegable
         title="Mi marca"
         defaultOpen={!me?.emoji || emojiTaken}
@@ -398,6 +439,7 @@ export default function EventLobby({ id }: { id: string }) {
             </label>
           )}
       </Plegable>
+      )}
 
       {/* Los enlaces de la ORGANIZACIÓN. No competimos con ellos: su
           seguimiento cronometra por controles y esto enseña dónde va cada uno
@@ -461,7 +503,9 @@ export default function EventLobby({ id }: { id: string }) {
         </a>
         {/* Se sale a correr como siempre y desde aquí se dice a qué carrera
             pertenece esta salida: no hace falta empezar la baliza "dentro" del
-            evento, que en mitad de una salida ya empezada sería tarde. */}
+            evento, que en mitad de una salida ya empezada sería tarde. Nada de
+            esto existe para quien organiza sin correr. */}
+        {me && (
         <button
           onClick={() => void toggleBeacon(!meLive)}
           disabled={busy}
@@ -473,14 +517,18 @@ export default function EventLobby({ id }: { id: string }) {
         >
           {meLive ? 'Quitar mi baliza del evento' : 'Unir mi baliza a este evento'}
         </button>
+        )}
         <p className="text-[11px] text-slate-500">
-          {meLive
-            ? 'Los demás participantes te ven en el mapa del evento.'
-            : 'Empieza a compartir tu posición con la app y pulsa aquí para aparecer en el mapa.'}
+          {!me
+            ? 'Sigues la carrera desde el mapa como todos, aunque no corras.'
+            : meLive
+              ? 'Los demás participantes te ven en el mapa del evento.'
+              : 'Empieza a compartir tu posición con la app y pulsa aquí para aparecer en el mapa.'}
         </p>
       </section>
 
-      {/* Mi planificación: lo personal sobre la base común */}
+      {/* Mi planificación: lo personal sobre la base común. De quien corre. */}
+      {me && (
       <section className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">Mi planificación</h2>
         <p className="text-xs text-slate-400">
@@ -511,6 +559,7 @@ export default function EventLobby({ id }: { id: string }) {
           El recorrido, los controles y los horarios de cierre son de la carrera, iguales para todos. Los ritmos son tuyos y no se comparten.
         </p>
       </section>
+      )}
 
       {/* ORGANIZACIÓN. Todo lo de aquí abajo se toca una vez, al montar la
           carrera, y luego se mira cero veces: plegado por defecto, con el
@@ -596,6 +645,11 @@ export default function EventLobby({ id }: { id: string }) {
 
       <div className="mt-6 flex gap-2">
         <a href="/" className="px-3 py-1.5 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800">← Inicio</a>
+        {event.isOwner && me && (
+          <button onClick={() => void leave()} disabled={busy} className="px-3 py-1.5 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+            No corro esta carrera
+          </button>
+        )}
         {event.isOwner ? (
           <button onClick={() => void destroy()} disabled={busy} className="px-3 py-1.5 rounded border border-slate-700 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
             Borrar evento

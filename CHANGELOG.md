@@ -87,6 +87,20 @@ cobertura, no con el móvil en la mano y el dorsal puesto.
 > viejo aparece en el mapa común con su emoji igualmente —lo pinta la web—,
 > simplemente no lo ve en su teléfono.
 
+### Organizar sin correr
+
+**Web · desplegado.** Crear un evento ya no obliga a figurar entre los que lo
+corren: al crearlo hay una casilla ("Yo también corro esta carrera", marcada por
+defecto), y quien organiza puede dejar de correrla sin dejar de organizarla —o
+apuntarse después con su propio código—. La parrilla, el mapa en directo y los
+mandos de organización siguen abiertos para el dueño aunque no participe.
+
+**Android / iOS** · *Compatible*. `GET /api/events` sigue devolviendo, por
+defecto, solo los eventos que uno CORRE; los que se organizan sin correr hay que
+pedirlos con `?organising=1`, que solo hace la web. Es deliberado: la app usa
+esa lista para saber a qué carrera atribuir la baliza, y emitir para una carrera
+que no corres lo rechaza el servidor de todas formas.
+
 ### Escala: eventos de hasta cien participantes
 
 **Web · desplegado.** Buscador en la lista del mapa común (por nombre, dorsal o

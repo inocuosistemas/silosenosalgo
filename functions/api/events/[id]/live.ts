@@ -31,16 +31,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId FROM events WHERE id = ?')
-    .bind(id).first<{ planShareId: string | null }>()
+  const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId, created_by AS createdBy FROM events WHERE id = ?')
+    .bind(id).first<{ planShareId: string | null; createdBy: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
 
   // Pertenecer es la condición para ver. 404 y no 403: quien no está dentro
-  // tampoco tiene por qué saber que ese evento existe.
+  // tampoco tiene por qué saber que ese evento existe. Salvo quien lo organiza,
+  // que puede no correr: seguir la carrera que ha montado es media razón de
+  // haberla montado.
   const member = await env.DB.prepare(
     'SELECT 1 AS ok FROM event_members WHERE event_id = ? AND user_id = ?',
   ).bind(id, user.id).first<{ ok: number }>()
-  if (!member) return json({ error: 'not_found' }, 404)
+  if (!member && ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
 
   // La sesión MÁS RECIENTE de cada participante en este evento, esté activa o
   // terminada: quien ya ha llegado a meta sigue siendo parte de la carrera y su

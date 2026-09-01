@@ -12,8 +12,11 @@ import { TOKEN_RE } from '../../../../shared/validate'
  * borran: son suyas, con su traza y sus notas, y siguen consultables por su
  * enlace; solo dejan de estar etiquetadas.
  *
- * El dueño del evento no puede salirse: le tocaría borrarlo o dejarlo huérfano
- * sin quien pueda editar la base ni regenerar el código.
+ * QUIEN LO ORGANIZA también puede salirse, y no deja de organizarlo: sigue
+ * siendo el dueño, con su código, su foto y su base. Solo deja de figurar entre
+ * los que corren, que es lo honesto cuando monta la carrera y no la corre. El
+ * evento no se queda huérfano porque la propiedad vive en `events.created_by` y
+ * no en la lista de participantes.
  */
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
@@ -26,7 +29,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
     .bind(id).first<{ createdBy: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
-  if (ev.createdBy === user.id) return json({ error: 'forbidden' }, 403)
 
   await env.DB.prepare('DELETE FROM event_members WHERE event_id = ? AND user_id = ?')
     .bind(id, user.id).run()
