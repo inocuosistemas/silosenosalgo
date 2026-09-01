@@ -150,8 +150,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
-  /** Cuántos de la parrilla todavía no emiten — el mapa lo dice cuando no hay nadie. */
-  const idleCount = useMemo(() => rows.filter((x) => x.idle).length, [rows])
 
   /**
    * La salida con la que se cuenta: la OFICIAL del evento y, si no la hay, la
@@ -437,7 +435,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onClose={() => setSelected(null)}
             />
           )}
-          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+          {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
+              centro; repetirla aquí abajo es decir dos veces lo mismo. */}
+          <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
             {rows.map(({ r, key, idle }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
@@ -484,19 +484,43 @@ export default function EventLiveMap({ source }: { source: Source }) {
           pero pequeño y debajo: explica, no es la noticia. */}
       {runners !== null && withFix.length === 0 && view === 'mapa' && (
         <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-6">
-          <div className="pointer-events-auto max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-center">
+          <div className="pointer-events-auto w-[min(20rem,86vw)] rounded-xl border border-slate-700 bg-slate-900 p-4 text-center shadow-xl shadow-slate-950/60">
             {startMs !== null ? (
               <StartCountdown startMs={startMs} now={now} />
             ) : (
               <p className="text-sm text-slate-300">Todavía no hay nadie emitiendo en este evento.</p>
             )}
-            <p className={`text-[11px] leading-snug text-slate-500 ${startMs !== null ? 'mt-3 border-t border-slate-800 pt-2.5' : 'mt-1'}`}>
+            {/* La parrilla, aquí dentro y no solo en la tira de abajo: mientras
+                el mapa está vacío, QUIÉN corre es la otra mitad de lo que se
+                viene a mirar, y una lista al lado del reloj se lee de un
+                vistazo —quién falta por empezar— sin ir a buscarla. */}
+            {rows.length > 0 && (
+              <div className="mt-3 border-t border-slate-800 pt-2.5 text-left">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
+                </p>
+                <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
+                  {rows.map(({ r, key, idle }) => (
+                    <li key={key} className="flex items-center gap-1.5 text-[11px]">
+                      <MarkBadge emoji={r.emoji} color={r.color} size={18} />
+                      {r.bib && (
+                        <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
+                          {r.bib}
+                        </span>
+                      )}
+                      <span className={`min-w-0 flex-1 truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
+                        {r.username}
+                      </span>
+                      <span className={`shrink-0 ${idle ? 'text-slate-500' : r.status === 'ended' ? 'text-slate-400' : 'text-emerald-400'}`}>
+                        {idle ? 'sin emitir' : r.status === 'ended' ? 'terminado' : 'emitiendo'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <p className="mt-3 border-t border-slate-800 pt-2.5 text-[11px] leading-snug text-slate-500">
               Los participantes aparecerán en el mapa cuando empiecen a compartir su posición.
-              {idleCount > 0 && (
-                idleCount === 1
-                  ? ' La única persona de la parrilla está abajo, en gris.'
-                  : ` Las ${idleCount} personas de la parrilla están abajo, en gris.`
-              )}
             </p>
           </div>
         </div>
@@ -894,18 +918,32 @@ function StartCountdown({ startMs, now }: { startMs: number; now: number }) {
   const m = Math.floor((total % 3600) / 60)
   const sec = total % 60
   const p2 = (n: number) => String(n).padStart(2, '0')
-  // Con días por delante, los segundos son ruido: nadie mira un reloj de
-  // "faltan 2 días" para ver pasar el segundero.
-  const reloj = days > 0
-    ? `${days} d ${p2(h)}:${p2(m)}`
-    : `${p2(h)}:${p2(m)}:${p2(sec)}`
+  // Los cuatro grupos SIEMPRE, aunque falten cero días: un reloj que cambia de
+  // formato por el camino obliga a releerlo cada vez. La letra debajo dice cuál
+  // es cuál, que "03:09:04:15" a secas se lee como una hora rarísima.
+  const grupos: { v: string; u: string }[] = [
+    { v: p2(days), u: 'd' },
+    { v: p2(h), u: 'h' },
+    { v: p2(m), u: 'min' },
+    { v: p2(sec), u: 's' },
+  ]
   return (
     <>
       <p className="text-[11px] uppercase tracking-wider text-slate-500">
         {before ? 'Salida en' : 'En marcha desde hace'}
       </p>
-      <p className="mt-0.5 font-mono text-3xl font-bold tabular-nums text-slate-100">{reloj}</p>
-      <p className="mt-0.5 text-[11px] text-slate-400">
+      <div className="mt-1 flex items-start justify-center gap-1 font-mono">
+        {grupos.map((g, i) => (
+          <div key={g.u} className="flex items-start gap-1">
+            {i > 0 && <span className="text-2xl font-bold leading-none text-slate-600">:</span>}
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-bold leading-none tabular-nums text-slate-100">{g.v}</span>
+              <span className="mt-1 text-[9px] uppercase tracking-wider text-slate-500">{g.u}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] text-slate-400">
         {new Date(startMs).toLocaleString('es-ES', {
           weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
         })}
