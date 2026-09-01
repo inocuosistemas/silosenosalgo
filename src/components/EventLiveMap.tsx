@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
@@ -256,6 +256,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <ZoomWatch onZoom={setZoom} />
+          <MapTap onTap={() => setHoverKm(null)} />
 
           {/* El recorrido, una sola vez: es de la carrera, no de cada corredor.
               Va en DOS trazos, uno encima del otro: un halo blanco ancho debajo
@@ -952,6 +953,12 @@ function FollowRunner({ lat, lon, onRelease }: { lat: number; lon: number; onRel
 }
 
 /** Avisa del zoom al componente de arriba: Leaflet lo tiene, React no. */
+/** Un toque en el mapa: sirve para soltar la marca que dejó el dedo en el perfil. */
+function MapTap({ onTap }: { onTap: () => void }) {
+  useMapEvents({ click: onTap })
+  return null
+}
+
 function ZoomWatch({ onZoom }: { onZoom: (z: number) => void }) {
   const map = useMap()
   useEffect(() => {
@@ -1165,13 +1172,17 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
       {open && (
         <div
           className="relative h-24 w-full cursor-crosshair"
-          onMouseMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            if (r.width <= 0) return
-            const t = (e.clientX - r.left) / r.width
-            onHoverKm(Math.max(0, Math.min(1, t)) * totalKm)
-          }}
+          // `touch-action: none` es lo que hace que el dedo ARRASTRE en vez de
+          // desplazar la página: sin esto el navegador se queda el gesto y en
+          // el móvil solo quedaba ir dando toques uno a uno.
+          style={{ touchAction: 'none' }}
+          onMouseMove={(e) => readHoverKm(e.clientX, e.currentTarget, totalKm, onHoverKm)}
           onMouseLeave={() => onHoverKm(null)}
+          onTouchStart={(e) => readHoverKm(e.touches[0].clientX, e.currentTarget, totalKm, onHoverKm)}
+          onTouchMove={(e) => readHoverKm(e.touches[0].clientX, e.currentTarget, totalKm, onHoverKm)}
+          // Al levantar el dedo la marca SE QUEDA: en un móvil el dedo tapa
+          // justo lo que se quiere leer, y borrarla al soltar dejaría sin ver
+          // el dato. Se quita tocando el mapa.
         >
           <svg viewBox={`0 0 ${PROF_W} ${PROF_H}`} preserveAspectRatio="none" className="block h-full w-full">
             <defs>
@@ -1259,6 +1270,14 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
       )}
     </div>
   )
+}
+
+/** El km del recorrido que cae bajo un punto de la pantalla, dentro del perfil. */
+function readHoverKm(clientX: number, el: HTMLElement, totalKm: number, emit: (km: number) => void): void {
+  const r = el.getBoundingClientRect()
+  if (r.width <= 0) return
+  const t = (clientX - r.left) / r.width
+  emit(Math.max(0, Math.min(1, t)) * totalKm)
 }
 
 /** Días, horas, minutos y segundos de un intervalo, ya con sus dos cifras. */
