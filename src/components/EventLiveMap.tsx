@@ -322,7 +322,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 es —le ha llegado por un grupo— así que la esquina no puede ser
                 solo un nombre suelto. El nombre va SOBRE el cartel: dos cajas
                 separadas ocupan el doble y dicen lo mismo. */}
-            <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur">
+            {/* Sobre el mapa hay sitio de sobra para presentar la carrera; sobre
+                la lista no: la cabecera flota encima y una tarjeta con cartel
+                le come las primeras filas. Ahí se queda en el nombre, que es
+                lo que hace falta para saber qué se está mirando. */}
+            <div className={`w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur ${
+              view === 'lista' ? 'hidden' : ''
+            }`}>
               {photoUrl ? (
                 <div className="relative">
                   <img
@@ -357,6 +363,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 </p>
               )}
             </div>
+            {view === 'lista' && (
+              <span className="max-w-full truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
+                {eventName ?? 'Evento'}
+              </span>
+            )}
             {/* Los enlaces de la organización: quien espera en meta los quiere
                 tanto o más que los participantes —el seguimiento por dorsal es
                 lo que dan las webs oficiales—, y aquí no tiene parrilla donde
@@ -438,7 +449,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   title={idle ? `${r.username} está en la parrilla y todavía no emite` : undefined}
                   className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-60 ${
                     isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100'
-                      : idle ? 'border-dashed border-slate-700 bg-slate-900/70 text-slate-500'
+                      : idle ? 'border-dashed border-slate-600 bg-slate-900/90 text-slate-400'
                       : 'border-slate-700 bg-slate-900/90 text-slate-300'
                   }`}
                 >
@@ -532,7 +543,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-16 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-20 scrollbar-fantasma">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
           gente como para que buscar sea más rápido que mirar. */}
