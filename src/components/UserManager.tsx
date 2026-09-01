@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { listUsers, deleteUser, createReset, authErrorMessage, AuthError } from '../lib/authClient'
 import { PUBLIC_BASE_URL } from '../../shared/config'
@@ -29,6 +29,24 @@ export function UserManager() {
   /** El enlace recién generado, por cuenta: se enseña hasta cerrar el panel. */
   const [resetLinks, setResetLinks] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  // Ref por estado y no `useRef`: la lista no existe en el primer render (se
+  // está cargando), y un `useRef` se quedaría a nulo para siempre.
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null)
+
+  // La barra de desplazamiento asoma mientras se desplaza y se retira sola al
+  // parar; el resto del tiempo la lista no lleva ningún borde gris al lado.
+  useEffect(() => {
+    if (!listEl) return
+    let t = 0
+    const onScroll = () => {
+      listEl.classList.add('is-scrolling')
+      window.clearTimeout(t)
+      t = window.setTimeout(() => listEl.classList.remove('is-scrolling'), 800)
+    }
+    listEl.addEventListener('scroll', onScroll, { passive: true })
+    return () => { listEl.removeEventListener('scroll', onScroll); window.clearTimeout(t) }
+  }, [listEl])
 
   const refresh = useCallback(async () => {
     try { setUsers((await listUsers()).users); setError(null) }
@@ -62,16 +80,43 @@ export function UserManager() {
     } catch { /* sin portapapeles: el enlace está a la vista */ }
   }
 
+  // Búsqueda por nombre, sin distinguir mayúsculas ni tildes: se teclea "jose"
+  // y aparece "José". Con pocas cuentas sobra, pero el listado crece.
+  const shown = useMemo(() => {
+    const q = fold(query)
+    if (!q) return users ?? []
+    return (users ?? []).filter((u) => fold(u.username).includes(q))
+  }, [users, query])
+
   return (
     <div className="space-y-3">
       {error && <p className="text-xs text-red-400">{error}</p>}
+
+      {users !== null && users.length > 1 && (
+        <div className="relative">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+            placeholder="Buscar cuenta…"
+            aria-label="Buscar cuenta"
+            className="w-full rounded-lg bg-slate-950 border border-slate-700 pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-sky-600"
+          />
+          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-slate-600 text-xs">🔍</span>
+        </div>
+      )}
+
       {users === null ? (
         <p className="text-xs text-slate-500">Cargando…</p>
       ) : users.length === 0 ? (
         <p className="text-xs text-slate-500">No hay cuentas.</p>
+      ) : shown.length === 0 ? (
+        <p className="text-xs text-slate-500">Ninguna cuenta se llama así.</p>
       ) : (
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {users.map((u) => {
+        <div ref={setListEl} className="space-y-2 max-h-96 overflow-y-auto scrollbar-fantasma">
+          {shown.map((u) => {
             const link = resetLinks[u.id]
             const isMe = u.id === me?.id
             return (
@@ -142,6 +187,11 @@ export function UserManager() {
       )}
     </div>
   )
+}
+
+/** Minúsculas y sin tildes, para comparar lo que se escribe con lo que hay. */
+function fold(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 }
 
 /** Las fechas llegan como las guarda SQLite ("YYYY-MM-DD HH:MM:SS", en UTC). */

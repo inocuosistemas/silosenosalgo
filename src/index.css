@@ -147,3 +147,32 @@
 .scrollbar-slim::-webkit-scrollbar-thumb:hover {
   background: #475569;                     /* slate-600 */
 }
+
+/* ── Barra que solo asoma cuando se usa ────────────────────────────────────
+   Para listas dentro de un panel, donde una barra permanente es un borde gris
+   de más compitiendo con el contenido. En reposo es invisible; se pinta al
+   pasar el ratón por encima y mientras se está desplazando —esa clase la pone
+   el componente al detectar el scroll y se le cae sola al parar—. El hueco lo
+   ocupa siempre, pintada o no, así que nada se mueve al aparecer.
+   En un móvil no hay ratón ni falta: el sistema ya enseña la suya durante el
+   gesto y la retira después, que es justo este comportamiento. */
+.scrollbar-fantasma {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.35s ease;
+}
+.scrollbar-fantasma:hover,
+.scrollbar-fantasma.is-scrolling {
+  scrollbar-color: #334155 transparent;
+}
+.scrollbar-fantasma::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-fantasma::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-fantasma::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background 0.35s ease;
+}
+.scrollbar-fantasma:hover::-webkit-scrollbar-thumb,
+.scrollbar-fantasma.is-scrolling::-webkit-scrollbar-thumb {
+  background: #334155;                     /* slate-700 */
+}
