@@ -28,6 +28,7 @@ import type { LocationInfo, EnrichedNamedWaypoint } from './lib/places'
 import { fetchLocationForWaypoints } from './lib/places'
 import { ShareCard } from './components/ShareCard'
 import { CutoffStrategy } from './components/CutoffStrategy'
+import { EventPlanBar } from './components/EventPlanBar'
 import { PassingPlan } from './components/PassingPlan'
 import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
@@ -142,6 +143,11 @@ interface SavedSession {
   originalPointCount?: number
   /** True when track.points was decimated to fit localStorage. */
   subsampled?: boolean
+  /** Evento del que salió este recorrido, si vino de la parrilla de uno. Se
+   *  guarda con la sesión para que recargar la página no borre el contexto:
+   *  `?de=` se limpia de la barra en cuanto se aplica, y sin esto lo que se
+   *  recupera al volver es una salida suelta que ya no sabe de qué carrera es. */
+  eventId?: string | null
 }
 
 /** Max track points persisted in a session (≈0.6 MB JSON — well under quota). */
@@ -413,6 +419,16 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
 
   // Saved session detected at mount — shown as a banner while no track is loaded.
   const [savedSession, setSavedSession] = useState<SavedSession | null>(() => loadSession())
+
+  // ── Procedencia del recorrido ─────────────────────────────────────────────
+  // Cuando se llega desde la parrilla de un evento (`?s=<base>&de=<evento>`), lo
+  // que se está planificando son LOS RITMOS DE ESA CARRERA. Guardarlo permite
+  // marcar la previsión al guardarla, y que la baliza sepa después cuál de tus
+  // previsiones es la de ese evento en vez de ofrecerlas todas revueltas.
+  const [planEventId, setPlanEventId] = useState<string | null>(() => {
+    const de = new URLSearchParams(window.location.search).get('de')
+    return de && /^[A-Za-z0-9_-]{16,32}$/.test(de) ? de : null
+  })
 
   // ── Session restore bookkeeping ───────────────────────────────────────────
   // When a session whose track was subsampled is restored, we keep the
@@ -776,8 +792,9 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       segmentTargets: serializeSegmentTargets(segmentTargets),
       gpxStats: gpxValidity,
       originalPointCount: trackOriginalPoints || track.points.length,
+      eventId: planEventId,
     })
-  }, [track, startTime, paceConfig, sampling, strategyMargin, segmentTargets, gpxValidity, trackOriginalPoints])
+  }, [track, startTime, paceConfig, sampling, strategyMargin, segmentTargets, gpxValidity, trackOriginalPoints, planEventId])
 
   // Fall back to 'fixed' automatically when activity changes and makes GPX
   // invalid (applies to both GPX modes; 'gpx-moving' keeps its derived pace).
@@ -1227,16 +1244,6 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     // Mount-only: we read the URL once on first render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // ── Procedencia del recorrido ─────────────────────────────────────────────
-  // Cuando se llega desde la parrilla de un evento (`?s=<base>&de=<evento>`), lo
-  // que se está planificando son LOS RITMOS DE ESA CARRERA. Guardarlo permite
-  // marcar la previsión al guardarla, y que la baliza sepa después cuál de tus
-  // previsiones es la de ese evento en vez de ofrecerlas todas revueltas.
-  const [planEventId] = useState<string | null>(() => {
-    const de = new URLSearchParams(window.location.search).get('de')
-    return de && /^[A-Za-z0-9_-]{16,32}$/.test(de) ? de : null
-  })
 
   // ── User-POI handlers ─────────────────────────────────────────────────────
   function handleAddPois(materialised: MaterialisedPoi[]) {
@@ -2150,6 +2157,17 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
         </div>
       </header>
 
+      {/* Vengo de una carrera: contexto + guardar de un toque. Debajo de la
+          cabecera y pegada como ella, porque el planificador es largo y el
+          "para qué estoy ajustando esto" no puede quedarse arriba del todo. */}
+      {planEventId && (
+        <EventPlanBar
+          eventId={planEventId}
+          hasTrack={!!track}
+          getPayload={() => { try { return buildCurrentSharePayload() } catch { return null } }}
+        />
+      )}
+
       {/* ── Sim control bar (dev only) ─────────────────────────────────────── */}
       {IS_DEV && simKm !== null && track && (() => {
         // Derive pace from km + time for the info badge
@@ -2329,6 +2347,9 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                         const orig = s.originalPointCount ?? s.track.points.length
                         setTrackOriginalPoints(orig)
                         if (s.subsampled) setSubsampleNotice({ original: orig, current: s.track.points.length })
+                        // Y de qué carrera venía, para que la barra del evento
+                        // siga ahí después de recuperar.
+                        if (s.eventId) setPlanEventId(s.eventId)
                       }}
                       className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-sm rounded-lg font-medium transition-colors"
                     >
