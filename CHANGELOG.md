@@ -48,11 +48,12 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 
 ## Estado actual
 
-| Pieza | Versión repartida | Al día |
+| Pieza | Versión | Al día |
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
-| Android | **1.0 (271)** — el APK que está en manos de un compañero | no: le faltan las marcas de evento |
-| iOS | 1.0 (1) — instalada en el iPhone de desarrollo | no: le faltan las marcas de evento |
+| Android · móvil propio | 1.0 (281), debug | sí |
+| Android · APK de reparto | 1.0 (**281**) compilado y firmado, en `android/app/build/outputs/reparto/` | sí, pero **sin repartir**: el compañero sigue con el **271** |
+| iOS | 1.0 (281 en código), instalada en el iPhone 16 Pro | sí |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
