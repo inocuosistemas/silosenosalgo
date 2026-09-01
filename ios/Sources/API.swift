@@ -86,9 +86,10 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
 }
 
 /// Un evento en el que participo, tal y como lo necesita la baliza: lo justo
-/// para elegirlo al empezar a compartir. El lobby, los colores y el mapa de
-/// todos viven en la web (ver docs); aquí solo hace falta saber a qué carrera
-/// se atribuye esta salida.
+/// para elegirlo al empezar a compartir. La parrilla, elegir marca y el mapa de
+/// todos viven en la web (ver docs); aquí solo hace falta saber a qué carrera se
+/// atribuye esta salida —y con qué marca me van a ver, que es lo que se quiere
+/// comprobar en la línea de salida.
 struct EventSummary: Codable, Identifiable, Equatable {
     let id: String
     let name: String
@@ -100,6 +101,11 @@ struct EventSummary: Codable, Identifiable, Equatable {
     let startsAt: Double?
     /// Terminado por el organizador: no se ofrece para emitir.
     let endedAt: Double?
+    /// MI marca en este evento: el emoji con el que me pintan en el mapa común
+    /// y el slug de mi color. Se elige en la web; aquí solo se enseña.
+    /// Opcionales: son nulos contra un servidor anterior a que esto existiera.
+    let myEmoji: String?
+    let myColor: String?
 
     var isOver: Bool { endedAt != nil }
 }

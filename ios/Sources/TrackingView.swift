@@ -65,7 +65,10 @@ struct TrackingView: View {
     private var outingSummary: String {
         var parts: [String] = []
         if let ev = store.events.first(where: { $0.id == store.selectedEventId }) {
-            parts.append("🏁 \(ev.name)")
+            // Con la marca por delante cuando la hay: plegado, esta línea es lo
+            // último que se lee antes de salir, y "voy de 🦊 en Canfranc" es
+            // justo lo que se quiere confirmar ahí.
+            parts.append(ev.myEmoji.map { "\($0) \(ev.name)" } ?? "🏁 \(ev.name)")
         }
         if let plan = store.plans.first(where: { $0.id == store.selectedPlanId }) {
             parts.append(plan.name)
@@ -186,7 +189,18 @@ struct TrackingView: View {
                             Picker("Evento", selection: eventBinding) {
                                 Text("Ninguno · salida suelta").tag(String?.none)
                                 ForEach(store.events) { ev in
-                                    Text(ev.name).tag(Optional(ev.id))
+                                    // El emoji delante del nombre: en la salida
+                                    // lo que se comprueba es "¿soy yo el zorro?".
+                                    Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name).tag(Optional(ev.id))
+                                }
+                            }
+                            if let ev = store.events.first(where: { $0.id == store.selectedEventId }),
+                               let emoji = ev.myEmoji {
+                                HStack(spacing: 8) {
+                                    MarcaEvento(emoji: emoji, colorSlug: ev.myColor)
+                                    Text("Así te ven los demás en el mapa del evento. Tu marca se elige en la web, en la parrilla.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }

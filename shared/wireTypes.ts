@@ -405,6 +405,11 @@ export interface EventInfo {
   /** Los colores los reparte solo el organizador. Por defecto false: los elige
    *  cada uno, y pueden repetirse. */
   colorsLocked: boolean
+  /** La marca de quien pregunta EN ESTE evento. Solo en la lista (`GET
+   *  /api/events`), que es de donde beben las apps del móvil; en la parrilla
+   *  viene dentro de `members`, junto a la de todos. */
+  myEmoji?: string | null
+  myColor?: string | null
   startsAt: number | null
   createdAt: number
   endedAt: number | null

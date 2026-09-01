@@ -53,6 +53,24 @@ object Paleta {
     val verde = Color(0xFF22C55E)
     val ambar = Color(0xFFF59E0B)
     val rojo = Color(0xFFF87171)
+
+    /**
+     * Los doce colores de los participantes de un evento (shared/eventColors.ts).
+     *
+     * Duplicados aquí a propósito, como los umbrales de TrackingRules: son doce
+     * constantes que no cambian, y pedirle al servidor un color para pintar un
+     * punto en una pantalla que tiene que funcionar sin cobertura sería peor. Un
+     * slug que no se reconozca —porque la web añadiera uno— cae en gris, no en
+     * un fallo.
+     */
+    private val coloresEvento = mapOf(
+        "sky" to Color(0xFF0EA5E9), "emerald" to Color(0xFF10B981), "amber" to Color(0xFFF59E0B),
+        "rose" to Color(0xFFF43F5E), "violet" to Color(0xFF8B5CF6), "lime" to Color(0xFFA3E635),
+        "orange" to Color(0xFFFB923C), "cyan" to Color(0xFF22D3EE), "fuchsia" to Color(0xFFE879F9),
+        "teal" to Color(0xFF2DD4BF), "indigo" to Color(0xFF818CF8), "pink" to Color(0xFFF472B6),
+    )
+
+    fun colorEvento(slug: String?): Color = coloresEvento[slug] ?: slate400
 }
 
 private val esquemaOscuro = darkColorScheme(

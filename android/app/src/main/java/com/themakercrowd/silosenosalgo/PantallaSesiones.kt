@@ -13,6 +13,8 @@
 package com.themakercrowd.silosenosalgo
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import java.text.SimpleDateFormat
@@ -593,19 +597,59 @@ fun SelectorEvento(eventos: List<EventSummary>, elegido: String?, onElige: (Stri
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         BotonElegible("Ninguno", elegido == null) { onElige(null) }
         eventos.forEach { ev ->
-            BotonElegible(ev.name, elegido == ev.id) { onElige(ev.id) }
+            // El emoji, delante del nombre: en la salida lo que se comprueba es
+            // "¿soy yo el zorro?", y verlo aquí ahorra abrir la web para eso.
+            val etiqueta = if (ev.myEmoji != null) "${ev.myEmoji}  ${ev.name}" else ev.name
+            BotonElegible(etiqueta, elegido == ev.id) { onElige(ev.id) }
         }
     }
     Spacer(Modifier.height(6.dp))
+    val actual = eventos.firstOrNull { it.id == elegido }
+    if (actual != null && actual.myEmoji != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MarcaEvento(actual.myEmoji, actual.myColor)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Así te ven los demás en el mapa del evento.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+    }
     Text(
         if (elegido != null) {
-            "Apareces en el mapa del evento con tu color. Se puede cambiar sobre la marcha."
+            // La marca se elige en la web y aquí solo se enseña: es una decisión
+            // que se toma una vez, con cobertura, y no algo que se toquetee con
+            // el móvil en la mano y el dorsal puesto.
+            "Tu marca se elige en la web, en la parrilla del evento. Se puede cambiar de evento sobre la marcha."
         } else {
             "Si corres una carrera con otros, elígela para que os veáis en el mismo mapa."
         },
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,
     )
+}
+
+/**
+ * La marca de un participante: su emoji dentro de un aro de su color.
+ *
+ * Mismo dibujo que en la web y por la misma razón: el emoji tiene sus propios
+ * colores y sobre un disco relleno se ensucian los dos. El aro identifica de
+ * lejos y el emoji de cerca.
+ */
+@Composable
+private fun MarcaEvento(emoji: String, colorSlug: String?, tam: Dp = 28.dp) {
+    Box(
+        modifier = Modifier
+            .size(tam)
+            .clip(CircleShape)
+            .background(Paleta.slate900)
+            .border(2.dp, Paleta.colorEvento(colorSlug), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(emoji, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 /**

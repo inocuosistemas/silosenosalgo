@@ -98,9 +98,10 @@ data class TrackSessionSummary(
  * Un evento en el que participo, tal y como lo necesita la baliza: lo justo
  * para elegirlo al empezar a compartir.
  *
- * El lobby, los colores y el mapa de todos viven en la web y necesitan
+ * La parrilla, elegir marca y el mapa de todos viven en la web y necesitan
  * cobertura; aquí solo hace falta saber a qué carrera se atribuye esta salida,
- * que es lo único que la app tiene que decidir sin conexión.
+ * que es lo único que la app tiene que decidir sin conexión —y con qué marca te
+ * verán, que es lo que se quiere comprobar en la línea de salida.
  */
 @Serializable
 data class EventSummary(
@@ -114,6 +115,16 @@ data class EventSummary(
     val startsAt: Double? = null,
     /** Terminado por el organizador: no se ofrece para emitir. */
     val endedAt: Double? = null,
+    /**
+     * MI marca en este evento: el emoji con el que me pintan en el mapa común y
+     * el slug de mi color. Se elige en la web; aquí solo se enseña, que es para
+     * lo que sirve en la salida: comprobar de un vistazo que soy el 🦊.
+     *
+     * Nulos en servidores anteriores a que esto existiera y en apps que no lo
+     * pidan: por eso llevan valor por defecto y no rompen nada.
+     */
+    val myEmoji: String? = null,
+    val myColor: String? = null,
 ) {
     val isOver: Boolean get() = endedAt != null
 }

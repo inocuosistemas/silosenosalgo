@@ -1048,7 +1048,12 @@ private fun resumenSalida(
     planes: List<PlanSummary>,
 ): String {
     val partes = buildList {
-        eventos.firstOrNull { it.id == estado.eventoId }?.let { add("🏁 ${it.name}") }
+        eventos.firstOrNull { it.id == estado.eventoId }?.let {
+            // Con la marca por delante cuando la hay: plegado, esta línea es lo
+            // último que se lee antes de salir, y "voy de 🦊 en Canfranc" es
+            // justo lo que se quiere confirmar ahí.
+            add(if (it.myEmoji != null) "${it.myEmoji} ${it.name}" else "🏁 ${it.name}")
+        }
         val plan = planes.firstOrNull { it.id == estado.planId }
         add(
             when {
