@@ -36,8 +36,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const ev = await env.DB.prepare(
-    'SELECT plan_share_id AS planShareId, starts_at AS startsAt, created_by AS createdBy FROM events WHERE id = ?')
-    .bind(id).first<{ planShareId: string | null; startsAt: number | null; createdBy: string }>()
+    'SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, created_by AS createdBy FROM events WHERE id = ?')
+    .bind(id).first<{ planShareId: string | null; startsAt: number | null; betsEnabled: number; createdBy: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
 
   // Pertenecer es la condición para ver. 404 y no 403: quien no está dentro
@@ -114,6 +114,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     }
   })
 
-  const res: EventLiveResponse = { planShareId: ev.planShareId, startsAt: ev.startsAt, runners }
+  const res: EventLiveResponse = {
+    planShareId: ev.planShareId, startsAt: ev.startsAt, betsEnabled: ev.betsEnabled === 1, runners,
+  }
   return json(res, 200, { 'Cache-Control': 'no-store' })
 }

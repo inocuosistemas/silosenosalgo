@@ -27,12 +27,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
 
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
-            starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt
+            starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
     id: string; name: string; planShareId: string | null
     trackingUrl: string | null; websiteUrl: string | null
-    startsAt: number | null; photoKey: string | null; photoAt: number | null
+    startsAt: number | null; photoKey: string | null; photoAt: number | null; betsEnabled: number
   }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
   // enlace que no lleva a ningún sitio, y no hay nada que explicarle a quien lo
@@ -101,7 +101,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   // cartel no es un secreto), así que aquí solo se arma la url —con su `?v=`,
   // que es lo que hace que un reencuadre llegue a todo el mundo—.
   const res: EventPublicResponse = {
+    id: ev.id,
     name: ev.name,
+    betsEnabled: ev.betsEnabled === 1,
     planShareId: ev.planShareId,
     startsAt: ev.startsAt,
     photoUrl: ev.photoKey

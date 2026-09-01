@@ -37,11 +37,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = (await readJson<{ colorsLocked?: unknown; notes?: unknown; startsAt?: unknown }>(request)) || {}
+  const body = (await readJson<{
+    colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
+  }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
   const tocaSalida = body.startsAt !== undefined
-  if (!tocaColores && !tocaNotas && !tocaSalida) return json({ error: 'invalid_request' }, 400)
+  const tocaPorra = typeof body.betsEnabled === 'boolean'
+  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra) return json({ error: 'invalid_request' }, 400)
 
   let startsAt: number | null = null
   if (tocaSalida && body.startsAt !== null) {
@@ -74,6 +77,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (tocaNotas) {
     await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ? AND created_by = ?')
       .bind(notes, id, user.id).run()
+  }
+  if (tocaPorra) {
+    // Apagarla NO borra los pronósticos: quien organiza puede estar quitándola
+    // un momento para reabrirla, y perder la porra entera por un clic sería
+    // una sorpresa cara. Dejan de verse, y vuelven si se reactiva.
+    await env.DB.prepare('UPDATE events SET bets_enabled = ? WHERE id = ? AND created_by = ?')
+      .bind(body.betsEnabled ? 1 : 0, id, user.id).run()
   }
   if (tocaSalida) {
     await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ? AND created_by = ?')

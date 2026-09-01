@@ -6,7 +6,7 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventBetsEnabled, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -164,6 +164,16 @@ export default function EventLobby({ id }: { id: string }) {
     setBusy(true); setError(null)
     try {
       await setEventColorsLocked(id, locked)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  async function togglePorra(on: boolean) {
+    setBusy(true); setError(null)
+    try {
+      await setEventBetsEnabled(id, on)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -516,6 +526,34 @@ export default function EventLobby({ id }: { id: string }) {
                 <span className="block text-slate-600">
                   El color pasa a significar algo —club, relevo, categoría— y lo reparto yo, para que nadie
                   se lo cambie la víspera. No revuelve lo ya elegido.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {/* La porra: la enciende quien organiza, y no todas las carreras la
+              quieren. Va junto al resto de ajustes del evento y no en una
+              pantalla aparte: es una casilla, no una sección. */}
+          {event.isOwner && (
+            <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-400">
+              <input
+                type="checkbox"
+                checked={event.betsEnabled}
+                onChange={(e) => void togglePorra(e.target.checked)}
+                disabled={busy}
+                className="mt-0.5 accent-amber-500"
+              />
+              <span>
+                🔮 La porra
+                <span className="block text-slate-600">
+                  Quien MIRA la carrera pronostica quién gana, quién acaba y a qué hora — hasta la salida y
+                  nada más. No se juega dinero: sale un ranking de aciertos. Los que corréis no jugáis, que
+                  decidís el resultado con las piernas.
+                  {!event.startsAt && (
+                    <span className="mt-0.5 block text-amber-500/80">
+                      Hace falta poner la hora de salida: es lo que cierra la porra.
+                    </span>
+                  )}
                 </span>
               </span>
             </label>

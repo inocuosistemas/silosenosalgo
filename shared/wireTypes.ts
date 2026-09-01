@@ -424,6 +424,8 @@ export interface EventInfo {
   /** Los colores los reparte solo el organizador. Por defecto false: los elige
    *  cada uno, y pueden repetirse. */
   colorsLocked: boolean
+  /** Si la porra está abierta en este evento. La enciende quien organiza. */
+  betsEnabled: boolean
   /** La marca de quien pregunta EN ESTE evento. Solo en la lista (`GET
    *  /api/events`), que es de donde beben las apps del móvil; en la parrilla
    *  viene dentro de `members`, junto a la de todos. */
@@ -468,8 +470,15 @@ export interface EventPublicRunner {
 }
 
 export interface EventPublicResponse {
+  /** Id del evento. Lo necesita quien mira desde fuera para jugar la porra
+   *  (los pronósticos se guardan contra el evento); sin él tendría que sacarlo
+   *  de la url de la foto, que es peor. Solo abre puertas a quien tenga cuenta
+   *  y las demás rutas siguen pidiendo ser del evento. */
+  id: string
   name: string
   planShareId: string | null
+  /** Si este evento tiene porra. */
+  betsEnabled: boolean
   /** Salida OFICIAL (epoch ms) o null. Con ella la pantalla cuenta atrás:
    *  antes de la salida no hay nada que mirar en el mapa, y "cuánto falta" es
    *  literalmente lo único que se pregunta quien abre el enlace esa mañana. */
@@ -483,6 +492,63 @@ export interface EventPublicResponse {
   trackingUrl: string | null
   websiteUrl: string | null
   runners: EventPublicRunner[]
+}
+
+/**
+ * ── La Porra ───────────────────────────────────────────────────────────────
+ *
+ * Pronósticos de quien MIRA la carrera. No se juega dinero: se juega el
+ * orgullo, y lo que hay al final es un ranking de aciertos.
+ *
+ * Por el cable no viajan ids de cuenta sino NOMBRES: la pantalla pública ve la
+ * porra igual que ve el mapa, y allí los participantes se identifican por su
+ * nombre. Los ids se quedan en la base.
+ */
+export type BetKind =
+  /** A la carrera entera: quién cruza meta el primero. `value` = nombre. */
+  | 'winner'
+  /** A un participante: si acaba o no. `value` = 'si' | 'no'. */
+  | 'finish'
+  /** A un participante: a qué hora cruza meta. `value` = epoch ms en texto. */
+  | 'finish_time'
+
+export interface EventBet {
+  /** Quién pronostica. */
+  author: string
+  /** A quién apunta; vacío en las apuestas de la carrera entera. */
+  target: string
+  kind: BetKind
+  value: string
+}
+
+/** GET /api/events/:id/bets — la porra del evento, para pintarla y puntuarla. */
+export interface EventBetsResponse {
+  /** Si el organizador la ha activado en este evento. */
+  enabled: boolean
+  /** Salida oficial: hasta ahí se admiten pronósticos. */
+  startsAt: number | null
+  /** Si ahora mismo se puede pronosticar (activada, con hora y sin empezar). */
+  open: boolean
+  /** Quién pregunta, si trae sesión. */
+  me: string | null
+  /**
+   * Si QUIEN PREGUNTA puede pronosticar: hace falta cuenta y no estar en la
+   * parrilla. Cuando es `false`, `whyNot` dice por qué, que un botón apagado
+   * sin explicación es lo más irritante que hay.
+   */
+  canBet: boolean
+  whyNot?: 'anon' | 'participante' | 'cerrada' | 'desactivada'
+  bets: EventBet[]
+}
+
+/** POST /api/events/:id/bets — la porra de quien la manda, entera. */
+export interface EventBetsInput {
+  /** Nombre del participante que cruzará meta el primero, o null. */
+  winner?: string | null
+  /** Por participante: si acaba o no. */
+  finish?: Record<string, boolean>
+  /** Por participante: hora de meta (epoch ms). */
+  finishTime?: Record<string, number>
 }
 
 /** GET /api/events/:id — el lobby: el evento y quién está en él. */
@@ -543,6 +609,8 @@ export interface EventLiveResponse {
   planShareId: string | null
   /** Salida oficial (epoch ms) o null — la cuenta atrás del mapa. */
   startsAt: number | null
+  /** Si este evento tiene porra (la enciende quien organiza). */
+  betsEnabled: boolean
   runners: EventLiveRunner[]
 }
 

@@ -10,6 +10,7 @@ import type { EventPlanOverlay } from './eventPlan'
 import type {
   CreateEventResponse, EventDetailResponse, EventInfo, EventsListResponse, JoinEventResponse,
   CreateInviteResponse, EventLiveResponse, EventPublicResponse,
+  EventBetsResponse, EventBetsInput,
 } from '../../shared/wireTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 
@@ -143,9 +144,14 @@ export async function setEventNotes(id: string, notes: string): Promise<void> {
   return setEventSettings(id, { notes })
 }
 
+/** La porra del evento: la enciende y la apaga quien organiza. */
+export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Promise<void> {
+  return setEventSettings(id, { betsEnabled })
+}
+
 async function setEventSettings(
   id: string,
-  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null },
+  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null; betsEnabled?: boolean },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
     method: 'POST', credentials: 'same-origin',
@@ -238,6 +244,28 @@ export async function getEventPlan(planShareId: string): Promise<SharePayloadV1>
   const res = await fetchSafe(`/api/share/${encodeURIComponent(planShareId)}`, { cache: 'no-store' })
   if (!res.ok) throw errFrom(res)
   return JSON.parse(await gunzipToString(await res.arrayBuffer())) as SharePayloadV1
+}
+
+/**
+ * La porra de un evento. El GET no pide sesión —se mira donde se mira la
+ * carrera, y eso incluye el enlace público— y el POST manda la porra ENTERA de
+ * quien juega: lo que no va, se borra.
+ */
+export async function getEventBets(id: string): Promise<EventBetsResponse> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/bets`, {
+    credentials: 'same-origin', cache: 'no-store',
+  })
+  if (!res.ok) throw errFrom(res)
+  return res.json() as Promise<EventBetsResponse>
+}
+
+export async function putEventBets(id: string, bets: EventBetsInput): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/bets`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bets),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
 /** La foto del evento: JPEG ya reescalado por quien la sube. */

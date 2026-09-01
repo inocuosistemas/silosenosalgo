@@ -14,6 +14,8 @@ import {
 } from '../lib/eventCutoffs'
 import { isHttpUrl } from '../../shared/validate'
 import { MarkBadge } from './MarkPicker'
+import { EventBets, type BetRunner } from './EventBets'
+import type { RunnerOutcome } from '../lib/bets'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -51,10 +53,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [startsAt, setStartsAt] = useState<number | null>(null)
   /** El cartel de la carrera, tal cual lo manda el servidor (con su versión). */
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  /**
+   * El id del evento y si tiene porra. En la pantalla de participantes ya se
+   * saben; desde el enlace público llegan en el feed, porque quien mira desde
+   * fuera es justo quien juega.
+   */
+  const [eventId, setEventId] = useState<string | null>(source.kind === 'member' ? source.id : null)
+  const [betsEnabled, setBetsEnabled] = useState(false)
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<'mapa' | 'lista'>('mapa')
+  const [view, setView] = useState<'mapa' | 'lista' | 'porra'>('mapa')
   const [now, setNow] = useState(Date.now())
   /**
    * Si el cuadro de la salida está desplegado. Empieza abierto —antes de la
@@ -96,11 +105,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
         setStartsAt(live.startsAt)
         setPhotoUrl(live.photoUrl)
+        setEventId(live.id)
+        setBetsEnabled(live.betsEnabled)
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
         setRunners(live.runners as Runner[])
         setStartsAt(live.startsAt)
+        setBetsEnabled(live.betsEnabled)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -156,7 +168,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
-      const km = route && r.fix ? projectKm(r.fix.lat, r.fix.lon, route) : null
+      // El km que manda la baliza manda sobre el proyectado: el suyo lo calcula
+      // quien va corriendo, sabe por dónde viene y no se salta un lazo del
+      // recorrido. Proyectar por cercanía, en cambio, pone en el km 0 a quien
+      // acaba de cruzar la meta de un circuito que empieza y acaba en el mismo
+      // pueblo — y con eso la porra daba por no llegado al que ya había llegado.
+      const km = r.fix
+        ? (r.fix.trackKm ?? (route ? projectKm(r.fix.lat, r.fix.lon, route) : null))
+        : null
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && r.startedAt !== null
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
@@ -214,6 +233,33 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const hoverCoords = useMemo(
     () => (route && hoverKm !== null ? coordsAtKm(route, hoverKm) : null),
     [route, hoverKm],
+  )
+
+  /**
+   * Cómo va acabando la carrera de cada uno, que es lo que puntúa la porra.
+   *
+   * Meta = su último punto pasó del 97% del recorrido: el GPS no clava el
+   * último metro y un umbral exacto dejaría "sin acabar" a quien cruzó el arco.
+   * La hora que vale es la de ese último aviso; y quien cierra la baliza sin
+   * llegar queda decidido igual, como no-acabado.
+   */
+  const outcomes = useMemo<RunnerOutcome[]>(() => {
+    const total = route?.totalKm ?? null
+    return rows.map(({ r, km }) => {
+      const finished = total !== null && km !== null && km >= total * 0.97
+      return {
+        username: r.username,
+        finished,
+        finishedAt: finished ? r.updatedAt : null,
+        settled: finished || r.status === 'ended',
+      }
+    })
+  }, [rows, route])
+
+  /** La parrilla tal como la necesita la porra: sin posiciones, solo identidad. */
+  const betRunners = useMemo<BetRunner[]>(
+    () => rows.map(({ r }) => ({ username: r.username, bib: r.bib, emoji: r.emoji, color: r.color })),
+    [rows],
   )
 
   /** La pantalla de espera: nadie ha mandado posición todavía. */
@@ -361,6 +407,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
           )}
           <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
         </MapContainer>
+      ) : view === 'porra' && eventId ? (
+        <EventBets
+          eventId={eventId}
+          runners={betRunners}
+          outcomes={outcomes}
+          startsAt={startsAt}
+          onBack={() => setView('mapa')}
+        />
       ) : (
         <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
                   eventId={source.kind === 'member' ? source.id : null}
@@ -437,7 +491,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           </button>
         )}
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
-          {(['mapa', 'lista'] as const).map((v) => (
+          {(betsEnabled ? (['mapa', 'lista', 'porra'] as const) : (['mapa', 'lista'] as const)).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -445,7 +499,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {v}
+              {v === 'porra' ? '🔮 porra' : v}
             </button>
           ))}
         </div>
@@ -613,6 +667,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   ))}
                 </ul>
               </div>
+            )}
+            {/* La porra, ofrecida donde se espera: es AQUÍ donde hay tiempo
+                muerto que llenar, y una vez que empieza la carrera ya no se
+                admiten pronósticos. */}
+            {betsEnabled && eventId && (
+              <button
+                onClick={() => setView('porra')}
+                className="mt-3 w-full rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-100 transition-colors hover:border-amber-600"
+              >
+                🔮 Echa tu porra
+                <span className="mt-0.5 block text-[10px] font-normal text-amber-200/60">
+                  Ni un euro: se juega el orgullo. Solo hasta la salida.
+                </span>
+              </button>
             )}
             <p className="mt-3 border-t border-slate-800 pt-2.5 text-[11px] leading-snug text-slate-500">
               Los participantes aparecerán en el mapa cuando empiecen a compartir su posición.
