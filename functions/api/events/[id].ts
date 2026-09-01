@@ -23,13 +23,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
 
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
-            photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt,
+            photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
             ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
             tracking_url AS trackingUrl, website_url AS websiteUrl
        FROM events WHERE id = ?`,
   ).bind(id).first<{
     id: string; name: string; planShareId: string | null; planName: string | null
-    photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
+    photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number; colorsLocked: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null
   }>()
@@ -51,7 +51,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // es lo que convierte un nombre del lobby en un punto del mapa.
   const rows = await env.DB.prepare(
     `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
-            m.joined_at AS joinedAt, m.last_seen AS lastSeen,
+            m.emoji AS emoji, m.emoji_key AS emojiKey, m.joined_at AS joinedAt, m.last_seen AS lastSeen,
             m.plan_overlay IS NOT NULL AS hasPlan,
             (SELECT t.id FROM tracking_sessions t
               WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
@@ -62,6 +62,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       ORDER BY m.joined_at ASC`,
   ).bind(now, id).all<{
     userId: string; username: string; color: string | null; bib: string | null
+    emoji: string | null; emojiKey: string | null
     joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null
   }>()
 
@@ -69,6 +70,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     userId: r.userId,
     username: r.username,
     color: r.color,
+    emoji: r.emoji,
     bib: r.bib,
     joinedAt: r.joinedAt,
     lastSeen: r.lastSeen,
@@ -88,6 +90,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     // solo el organizador (ver links.ts).
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
+    colorsLocked: !!ev.colorsLocked,
     startsAt: ev.startsAt,
     createdAt: ev.createdAt,
     endedAt: ev.endedAt,
@@ -101,9 +104,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const res: EventDetailResponse = {
     event,
     members,
-    // Los colores cogidos POR OTROS: el propio no se deshabilita, que si no
-    // el selector saldría sin nada marcado.
+    // Lo que llevan LOS OTROS; lo propio no, que si no el selector saldría sin
+    // nada marcado. Los colores solo avisan de con quién se va a coincidir
+    // (repetir se puede); los emojis, plegados, sí están vetados.
     takenColors: members.filter((m) => m.userId !== user.id && m.color).map((m) => m.color as string),
+    takenEmojis: (rows.results ?? [])
+      .filter((r) => r.userId !== user.id && r.emojiKey)
+      .map((r) => r.emojiKey as string),
     myPlanOverlay: me.planOverlay,
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })

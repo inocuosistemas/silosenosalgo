@@ -5,7 +5,7 @@
  * cookie be stored + sent. (The native apps use the Bearer-token variant.)
  */
 import type {
-  AdminUsersResponse, CreateResetResponse,
+  AdminUsersResponse, CreateResetResponse, ProfileResponse,
   AuthUser, AuthOkResponse, MeResponse, ErrorResponse,
   CreateInviteResponse, InvitesListResponse,
 } from '../../shared/wireTypes'
@@ -70,6 +70,18 @@ export function deleteInvite(code: string): Promise<void> {
   return call<void>(`/api/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' })
 }
 
+// ── Mi marca favorita ───────────────────────────────────────────────────────
+
+/** El emoji y el color con los que se entra a cualquier evento. */
+export function getProfile(): Promise<ProfileResponse> {
+  return call<ProfileResponse>('/api/auth/profile')
+}
+
+/** Guarda uno, otro o los dos. Lo que no se manda no se toca; `null` lo quita. */
+export function saveProfile(patch: { favEmoji?: string | null; favColor?: string | null }): Promise<ProfileResponse> {
+  return call<ProfileResponse>('/api/auth/profile', { method: 'POST', json: patch })
+}
+
 // ── Cuentas (administración) ────────────────────────────────────────────────
 
 export function listUsers(): Promise<AdminUsersResponse> {
@@ -102,6 +114,8 @@ export function authErrorMessage(code: string): string {
     case 'invalid_invite': return 'La invitación no es válida, ya se ha usado o ha caducado.'
     case 'invalid_reset': return 'Este enlace ya no vale: se ha usado o ha caducado. Pide otro a quien administra.'
     case 'cannot_delete_self': return 'No puedes borrar tu propia cuenta.'
+    case 'bad_emoji': return 'Tiene que ser un solo emoji.'
+    case 'bad_color': return 'Ese color no está en la paleta.'
     case 'rate_limited': return 'Demasiados intentos. Inténtalo de nuevo en unos minutos.'
     case 'unauthorized': return 'Tu sesión ha caducado. Inicia sesión de nuevo.'
     case 'forbidden': return 'No tienes permiso para esta acción.'

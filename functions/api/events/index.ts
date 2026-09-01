@@ -4,7 +4,8 @@ import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
 import type { CreateEventResponse, EventsListResponse, EventInfo } from '../../../shared/wireTypes'
-import { firstFreeColor } from '../../../shared/eventColors'
+import { assignColor, isEventColor } from '../../../shared/eventColors'
+import { EMOJI_POOL, emojiOk, foldEmoji } from '../../../shared/emoji'
 
 /**
  * Eventos: una carrera compartida por varios participantes.
@@ -44,9 +45,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   // Quien lo crea entra dentro: es el primer participante y casi siempre corre.
   // Si no corre, se sale — pero que el evento nazca vacío no ayuda a nadie.
+  // Y entra con su marca favorita, que en un evento recién hecho está libre
+  // por definición.
+  const fav = await env.DB.prepare('SELECT fav_emoji AS favEmoji, fav_color AS favColor FROM users WHERE id = ?')
+    .bind(user.id).first<{ favEmoji: string | null; favColor: string | null }>()
+  const emoji = fav?.favEmoji && emojiOk(fav.favEmoji) ? fav.favEmoji : EMOJI_POOL[0]
   await env.DB.prepare(
-    'INSERT INTO event_members (event_id, user_id, color, joined_at, last_seen) VALUES (?, ?, ?, ?, ?)',
-  ).bind(id, user.id, firstFreeColor([]), now, now).run()
+    'INSERT INTO event_members (event_id, user_id, color, emoji, emoji_key, joined_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).bind(id, user.id, isEventColor(fav?.favColor) ? fav!.favColor : assignColor([]), emoji, foldEmoji(emoji), now, now).run()
 
   const res: CreateEventResponse = { id }
   return json(res, 201)
@@ -62,7 +68,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `SELECT e.id, e.name, e.plan_share_id AS planShareId, e.plan_name AS planName,
             e.photo_key AS photoKey, e.photo_at AS photoAt, e.starts_at AS startsAt,
             e.created_at AS createdAt, e.ended_at AS endedAt, e.created_by AS createdBy,
-            e.invite_code AS inviteCode, e.public_token AS publicToken
+            e.invite_code AS inviteCode, e.public_token AS publicToken, e.colors_locked AS colorsLocked
        FROM events e JOIN event_members m ON m.event_id = e.id
       WHERE m.user_id = ?
       ORDER BY COALESCE(e.starts_at, e.created_at) DESC LIMIT 50`,
@@ -70,6 +76,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
+    colorsLocked: number
   }>()
 
   const events: EventInfo[] = (rows.results ?? []).map((r) => {
@@ -81,6 +88,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       planName: r.planName,
       hasPhoto: r.photoKey !== null,
       photoAt: r.photoAt,
+      colorsLocked: !!r.colorsLocked,
       startsAt: r.startsAt,
       createdAt: r.createdAt,
       endedAt: r.endedAt,

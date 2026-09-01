@@ -7,6 +7,7 @@ import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
 import { MyEvents } from './MyEvents'
 import { UserManager } from './UserManager'
+import { MyMark } from './MyMark'
 
 /**
  * Header auth control. Registration is INVITE-ONLY: there is no "create account"
@@ -29,6 +30,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   })
   const [showLogin, setShowLogin] = useState(false)
   const [showUsers, setShowUsers] = useState(false)
+  const [showMark, setShowMark] = useState(false)
   const [showInvites, setShowInvites] = useState(false)
   const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -86,6 +88,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                   className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                 >
                   🏁 Mis eventos
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); setShowMark(true) }}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                >
+                  🦊 Mi marca
                 </button>
                 {user.isAdmin && (
                   <button
@@ -154,6 +162,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       {showInvites && user?.isAdmin && (
         <Modal title="Invitaciones" onClose={() => setShowInvites(false)}>
           <InviteManager />
+        </Modal>
+      )}
+
+      {showMark && user && (
+        <Modal title="Mi marca en los eventos" onClose={() => setShowMark(false)}>
+          <MyMark />
         </Modal>
       )}
 

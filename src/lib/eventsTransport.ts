@@ -24,7 +24,7 @@ export function eventJoinLink(code: string): string {
   return `${PUBLIC_BASE_URL}/?evento=${encodeURIComponent(code)}`
 }
 
-/** El enlace del lobby, para quien ya está dentro. */
+/** El enlace de la parrilla, para quien ya está dentro. */
 export function eventLink(id: string): string {
   return `${PUBLIC_BASE_URL}/?e=${encodeURIComponent(id)}`
 }
@@ -104,11 +104,11 @@ export async function attachBeacon(id: string, attach: boolean): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
-export async function setEventColor(id: string, color: string): Promise<void> {
+export async function setEventColor(id: string, color: string, userId?: string): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/color`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ color }),
+    body: JSON.stringify(userId ? { color, userId } : { color }),
   })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
@@ -117,6 +117,29 @@ export async function setEventColor(id: string, color: string): Promise<void> {
  * Pone (o quita, con cadena vacía) un dorsal. Sin `userId` es el propio; con
  * él, el de otro participante — solo el organizador puede.
  */
+/**
+ * La marca de uno en el mapa. Vacío la quita; `userId` es cosa del organizador,
+ * que puede arreglar la de cualquiera igual que hace con los dorsales.
+ */
+export async function setEventEmoji(id: string, emoji: string, userId?: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/emoji`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userId ? { emoji, userId } : { emoji }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** Reservar los colores para el organizador (o volver a soltarlos). */
+export async function setEventColorsLocked(id: string, colorsLocked: boolean): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ colorsLocked }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 export async function setBib(id: string, bib: string, userId?: string): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/bib`, {
     method: 'POST', credentials: 'same-origin',
@@ -208,7 +231,7 @@ export function eventPhotoUrl(id: string, photoAt?: number | null): string {
 /**
  * La proporción de la foto de un evento: tira apaisada de 3:1.
  *
- * Es una sola para TODOS los sitios donde sale —la cabecera del lobby y la
+ * Es una sola para TODOS los sitios donde sale —la cabecera de la parrilla y la
  * miniatura del listado— y por eso el encuadre que elige quien la sube vale en
  * los dos: si cada sitio recortara por su cuenta, lo que se encuadró con
  * cuidado saldría cortado en el otro.
@@ -264,6 +287,9 @@ export function eventsErrorMessage(code: string): string {
     case 'bad_bib': return 'Ese dorsal no vale: hasta 12 caracteres, letras y números.'
     case 'bad_url': return 'El enlace tiene que empezar por http:// o https://.'
     case 'color_taken': return 'Ese color acaba de cogerlo otro participante. Elige otro.'
+    case 'emoji_taken': return 'Ese emoji acaba de cogerlo otro participante. Elige otro.'
+    case 'bad_emoji': return 'Tiene que ser un solo emoji.'
+    case 'colors_locked': return 'En este evento los colores los reparte quien organiza.'
     case 'invalid_invite': return 'El código no vale o el evento ya terminó.'
     case 'too_large': return 'La ruta es demasiado grande para el evento.'
     case 'rate_limited': return 'Demasiados intentos. Espera un poco.'

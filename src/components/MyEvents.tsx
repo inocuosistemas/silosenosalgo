@@ -6,7 +6,7 @@ import type { EventInfo } from '../../shared/wireTypes'
 
 /**
  * "Mis eventos": la lista de los eventos en los que participo, para volver a
- * su lobby. Vive en el menú de usuario, al lado de "Mis previsiones".
+ * su parrilla. Vive en el menú de usuario, al lado de "Mis previsiones".
  *
  * Crear aquí un evento vacío (sin recorrido) es para el caso de "primero monto
  * el evento y reparto el enlace, y el recorrido lo publico cuando la

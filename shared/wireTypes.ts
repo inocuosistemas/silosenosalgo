@@ -366,8 +366,12 @@ export interface EventMember {
   username: string
   /** Dorsal de la carrera. Lo pone cada uno, y el organizador para cualquiera. */
   bib: string | null
-  /** Slug de la paleta (shared/eventColors.ts); null = aún sin color asignado. */
+  /** Slug de la paleta (shared/eventColors.ts); null = aún sin color asignado.
+   *  Ya NO es único dentro del evento: identifica el emoji, y el color agrupa. */
   color: string | null
+  /** Su emoji en el mapa, tal cual lo eligió; null = todavía sin marca. Único
+   *  dentro del evento (comparando con `foldEmoji`). */
+  emoji: string | null
   joinedAt: number
   /** Última vez que se le vio en el lobby (epoch ms), o null si nunca. */
   lastSeen: number | null
@@ -398,6 +402,9 @@ export interface EventInfo {
    *  no cambia, así que sin esto manda la caché de cada navegador. `null` en
    *  fotos anteriores a que esto existiera. */
   photoAt: number | null
+  /** Los colores los reparte solo el organizador. Por defecto false: los elige
+   *  cada uno, y pueden repetirse. */
+  colorsLocked: boolean
   startsAt: number | null
   createdAt: number
   endedAt: number | null
@@ -422,6 +429,7 @@ export interface EventPublicRunner {
   username: string
   bib: string | null
   color: string | null
+  emoji: string | null
   status: TrackStatus
   activity?: BeaconActivity | null
   fix: TrackFix | null
@@ -444,8 +452,12 @@ export interface EventPublicResponse {
 export interface EventDetailResponse {
   event: EventInfo
   members: EventMember[]
-  /** Colores ya cogidos por otros, para deshabilitarlos en el selector. */
+  /** Colores que ya llevan otros. No inhabilitan nada —se pueden repetir—,
+   *  pero el selector avisa de con quién se va a coincidir. */
   takenColors: string[]
+  /** Emojis que ya llevan otros, PLEGADOS (`foldEmoji`): esos sí están vetados,
+   *  y el selector lo dice antes de intentarlo. */
+  takenEmojis: string[]
   /** El overlay del que consulta (su planificación personal), o null si no
    *  planifica. Solo el suyo: la de los demás no es asunto de nadie. */
   myPlanOverlay: string | null
@@ -463,6 +475,8 @@ export interface EventLiveRunner {
   bib: string | null
   /** Su color en el mapa; null = aún sin asignar (se pinta en gris). */
   color: string | null
+  /** Su emoji: lo que de verdad le distingue cuando el mapa va lleno. */
+  emoji: string | null
   /** Token público de su sesión: con él se abre su baliza completa. */
   sessionId: string
   status: TrackStatus
@@ -500,8 +514,19 @@ export interface CreateEventResponse {
 /** POST /api/events/join — unirse con el código del evento. */
 export interface JoinEventResponse {
   id: string
-  /** El color que se le ha asignado al entrar, o null si la paleta está llena. */
+  /** El color con el que entra: su favorito si lo tiene, o el menos repetido. */
   color: string | null
+  /** El emoji con el que entra: el suyo de siempre si estaba libre. */
+  emoji: string | null
+  /** True cuando su emoji favorito ya lo llevaba otro y ha entrado con uno
+   *  distinto. El lobby lo dice y ofrece elegir. */
+  emojiTaken?: boolean
+}
+
+/** GET/POST /api/auth/profile — la marca favorita, la de todas las carreras. */
+export interface ProfileResponse {
+  favEmoji: string | null
+  favColor: string | null
 }
 
 /** GET /api/storage — the caller's note-media use vs their per-user budget. */

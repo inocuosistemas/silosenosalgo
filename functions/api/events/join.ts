@@ -3,7 +3,8 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk, readJson, rateLimited, clientIp } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { INVITE_RE } from '../../../shared/validate'
-import { firstFreeColor } from '../../../shared/eventColors'
+import { assignColor, isEventColor } from '../../../shared/eventColors'
+import { emojiOk, firstFreeEmoji, foldEmoji } from '../../../shared/emoji'
 import type { JoinEventResponse } from '../../../shared/wireTypes'
 
 /**
@@ -41,35 +42,54 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (ev.endedAt !== null) return json({ error: 'ended' }, 410)
 
   const already = await env.DB.prepare(
-    'SELECT color FROM event_members WHERE event_id = ? AND user_id = ?',
-  ).bind(ev.id, user.id).first<{ color: string | null }>()
+    'SELECT color, emoji FROM event_members WHERE event_id = ? AND user_id = ?',
+  ).bind(ev.id, user.id).first<{ color: string | null; emoji: string | null }>()
   // Volver a usar el código estando dentro no es un error: es lo que pasa
   // cuando alguien vuelve a tocar el enlace del grupo. Se entra y ya está.
   if (already) {
-    const res: JoinEventResponse = { id: ev.id, color: already.color }
+    const res: JoinEventResponse = { id: ev.id, color: already.color, emoji: already.emoji }
     return json(res, 200)
   }
 
+  // Se entra con la MARCA FAVORITA de la cuenta: quien es 🦊 en su club quiere
+  // ser 🦊 en todas las carreras, y elegirlo otra vez en cada evento es el
+  // trámite que se salta la gente. El color siempre se puede (repetirlo está
+  // permitido); el emoji solo si nadie lo lleva ya en este evento.
+  const fav = await env.DB.prepare('SELECT fav_emoji AS favEmoji, fav_color AS favColor FROM users WHERE id = ?')
+    .bind(user.id).first<{ favEmoji: string | null; favColor: string | null }>()
+
   const taken = await env.DB.prepare(
-    'SELECT color FROM event_members WHERE event_id = ? AND color IS NOT NULL',
-  ).bind(ev.id).all<{ color: string }>()
-  const color = firstFreeColor((taken.results ?? []).map((r) => r.color))
+    'SELECT color, emoji_key AS emojiKey FROM event_members WHERE event_id = ?',
+  ).bind(ev.id).all<{ color: string | null; emojiKey: string | null }>()
+  const rows = taken.results ?? []
+  const takenColors = rows.map((r) => r.color).filter((c): c is string => !!c)
+  const takenEmojis = rows.map((r) => r.emojiKey).filter((k): k is string => !!k)
+
+  const color = isEventColor(fav?.favColor) ? (fav!.favColor as string) : assignColor(takenColors)
+  const favEmoji = fav?.favEmoji && emojiOk(fav.favEmoji) ? fav.favEmoji : null
+  const favLibre = favEmoji !== null && !takenEmojis.includes(foldEmoji(favEmoji))
+  // Si el favorito está pillado se entra con otro del repertorio, no sin marca:
+  // llegar al lobby ya identificado y cambiarlo si apetece es mejor que llegar
+  // en gris con un deber pendiente.
+  const emoji = favLibre ? favEmoji : firstFreeEmoji(takenEmojis)
+  const emojiTaken = favEmoji !== null && !favLibre
 
   const now = Date.now()
+  const key = emoji ? foldEmoji(emoji) : null
   try {
     await env.DB.prepare(
-      'INSERT INTO event_members (event_id, user_id, color, joined_at, last_seen) VALUES (?, ?, ?, ?, ?)',
-    ).bind(ev.id, user.id, color, now, now).run()
+      'INSERT INTO event_members (event_id, user_id, color, emoji, emoji_key, joined_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).bind(ev.id, user.id, color, emoji, key, now, now).run()
   } catch {
-    // Dos pestañas a la vez pueden pedir el mismo color libre: el índice único
-    // lo impide y se entra sin color, que se elige después en el lobby.
+    // Dos personas entrando a la vez pueden pedir el mismo emoji libre: el
+    // índice único lo impide y se entra sin marca, que se elige en el lobby.
     await env.DB.prepare(
-      'INSERT OR IGNORE INTO event_members (event_id, user_id, color, joined_at, last_seen) VALUES (?, ?, NULL, ?, ?)',
-    ).bind(ev.id, user.id, now, now).run()
-    const res: JoinEventResponse = { id: ev.id, color: null }
+      'INSERT OR IGNORE INTO event_members (event_id, user_id, color, emoji, emoji_key, joined_at, last_seen) VALUES (?, ?, ?, NULL, NULL, ?, ?)',
+    ).bind(ev.id, user.id, color, now, now).run()
+    const res: JoinEventResponse = { id: ev.id, color, emoji: null, emojiTaken: true }
     return json(res, 201)
   }
 
-  const res: JoinEventResponse = { id: ev.id, color }
+  const res: JoinEventResponse = { id: ev.id, color, emoji, ...(emojiTaken ? { emojiTaken: true } : {}) }
   return json(res, 201)
 }

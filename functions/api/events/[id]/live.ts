@@ -47,7 +47,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // último punto es justo lo que quieren ver los demás. El GROUP BY sobre
   // started_at máximo evita que una sesión reabierta duplique al corredor.
   const rows = await env.DB.prepare(
-    `SELECT t.id, t.owner_user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
+    `SELECT t.id, t.owner_user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail
@@ -59,7 +59,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
                              WHERE t2.event_id = t.event_id AND t2.owner_user_id = t.owner_user_id)
       ORDER BY u.username`,
   ).bind(id).all<{
-    id: string; userId: string; username: string; color: string | null; bib: string | null
+    id: string; userId: string; username: string; color: string | null; emoji: string | null; bib: string | null
     status: string; activity: string | null; startedAt: number; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
@@ -86,6 +86,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       userId: r.userId,
       username: r.username,
       color: r.color,
+      emoji: r.emoji,
       bib: r.bib,
       sessionId: r.id,
       status: (r.status === 'ended' ? 'ended' : 'active') as TrackStatus,

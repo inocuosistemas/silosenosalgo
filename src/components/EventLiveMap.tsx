@@ -13,6 +13,7 @@ import {
   eventCutoffs, marginToNextCutoff, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
 import { isHttpUrl } from '../../shared/validate'
+import { MarkBadge } from './MarkPicker'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -51,6 +52,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [view, setView] = useState<'mapa' | 'lista'>('mapa')
   const [now, setNow] = useState(Date.now())
+  /** Zoom actual: por debajo de cierto acercamiento los emojis no se leen. */
+  const [zoom, setZoom] = useState(13)
   // La ruta se descarga UNA vez: son cientos de KB y no cambia en toda la
   // carrera, al revés que las posiciones.
   const planLoaded = useRef<string | null>(null)
@@ -129,11 +132,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
       <Shell>
         <p className="text-sm text-red-400">{error}</p>
         {!isPublic && (
-          <a href={`/?e=${encodeURIComponent((source as { id: string }).id)}`} className="mt-3 inline-block text-sm text-sky-400 hover:text-sky-300">← Volver al evento</a>
+          <a href={`/?e=${encodeURIComponent((source as { id: string }).id)}`} className="mt-3 inline-block text-sm text-sky-400 hover:text-sky-300">← Volver a la parrilla</a>
         )}
       </Shell>
     )
   }
+
+  // Con poca gente los emojis salen siempre; con muchos, solo al acercarse.
+  const showEmoji = withFix.length <= EMOJI_ALWAYS_UNDER || zoom >= EMOJI_ZOOM
 
   const center: [number, number] = withFix[0]?.r.fix
     ? [withFix[0].r.fix!.lat, withFix[0].r.fix!.lon]
@@ -144,6 +150,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       {view === 'mapa' ? (
         <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <ZoomWatch onZoom={setZoom} />
 
           {/* El recorrido, una sola vez: es de la carrera, no de cada corredor.
               Va en DOS trazos, uno encima del otro: un halo blanco ancho debajo
@@ -180,7 +187,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 )}
                 <Marker
                   position={[r.fix!.lat, r.fix!.lon]}
-                  icon={runnerIcon(color, isSel, stale)}
+                  icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji)}
                   eventHandlers={{ click: () => setSelected(isSel ? null : key) }}
                 />
                 {isSel && (
@@ -202,7 +209,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   onPick={(k) => { setSelected(k); setView('mapa') }} />
       )}
 
-      {/* Cabecera: volver, nombre (en el público, que no tiene lobby) y vistas */}
+      {/* Cabecera: volver, nombre (en el público, que no tiene parrilla) y vistas */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
         {isPublic ? (
           <div className="pointer-events-auto flex max-w-[60%] flex-col items-start gap-1">
@@ -211,7 +218,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </span>
             {/* Los enlaces de la organización: quien espera en meta los quiere
                 tanto o más que los participantes —el seguimiento por dorsal es
-                lo que dan las webs oficiales—, y aquí no tiene lobby donde
+                lo que dan las webs oficiales—, y aquí no tiene parrilla donde
                 buscarlos. Se validan al pintar: en la base puede haber enlaces
                 anteriores a la comprobación. */}
             <div className="flex flex-wrap gap-1">
@@ -234,7 +241,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             href={`/?e=${encodeURIComponent(source.id)}`}
             className="pointer-events-auto rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
           >
-            ← Evento
+            ← Parrilla
           </a>
         )}
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
@@ -278,7 +285,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100' : 'border-slate-700 bg-slate-900/90 text-slate-300'
                   }`}
                 >
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                  {r.emoji
+                    ? <span className="text-sm leading-none">{r.emoji}</span>
+                    : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
+                  <span className="h-2 w-2 rounded-full" style={{ background: color }} />
                   {r.username}
                 </button>
               )
@@ -328,12 +338,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
       )}
       <ul className="space-y-1.5">
         {rows.map(({ r, km, margin, stale, key }, i) => {
-          const color = r.color ? eventColorHex(r.color) : '#94a3b8'
           return (
             <li key={key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">{km !== null ? i + 1 : '·'}</span>
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+                <MarkBadge emoji={r.emoji} color={r.color} size={22} />
                 {/* El dorsal es como se le conoce ese dia: va delante del
                     nombre, que es lo que hace comparable esta lista con la
                     clasificacion oficial. */}
@@ -389,12 +398,11 @@ function RunnerCard({ row, now, totalKm, eventId, onClose }: {
   onClose: () => void
 }) {
   const { r, km, margin, stale } = row
-  const color = r.color ? eventColorHex(r.color) : '#94a3b8'
   const ago = r.updatedAt !== null ? agoLabel(now - r.updatedAt) : null
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
       <div className="flex items-center gap-2">
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+        <MarkBadge emoji={r.emoji} color={r.color} size={26} />
         {r.bib && (
           <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-200">
             {r.bib}
@@ -468,24 +476,58 @@ function FitAll({ points, routeFirst }: { points: [number, number][]; routeFirst
   return null
 }
 
-/** Icono del corredor: un punto de su color, más grande si está elegido. Se
- *  cachean por variante para no reiniciar la animación en cada refresco. */
+/**
+ * Icono del corredor: su emoji dentro de un aro de su color, o el punto de
+ * siempre cuando el emoji no cabe.
+ *
+ * El emoji va sobre fondo oscuro y el color en el aro: un emoji tiene sus
+ * propios colores y sobre un disco de color se ensucian los dos. El aro
+ * identifica de lejos —quién va con quién— y el emoji de cerca, que es quién es
+ * exactamente cada uno cuando hay cien puntos.
+ *
+ * Se cachean por variante para no reiniciar la animación en cada refresco.
+ */
 const iconCache = new Map<string, L.DivIcon>()
-function runnerIcon(color: string, selected: boolean, stale: boolean): L.DivIcon {
-  const key = `${color}|${selected}|${stale}`
+function runnerIcon(color: string, emoji: string | null, selected: boolean, stale: boolean, withEmoji: boolean): L.DivIcon {
+  const showEmoji = withEmoji && !!emoji
+  const key = `${color}|${emoji ?? ''}|${selected}|${stale}|${showEmoji}`
   const hit = iconCache.get(key)
   if (hit) return hit
-  const size = selected ? 22 : 16
-  const icon = L.divIcon({
-    className: '',
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};
-      border:2px solid ${selected ? '#f8fafc' : 'rgba(2,6,23,0.85)'};opacity:${stale ? 0.45 : 1};
-      box-shadow:0 0 0 1px rgba(2,6,23,0.6)"></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  })
+  const size = showEmoji ? (selected ? 34 : 26) : (selected ? 22 : 16)
+  const html = showEmoji
+    ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#0f172a;
+        border:3px solid ${color};opacity:${stale ? 0.45 : 1};display:grid;place-items:center;
+        font-size:${Math.round(size * 0.55)}px;line-height:1;
+        box-shadow:0 0 0 1px rgba(2,6,23,0.6)${selected ? ',0 0 0 3px #f8fafc' : ''}">${emoji}</div>`
+    : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};
+        border:2px solid ${selected ? '#f8fafc' : 'rgba(2,6,23,0.85)'};opacity:${stale ? 0.45 : 1};
+        box-shadow:0 0 0 1px rgba(2,6,23,0.6)"></div>`
+  const icon = L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
   iconCache.set(key, icon)
   return icon
+}
+
+/**
+ * A partir de qué zoom se dibujan los emojis.
+ *
+ * Cien emojis a nivel de provincia son una sopa ilegible que además ocupa el
+ * triple de pantalla que los puntos: por debajo de esto manda el punto de color,
+ * que a esa distancia es la única información que se puede leer de todas formas.
+ * Con pocos corredores no hay amontonamiento posible y salen siempre.
+ */
+const EMOJI_ZOOM = 12
+const EMOJI_ALWAYS_UNDER = 12
+
+/** Avisa del zoom al componente de arriba: Leaflet lo tiene, React no. */
+function ZoomWatch({ onZoom }: { onZoom: (z: number) => void }) {
+  const map = useMap()
+  useEffect(() => {
+    const emit = () => onZoom(map.getZoom())
+    emit()
+    map.on('zoomend', emit)
+    return () => { map.off('zoomend', emit) }
+  }, [map, onZoom])
+  return null
 }
 
 /** Kilómetro de carrera: el vértice más cercano de la ruta. Sin ventana

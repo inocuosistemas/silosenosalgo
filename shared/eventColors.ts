@@ -53,11 +53,33 @@ export function eventColorHex(slug: string): string {
 }
 
 /**
- * El primer color libre de un evento, para asignarlo al unirse: nadie debería
- * tener que elegir color antes de poder entrar. Devuelve `null` si la paleta
- * está agotada (más participantes que colores), y entonces quien se une entra
- * sin color y lo elige después.
+ * El primer color libre de un evento. `null` si ya están todos cogidos.
+ *
+ * Sigue valiendo para "¿queda alguno sin usar?", pero ya no decide sola quién
+ * entra con qué: en un evento de cien personas la paleta se agota a la
+ * decimotercera y nadie puede quedarse gris por eso. Ver `assignColor`.
  */
 export function firstFreeColor(taken: readonly string[]): string | null {
   return EVENT_COLOR_SLUGS.find((slug) => !taken.includes(slug)) ?? null
+}
+
+/**
+ * El color con el que entra alguien nuevo: uno libre si lo hay y, si no, el
+ * MENOS repetido.
+ *
+ * El color dejó de ser el identificador —eso es ahora el emoji, que sí es
+ * único— y pasó a ser lo que separa un grupo de otro de un vistazo. Por eso
+ * puede repetirse; pero repartirlo a voleo juntaría a cinco en azul teniendo el
+ * violeta sin estrenar, así que se reparte por el menos usado. En un evento
+ * pequeño el resultado es el de siempre: doce colores distintos para los doce
+ * primeros.
+ */
+export function assignColor(taken: readonly string[]): string {
+  const count = new Map<string, number>(EVENT_COLOR_SLUGS.map((s) => [s, 0]))
+  for (const c of taken) if (count.has(c)) count.set(c, (count.get(c) ?? 0) + 1)
+  let best = EVENT_COLOR_SLUGS[0]
+  for (const slug of EVENT_COLOR_SLUGS) {
+    if ((count.get(slug) ?? 0) < (count.get(best) ?? 0)) best = slug
+  }
+  return best
 }

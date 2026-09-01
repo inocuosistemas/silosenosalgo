@@ -6,13 +6,21 @@ import { TOKEN_RE } from '../../../../shared/validate'
 import { isEventColor } from '../../../../shared/eventColors'
 
 /**
- * POST /api/events/:id/color — elegir con qué color se pinta uno en el mapa.
+ * POST /api/events/:id/color — con qué color se pinta uno en el mapa.
  *
- * El color es lo ÚNICO que distingue un punto de otro cuando hay diez personas
- * en el mismo mapa, así que dos participantes no pueden llevar el mismo. Lo
- * garantiza el índice único de la BD y no la interfaz: dos personas pueden
- * elegir el mismo color en el mismo segundo desde dos móviles, y ahí no hay
- * comprobación previa que valga.
+ * El color YA NO es el identificador: eso es el emoji, que sí es único. Aquí el
+ * color separa grupos de un vistazo, así que puede repetirse —con cien
+ * participantes y doce colores no queda otra— y dos personas en azul se
+ * distinguen igual porque una es 🦊 y la otra 🐢.
+ *
+ * Dos formas de repartirlo, según el evento (`events.colors_locked`):
+ *  · libre (por defecto): cada uno elige el suyo;
+ *  · reservado: solo el organizador, porque ahí el color ya significa algo —el
+ *    club, el relevo, la categoría— y no puede depender de que a alguien se le
+ *    antoje cambiárselo la víspera.
+ *
+ * Body: `{ color }` para el propio, `{ color, userId }` para el de otro (solo el
+ * organizador).
  */
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
@@ -22,25 +30,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = await readJson<{ color?: unknown }>(request)
+  const body = await readJson<{ color?: unknown; userId?: unknown }>(request)
   // La paleta es cerrada (shared/eventColors.ts): un hex libre acabaría en
   // colores que no se leen sobre el mapa oscuro.
   if (!isEventColor(body?.color)) return json({ error: 'bad_color' }, 400)
   const color = body?.color as string
 
+  const ev = await env.DB.prepare('SELECT created_by AS createdBy, colors_locked AS locked FROM events WHERE id = ?')
+    .bind(id).first<{ createdBy: string; locked: number }>()
+  if (!ev) return json({ error: 'not_found' }, 404)
+  const isOwner = ev.createdBy === user.id
+
+  const target = typeof body?.userId === 'string' && body.userId ? body.userId : user.id
+  if (target !== user.id && !isOwner) return json({ error: 'forbidden' }, 403)
+  // Con los colores reservados, ni el propio: el reparto es del organizador.
+  if (ev.locked && !isOwner) return json({ error: 'colors_locked' }, 403)
+
   const member = await env.DB.prepare(
     'SELECT color FROM event_members WHERE event_id = ? AND user_id = ?',
-  ).bind(id, user.id).first<{ color: string | null }>()
+  ).bind(id, target).first<{ color: string | null }>()
   if (!member) return json({ error: 'not_found' }, 404)
   if (member.color === color) return new Response(null, { status: 204 })
 
-  try {
-    await env.DB.prepare('UPDATE event_members SET color = ? WHERE event_id = ? AND user_id = ?')
-      .bind(color, id, user.id).run()
-  } catch {
-    // Choque con el índice único: alguien se lo ha quedado antes. El cliente
-    // refresca el lobby y ve el color ya ocupado.
-    return json({ error: 'color_taken' }, 409)
-  }
+  await env.DB.prepare('UPDATE event_members SET color = ? WHERE event_id = ? AND user_id = ?')
+    .bind(color, id, target).run()
   return new Response(null, { status: 204 })
 }

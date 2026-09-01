@@ -1205,7 +1205,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   }, [])
 
   // ── Procedencia del recorrido ─────────────────────────────────────────────
-  // Cuando se llega desde el lobby de un evento (`?s=<base>&de=<evento>`), lo
+  // Cuando se llega desde la parrilla de un evento (`?s=<base>&de=<evento>`), lo
   // que se está planificando son LOS RITMOS DE ESA CARRERA. Guardarlo permite
   // marcar la previsión al guardarla, y que la baliza sepa después cuál de tus
   // previsiones es la de ese evento en vez de ofrecerlas todas revueltas.

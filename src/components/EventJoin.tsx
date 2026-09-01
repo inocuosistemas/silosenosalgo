@@ -5,7 +5,7 @@ import { joinEvent, eventsErrorMessage, EventsError } from '../lib/eventsTranspo
 /**
  * `?evento=<código>` — la puerta de entrada que se pega en el grupo.
  *
- * Se une y salta al lobby. Si quien abre el enlace no tiene sesión, no se le
+ * Se une y salta a la parrilla. Si quien abre el enlace no tiene sesión, no se le
  * pierde el código: se queda en la URL, así que al iniciar sesión vuelve aquí
  * y entra solo. Unirse dos veces no es un error —pasa cada vez que alguien
  * vuelve a tocar el enlace del grupo—: el servidor lo trata como entrar.
@@ -23,7 +23,11 @@ export default function EventJoin({ code }: { code: string }) {
     void (async () => {
       try {
         const res = await joinEvent(code)
-        window.location.replace(`/?e=${encodeURIComponent(res.id)}`)
+        // Si su emoji de siempre ya lo llevaba otro, la parrilla abre avisando: es
+        // el único momento en el que elegir marca no es un trámite, porque
+        // acaba de pasar algo que lo pide.
+        const marca = res.emojiTaken ? '&marca=1' : ''
+        window.location.replace(`/?e=${encodeURIComponent(res.id)}${marca}`)
       } catch (e) {
         setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
       }

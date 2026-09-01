@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
-import { EVENT_COLORS, eventColorHex } from '../../shared/eventColors'
+import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
+  setEventEmoji, setEventColorsLocked,
 } from '../lib/eventsTransport'
+import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
+import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 
 /**
- * El lobby de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
- * está dentro y con qué color se pinta cada uno en el mapa.
+ * LA PARRILLA de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
+ * está dentro y con qué marca se pinta cada uno en el mapa.
  *
- * Es la pantalla de ANTES de salir: aquí se elige color, se ve quién ha llegado
- * y el organizador reparte el código. Durante la carrera lo que se mira es el
- * mapa del evento (fase 2), y el lobby queda como el sitio al que se vuelve
- * para ver quién está emitiendo.
+ * Es la pantalla de ANTES de salir —de ahí el nombre—: aquí se elige la marca,
+ * se ve quién ha llegado y el organizador reparte el código. Durante la carrera
+ * lo que se mira es el mapa del evento, y la parrilla queda como el sitio al
+ * que se vuelve para ver quién está emitiendo.
  *
  * Se refresca solo cada 15 s: la presencia y "quién está emitiendo" cambian
  * mientras la gente llega, y nadie va a estar recargando la página con el
@@ -36,6 +39,12 @@ export default function EventLobby({ id }: { id: string }) {
   const [copiedPublic, setCopiedPublic] = useState(false)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
   const [cropping, setCropping] = useState<File | null>(null)
+  /** La marca favorita de la cuenta, para ofrecer guardar la de aquí como tal. */
+  const [fav, setFav] = useState<{ favEmoji: string | null; favColor: string | null } | null>(null)
+  /** Participante cuya marca está editando el organizador (su userId). */
+  const [editing, setEditing] = useState<string | null>(null)
+  /** Llega con `&marca=1` desde la unión cuando su emoji favorito estaba cogido. */
+  const [emojiTaken] = useState(() => new URLSearchParams(window.location.search).has('marca'))
 
   const refresh = useCallback(async () => {
     try {
@@ -45,6 +54,15 @@ export default function EventLobby({ id }: { id: string }) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     }
   }, [id])
+
+  // La favorita se pide una vez: solo sirve para el botón de "guardar como mi
+  // marca", no para pintar la parrilla.
+  useEffect(() => {
+    if (status !== 'ready' || !user) return
+    let alive = true
+    getProfile().then((p) => { if (alive) setFav(p) }).catch(() => { /* sin favorita se vive igual */ })
+    return () => { alive = false }
+  }, [status, user])
 
   useEffect(() => {
     if (status !== 'ready' || !user) return
@@ -76,22 +94,58 @@ export default function EventLobby({ id }: { id: string }) {
   }
   if (!data) return <Shell><p className="text-sm text-slate-400">Cargando el evento…</p></Shell>
 
-  const { event, members, takenColors, myPlanOverlay } = data
+  const { event, members, takenColors, takenEmojis, myPlanOverlay } = data
+  // Las marcas de todos, plegadas: `takenEmojis` viene sin la propia (para que
+  // el selector de uno no salga en blanco), y para editar la de otro hace falta
+  // la lista entera menos la suya.
+  const emojiKeys = new Map(members.filter((m) => m.emoji).map((m) => [m.userId, foldEmoji(m.emoji!)]))
+  const allEmojiKeys = [...emojiKeys.values()]
   const me = members.find((m) => m.userId === user.id)
   /** ¿Mi baliza está ya unida a este evento? (la lista lo dice: trae mi sesión) */
   const meLive = !!me?.sessionId
   const now = Date.now()
 
-  async function pickColor(slug: string) {
-    setBusy(true)
+  async function pickColor(slug: string, userId?: string) {
+    setBusy(true); setError(null)
     try {
-      await setEventColor(id, slug)
+      await setEventColor(id, slug, userId)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
-      // Un choque de color es información nueva sobre el estado del evento:
-      // se recarga para que el selector deje de ofrecer el que ya no está.
       await refresh()
+    } finally { setBusy(false) }
+  }
+
+  async function pickEmoji(emoji: string, userId?: string) {
+    setBusy(true); setError(null)
+    try {
+      await setEventEmoji(id, emoji, userId)
+      await refresh()
+    } catch (e) {
+      // Un choque de emoji es información nueva sobre el evento: se recarga
+      // para que el selector deje de ofrecer el que ya no está libre.
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+      await refresh()
+    } finally { setBusy(false) }
+  }
+
+  /** Guarda la marca de aquí como la favorita de la cuenta, para las próximas. */
+  async function guardarFavorita(emoji: string | null, color: string | null) {
+    setBusy(true); setError(null)
+    try {
+      setFav(await saveProfile({ favEmoji: emoji, favColor: color }))
+    } catch {
+      setError('No se pudo guardar tu marca favorita.')
+    } finally { setBusy(false) }
+  }
+
+  async function toggleColorsLocked(locked: boolean) {
+    setBusy(true); setError(null)
+    try {
+      await setEventColorsLocked(id, locked)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     } finally { setBusy(false) }
   }
 
@@ -210,6 +264,7 @@ export default function EventLobby({ id }: { id: string }) {
           className="w-full object-cover rounded-xl border border-slate-800 mb-3"
         />
       )}
+      <p className="text-[11px] uppercase tracking-wider text-slate-500">🏁 La parrilla</p>
       <h1 className="text-xl font-bold text-slate-100">{event.name}</h1>
       <p className="text-xs text-slate-400 mt-0.5">
         {[
@@ -223,11 +278,22 @@ export default function EventLobby({ id }: { id: string }) {
 
       {/* Participantes */}
       <section className="mt-4">
-        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Participantes</h2>
+        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">En la parrilla</h2>
         <ul className="space-y-1.5">
           {members.map((m) => (
             <MemberRow
               key={m.userId} m={m} now={now} isMe={m.userId === user.id} eventId={id}
+              // La marca de los demás solo la toca quien organiza: es de cada
+              // uno, pero alguien tiene que poder arreglar un emoji repetido o
+              // repartir los colores cuando están reservados.
+              canEditMark={event.isOwner}
+              editing={editing === m.userId}
+              onToggleMark={() => setEditing(editing === m.userId ? null : m.userId)}
+              takenEmojis={allEmojiKeys.filter((k) => k !== emojiKeys.get(m.userId))}
+              takenColors={takenColors}
+              busy={busy}
+              onPickEmoji={(e) => void pickEmoji(e, m.userId)}
+              onPickColor={(c) => void pickColor(c, m.userId)}
               // El propio siempre; el de los demás, solo quien organiza — los
               // dorsales se reparten juntos y quien los tiene delante es él.
               canEditBib={m.userId === user.id || event.isOwner}
@@ -237,33 +303,89 @@ export default function EventLobby({ id }: { id: string }) {
         </ul>
       </section>
 
-      {/* Mi color */}
+      {/* Mi marca: el emoji identifica (es único) y el color agrupa (se repite) */}
       <section className="mt-5">
-        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Mi color en el mapa</h2>
-        <div className="flex flex-wrap gap-2">
-          {EVENT_COLORS.map((c) => {
-            const taken = takenColors.includes(c.slug)
-            const mine = me?.color === c.slug
-            return (
-              <button
-                key={c.slug}
-                onClick={() => void pickColor(c.slug)}
-                disabled={taken || busy || mine}
-                title={taken ? `${c.label} · ya lo lleva otro participante` : c.label}
-                aria-label={c.label}
-                className={`h-8 w-8 rounded-full border-2 transition-transform disabled:cursor-not-allowed ${
-                  mine ? 'border-slate-100 scale-110' : 'border-slate-700 hover:scale-105'
-                } ${taken && !mine ? 'opacity-25' : ''}`}
-                style={{ background: c.hex }}
+        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Mi marca en el mapa</h2>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <div className="flex items-center gap-3">
+            <MarkBadge emoji={me?.emoji ?? null} color={me?.color ?? null} size={44} />
+            <div className="min-w-0">
+              <p className="text-sm text-slate-200">
+                {me?.emoji ? `Eres ${me.emoji} en esta carrera` : 'Todavía no tienes emoji'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                El emoji no se repite: es lo que te distingue cuando el mapa va lleno. El color puede
+                coincidir con el de otros.
+              </p>
+            </div>
+          </div>
+
+          {/* Ofrecer guardarla como favorita solo cuando de verdad cambia algo:
+              un botón que no hace nada enseña a ignorar los botones. */}
+          {me && (me.emoji !== fav?.favEmoji || me.color !== fav?.favColor) && (me.emoji || me.color) && (
+            <button
+              onClick={() => void guardarFavorita(me.emoji, me.color)}
+              disabled={busy}
+              className="mt-2 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:text-sky-400 disabled:opacity-50"
+            >
+              ★ Guardar como mi marca para las próximas carreras
+            </button>
+          )}
+
+          {emojiTaken && (
+            <p className="mt-2 rounded border border-amber-900/60 bg-amber-950/30 px-2 py-1.5 text-[11px] text-amber-300">
+              Tu emoji de siempre ya lo llevaba alguien en esta carrera, así que te hemos puesto otro. Cámbialo
+              por el que quieras.
+            </p>
+          )}
+
+          <div className="mt-3">
+            <h3 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Emoji</h3>
+            <EmojiField
+              value={me?.emoji ?? null}
+              taken={takenEmojis}
+              busy={busy}
+              onPick={(e) => void pickEmoji(e)}
+            />
+          </div>
+
+          <div className="mt-3">
+            <h3 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Color</h3>
+            <ColorPalette
+              value={me?.color ?? null}
+              taken={takenColors}
+              disabled={event.colorsLocked && !event.isOwner}
+              busy={busy}
+              onPick={(c) => void pickColor(c)}
+            />
+            {event.colorsLocked && !event.isOwner && (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                En esta carrera los colores los reparte quien organiza: aquí significan algo (el club, el
+                relevo, la categoría). Tu emoji sí lo eliges tú.
+              </p>
+            )}
+          </div>
+
+          {/* El candado, solo para quien organiza */}
+          {event.isOwner && (
+            <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-400">
+              <input
+                type="checkbox"
+                checked={event.colorsLocked}
+                onChange={(e) => void toggleColorsLocked(e.target.checked)}
+                disabled={busy}
+                className="mt-0.5 accent-sky-500"
               />
-            )
-          })}
+              <span>
+                Los colores los reparto yo
+                <span className="block text-slate-600">
+                  Para cuando el color signifique algo —club, relevo, categoría— y no pueda depender de que
+                  alguien se lo cambie la víspera. No revuelve lo ya elegido.
+                </span>
+              </span>
+            </label>
+          )}
         </div>
-        {!me?.color && (
-          <p className="mt-2 text-xs text-amber-400">
-            No te queda ningún color libre: elige uno cuando alguien lo suelte, o pídele al organizador que amplíe el evento.
-          </p>
-        )}
       </section>
 
       {/* Los enlaces de la ORGANIZACIÓN. No competimos con ellos: su
@@ -484,7 +606,10 @@ export default function EventLobby({ id }: { id: string }) {
   )
 }
 
-function MemberRow({ m, now, isMe, eventId, canEditBib, onBib }: {
+function MemberRow({
+  m, now, isMe, eventId, canEditBib, onBib,
+  canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
+}: {
   m: EventMember
   now: number
   isMe: boolean
@@ -492,15 +617,27 @@ function MemberRow({ m, now, isMe, eventId, canEditBib, onBib }: {
   /** El propio siempre; los de los demás, solo el organizador. */
   canEditBib: boolean
   onBib: (userId: string, bib: string) => void
+  canEditMark: boolean
+  editing: boolean
+  onToggleMark: () => void
+  takenEmojis: readonly string[]
+  takenColors: readonly string[]
+  busy: boolean
+  onPickEmoji: (emoji: string) => void
+  onPickColor: (slug: string) => void
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
   return (
-    <li className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-      <span
-        className="h-3.5 w-3.5 rounded-full shrink-0 border border-slate-700"
-        style={{ background: m.color ? eventColorHex(m.color) : '#475569' }}
-      />
+    <li className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+    <div className="flex items-center gap-2.5">
+      {canEditMark ? (
+        <button onClick={onToggleMark} title="Cambiar su marca" className="shrink-0">
+          <MarkBadge emoji={m.emoji} color={m.color} size={24} selected={editing} />
+        </button>
+      ) : (
+        <MarkBadge emoji={m.emoji} color={m.color} size={24} />
+      )}
       {/* El dorsal, delante del nombre: ese día es el nombre. */}
       {canEditBib ? (
         <button
@@ -527,7 +664,7 @@ function MemberRow({ m, now, isMe, eventId, canEditBib, onBib }: {
         {live ? (
           <span className="text-emerald-400">● emitiendo</span>
         ) : online ? (
-          <span className="text-slate-400">en el lobby</span>
+          <span className="text-slate-400">en la parrilla</span>
         ) : (
           <span className="text-slate-600">desconectado</span>
         )}
@@ -538,6 +675,19 @@ function MemberRow({ m, now, isMe, eventId, canEditBib, onBib }: {
         // Con el evento a cuestas, para poder volver desde la baliza.
         <a href={`/?t=${encodeURIComponent(m.sessionId!)}&e=${encodeURIComponent(eventId)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
       )}
+    </div>
+
+    {/* La marca de otro, desplegada bajo su fila: se ve a quién se le está
+        cambiando mientras se cambia, que con treinta filas iguales no es poca
+        cosa. */}
+    {editing && canEditMark && (
+      <div className="mt-2 border-t border-slate-800 pt-2">
+        <h4 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Emoji de {m.username}</h4>
+        <EmojiField value={m.emoji} taken={takenEmojis} busy={busy} onPick={onPickEmoji} />
+        <h4 className="mt-2.5 text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Su color</h4>
+        <ColorPalette value={m.color} taken={takenColors} busy={busy} onPick={onPickColor} />
+      </div>
+    )}
     </li>
   )
 }
