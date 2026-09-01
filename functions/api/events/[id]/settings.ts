@@ -8,8 +8,13 @@ import { EVENT_NOTES_MAX as NOTES_MAX } from '../../../../shared/wireTypes'
 /**
  * POST /api/events/:id/settings — los ajustes del evento que decide quien organiza.
  *
- * Dos: `{ colorsLocked }` y `{ notes }`. Se mandan por separado o juntos; lo
- * que no viene, no se toca.
+ * Tres: `{ colorsLocked }`, `{ notes }` y `{ startsAt }`. Se mandan por
+ * separado o juntos; lo que no viene, no se toca.
+ *
+ * La SALIDA es la hora oficial de la carrera, y es de la carrera y no de la
+ * previsión de nadie: con ella, quien planifica sobre el recorrido del evento
+ * arranca con el día y la hora buenos en vez de heredar los de la previsión que
+ * el organizador usó para montarlo.
  *
  * Las NOTAS son el tablón de la carrera —bolsa de vida, autobuses, qué hay en
  * cada avituallamiento—, texto suelto que escribe quien organiza y leen los
@@ -32,10 +37,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = (await readJson<{ colorsLocked?: unknown; notes?: unknown }>(request)) || {}
+  const body = (await readJson<{ colorsLocked?: unknown; notes?: unknown; startsAt?: unknown }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
-  if (!tocaColores && !tocaNotas) return json({ error: 'invalid_request' }, 400)
+  const tocaSalida = body.startsAt !== undefined
+  if (!tocaColores && !tocaNotas && !tocaSalida) return json({ error: 'invalid_request' }, 400)
+
+  let startsAt: number | null = null
+  if (tocaSalida && body.startsAt !== null) {
+    if (typeof body.startsAt !== 'number' || !Number.isFinite(body.startsAt) || body.startsAt <= 0) {
+      return json({ error: 'invalid_request' }, 400)
+    }
+    startsAt = Math.round(body.startsAt)
+  }
 
   // Un tope generoso pero real: esto viaja en cada carga de la parrilla, y sin
   // límite un pegote de mil líneas la volvería lenta para todos.
@@ -60,6 +74,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (tocaNotas) {
     await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ? AND created_by = ?')
       .bind(notes, id, user.id).run()
+  }
+  if (tocaSalida) {
+    await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ? AND created_by = ?')
+      .bind(startsAt, id, user.id).run()
   }
   return new Response(null, { status: 204 })
 }

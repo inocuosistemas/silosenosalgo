@@ -87,6 +87,21 @@ cobertura, no con el móvil en la mano y el dorsal puesto.
 > viejo aparece en el mapa común con su emoji igualmente —lo pinta la web—,
 > simplemente no lo ve en su teléfono.
 
+### La salida oficial de la carrera, y los puntos del recorrido en el mapa
+
+**Web · desplegado.** El evento guarda su día y hora de salida: se rellena sola
+con la de la previsión de origen al ponerle el recorrido, y quien organiza la
+puede corregir en la parrilla. Con ella, "Planificar sobre el recorrido del
+evento" arranca ya con la fecha buena en vez de heredar la que tuviera el
+organizador el día que lo montó.
+
+El mapa del evento pinta también los puntos del recorrido (avituallamientos,
+controles, cimas), en ámbar los que tienen hora de cierre, con el nombre visible
+al acercar.
+
+**Android / iOS** · *Compatible*. `startsAt` ya viajaba en la lista de eventos;
+ahora además viene relleno.
+
 ### Notas de la carrera
 
 **Web · desplegado.** El evento tiene un tablón donde quien organiza cuenta lo

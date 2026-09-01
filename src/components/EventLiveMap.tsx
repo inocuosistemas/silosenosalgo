@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
@@ -109,6 +109,24 @@ export default function EventLiveMap({ source }: { source: Source }) {
   // corredor.
   const cutoffs = useMemo<EventCutoff[]>(() => (plan ? eventCutoffs(plan) : []), [plan])
 
+  /**
+   * Los puntos del recorrido: avituallamientos, controles, cimas — lo que
+   * traiga el GPX de la organización.
+   *
+   * Sin ellos el mapa común dice dónde va cada uno pero no CONTRA QUÉ: "va por
+   * el 42" no significa nada hasta que se ve que el 42 es el avituallamiento
+   * grande y que el corte está justo después. Los que tienen hora de cierre se
+   * marcan aparte, que son los que de verdad aprietan.
+   */
+  const pois = useMemo(() => {
+    if (!plan) return []
+    const cierres = new Map(cutoffs.map((c) => [c.name, c.at]))
+    return plan.track.namedWaypoints.map((w) => ({
+      lat: w.lat, lon: w.lon, name: w.name, km: w.distanceKm,
+      cutoffAt: cierres.get(w.name) ?? null,
+    }))
+  }, [plan, cutoffs])
+
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
@@ -147,6 +165,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   // Con poca gente los emojis salen siempre; con muchos, solo al acercarse.
   const showEmoji = withFix.length <= EMOJI_ALWAYS_UNDER || zoom >= EMOJI_ZOOM
+  /** Los nombres de los puntos, solo cuando hay sitio para leerlos. */
+  const showPoiNames = zoom >= POI_NAMES_ZOOM || pois.length <= 6
 
   const center: [number, number] = withFix[0]?.r.fix
     ? [withFix[0].r.fix!.lat, withFix[0].r.fix!.lon]
@@ -170,6 +190,30 @@ export default function EventLiveMap({ source }: { source: Source }) {
               <Polyline positions={route.pts} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
             </>
           )}
+
+          {/* Los POI van DEBAJO de los corredores: son el decorado contra el
+              que se lee la carrera, no lo que se mira. Pequeños y con el nombre
+              solo al acercarse; con veinte puntos, veinte etiquetas fijas tapan
+              justo lo que se ha venido a ver. */}
+          {pois.map((poi) => (
+            <CircleMarker
+              key={`${poi.lat},${poi.lon}`}
+              center={[poi.lat, poi.lon]}
+              radius={poi.cutoffAt ? 5 : 4}
+              pathOptions={{
+                color: '#f8fafc',
+                weight: 1.5,
+                fillColor: poi.cutoffAt ? '#f59e0b' : '#6d28d9',
+                fillOpacity: 1,
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -4]} permanent={showPoiNames} className="poi-tip">
+                {poi.name}
+                {poi.km != null ? ` · km ${poi.km.toFixed(1)}` : ''}
+                {poi.cutoffAt ? ` · cierra ${hhmm(poi.cutoffAt)}` : ''}
+              </Tooltip>
+            </CircleMarker>
+          ))}
 
           {withFix.map(({ r, stale, key }) => {
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
@@ -625,6 +669,8 @@ function runnerIcon(color: string, emoji: string | null, selected: boolean, stal
  */
 const EMOJI_ZOOM = 12
 const EMOJI_ALWAYS_UNDER = 12
+/** A partir de aquí los puntos del recorrido enseñan su nombre. */
+const POI_NAMES_ZOOM = 13
 
 /**
  * Mantiene el mapa centrado en quien se sigue, y suelta el seguimiento en
@@ -655,6 +701,12 @@ function ZoomWatch({ onZoom }: { onZoom: (z: number) => void }) {
     return () => { map.off('zoomend', emit) }
   }, [map, onZoom])
   return null
+}
+
+/** La hora de un instante, para las etiquetas de cierre. */
+function hhmm(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
 /** Minúsculas y sin tildes, para comparar lo que se busca con lo que hay. */

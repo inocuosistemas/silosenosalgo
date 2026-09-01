@@ -142,7 +142,10 @@ export async function setEventNotes(id: string, notes: string): Promise<void> {
   return setEventSettings(id, { notes })
 }
 
-async function setEventSettings(id: string, patch: { colorsLocked?: boolean; notes?: string }): Promise<void> {
+async function setEventSettings(
+  id: string,
+  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null },
+): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -201,12 +204,25 @@ export async function regenerateEventInvite(id: string): Promise<string> {
  */
 export async function setEventPlan(id: string, base: SharePayloadV1, planName: string): Promise<void> {
   const gz = await gzipBytes(JSON.stringify(base))
+  // La hora de salida del recorrido viaja aparte, en cabecera: el servidor
+  // nunca abre un payload —los trata como bytes opacos— y quien tiene delante
+  // el dato es el cliente, que acaba de construirlo.
+  const salida = Date.parse(base.startTimeISO)
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/plan`, {
     method: 'PUT', credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/octet-stream', 'X-Plan-Name': encodeURIComponent(planName) },
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Plan-Name': encodeURIComponent(planName),
+      ...(Number.isFinite(salida) ? { 'X-Plan-Start': String(salida) } : {}),
+    },
     body: new Blob([gz]),
   })
   if (!res.ok) throw errFrom(res)
+}
+
+/** La salida OFICIAL de la carrera (epoch ms), o null para quitarla. */
+export async function setEventStart(id: string, startsAt: number | null): Promise<void> {
+  return setEventSettings(id, { startsAt })
 }
 
 /** La base del evento, tal cual está publicada (para componerla con el overlay). */

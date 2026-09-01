@@ -59,10 +59,19 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
     }
   }
 
+  // La salida del recorrido viene en cabecera (epoch ms) porque el cuerpo son
+  // bytes comprimidos que aquí no se abren nunca. Se guarda como la salida
+  // OFICIAL del evento SOLO si no había ninguna: si el organizador ya puso una
+  // hora a mano, cambiar el recorrido no puede pisársela por la puerta de
+  // atrás. Para cambiarla está el ajuste de la parrilla.
+  const rawStart = Number(request.headers.get('X-Plan-Start'))
+  const startsAt = Number.isFinite(rawStart) && rawStart > 0 ? Math.round(rawStart) : null
+
   const shareId = genId(8)
   await env.SHARE_KV.put(shareId, buf, { expirationTtl: TTL_SECONDS })
-  await env.DB.prepare('UPDATE events SET plan_share_id = ?, plan_name = ? WHERE id = ? AND created_by = ?')
-    .bind(shareId, planName, id, user.id).run()
+  await env.DB.prepare(
+    'UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?) WHERE id = ? AND created_by = ?',
+  ).bind(shareId, planName, startsAt, id, user.id).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })
 }

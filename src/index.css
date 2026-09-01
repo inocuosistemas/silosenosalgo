@@ -171,6 +171,22 @@
   background: #475569;                     /* slate-600 */
 }
 
+/* Etiqueta de un punto del recorrido en el mapa del evento. La de Leaflet es
+   blanca con borde y flecha: sobre un mapa oscuro con veinte puntos pesa
+   demasiado. Esta es solo el texto con una sombra que lo despega del fondo. */
+.poi-tip {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #020617, 0 0 6px #020617;
+}
+.poi-tip::before { display: none; }   /* la flechita */
+
 /* ── Barra que solo asoma cuando se usa ────────────────────────────────────
    Para listas dentro de un panel, donde una barra permanente es un borde gris
    de más compitiendo con el contenido. En reposo es invisible; se pinta al

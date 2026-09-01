@@ -6,7 +6,7 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -145,6 +145,16 @@ export default function EventLobby({ id }: { id: string }) {
   async function guardarNotas(texto: string) {
     setBusy(true); setError(null)
     try { await setEventNotes(id, texto); await refresh(); setEditandoNotas(false) }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
+  }
+
+  /** La hora oficial de la carrera. Vacío la quita. */
+  async function guardarSalida(valor: string) {
+    const ms = valor ? new Date(valor).getTime() : null
+    if (valor && !Number.isFinite(ms as number)) return
+    setBusy(true); setError(null)
+    try { await setEventStart(id, ms); await refresh() }
     catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
     finally { setBusy(false) }
   }
@@ -594,8 +604,14 @@ export default function EventLobby({ id }: { id: string }) {
             {/* `de=` marca la procedencia: al guardar la previsión quedará
                 anotada como de este evento, y así la baliza sabrá cuál de
                 todas es la de esta carrera. */}
+            {/* `salida=` es la hora oficial de la carrera. Sin ella se heredaba
+                la de la previsión con la que el organizador montó el evento, que
+                es la que él tenía puesta ese día y casi nunca la de la carrera:
+                todo el mundo empezaba corrigiendo la fecha a mano. */}
             <a
-              href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}`}
+              href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
+                event.startsAt ? `&salida=${event.startsAt}` : ''
+              }`}
               className="mt-2 block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
             >
               Planificar sobre el recorrido del evento →
@@ -615,6 +631,35 @@ export default function EventLobby({ id }: { id: string }) {
           carrera, y luego se mira cero veces: plegado por defecto, con el
           estado en el encabezado para no tener que abrir para comprobar. Quien
           organiza también corre, y ese día lo que necesita es lo de arriba. */}
+      {event.isOwner && (
+        <Plegable
+          title="Salida oficial"
+          summary={event.startsAt ? fmtDate(event.startsAt) : 'sin fijar'}
+        >
+          <input
+            type="datetime-local"
+            value={event.startsAt ? paraInput(event.startsAt) : ''}
+            onChange={(e) => void guardarSalida(e.target.value)}
+            disabled={busy}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-sky-600 focus:outline-none disabled:opacity-50"
+          />
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            El día y la hora de la carrera. Es con lo que arranca quien planifica sobre este recorrido, así que
+            si está mal, todos empiezan corrigiéndola a mano. Al poner el recorrido se rellena sola con la de la
+            previsión de origen, si no habías puesto ninguna.
+          </p>
+          {event.startsAt && (
+            <button
+              onClick={() => void guardarSalida('')}
+              disabled={busy}
+              className="mt-1.5 text-[11px] text-slate-500 hover:text-red-400 disabled:opacity-50"
+            >
+              Quitar la hora de salida
+            </button>
+          )}
+        </Plegable>
+      )}
+
       {event.isOwner && (
         <Plegable title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
           <label className="inline-block px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50 cursor-pointer">
@@ -873,6 +918,13 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto max-w-lg px-4 py-6">{children}</div>
     </div>
   )
+}
+
+/** `datetime-local` quiere hora LOCAL sin zona ("2026-09-05T08:30"). */
+function paraInput(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 function fmtDate(ms: number): string {

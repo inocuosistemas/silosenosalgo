@@ -1193,6 +1193,14 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
         const revived = reviveSharePayload(JSON.parse(json))
 
         applyRevivedShare(revived)
+
+        // La salida OFICIAL del evento manda sobre la que traiga el recorrido:
+        // el payload lleva la hora que el organizador tenía puesta el día que
+        // montó el evento, no la de la carrera. Se aplica después de revivir
+        // porque `applyRevivedShare` fija la del payload, y los cortes se
+        // reajustan solos (sus horas son de pared y el día se infiere).
+        const salida = Number(params.get('salida'))
+        if (Number.isFinite(salida) && salida > 0) setStartTime(new Date(salida))
       } catch (err) {
         if (err instanceof ShareTransportError && err.kind === 'not_found') {
           setShareLoadError('Este enlace ha caducado o no existe.')
@@ -1211,6 +1219,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
         const url = new URL(window.location.href)
         url.searchParams.delete('s')
         url.searchParams.delete('de')
+        url.searchParams.delete('salida')
         window.history.replaceState({}, '', url.toString())
         setShareLoading(false)
       }
