@@ -56,6 +56,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [view, setView] = useState<'mapa' | 'lista'>('mapa')
   const [now, setNow] = useState(Date.now())
+  /**
+   * Si el cuadro de la salida está desplegado. Empieza abierto —antes de la
+   * carrera es lo que se viene a ver— pero en un móvil ocupa media pantalla y
+   * tapa el trazado, así que se pliega a una chapa con el reloj y se recupera
+   * de un toque.
+   */
+  const [panelOpen, setPanelOpen] = useState(true)
   /** Zoom actual: por debajo de cierto acercamiento los emojis no se leen. */
   const [zoom, setZoom] = useState(13)
   /**
@@ -314,39 +321,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
       {/* Cabecera: volver, nombre (en el público, que no tiene parrilla) y vistas */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
         {isPublic ? (
-          <div className="pointer-events-auto flex w-[min(19rem,62vw)] flex-col items-start gap-1">
-            {/* La carrera, presentada: cartel, nombre y los tres números que la
+          <div className="pointer-events-auto flex w-fit max-w-[min(19rem,62vw)] flex-col items-start gap-1">
+            {/* La carrera en la esquina: el nombre y los tres números que la
                 describen. Quien abre este enlace puede no saber ni qué prueba
-                es —le ha llegado por un grupo— así que la esquina no puede ser
-                solo un nombre suelto. El nombre va SOBRE el cartel: dos cajas
-                separadas ocupan el doble y dicen lo mismo. */}
-            {/* Sobre el mapa hay sitio de sobra para presentar la carrera; sobre
-                la lista no: la cabecera flota encima y una tarjeta con cartel
-                le come las primeras filas. Ahí se queda en el nombre, que es
-                lo que hace falta para saber qué se está mirando. */}
-            <div className={`w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur ${
-              view === 'lista' ? 'hidden' : ''
-            }`}>
-              {photoUrl ? (
-                <div className="relative">
-                  <img
-                    src={photoUrl}
-                    alt=""
-                    style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
-                    className="w-full object-cover"
-                  />
-                  {/* Degradado por debajo: sobre un cartel claro el nombre en
-                      blanco desaparece, y no se puede saber cómo es la foto. */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/45 to-transparent" />
-                  <p className="absolute inset-x-0 bottom-0 truncate px-2.5 pb-1 text-sm font-bold text-white">
-                    {eventName ?? 'Evento'}
-                  </p>
-                </div>
-              ) : (
-                <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
-              )}
+                es —le ha llegado por un grupo—, así que un nombre suelto no
+                basta. El cartel va en el cuadro del centro: aquí arriba tiene
+                que caber también sobre la lista, y una foto ahí le come las
+                primeras filas. */}
+            <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur">
+              <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
               {raceStats && (
-                <p className="flex flex-wrap items-center gap-x-2 px-2.5 py-1 text-[11px] tabular-nums text-slate-300">
+                <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
                   <span>{raceStats.km.toFixed(1)} km</span>
                   <span className="text-slate-600">·</span>
                   <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
@@ -361,11 +346,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 </p>
               )}
             </div>
-            {view === 'lista' && (
-              <span className="max-w-full truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
-                {eventName ?? 'Evento'}
-              </span>
-            )}
             {/* Los enlaces de la organización: quien espera en meta los quiere
                 tanto o más que los participantes —el seguimiento por dorsal es
                 lo que dan las webs oficiales—, y aquí no tiene parrilla donde
@@ -483,8 +463,32 @@ export default function EventLiveMap({ source }: { source: Source }) {
           los puntos llegarán cuando cada uno comparta su posición sigue ahí,
           pero pequeño y debajo: explica, no es la noticia. */}
       {runners !== null && withFix.length === 0 && view === 'mapa' && (
-        <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-6">
-          <div className="pointer-events-auto w-[min(20rem,86vw)] rounded-xl border border-slate-700 bg-slate-900 p-4 text-center shadow-xl shadow-slate-950/60">
+        panelOpen ? (
+        <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4">
+          {/* Alto acotado y con scroll dentro: en un movil bajo, el cartel más
+              el reloj más una parrilla larga se salían de la pantalla. */}
+          <div className="pointer-events-auto relative max-h-[calc(100dvh-5rem)] w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-slate-700 bg-slate-900 text-center shadow-xl shadow-slate-950/60">
+            {/* Plegar: en el móvil este cuadro tapa el trazado, que es lo otro
+                que se viene a ver. Sale abierto porque antes de la salida el
+                reloj manda, y se recupera de un toque en la chapa de abajo. */}
+            <button
+              onClick={() => setPanelOpen(false)}
+              aria-label="Ocultar la salida y la parrilla"
+              className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full border border-slate-700 bg-slate-950/80 text-xs text-slate-300 backdrop-blur hover:text-white"
+            >
+              ✕
+            </button>
+            {/* El cartel, arriba del todo y a lo ancho: aquí sí hay sitio para
+                que se vea la carrera, no un recorte de miniatura. */}
+            {photoUrl && (
+              <img
+                src={photoUrl}
+                alt=""
+                style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
+                className="w-full object-cover"
+              />
+            )}
+            <div className="p-4">
             {startMs !== null ? (
               <StartCountdown startMs={startMs} now={now} />
             ) : (
@@ -522,8 +526,27 @@ export default function EventLiveMap({ source }: { source: Source }) {
             <p className="mt-3 border-t border-slate-800 pt-2.5 text-[11px] leading-snug text-slate-500">
               Los participantes aparecerán en el mapa cuando empiecen a compartir su posición.
             </p>
+            </div>
           </div>
         </div>
+        ) : (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[900] flex justify-center p-3">
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs text-slate-200 shadow-lg shadow-slate-950/50 backdrop-blur hover:border-sky-700"
+            >
+              {/* Plegado sigue contando: el reloj es justo lo que no se quiere
+                  perder de vista mientras se mira el trazado. */}
+              {startMs !== null && (
+                <span className="font-mono tabular-nums text-slate-100">{countdownText(startMs - now)}</span>
+              )}
+              <span className="text-slate-400">
+                {rows.length} en parrilla
+              </span>
+              <span className="text-slate-500">▲</span>
+            </button>
+          </div>
+        )
       )}
     </div>
   )
@@ -567,7 +590,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-20 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-24 scrollbar-fantasma">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
           gente como para que buscar sea más rápido que mirar. */}
@@ -912,20 +935,15 @@ function paceOrSpeed(speedMs: number, activity?: string | null): string {
 function StartCountdown({ startMs, now }: { startMs: number; now: number }) {
   const diff = startMs - now
   const before = diff > 0
-  const total = Math.floor(Math.abs(diff) / 1000)
-  const days = Math.floor(total / 86_400)
-  const h = Math.floor((total % 86_400) / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const sec = total % 60
-  const p2 = (n: number) => String(n).padStart(2, '0')
+  const { d, h, m, s: sec } = countdownParts(diff)
   // Los cuatro grupos SIEMPRE, aunque falten cero días: un reloj que cambia de
   // formato por el camino obliga a releerlo cada vez. La letra debajo dice cuál
   // es cuál, que "03:09:04:15" a secas se lee como una hora rarísima.
   const grupos: { v: string; u: string }[] = [
-    { v: p2(days), u: 'd' },
-    { v: p2(h), u: 'h' },
-    { v: p2(m), u: 'min' },
-    { v: p2(sec), u: 's' },
+    { v: d, u: 'd' },
+    { v: h, u: 'h' },
+    { v: m, u: 'min' },
+    { v: sec, u: 's' },
   ]
   return (
     <>
@@ -950,6 +968,24 @@ function StartCountdown({ startMs, now }: { startMs: number; now: number }) {
       </p>
     </>
   )
+}
+
+/** Días, horas, minutos y segundos de un intervalo, ya con sus dos cifras. */
+function countdownParts(ms: number): { d: string; h: string; m: string; s: string } {
+  const total = Math.floor(Math.abs(ms) / 1000)
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return {
+    d: p2(Math.floor(total / 86_400)),
+    h: p2(Math.floor((total % 86_400) / 3600)),
+    m: p2(Math.floor((total % 3600) / 60)),
+    s: p2(total % 60),
+  }
+}
+
+/** El mismo reloj en una línea, para cuando el cuadro está plegado. */
+function countdownText(ms: number): string {
+  const { d, h, m, s } = countdownParts(ms)
+  return `${d}:${h}:${m}:${s}`
 }
 
 /** Un tiempo en minutos como se dice un límite de carrera: "7h 30m". */
