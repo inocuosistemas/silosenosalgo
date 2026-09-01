@@ -6,6 +6,7 @@ import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
 import { MyEvents } from './MyEvents'
+import { UserManager } from './UserManager'
 
 /**
  * Header auth control. Registration is INVITE-ONLY: there is no "create account"
@@ -14,12 +15,20 @@ import { MyEvents } from './MyEvents'
  * "Invitaciones" panel to generate those links.
  */
 export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
-  const { user, status, login, register, logout } = useAuth()
+  const { user, status, login, register, resetPassword, logout } = useAuth()
   const [invite, setInvite] = useState<string | null>(() => {
     const c = new URLSearchParams(window.location.search).get('invite')
     return c && INVITE_RE.test(c) ? c : null
   })
+  // `?reset=<code>` llega desde el enlace que reparte un administrador: abre
+  // directamente "elige una contraseña nueva", igual que `?invite=` abre el
+  // alta. Los códigos tienen la misma forma, así que sirve el mismo validador.
+  const [reset, setReset] = useState<string | null>(() => {
+    const c = new URLSearchParams(window.location.search).get('reset')
+    return c && INVITE_RE.test(c) ? c : null
+  })
   const [showLogin, setShowLogin] = useState(false)
+  const [showUsers, setShowUsers] = useState(false)
   const [showInvites, setShowInvites] = useState(false)
   const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -29,6 +38,13 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
     url.searchParams.delete('invite')
     window.history.replaceState({}, '', url.toString())
     setInvite(null)
+  }, [])
+
+  const clearReset = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('reset')
+    window.history.replaceState({}, '', url.toString())
+    setReset(null)
   }, [])
 
   // Already logged in → an invite link is irrelevant; drop it.
@@ -73,6 +89,14 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                 </button>
                 {user.isAdmin && (
                   <button
+                    onClick={() => { setMenuOpen(false); setShowUsers(true) }}
+                    className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                  >
+                    🧑‍🤝‍🧑 Cuentas
+                  </button>
+                )}
+                {user.isAdmin && (
+                  <button
                     onClick={() => { setMenuOpen(false); setShowInvites(true) }}
                     className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                   >
@@ -109,6 +133,21 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       {showRegister && (
         <Modal title="Crear tu cuenta" onClose={clearInvite}>
           <RegisterForm invite={invite!} onSubmit={register} onDone={clearInvite} />
+        </Modal>
+      )}
+
+      {/* El enlace de restablecer se atiende aunque haya una sesión abierta:
+          suele abrirse en el móvil de quien ya estaba dentro y quiere cambiarla,
+          o en el de quien administra para comprobar que el enlace va. */}
+      {reset !== null && (
+        <Modal title="Elige una contraseña nueva" onClose={clearReset}>
+          <ResetForm code={reset} onSubmit={resetPassword} onDone={clearReset} />
+        </Modal>
+      )}
+
+      {showUsers && user?.isAdmin && (
+        <Modal title="Cuentas" onClose={() => setShowUsers(false)}>
+          <UserManager />
         </Modal>
       )}
 
@@ -329,6 +368,74 @@ function RegisterForm({
       >
         {busy ? 'Creando…' : 'Crear cuenta'}
       </button>
+    </form>
+  )
+}
+
+/**
+ * Canje del enlace `?reset=`: la contraseña nueva la pone su dueño.
+ *
+ * Misma doble comprobación que el alta, y por lo mismo: si esta también se
+ * teclea mal, la persona vuelve a quedarse fuera y hay que pedir otro enlace.
+ * Al enviar se cierran todas las sesiones anteriores de la cuenta —incluidas
+ * las de las apps del móvil— y esta pasa a ser la sesión iniciada.
+ */
+function ResetForm({
+  code,
+  onSubmit,
+  onDone,
+}: {
+  code: string
+  onSubmit: (code: string, password: string) => Promise<void>
+  onDone: () => void
+}) {
+  const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const mismatch = password2.length > 0 && password !== password2
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!passwordOk(password)) { setError(authErrorMessage('invalid_password')); return }
+    if (password !== password2) { setError('Las dos contraseñas no coinciden.'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSubmit(code, password)
+      onDone()
+    } catch (err) {
+      setError(authErrorMessage((err as { code?: string })?.code ?? 'network'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <p className="text-xs text-slate-400">
+        Tu usuario no cambia: solo la contraseña. Al guardarla se cerrará la sesión en los
+        demás dispositivos, así que tendrás que volver a entrar en la app del móvil.
+      </p>
+      <PasswordField label="Contraseña nueva" value={password} onChange={setPassword} autoComplete="new-password" placeholder="mínimo 8 caracteres" />
+      <PasswordField
+        label="Repite la contraseña"
+        value={password2}
+        onChange={setPassword2}
+        autoComplete="new-password"
+        placeholder="la misma, para comprobar"
+        error={mismatch ? 'No coinciden.' : null}
+      />
+      {error && <p className="text-red-400 text-xs">{error}</p>}
+      <button
+        type="submit"
+        disabled={busy || !password || !password2 || mismatch}
+        className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 transition-colors"
+      >
+        {busy ? 'Guardando…' : 'Guardar contraseña'}
+      </button>
+      <p className="text-[11px] text-slate-500 text-center">El enlace vale una sola vez.</p>
     </form>
   )
 }

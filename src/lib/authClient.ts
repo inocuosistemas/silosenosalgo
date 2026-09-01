@@ -5,6 +5,7 @@
  * cookie be stored + sent. (The native apps use the Bearer-token variant.)
  */
 import type {
+  AdminUsersResponse, CreateResetResponse,
   AuthUser, AuthOkResponse, MeResponse, ErrorResponse,
   CreateInviteResponse, InvitesListResponse,
 } from '../../shared/wireTypes'
@@ -69,6 +70,28 @@ export function deleteInvite(code: string): Promise<void> {
   return call<void>(`/api/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' })
 }
 
+// ── Cuentas (administración) ────────────────────────────────────────────────
+
+export function listUsers(): Promise<AdminUsersResponse> {
+  return call<AdminUsersResponse>('/api/admin/users')
+}
+
+/** Borra una cuenta y, en cascada, todo lo suyo. Solo administradores. */
+export function deleteUser(id: string): Promise<void> {
+  return call<void>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** Genera el enlace con el que esa persona elegirá una contraseña nueva. */
+export function createReset(id: string): Promise<CreateResetResponse> {
+  return call<CreateResetResponse>(`/api/admin/users/${encodeURIComponent(id)}/reset`, { method: 'POST' })
+}
+
+/** Canjea el enlace: la contraseña nueva la pone su dueño, y al ponerla se
+ *  cierran todas las sesiones anteriores de esa cuenta. */
+export function resetPassword(code: string, password: string): Promise<AuthOkResponse> {
+  return call<AuthOkResponse>('/api/auth/reset', { method: 'POST', json: { code, password } })
+}
+
 /** Map a server error code to a Spanish message. */
 export function authErrorMessage(code: string): string {
   switch (code) {
@@ -77,6 +100,8 @@ export function authErrorMessage(code: string): string {
     case 'invalid_username': return 'Usuario no válido (3–32 caracteres: a–z, 0–9, . _ -).'
     case 'invalid_password': return 'Contraseña no válida (mínimo 8 caracteres).'
     case 'invalid_invite': return 'La invitación no es válida, ya se ha usado o ha caducado.'
+    case 'invalid_reset': return 'Este enlace ya no vale: se ha usado o ha caducado. Pide otro a quien administra.'
+    case 'cannot_delete_self': return 'No puedes borrar tu propia cuenta.'
     case 'rate_limited': return 'Demasiados intentos. Inténtalo de nuevo en unos minutos.'
     case 'unauthorized': return 'Tu sesión ha caducado. Inicia sesión de nuevo.'
     case 'forbidden': return 'No tienes permiso para esta acción.'

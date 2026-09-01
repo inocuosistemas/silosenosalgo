@@ -7,6 +7,8 @@ interface AuthState {
   status: 'loading' | 'ready'
   login: (username: string, password: string) => Promise<void>
   register: (username: string, password: string, invite: string) => Promise<void>
+  /** Canjea un enlace `?reset=`: deja la sesión nueva ya iniciada. */
+  resetPassword: (code: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -35,13 +37,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await authClient.register(username, password, invite)
     setUser(res.user)
   }
+  const resetPassword = async (code: string, password: string) => {
+    const res = await authClient.resetPassword(code, password)
+    setUser(res.user)
+  }
   const logout = async () => {
     await authClient.logout()
     setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, status, login, register, logout }}>
+    <AuthContext.Provider value={{ user, status, login, register, resetPassword, logout }}>
       {children}
     </AuthContext.Provider>
   )

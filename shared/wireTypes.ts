@@ -38,6 +38,37 @@ export interface InvitesListResponse {
   invites: InviteInfo[]
 }
 
+/**
+ * Una cuenta, tal y como la ve un administrador.
+ *
+ * Con el recuento de lo que tiene: es lo que hay que saber ANTES de borrarla,
+ * porque el borrado se lleva en cascada sus seguimientos, sus previsiones y
+ * hasta los eventos que haya creado. Nunca lleva hash ni sal.
+ */
+export interface AdminUserInfo {
+  id: string
+  username: string
+  isAdmin: boolean
+  /** Fecha de alta, tal cual la guarda SQLite ("YYYY-MM-DD HH:MM:SS" UTC). */
+  createdAt: string
+  sessions: number
+  plans: number
+  /** Eventos que ORGANIZA (se borrarían con la cuenta). */
+  events: number
+  /** Último inicio de sesión conocido, o null si nunca entró. */
+  lastLogin: string | null
+}
+
+export interface AdminUsersResponse {
+  users: AdminUserInfo[]
+}
+
+/** Enlace de un solo uso para que alguien elija contraseña nueva. */
+export interface CreateResetResponse {
+  code: string
+  expiresAt: number
+}
+
 /** Metadata for a saved race plan ("previsión"), without the heavy payload. */
 export interface PlanMeta {
   id: string
