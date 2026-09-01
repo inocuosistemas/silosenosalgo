@@ -531,33 +531,6 @@ export default function EventLobby({ id }: { id: string }) {
             </label>
           )}
 
-          {/* La porra: la enciende quien organiza, y no todas las carreras la
-              quieren. Va junto al resto de ajustes del evento y no en una
-              pantalla aparte: es una casilla, no una sección. */}
-          {event.isOwner && (
-            <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-400">
-              <input
-                type="checkbox"
-                checked={event.betsEnabled}
-                onChange={(e) => void togglePorra(e.target.checked)}
-                disabled={busy}
-                className="mt-0.5 accent-amber-500"
-              />
-              <span>
-                🔮 La porra
-                <span className="block text-slate-600">
-                  Quien MIRA la carrera pronostica quién gana, quién acaba y a qué hora — hasta la salida y
-                  nada más. No se juega dinero: sale un ranking de aciertos. Los que corréis no jugáis, que
-                  decidís el resultado con las piernas.
-                  {!event.startsAt && (
-                    <span className="mt-0.5 block text-amber-500/80">
-                      Hace falta poner la hora de salida: es lo que cierra la porra.
-                    </span>
-                  )}
-                </span>
-              </span>
-            </label>
-          )}
       </Plegable>
       )}
 
@@ -751,6 +724,46 @@ export default function EventLobby({ id }: { id: string }) {
             >
               Quitar la hora de salida
             </button>
+          )}
+        </Plegable>
+      )}
+
+      {/* La porra vive con los ajustes del EVENTO y no dentro de "Mi marca":
+          quien organiza puede no correr, y allí ni siquiera veía la casilla.
+          Es cosa de la carrera, como la salida o la foto. */}
+      {event.isOwner && (
+        <Plegable
+          title="🔮 La porra"
+          summary={event.betsEnabled ? 'abierta' : 'apagada'}
+        >
+          <label className="flex items-start gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={event.betsEnabled}
+              onChange={(e) => void togglePorra(e.target.checked)}
+              disabled={busy}
+              className="mt-0.5 accent-amber-500"
+            />
+            <span>
+              Abrir la porra en esta carrera
+              <span className="mt-0.5 block text-[11px] text-slate-500">
+                Quien MIRA la carrera pronostica quién gana, quién acaba y a qué hora — hasta la salida y
+                nada más. No se juega dinero: sale un ranking de aciertos, con corona para el primero.
+                Los que corréis no jugáis, que decidís el resultado con las piernas.
+              </span>
+            </span>
+          </label>
+          {!event.startsAt && (
+            <p className="mt-2 rounded border border-amber-900/60 bg-amber-950/30 px-2 py-1.5 text-[11px] text-amber-300">
+              Falta la hora de salida: es lo que cierra la porra, y sin ella no se admiten pronósticos.
+              Ponla arriba, en «Salida oficial».
+            </p>
+          )}
+          {event.betsEnabled && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Está abierta: sale como pestaña «🔮 Porra» en el mapa del evento y en el enlace público.
+              Apagarla no borra nada — los pronósticos vuelven si la reabres.
+            </p>
           )}
         </Plegable>
       )}
