@@ -215,7 +215,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onRelease={() => setFollowing(null)}
             />
           )}
-          <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} routeFirst={route?.pts[0]} />
+          <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
         </MapContainer>
       ) : (
         <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
@@ -551,15 +551,36 @@ function marginBox(min: number): string {
 /** Encuadra a todos la PRIMERA vez que hay posiciones; después no toca el mapa
  *  —moverlo bajo el dedo de quien está mirando es lo más molesto que puede
  *  hacer un mapa en vivo. */
-function FitAll({ points, routeFirst }: { points: [number, number][]; routeFirst?: [number, number] }) {
+/**
+ * El encuadre de entrada: LA CARRERA ENTERA.
+ *
+ * Manda el recorrido y no dónde esté la gente. Al abrir el mapa la pregunta es
+ * "¿cómo va esto?", y para responderla hace falta ver de dónde a dónde va la
+ * carrera y por qué parte del recorrido andan; encuadrar solo las posiciones
+ * daba un zoom cerradísimo cuando todos van juntos —al principio, siempre— y
+ * dejaba el recorrido fuera de la pantalla. Además el recorrido llega un
+ * instante después que las posiciones, así que sin esto el mapa se abría
+ * encuadrado a los corredores y ya no volvía a moverse.
+ *
+ * Una sola vez, y a lo que haya: si aún no hay recorrido, a las posiciones
+ * como antes. Después de ese primer encuadre el mapa es del usuario —o de
+ * FollowRunner— y esto no vuelve a tocarlo.
+ */
+function FitAll({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
   const map = useMap()
   const done = useRef(false)
   useEffect(() => {
-    if (done.current || points.length === 0) return
+    if (done.current) return
+    if (route && route.length > 1) {
+      done.current = true
+      map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
+      return
+    }
+    if (points.length === 0) return
     done.current = true
     if (points.length === 1) { map.setView(points[0], 14); return }
-    map.fitBounds(L.latLngBounds(points.concat(routeFirst ? [routeFirst] : [])), { padding: [48, 48] })
-  }, [points, routeFirst, map])
+    map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
+  }, [points, route, map])
   return null
 }
 
