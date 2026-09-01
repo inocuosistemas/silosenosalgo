@@ -276,6 +276,17 @@ export interface NoteCreate {
 
 export type TrackStatus = 'active' | 'ended'
 
+/**
+ * Cómo está un participante en el mapa del evento.
+ *
+ * Son TRES estados y no dos, porque "no está emitiendo" y "no está en la
+ * carrera" no son lo mismo, y el mapa los confundía: quien nunca abrió una
+ * baliza sencillamente no salía. `idle` es quien está en la parrilla y todavía
+ * no ha compartido posición — sin punto en el mapa, pero en la lista, que es
+ * justo lo que se pregunta media hora antes de la salida.
+ */
+export type EventRunnerStatus = TrackStatus | 'idle'
+
 export interface TrackStateResponse {
   status: TrackStatus
   /** Display username of the broadcaster (shown to followers). */
@@ -447,11 +458,12 @@ export interface EventPublicRunner {
   bib: string | null
   color: string | null
   emoji: string | null
-  status: TrackStatus
+  status: EventRunnerStatus
   activity?: BeaconActivity | null
   fix: TrackFix | null
   tail: TrailPoint[]
-  startedAt: number
+  /** Cuándo abrió su baliza; null en quien todavía no ha emitido (`idle`). */
+  startedAt: number | null
   updatedAt: number | null
 }
 
@@ -484,7 +496,8 @@ export interface EventsListResponse {
   events: EventInfo[]
 }
 
-/** Un participante EMITIENDO, tal y como se pinta en el mapa del evento. */
+/** Un participante del evento, tal y como se pinta en el mapa: los que emiten
+ *  y los que todavía no (ver `EventRunnerStatus`). */
 export interface EventLiveRunner {
   userId: string
   username: string
@@ -494,9 +507,10 @@ export interface EventLiveRunner {
   color: string | null
   /** Su emoji: lo que de verdad le distingue cuando el mapa va lleno. */
   emoji: string | null
-  /** Token público de su sesión: con él se abre su baliza completa. */
-  sessionId: string
-  status: TrackStatus
+  /** Token público de su sesión: con él se abre su baliza completa. Null en
+   *  quien todavía no ha emitido, que no tiene baliza que abrir. */
+  sessionId: string | null
+  status: EventRunnerStatus
   activity?: BeaconActivity | null
   /** Última posición conocida, o null si aún no ha mandado ninguna. */
   fix: TrackFix | null
@@ -509,7 +523,8 @@ export interface EventLiveRunner {
    * segundos convertiría la pantalla en una descarga continua.
    */
   tail: TrailPoint[]
-  startedAt: number
+  /** Cuándo abrió su baliza; null en quien todavía no ha emitido (`idle`). */
+  startedAt: number | null
   /** Cuándo llegó su última posición al servidor (frescura). */
   updatedAt: number | null
 }

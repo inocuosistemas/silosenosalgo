@@ -5,11 +5,15 @@ import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
 import type {
-  EventLiveResponse, EventLiveRunner, TrackFix, TrailPoint, TrackStatus,
+  EventLiveResponse, EventLiveRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
 
 /**
  * GET /api/events/:id/live — dónde está cada participante, de una vez.
+ *
+ * Van TODOS los de la parrilla, emitan o no: el mapa distingue a quien no ha
+ * empezado de quien no está en la carrera, que es media pregunta antes de la
+ * salida.
  *
  * Una sola consulta para todo el evento en vez de que el mapa pregunte por
  * cada baliza: con veinte participantes serían veinte peticiones cada diez
@@ -44,25 +48,32 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   ).bind(id, user.id).first<{ ok: number }>()
   if (!member && ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
 
-  // La sesión MÁS RECIENTE de cada participante en este evento, esté activa o
-  // terminada: quien ya ha llegado a meta sigue siendo parte de la carrera y su
-  // último punto es justo lo que quieren ver los demás. El GROUP BY sobre
-  // started_at máximo evita que una sesión reabierta duplique al corredor.
+  // Se sale de la PARRILLA y no de las sesiones: quien está apuntado sale
+  // aunque no haya emitido nunca (LEFT JOIN, sesión a null). Antes el mapa
+  // solo conocía a quien había abierto una baliza, así que media carrera
+  // desaparecía de la pantalla justo cuando lo que se pregunta es "¿ya está
+  // emitiendo el mío?" — y no salir era indistinguible de no participar.
+  //
+  // De cada uno, su sesión MÁS RECIENTE, esté activa o terminada: quien ya ha
+  // llegado a meta sigue siendo parte de la carrera y su último punto es justo
+  // lo que quieren ver los demás. El filtro por started_at máximo evita que una
+  // sesión reabierta duplique al corredor.
   const rows = await env.DB.prepare(
-    `SELECT t.id, t.owner_user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
+    `SELECT t.id, m.user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail
-       FROM tracking_sessions t
-       JOIN event_members m ON m.event_id = t.event_id AND m.user_id = t.owner_user_id
-       JOIN users u ON u.id = t.owner_user_id
-      WHERE t.event_id = ?
-        AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
-                             WHERE t2.event_id = t.event_id AND t2.owner_user_id = t.owner_user_id)
+       FROM event_members m
+       JOIN users u ON u.id = m.user_id
+       LEFT JOIN tracking_sessions t
+              ON t.event_id = m.event_id AND t.owner_user_id = m.user_id
+             AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
+                                  WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id)
+      WHERE m.event_id = ?
       ORDER BY u.username`,
   ).bind(id).all<{
-    id: string; userId: string; username: string; color: string | null; emoji: string | null; bib: string | null
-    status: string; activity: string | null; startedAt: number; updatedAt: number | null
+    id: string | null; userId: string; username: string; color: string | null; emoji: string | null; bib: string | null
+    status: string | null; activity: string | null; startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
     fixAt: number | null; trail: string | null
@@ -91,7 +102,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       emoji: r.emoji,
       bib: r.bib,
       sessionId: r.id,
-      status: (r.status === 'ended' ? 'ended' : 'active') as TrackStatus,
+      // Sin sesión no hay estado que traducir: está en la parrilla y no ha
+      // emitido, que es un tercer estado y no una variante de "activo".
+      status: (r.id === null ? 'idle' : r.status === 'ended' ? 'ended' : 'active') as EventRunnerStatus,
       activity: isBeaconActivity(r.activity) ? r.activity : null,
       fix,
       tail,

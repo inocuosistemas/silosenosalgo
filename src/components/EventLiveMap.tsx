@@ -131,13 +131,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
       const km = route && r.fix ? projectKm(r.fix.lat, r.fix.lon, route) : null
-      const margin = km !== null && cutoffs.length > 0 && r.status === 'active'
+      const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && r.startedAt !== null
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
       const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
-      return { r, km, margin, stale, key: r.userId ?? r.username }
+      // Quien no ha abierto baliza no está "sin señal": está sin empezar, y son
+      // dos cosas distintas para quien mira (una se arregla esperando, la otra
+      // llamando por teléfono).
+      const idle = r.status === 'idle'
+      return { r, km, margin, stale, idle, key: r.userId ?? r.username }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
+
+  /** Cuántos de la parrilla todavía no emiten — el mapa lo dice cuando no hay nadie. */
+  const idleCount = useMemo(() => rows.filter((x) => x.idle).length, [rows])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
@@ -346,7 +353,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             />
           )}
           <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
-            {rows.map(({ r, key }) => {
+            {rows.map(({ r, key, idle }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -354,15 +361,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   key={key}
                   onClick={() => setSelected(isSel ? null : key)}
                   disabled={!r.fix}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-40 ${
-                    isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100' : 'border-slate-700 bg-slate-900/90 text-slate-300'
+                  title={idle ? `${r.username} está en la parrilla y todavía no emite` : undefined}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-60 ${
+                    isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100'
+                      : idle ? 'border-dashed border-slate-700 bg-slate-900/70 text-slate-500'
+                      : 'border-slate-700 bg-slate-900/90 text-slate-300'
                   }`}
                 >
                   {r.emoji
-                    ? <span className="text-sm leading-none">{r.emoji}</span>
+                    ? <span className={`text-sm leading-none ${idle ? 'grayscale' : ''}`}>{r.emoji}</span>
                     : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
-                  <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+                  <span className="h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
                   {r.username}
+                  {/* El borde discontinuo ya lo insinúa, pero a un participante
+                      que falta en el mapa hay que decírselo con palabras: sin
+                      esto se lee como un fallo de la aplicación. */}
+                  {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
                 </button>
               )
             })}
@@ -374,6 +388,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
         <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-6">
           <p className="pointer-events-auto max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-center text-sm text-slate-300">
             Todavía no hay nadie emitiendo en este evento. Cuando alguien empiece a compartir su posición, aparecerá aquí.
+            {idleCount > 0 && (
+              <span className="mt-1 block text-xs text-slate-500">
+                {idleCount === 1 ? 'La única persona de la parrilla está abajo' : `Las ${idleCount} personas de la parrilla están abajo`}, en gris.
+              </span>
+            )}
           </p>
         </div>
       )}
@@ -386,6 +405,8 @@ type Row = {
   km: number | null
   margin: ReturnType<typeof marginToNextCutoff>
   stale: boolean
+  /** Está en la parrilla y aún no ha emitido: sale en la lista, no en el mapa. */
+  idle: boolean
   key: string
 }
 
@@ -439,15 +460,17 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         </div>
       )}
       {rows.length === 0 && (
-        <p className="mt-8 text-center text-sm text-slate-400">Todavía no hay participantes emitiendo.</p>
+        <p className="mt-8 text-center text-sm text-slate-400">Todavía no hay nadie en la parrilla de este evento.</p>
       )}
       {rows.length > 0 && shown.length === 0 && (
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, key }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, key }, i) => {
           return (
-            <li key={key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
+            <li key={key} className={`rounded-xl border p-2.5 ${
+              idle ? 'border-dashed border-slate-800 bg-slate-900/30' : 'border-slate-800 bg-slate-900/60'
+            }`}>
               <div className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">{km !== null ? i + 1 : '·'}</span>
                 <MarkBadge emoji={r.emoji} color={r.color} size={22} />
@@ -459,42 +482,55 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                     {r.bib}
                   </span>
                 )}
-                <button onClick={() => onPick(key)} className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-slate-100">
-                  {r.username}
-                </button>
+                {idle ? (
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-400">{r.username}</span>
+                ) : (
+                  <button onClick={() => onPick(key)} className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-slate-100">
+                    {r.username}
+                  </button>
+                )}
                 {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+                {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
                 <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
                   {km !== null ? `${km.toFixed(1)}` : '—'}
                   <span className="ml-0.5 text-[10px] font-normal text-slate-500">{totalKm ? `/${totalKm.toFixed(0)} km` : 'km'}</span>
                 </span>
               </div>
               <div className="mt-1 flex items-center gap-3 pl-7 text-[11px]">
-                <span className="text-slate-400">
-                  {r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
-                </span>
-                {margin && (
-                  <span className={marginClass(margin.minutes)}>
-                    {formatMargin(margin.minutes)} · {margin.cutoff.name}
+                {idle ? (
+                  // Ni ritmo ni "hace X": de quien no ha emitido no hay nada que
+                  // envejecer, y un "sin señal" ahí sugiere una avería que no hay.
+                  <span className="text-slate-500">En la parrilla · aún no comparte su posición</span>
+                ) : (
+                  <>
+                  <span className="text-slate-400">
+                    {r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
                   </span>
-                )}
-                <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
-                  {r.updatedAt !== null ? `hace ${agoLabel(now - r.updatedAt)}` : 'sin señal'}
-                </span>
-                {r.fix && (
-                  <button
-                    onClick={() => onFollow(key)}
-                    className={`shrink-0 ${following === key ? 'text-sky-300' : 'text-slate-400 hover:text-sky-400'}`}
-                  >
-                    {following === key ? '◎ siguiendo' : '◎ seguir'}
-                  </button>
-                )}
-                {!isPublic && r.sessionId && eventId && (
-                  <a
-                    href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
-                    className="shrink-0 text-sky-400 hover:text-sky-300"
-                  >
-                    ver
-                  </a>
+                  {margin && (
+                    <span className={marginClass(margin.minutes)}>
+                      {formatMargin(margin.minutes)} · {margin.cutoff.name}
+                    </span>
+                  )}
+                  <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {r.updatedAt !== null ? `hace ${agoLabel(now - r.updatedAt)}` : 'sin señal'}
+                  </span>
+                  {r.fix && (
+                    <button
+                      onClick={() => onFollow(key)}
+                      className={`shrink-0 ${following === key ? 'text-sky-300' : 'text-slate-400 hover:text-sky-400'}`}
+                    >
+                      {following === key ? '◎ siguiendo' : '◎ seguir'}
+                    </button>
+                  )}
+                  {!isPublic && r.sessionId && eventId && (
+                    <a
+                      href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
+                      className="shrink-0 text-sky-400 hover:text-sky-300"
+                    >
+                      ver
+                    </a>
+                  )}
+                  </>
                 )}
               </div>
             </li>

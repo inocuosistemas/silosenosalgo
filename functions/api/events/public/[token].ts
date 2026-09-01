@@ -4,7 +4,7 @@ import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
 import type {
-  EventPublicResponse, EventPublicRunner, TrackFix, TrailPoint, TrackStatus,
+  EventPublicResponse, EventPublicRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
 
 /**
@@ -37,21 +37,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   // tenga guardado.
   if (!ev) return json({ error: 'not_found' }, 404)
 
+  // Desde la PARRILLA, igual que en `/live`: quien espera en meta también
+  // quiere ver al suyo antes de que empiece a emitir, y "no aparece" no puede
+  // significar a la vez "no ha empezado" y "no corre". Publicar el evento ya
+  // enseña a todos los participantes; esto no amplía a quién, solo deja de
+  // esconder a quien todavía no ha abierto la baliza.
   const rows = await env.DB.prepare(
-    `SELECT u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, t.status, t.activity,
-            t.started_at AS startedAt, t.updated_at AS updatedAt,
+    `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
+            t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail
-       FROM tracking_sessions t
-       JOIN event_members m ON m.event_id = t.event_id AND m.user_id = t.owner_user_id
-       JOIN users u ON u.id = t.owner_user_id
-      WHERE t.event_id = ?
-        AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
-                             WHERE t2.event_id = t.event_id AND t2.owner_user_id = t.owner_user_id)
+       FROM event_members m
+       JOIN users u ON u.id = m.user_id
+       LEFT JOIN tracking_sessions t
+              ON t.event_id = m.event_id AND t.owner_user_id = m.user_id
+             AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
+                                  WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id)
+      WHERE m.event_id = ?
       ORDER BY u.username`,
   ).bind(ev.id).all<{
-    username: string; color: string | null; emoji: string | null; bib: string | null; status: string; activity: string | null
-    startedAt: number; updatedAt: number | null
+    sessionId: string | null
+    username: string; color: string | null; emoji: string | null; bib: string | null
+    status: string | null; activity: string | null
+    startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
     fixAt: number | null; trail: string | null
@@ -76,7 +84,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       color: r.color,
       emoji: r.emoji,
       bib: r.bib,
-      status: (r.status === 'ended' ? 'ended' : 'active') as TrackStatus,
+      // El id de sesión NO viaja —eso es la baliza de cada uno— pero sí sirve
+      // aquí para saber si hay baliza siquiera: sin ella, `idle`.
+      status: (r.sessionId === null ? 'idle' : r.status === 'ended' ? 'ended' : 'active') as EventRunnerStatus,
       activity: isBeaconActivity(r.activity) ? r.activity : null,
       fix,
       tail,
