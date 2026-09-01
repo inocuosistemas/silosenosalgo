@@ -26,11 +26,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   if (!TOKEN_RE.test(token)) return json({ error: 'bad_id' }, 400)
 
   const ev = await env.DB.prepare(
-    `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl
+    `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
+            starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
     id: string; name: string; planShareId: string | null
     trackingUrl: string | null; websiteUrl: string | null
+    startsAt: number | null; photoKey: string | null; photoAt: number | null
   }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
   // enlace que no lleva a ningún sitio, y no hay nada que explicarle a quien lo
@@ -95,9 +97,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     }
   })
 
+  // El GET de la foto ya es público (el id del evento es inadivinable y un
+  // cartel no es un secreto), así que aquí solo se arma la url —con su `?v=`,
+  // que es lo que hace que un reencuadre llegue a todo el mundo—.
   const res: EventPublicResponse = {
     name: ev.name,
     planShareId: ev.planShareId,
+    startsAt: ev.startsAt,
+    photoUrl: ev.photoKey
+      ? `/api/events/${encodeURIComponent(ev.id)}/photo${ev.photoAt ? `?v=${ev.photoAt}` : ''}`
+      : null,
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
     runners,

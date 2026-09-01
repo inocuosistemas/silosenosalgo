@@ -470,6 +470,14 @@ export interface EventPublicRunner {
 export interface EventPublicResponse {
   name: string
   planShareId: string | null
+  /** Salida OFICIAL (epoch ms) o null. Con ella la pantalla cuenta atrás:
+   *  antes de la salida no hay nada que mirar en el mapa, y "cuánto falta" es
+   *  literalmente lo único que se pregunta quien abre el enlace esa mañana. */
+  startsAt: number | null
+  /** El cartel de la carrera, ya con su `?v=` de versión; null si no hay. La
+   *  arma el servidor: quien mira desde fuera no tiene por qué saber montar
+   *  urls de la API a partir de un id. */
+  photoUrl: string | null
   /** Los enlaces oficiales de la carrera, que a quien espera en meta le sirven
    *  tanto o más que a los participantes. */
   trackingUrl: string | null
@@ -533,6 +541,8 @@ export interface EventLiveRunner {
 export interface EventLiveResponse {
   /** La base común, para pintar el recorrido una sola vez. */
   planShareId: string | null
+  /** Salida oficial (epoch ms) o null — la cuenta atrás del mapa. */
+  startsAt: number | null
   runners: EventLiveRunner[]
 }
 

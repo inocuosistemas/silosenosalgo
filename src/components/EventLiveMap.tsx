@@ -6,7 +6,7 @@ import { useAuth } from '../lib/AuthContext'
 import { eventColorHex } from '../../shared/eventColors'
 import type { EventPublicRunner } from '../../shared/wireTypes'
 import {
-  getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError,
+  getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError, EVENT_PHOTO_ASPECT,
 } from '../lib/eventsTransport'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import {
@@ -47,6 +47,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [eventName, setEventName] = useState<string | null>(null)
   const [links, setLinks] = useState<{ trackingUrl: string | null; websiteUrl: string | null }>(
     { trackingUrl: null, websiteUrl: null })
+  /** La salida OFICIAL del evento (epoch ms): de ella sale la cuenta atrás. */
+  const [startsAt, setStartsAt] = useState<number | null>(null)
+  /** El cartel de la carrera, tal cual lo manda el servidor (con su versión). */
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -71,10 +75,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setRunners(live.runners)
         setEventName(live.name)
         setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
+        setStartsAt(live.startsAt)
+        setPhotoUrl(live.photoUrl)
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
         setRunners(live.runners as Runner[])
+        setStartsAt(live.startsAt)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -145,6 +152,36 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   /** Cuántos de la parrilla todavía no emiten — el mapa lo dice cuando no hay nadie. */
   const idleCount = useMemo(() => rows.filter((x) => x.idle).length, [rows])
+
+  /**
+   * La salida con la que se cuenta: la OFICIAL del evento y, si no la hay, la
+   * del recorrido publicado. Son casi siempre la misma —al poner la base se
+   * copia—, pero manda la del evento: es la que el organizador puede corregir
+   * sin volver a publicar el recorrido.
+   */
+  const startMs = useMemo(() => {
+    if (startsAt) return startsAt
+    const t = plan ? Date.parse(plan.startTimeISO) : NaN
+    return Number.isNaN(t) ? null : t
+  }, [startsAt, plan])
+
+  /**
+   * La carrera en tres números: cuánto mide, cuánto sube y cuánto tiempo hay.
+   *
+   * El tiempo disponible es el último cierre menos la salida — el corte de
+   * meta, que es el que de verdad define la prueba. Sin cierres no se inventa
+   * nada: se enseñan los dos primeros y ya.
+   */
+  const raceStats = useMemo(() => {
+    if (!plan) return null
+    const lastCutoff = cutoffs.length > 0 ? cutoffs[cutoffs.length - 1] : null
+    const limitMs = lastCutoff && startMs && lastCutoff.at > startMs ? lastCutoff.at - startMs : null
+    return {
+      km: plan.track.totalDistanceKm,
+      gain: plan.track.elevGainM,
+      limitMin: limitMs !== null ? Math.round(limitMs / 60_000) : null,
+    }
+  }, [plan, cutoffs, startMs])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
@@ -279,10 +316,47 @@ export default function EventLiveMap({ source }: { source: Source }) {
       {/* Cabecera: volver, nombre (en el público, que no tiene parrilla) y vistas */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex items-start justify-between gap-2 p-3">
         {isPublic ? (
-          <div className="pointer-events-auto flex max-w-[60%] flex-col items-start gap-1">
-            <span className="max-w-full truncate rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-100 backdrop-blur">
-              {eventName ?? 'Evento'}
-            </span>
+          <div className="pointer-events-auto flex w-[min(19rem,62vw)] flex-col items-start gap-1">
+            {/* La carrera, presentada: cartel, nombre y los tres números que la
+                describen. Quien abre este enlace puede no saber ni qué prueba
+                es —le ha llegado por un grupo— así que la esquina no puede ser
+                solo un nombre suelto. El nombre va SOBRE el cartel: dos cajas
+                separadas ocupan el doble y dicen lo mismo. */}
+            <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur">
+              {photoUrl ? (
+                <div className="relative">
+                  <img
+                    src={photoUrl}
+                    alt=""
+                    style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
+                    className="w-full object-cover"
+                  />
+                  {/* Degradado por debajo: sobre un cartel claro el nombre en
+                      blanco desaparece, y no se puede saber cómo es la foto. */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/45 to-transparent" />
+                  <p className="absolute inset-x-0 bottom-0 truncate px-2.5 pb-1 text-sm font-bold text-white">
+                    {eventName ?? 'Evento'}
+                  </p>
+                </div>
+              ) : (
+                <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
+              )}
+              {raceStats && (
+                <p className="flex flex-wrap items-center gap-x-2 px-2.5 py-1 text-[11px] tabular-nums text-slate-300">
+                  <span>{raceStats.km.toFixed(1)} km</span>
+                  <span className="text-slate-600">·</span>
+                  <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
+                  {raceStats.limitMin !== null && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      {/* No es "duración": es lo que da la organización antes de
+                          cerrar meta, y por eso lleva la palabra delante. */}
+                      <span className="text-slate-400">límite {durLabel(raceStats.limitMin)}</span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
             {/* Los enlaces de la organización: quien espera en meta los quiere
                 tanto o más que los participantes —el seguimiento por dorsal es
                 lo que dan las webs oficiales—, y aquí no tiene parrilla donde
@@ -372,6 +446,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     ? <span className={`text-sm leading-none ${idle ? 'grayscale' : ''}`}>{r.emoji}</span>
                     : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
                   <span className="h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
+                  {/* El dorsal, aquí también: en el mapa de una carrera con
+                      dorsales es como se busca a alguien, y quien mira desde
+                      fuera lo cruza con la clasificación oficial. */}
+                  {r.bib && (
+                    <span className="rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
+                      {r.bib}
+                    </span>
+                  )}
                   {r.username}
                   {/* El borde discontinuo ya lo insinúa, pero a un participante
                       que falta en el mapa hay que decírselo con palabras: sin
@@ -384,16 +466,28 @@ export default function EventLiveMap({ source }: { source: Source }) {
         </div>
       )}
 
+      {/* Mapa sin nadie: antes de la salida esto no es un vacío, es una espera.
+          Lo que se pregunta quien abre el enlace a esa hora es CUÁNTO FALTA, y
+          un reloj que corre lo dice mejor que cualquier frase. El aviso de que
+          los puntos llegarán cuando cada uno comparta su posición sigue ahí,
+          pero pequeño y debajo: explica, no es la noticia. */}
       {runners !== null && withFix.length === 0 && view === 'mapa' && (
         <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-6">
-          <p className="pointer-events-auto max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-center text-sm text-slate-300">
-            Todavía no hay nadie emitiendo en este evento. Cuando alguien empiece a compartir su posición, aparecerá aquí.
-            {idleCount > 0 && (
-              <span className="mt-1 block text-xs text-slate-500">
-                {idleCount === 1 ? 'La única persona de la parrilla está abajo' : `Las ${idleCount} personas de la parrilla están abajo`}, en gris.
-              </span>
+          <div className="pointer-events-auto max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-center">
+            {startMs !== null ? (
+              <StartCountdown startMs={startMs} now={now} />
+            ) : (
+              <p className="text-sm text-slate-300">Todavía no hay nadie emitiendo en este evento.</p>
             )}
-          </p>
+            <p className={`text-[11px] leading-snug text-slate-500 ${startMs !== null ? 'mt-3 border-t border-slate-800 pt-2.5' : 'mt-1'}`}>
+              Los participantes aparecerán en el mapa cuando empiecen a compartir su posición.
+              {idleCount > 0 && (
+                idleCount === 1
+                  ? ' La única persona de la parrilla está abajo, en gris.'
+                  : ` Las ${idleCount} personas de la parrilla están abajo, en gris.`
+              )}
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -772,6 +866,49 @@ function paceOrSpeed(speedMs: number, activity?: string | null): string {
   const m = Math.floor(minPerKm)
   const s = Math.round((minPerKm - m) * 60)
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * La cuenta atrás hasta la salida —o el tiempo en carrera si ya salió—.
+ *
+ * Al segundo y en monoespaciada de ancho fijo: un reloj cuyos dígitos bailan
+ * de anchura se lee como un error, y aquí el número es lo único que hay.
+ */
+function StartCountdown({ startMs, now }: { startMs: number; now: number }) {
+  const diff = startMs - now
+  const before = diff > 0
+  const total = Math.floor(Math.abs(diff) / 1000)
+  const days = Math.floor(total / 86_400)
+  const h = Math.floor((total % 86_400) / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  // Con días por delante, los segundos son ruido: nadie mira un reloj de
+  // "faltan 2 días" para ver pasar el segundero.
+  const reloj = days > 0
+    ? `${days} d ${p2(h)}:${p2(m)}`
+    : `${p2(h)}:${p2(m)}:${p2(sec)}`
+  return (
+    <>
+      <p className="text-[11px] uppercase tracking-wider text-slate-500">
+        {before ? 'Salida en' : 'En marcha desde hace'}
+      </p>
+      <p className="mt-0.5 font-mono text-3xl font-bold tabular-nums text-slate-100">{reloj}</p>
+      <p className="mt-0.5 text-[11px] text-slate-400">
+        {new Date(startMs).toLocaleString('es-ES', {
+          weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        })}
+      </p>
+    </>
+  )
+}
+
+/** Un tiempo en minutos como se dice un límite de carrera: "7h 30m". */
+function durLabel(min: number): string {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  if (h === 0) return `${m} min`
+  return m === 0 ? `${h}h` : `${h}h ${String(m).padStart(2, '0')}m`
 }
 
 function agoLabel(ms: number): string {
