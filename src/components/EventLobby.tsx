@@ -13,6 +13,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { Plegable } from './Plegable'
+import { BaseChangeNotice } from './BaseChangeNotice'
 
 /**
  * LA PARRILLA de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
@@ -312,6 +313,18 @@ export default function EventLobby({ id }: { id: string }) {
       </p>
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+
+      {/* Antes que nada: si la organización movió el recorrido después de que
+          guardaras tu previsión, eso manda sobre cualquier otra cosa de esta
+          pantalla. */}
+      <BaseChangeNotice
+        eventId={id}
+        planShareId={event.planShareId}
+        planUpdatedAt={event.planUpdatedAt}
+        planChange={event.planChange}
+        startsAt={event.startsAt}
+        soyParticipante={!!me}
+      />
 
       {/* El tablón de la carrera: bolsa de vida, autobuses, avituallamientos.
           Va ARRIBA, antes que los participantes: es lo que hay que leer, y una

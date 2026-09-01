@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { SharePayloadV1 } from '../lib/sharePayload'
-import { stripToEventBase, isDifferentRoute } from '../lib/eventPlan'
+import { stripToEventBase, isDifferentRoute, describeBaseChange, isNotableChange } from '../lib/eventPlan'
 import {
   listEvents, createEvent, setEventPlan, getEventPlan, eventsErrorMessage, EventsError,
 } from '../lib/eventsTransport'
@@ -72,7 +72,18 @@ export function ConvertToEvent({
     try {
       const base = stripToEventBase(payload)
       const id = target === 'new' ? await createEvent(name.trim() || planName) : target
-      await setEventPlan(id, base, planName)
+      // Sustituir la base de un evento que ya tenía: se compara para contar qué
+      // cambió. Un evento nuevo no tiene con qué compararse.
+      let change = null
+      const anterior = target === 'new' ? null : events?.find((e) => e.id === target)?.planShareId ?? null
+      if (anterior) {
+        try {
+          const prev = await getEventPlan(anterior)
+          const c = describeBaseChange(prev, base)
+          change = isNotableChange(c) ? c : null
+        } catch { /* sin la anterior se publica sin resumen */ }
+      }
+      await setEventPlan(id, base, planName, change)
       window.location.href = `/?e=${encodeURIComponent(id)}`
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))

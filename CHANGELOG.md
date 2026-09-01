@@ -87,6 +87,21 @@ cobertura, no con el móvil en la mano y el dorsal puesto.
 > viejo aparece en el mapa común con su emoji igualmente —lo pinta la web—,
 > simplemente no lo ve en su teléfono.
 
+### Cambiar el recorrido no invalida la planificación de nadie
+
+**Web · desplegado.** Al republicar el recorrido de un evento se guarda qué
+cambió respecto al anterior (puntos que se mueven de kilómetro, cierres con hora
+nueva, puntos añadidos o quitados, diferencia de distancia). Quien tenga una
+previsión guardada ANTERIOR a ese cambio ve el detalle en la parrilla y un botón
+para abrir el recorrido nuevo; al guardar allí se actualiza esa misma previsión.
+
+No se borra ni se invalida nada de nadie: las horas de paso no se guardan, se
+calculan, así que un punto que pasa del km 42 al 44,3 recibe su hora nueva solo.
+Lo que cambia es el veredicto —ese corte está más lejos— y eso es información,
+no un error que reparar borrando el trabajo de los demás.
+
+**Android / iOS** · *Compatible*. Campos nuevos en la parrilla, que es de la web.
+
 ### La salida oficial de la carrera, y los puntos del recorrido en el mapa
 
 **Web · desplegado.** El evento guarda su día y hora de salida: se rellena sola

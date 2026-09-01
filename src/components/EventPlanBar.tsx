@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import type { PlanMeta } from '../../shared/wireTypes'
 import { listPlans, createPlan, updatePlan } from '../lib/plansTransport'
-import { getEvent, setEventPlan, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
-import { stripToEventBase } from '../lib/eventPlan'
+import { getEvent, setEventPlan, getEventPlan, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import { stripToEventBase, describeBaseChange, isNotableChange } from '../lib/eventPlan'
 import { useAuth } from '../lib/AuthContext'
 
 /**
@@ -36,6 +36,8 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
   const [corro, setCorro] = useState(true)
   /** ¿Organizo esta carrera? Entonces además puedo cambiar el recorrido de todos. */
   const [isOwner, setIsOwner] = useState(false)
+  /** El id KV de la base actual, para poder comparar contra ella al publicar. */
+  const [planShareId, setPlanShareId] = useState<string | null>(null)
   /** La previsión que YA tengo para esta carrera, si la hay. */
   const [mine, setMine] = useState<PlanMeta | null>(null)
   const [busy, setBusy] = useState(false)
@@ -53,6 +55,7 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
         setEventName(ev.event.name)
         setIsOwner(ev.event.isOwner)
         setCorro(ev.members.some((m) => m.userId === user?.id))
+        setPlanShareId(ev.event.planShareId)
       }
       setMine(planes.find((p) => p.eventId === eventId) ?? null)
     } catch { /* sin cuenta o sin red: la barra sigue sirviendo de contexto */ }
@@ -97,7 +100,19 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
     )) return
     setBusy(true); setError(null)
     try {
-      await setEventPlan(eventId, stripToEventBase(payload), eventName ?? 'Recorrido del evento')
+      // Se compara con la base que había para poder contarle a cada
+      // participante qué se ha movido —"Paules Altas: 42,0 → 44,3"— en vez de
+      // soltarles un "el recorrido ha cambiado" que no dice nada. Si no se
+      // puede leer la anterior, se publica igual y sin resumen: el aviso es
+      // deseable, publicar es lo obligatorio.
+      const base = stripToEventBase(payload)
+      let change = null
+      try {
+        const prev = planShareId ? await getEventPlan(planShareId) : null
+        const c = describeBaseChange(prev, base)
+        change = prev && isNotableChange(c) ? c : null
+      } catch { /* sin la anterior no hay comparación posible */ }
+      await setEventPlan(eventId, base, eventName ?? 'Recorrido del evento', change)
       setPublicado(true)
       window.setTimeout(() => setPublicado(false), 2500)
     } catch (e) {

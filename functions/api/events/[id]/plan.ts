@@ -31,6 +31,8 @@ const MAX_BYTES = 2 * 1024 * 1024
  *  que dura la temporada, no los 180 días de un enlace compartido cualquiera. */
 const TTL_SECONDS = 365 * 24 * 3600
 const NAME_MAX = 80
+/** El resumen del cambio viaja en cabecera y se sirve en cada parrilla. */
+const CHANGE_MAX = 2000
 
 export const onRequestPut: PagesFunction<Env> = async ({ request, env, params }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -67,11 +69,24 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   const rawStart = Number(request.headers.get('X-Plan-Start'))
   const startsAt = Number.isFinite(rawStart) && rawStart > 0 ? Math.round(rawStart) : null
 
+  // El resumen de QUÉ cambió respecto a la base anterior, calculado por el
+  // cliente que publica —es quien tiene delante las dos versiones—. Aquí se
+  // guarda como texto y no se abre: igual que los payloads. Quien lo pinta lo
+  // valida (ver parseBaseChange), porque es dato escrito por otra persona.
+  let planChange: string | null = null
+  const rawChange = request.headers.get('X-Plan-Change')
+  if (rawChange && rawChange.length <= CHANGE_MAX) {
+    try { planChange = decodeURIComponent(rawChange) } catch { planChange = null }
+    if (planChange && planChange.length > CHANGE_MAX) planChange = null
+  }
+
   const shareId = genId(8)
   await env.SHARE_KV.put(shareId, buf, { expirationTtl: TTL_SECONDS })
   await env.DB.prepare(
-    'UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?) WHERE id = ? AND created_by = ?',
-  ).bind(shareId, planName, startsAt, id, user.id).run()
+    `UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?),
+            plan_updated_at = ?, plan_change = ?
+      WHERE id = ? AND created_by = ?`,
+  ).bind(shareId, planName, startsAt, Date.now(), planChange, id, user.id).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })
 }

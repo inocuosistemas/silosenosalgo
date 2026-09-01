@@ -390,6 +390,11 @@ export interface EventInfo {
   planShareId: string | null
   /** Nombre de la previsión de la que salió la base (informativo). */
   planName: string | null
+  /** Cuándo se publicó por última vez el recorrido (epoch ms), y el resumen de
+   *  qué cambió respecto al anterior (JSON; ver `parseBaseChange`). Con la
+   *  fecha se sabe si la previsión que alguien guardó es de antes. */
+  planUpdatedAt?: number | null
+  planChange?: string | null
   /** Seguimiento OFICIAL de la organización (esas webs de dorsales con los
    *  tiempos por control) y web de la carrera. Los pone el organizador; nulos
    *  si no los hay. Siempre http(s) — ver `isHttpUrl`. */

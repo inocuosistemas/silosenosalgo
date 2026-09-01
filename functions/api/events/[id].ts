@@ -25,13 +25,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
             ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
-            tracking_url AS trackingUrl, website_url AS websiteUrl, notes AS notes
+            tracking_url AS trackingUrl, website_url AS websiteUrl, notes AS notes,
+            plan_updated_at AS planUpdatedAt, plan_change AS planChange
        FROM events WHERE id = ?`,
   ).bind(id).first<{
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number; colorsLocked: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null; notes: string | null
+    planUpdatedAt: number | null; planChange: string | null
   }>()
   if (!ev) return json({ error: 'not_found' }, 404)
 
@@ -99,6 +101,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     websiteUrl: ev.websiteUrl,
     colorsLocked: !!ev.colorsLocked,
     notes: ev.notes,
+    planUpdatedAt: ev.planUpdatedAt,
+    planChange: ev.planChange,
     startsAt: ev.startsAt,
     createdAt: ev.createdAt,
     endedAt: ev.endedAt,

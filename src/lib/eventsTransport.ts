@@ -5,6 +5,7 @@
  */
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
+import type { BaseChange } from './eventPlan'
 import type { EventPlanOverlay } from './eventPlan'
 import type {
   CreateEventResponse, EventDetailResponse, EventInfo, EventsListResponse, JoinEventResponse,
@@ -202,7 +203,13 @@ export async function regenerateEventInvite(id: string): Promise<string> {
  * Publica la base común del evento: el payload YA recortado (ver
  * `eventPlan.stripToEventBase`), comprimido igual que un plan cualquiera.
  */
-export async function setEventPlan(id: string, base: SharePayloadV1, planName: string): Promise<void> {
+export async function setEventPlan(
+  id: string,
+  base: SharePayloadV1,
+  planName: string,
+  /** Qué cambia respecto a la base anterior; se enseña a los participantes. */
+  change?: BaseChange | null,
+): Promise<void> {
   const gz = await gzipBytes(JSON.stringify(base))
   // La hora de salida del recorrido viaja aparte, en cabecera: el servidor
   // nunca abre un payload —los trata como bytes opacos— y quien tiene delante
@@ -214,6 +221,7 @@ export async function setEventPlan(id: string, base: SharePayloadV1, planName: s
       'Content-Type': 'application/octet-stream',
       'X-Plan-Name': encodeURIComponent(planName),
       ...(Number.isFinite(salida) ? { 'X-Plan-Start': String(salida) } : {}),
+      ...(change ? { 'X-Plan-Change': encodeURIComponent(JSON.stringify(change)) } : {}),
     },
     body: new Blob([gz]),
   })
