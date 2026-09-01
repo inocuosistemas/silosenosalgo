@@ -2002,17 +2002,25 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* ── Header ── */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-[1100]">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3">
-          <span className="text-2xl">🌧️</span>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">SiLoSeNoSalgo</h1>
-            <p className="text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
+        {/* En un móvil no caben la marca y los seis mandos en la misma línea:
+            `flex-wrap` los baja a una segunda fila en vez de empujarlos fuera de
+            la pantalla, que es lo que hacían. El subtítulo desaparece por debajo
+            de `sm`: ocupaba tres líneas para contar lo que ya cuenta la primera
+            pantalla. */}
+        <div className="max-w-6xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-2xl shrink-0">🌧️</span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight truncate">SiLoSeNoSalgo</h1>
+            <p className="hidden sm:block text-slate-500 text-xs">Previsión meteorológica a lo largo de tu ruta GPX</p>
           </div>
           {(() => {
             const disabledTitle = 'Disponible al calcular el plan (botón Calcular)'
             const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
             return (
-            <div className="ml-auto flex items-center gap-2">
+            // Y si aun así no cupieran —un botón más, una pantalla más
+            // estrecha—, la fila se desplaza en horizontal ella sola en vez de
+            // estirar la página entera.
+            <div className="ml-auto flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-fantasma">
               <GuideLoader onLoad={onGuideLoaded} />
               <AuthMenu onOpenPlans={() => setPlansOpen(true)} />
               <MyPlansPanel

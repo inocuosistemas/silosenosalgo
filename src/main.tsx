@@ -39,6 +39,13 @@ const isJoin = !isViewer && !isEvent && !!joinCode && INVITE_RE.test(joinCode)
 const publicEvent = params.get('ev')
 const isPublicEvent = !isViewer && !isEvent && !isJoin && !!publicEvent && TOKEN_RE.test(publicEvent)
 
+// El chivato de desbordes solo en desarrollo: en producción manda el recorte
+// de `index.css`, que no cuesta nada. `import.meta.env.DEV` es estático, así
+// que el módulo ni entra en el paquete que se despliega.
+if (import.meta.env.DEV) {
+  void import('./lib/anchoGuard').then((m) => m.vigilaElAncho())
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

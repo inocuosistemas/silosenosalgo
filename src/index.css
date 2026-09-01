@@ -13,6 +13,29 @@
   body {
     @apply bg-slate-950 text-slate-100 min-h-screen;
   }
+
+  /* NADA se sale del ancho de la pantalla.
+     `clip` y no `hidden` a propósito: `overflow-x: hidden` en html/body
+     convierte al documento en contenedor de scroll y rompe el `position:
+     sticky` de la cabecera; `clip` recorta sin crear scroll y la cabecera
+     sigue pegada arriba. Es una red de seguridad, no una excusa: lo que se
+     salga sigue estando mal, pero deja de arrastrar la página entera y de
+     dejar media pantalla en blanco a la derecha. */
+  html, body {
+    overflow-x: clip;
+  }
+  /* Las imágenes y los vídeos, dentro de su caja aunque vengan enormes. */
+  img, svg, video, canvas {
+    max-width: 100%;
+  }
+  /* Una palabra sin espacios más larga que la línea —un enlace, un nombre de
+     fichero— se parte en vez de desbordar. `break-word` y no `anywhere`: este
+     solo rompe cuando de verdad no cabe, mientras que `anywhere` además cambia
+     el ancho mínimo que declara el elemento y encoge tablas y columnas que hoy
+     están bien. */
+  h1, h2, h3, p, li, td, th, code {
+    overflow-wrap: break-word;
+  }
 }
 
 /* Indeterminate progress bar for the terrain mode button while OSM data loads.
