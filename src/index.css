@@ -171,21 +171,28 @@
   background: #475569;                     /* slate-600 */
 }
 
-/* Etiqueta de un punto del recorrido en el mapa del evento. La de Leaflet es
-   blanca con borde y flecha: sobre un mapa oscuro con veinte puntos pesa
-   demasiado. Esta es solo el texto con una sombra que lo despega del fondo. */
-.poi-tip {
-  background: transparent;
+/* Etiqueta de un punto del recorrido en el mapa del evento.
+   Va con `.leaflet-tooltip` DELANTE por especificidad, no por gusto: los
+   estilos de Leaflet viven en otro trozo de CSS que se carga después, así que
+   una clase suelta pierde y la etiqueta se quedaba con el globo blanco de
+   Leaflet Y con el resplandor de aquí encima — texto oscuro con halo oscuro,
+   ilegible.
+   Y el fondo es oscuro y sólido, no un resplandor: el mapa del evento usa las
+   teselas claras de OSM, y ahí un texto blanco con sombra no se lee sobre el
+   verde de los bosques. Una pastilla oscura funciona sobre cualquier terreno. */
+.leaflet-tooltip.poi-tip {
+  background: rgba(2, 6, 23, 0.82);
   border: none;
   box-shadow: none;
-  padding: 0;
+  padding: 2px 6px;
+  border-radius: 6px;
   color: #f8fafc;
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
-  text-shadow: 0 1px 3px #020617, 0 0 6px #020617;
+  text-shadow: none;
 }
-.poi-tip::before { display: none; }   /* la flechita */
+.leaflet-tooltip.poi-tip::before { display: none; }   /* la flechita */
 
 /* ── Barra que solo asoma cuando se usa ────────────────────────────────────
    Para listas dentro de un panel, donde una barra permanente es un borde gris
