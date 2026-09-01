@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { EVENT_COLORS, eventColorHex } from '../../shared/eventColors'
-import { EMOJI_POOL, EMOJI_MAX_UNITS, emojiOk, foldEmoji } from '../../shared/emoji'
+import { EMOJI_POOL, EMOJI_MAX_UNITS, emojiOk, foldEmoji, isCountryFlag } from '../../shared/emoji'
 
 /**
  * La marca de un participante: su emoji sobre un aro de su color.
@@ -53,11 +53,12 @@ export function EmojiField({ value, taken, busy, onPick }: {
 }) {
   const [draft, setDraft] = useState('')
   const clean = draft.trim()
-  const malo = clean.length > 0 && !emojiOk(clean)
+  const bandera = clean.length > 0 && isCountryFlag(clean)
+  const malo = clean.length > 0 && !bandera && !emojiOk(clean)
   const pillado = clean.length > 0 && !malo && taken.includes(foldEmoji(clean))
 
   function enviar() {
-    if (!clean || malo || pillado) return
+    if (!clean || malo || bandera || pillado) return
     onPick(clean)
     setDraft('')
   }
@@ -76,13 +77,14 @@ export function EmojiField({ value, taken, busy, onPick }: {
         />
         <button
           onClick={enviar}
-          disabled={!clean || malo || pillado || busy}
+          disabled={!clean || malo || bandera || pillado || busy}
           className="shrink-0 rounded-lg border border-slate-700 px-3 text-sm text-sky-400 hover:bg-sky-950/40 disabled:opacity-40"
         >
           Usar
         </button>
       </div>
       {malo && <p className="mt-1 text-[11px] text-red-400">Tiene que ser un solo emoji.</p>}
+      {bandera && <p className="mt-1 text-[11px] text-red-400">Las banderas de país no valen. 🏁 y 🏴‍☠️ sí.</p>}
       {pillado && <p className="mt-1 text-[11px] text-amber-400">Ese ya lo lleva otro participante.</p>}
 
       <div className="mt-2 flex flex-wrap gap-1">

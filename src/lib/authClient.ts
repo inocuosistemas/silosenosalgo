@@ -114,7 +114,7 @@ export function authErrorMessage(code: string): string {
     case 'invalid_invite': return 'La invitación no es válida, ya se ha usado o ha caducado.'
     case 'invalid_reset': return 'Este enlace ya no vale: se ha usado o ha caducado. Pide otro a quien administra.'
     case 'cannot_delete_self': return 'No puedes borrar tu propia cuenta.'
-    case 'bad_emoji': return 'Tiene que ser un solo emoji.'
+    case 'bad_emoji': return 'Tiene que ser un solo emoji, y no una bandera de país.'
     case 'bad_color': return 'Ese color no está en la paleta.'
     case 'rate_limited': return 'Demasiados intentos. Inténtalo de nuevo en unos minutos.'
     case 'unauthorized': return 'Tu sesión ha caducado. Inicia sesión de nuevo.'

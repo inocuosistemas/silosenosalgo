@@ -12,6 +12,7 @@ import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
+import { Plegable } from './Plegable'
 
 /**
  * LA PARRILLA de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
@@ -303,10 +304,21 @@ export default function EventLobby({ id }: { id: string }) {
         </ul>
       </section>
 
-      {/* Mi marca: el emoji identifica (es único) y el color agrupa (se repite) */}
-      <section className="mt-5">
-        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Mi marca en el mapa</h2>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+      {/* Mi marca: el emoji identifica (es único) y el color agrupa (se repite).
+          Plegada en cuanto está elegida —que es casi siempre, porque se entra
+          con marca—: es una decisión que se toma una vez y luego solo estorba
+          entre uno y el botón de salir. El resumen del encabezado enseña cuál
+          es, así que abrirla solo hace falta para cambiarla. */}
+      <Plegable
+        title="Mi marca"
+        defaultOpen={!me?.emoji || emojiTaken}
+        summary={
+          <>
+            <MarkBadge emoji={me?.emoji ?? null} color={me?.color ?? null} size={22} />
+            <span className="truncate">{me?.emoji ? 'en el mapa eres tú' : 'sin elegir'}</span>
+          </>
+        }
+      >
           <div className="flex items-center gap-3">
             <MarkBadge emoji={me?.emoji ?? null} color={me?.color ?? null} size={44} />
             <div className="min-w-0">
@@ -360,8 +372,8 @@ export default function EventLobby({ id }: { id: string }) {
             />
             {event.colorsLocked && !event.isOwner && (
               <p className="mt-1.5 text-[11px] text-slate-500">
-                En esta carrera los colores los reparte quien organiza: aquí significan algo (el club, el
-                relevo, la categoría). Tu emoji sí lo eliges tú.
+                En esta carrera los colores agrupan —el club, el relevo, la categoría— y los reparte quien
+                organiza. Tu emoji sí lo eliges tú.
               </p>
             )}
           </div>
@@ -377,16 +389,15 @@ export default function EventLobby({ id }: { id: string }) {
                 className="mt-0.5 accent-sky-500"
               />
               <span>
-                Los colores los reparto yo
+                Agrupar por colores
                 <span className="block text-slate-600">
-                  Para cuando el color signifique algo —club, relevo, categoría— y no pueda depender de que
-                  alguien se lo cambie la víspera. No revuelve lo ya elegido.
+                  El color pasa a significar algo —club, relevo, categoría— y lo reparto yo, para que nadie
+                  se lo cambie la víspera. No revuelve lo ya elegido.
                 </span>
               </span>
             </label>
           )}
-        </div>
-      </section>
+      </Plegable>
 
       {/* Los enlaces de la ORGANIZACIÓN. No competimos con ellos: su
           seguimiento cronometra por controles y esto enseña dónde va cada uno
@@ -501,10 +512,12 @@ export default function EventLobby({ id }: { id: string }) {
         </p>
       </section>
 
-      {/* Organización */}
+      {/* ORGANIZACIÓN. Todo lo de aquí abajo se toca una vez, al montar la
+          carrera, y luego se mira cero veces: plegado por defecto, con el
+          estado en el encabezado para no tener que abrir para comprobar. Quien
+          organiza también corre, y ese día lo que necesita es lo de arriba. */}
       {event.isOwner && (
-        <section className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-          <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Foto del evento</h2>
+        <Plegable title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
           <label className="inline-block px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50 cursor-pointer">
             {event.hasPhoto ? 'Cambiar foto' : 'Subir foto'}
             <input
@@ -518,15 +531,17 @@ export default function EventLobby({ id }: { id: string }) {
           <p className="mt-1.5 text-[11px] text-slate-500">
             Podrás encuadrarla: lo que dejes en el marco es lo que verán todos, aquí y en la lista.
           </p>
-        </section>
+        </Plegable>
       )}
 
       {/* El enlace para quien NO participa: familia, amigos, la organización.
           Es otra llave distinta de la de unirse — con esta se mira, no se
           entra— y se puede quitar sin tocar el evento. */}
       {event.isOwner && (
-        <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-          <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Seguimiento para quien no corre</h2>
+        <Plegable
+          title="Seguimiento para quien no corre"
+          summary={event.publicToken ? 'enlace activo' : 'sin publicar'}
+        >
           {event.publicToken ? (
             <>
               <code className="block break-all rounded bg-slate-900 border border-slate-800 px-2 py-1.5 text-[11px] text-slate-300">
@@ -557,12 +572,11 @@ export default function EventLobby({ id }: { id: string }) {
               </p>
             </>
           )}
-        </section>
+        </Plegable>
       )}
 
       {event.isOwner && event.inviteCode && (
-        <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-          <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Invitar participantes</h2>
+        <Plegable title="Invitar participantes" summary="enlace listo">
           <p className="text-[11px] text-slate-500 mb-2">
             Este enlace sirve para todo el que quieras: se pega una vez en el grupo. Hace falta tener cuenta para entrar.
           </p>
@@ -577,7 +591,7 @@ export default function EventLobby({ id }: { id: string }) {
               Generar código nuevo
             </button>
           </div>
-        </section>
+        </Plegable>
       )}
 
       <div className="mt-6 flex gap-2">

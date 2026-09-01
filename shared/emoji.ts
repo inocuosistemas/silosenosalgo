@@ -18,8 +18,21 @@
  * guardar) y `src/` (para avisar mientras se escribe).
  */
 
-/** Banderas: dos indicadores regionales, 🇪🇸. */
+/**
+ * Banderas de país: dos indicadores regionales, 🇪🇸. NO se aceptan.
+ *
+ * Se marcan aparte para poder rechazarlas explícitamente: una carrera no es
+ * sitio para banderas, y un identificador que a alguien le sienta mal deja de
+ * ser una broma para convertirse en un problema del organizador. Las que no
+ * señalan a ningún país —🏁 la de meta, 🏴‍☠️ la pirata— siguen valiendo: son
+ * pictogramas normales y no pasan por aquí.
+ */
 const RE_FLAG = /^[\u{1F1E6}-\u{1F1FF}]{2}$/u
+
+/** True si es una bandera de país: para poder decir POR QUÉ no vale. */
+export function isCountryFlag(x: unknown): boolean {
+  return typeof x === 'string' && RE_FLAG.test(x.trim())
+}
 /** Teclas: 1️⃣ #️⃣ — dígito (o # / *) + selector + el marco U+20E3. */
 const RE_KEYCAP = /^[0-9#*]️?⃣$/
 /**
@@ -42,7 +55,8 @@ export function emojiOk(x: unknown): x is string {
   if (typeof x !== 'string') return false
   const v = x.trim()
   if (!v || v.length > EMOJI_MAX_UNITS) return false
-  return RE_FLAG.test(v) || RE_KEYCAP.test(v) || RE_PICTO.test(v)
+  if (RE_FLAG.test(v)) return false
+  return RE_KEYCAP.test(v) || RE_PICTO.test(v)
 }
 
 /**
@@ -56,8 +70,8 @@ export function foldEmoji(emoji: string): string {
 }
 
 /**
- * El repertorio con el que se reparte al entrar (no una limitación: en el lobby
- * se cambia por el que sea).
+ * El repertorio con el que se reparte al entrar (no una limitación: en la
+ * parrilla se cambia por el que sea).
  *
  * Elegidos por silueta y color distintos entre sí, que es lo único que importa
  * a 24 píxeles sobre un mapa en movimiento: no hay dos perros, ni dos frutas
@@ -79,7 +93,7 @@ export const EMOJI_POOL: readonly string[] = [
  *
  * `taken` son claves ya plegadas (`foldEmoji`). Devuelve `null` si no queda
  * ninguno —haría falta un evento de más de sesenta personas donde nadie haya
- * cambiado el suyo—, y entonces se entra sin marca y se elige en el lobby.
+ * cambiado el suyo—, y entonces se entra sin marca y se elige en la parrilla.
  */
 export function firstFreeEmoji(taken: readonly string[]): string | null {
   const used = new Set(taken)

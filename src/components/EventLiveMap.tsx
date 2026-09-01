@@ -54,6 +54,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [now, setNow] = useState(Date.now())
   /** Zoom actual: por debajo de cierto acercamiento los emojis no se leen. */
   const [zoom, setZoom] = useState(13)
+  /**
+   * A quién sigue el mapa. Con cien participantes repartidos por un valle, la
+   * pregunta deja de ser "¿cómo van todos?" y pasa a ser "¿dónde va el mío?":
+   * sin esto hay que buscarlo a mano en el mapa cada vez que se refresca.
+   */
+  const [following, setFollowing] = useState<string | null>(null)
   // La ruta se descarga UNA vez: son cientos de KB y no cambia en toda la
   // carrera, al revés que las posiciones.
   const planLoaded = useRef<string | null>(null)
@@ -117,6 +123,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
+  const followed = useMemo(() => withFix.find((x) => x.key === following) ?? null, [withFix, following])
 
   if (!isPublic && status !== 'ready') return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
   if (!isPublic && !user) {
@@ -201,11 +208,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
             )
           })}
 
+          {followed?.r.fix && (
+            <FollowRunner
+              lat={followed.r.fix.lat}
+              lon={followed.r.fix.lon}
+              onRelease={() => setFollowing(null)}
+            />
+          )}
           <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} routeFirst={route?.pts[0]} />
         </MapContainer>
       ) : (
         <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
                   eventId={source.kind === 'member' ? source.id : null}
+                  following={following}
+                  onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
                   onPick={(k) => { setSelected(k); setView('mapa') }} />
       )}
 
@@ -244,6 +260,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ← Parrilla
           </a>
         )}
+        {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
+            ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
+            un modo activo que no se ve es un modo que desconcierta. */}
+        {view === 'mapa' && followed && (
+          <button
+            onClick={() => setFollowing(null)}
+            className="pointer-events-auto absolute inset-x-0 top-14 mx-auto flex w-fit items-center gap-1.5 rounded-full border border-sky-800 bg-slate-900/90 px-3 py-1 text-[11px] text-sky-300 backdrop-blur hover:border-sky-600"
+          >
+            ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
+          </button>
+        )}
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
           {(['mapa', 'lista'] as const).map((v) => (
             <button
@@ -269,6 +296,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
             <RunnerCard
               row={sel} now={now} totalKm={route?.totalKm ?? null}
               eventId={source.kind === 'member' ? source.id : null}
+              following={following === sel.key}
+              onFollow={() => setFollowing(following === sel.key ? null : sel.key)}
               onClose={() => setSelected(null)}
             />
           )}
@@ -323,21 +352,56 @@ type Row = {
  * repartidos por un valle no se comparan de un vistazo— y de paso es la
  * clasificación oficiosa del grupo.
  */
-function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
+function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick }: {
   rows: Row[]
   totalKm: number | null
   now: number
   isPublic: boolean
   eventId: string | null
+  following: string | null
+  onFollow: (key: string) => void
   onPick: (key: string) => void
 }) {
+  const [query, setQuery] = useState('')
+  // Por nombre, por dorsal y por emoji: los tres son "como se llama" según
+  // quién pregunte. Sin tildes ni mayúsculas, que nadie las teclea con guantes.
+  const shown = useMemo(() => {
+    const q = fold(query)
+    if (!q) return rows
+    return rows.filter(({ r }) =>
+      fold(r.username).includes(q) || fold(r.bib ?? '').includes(q) || (r.emoji ?? '').includes(query.trim()))
+  }, [rows, query])
+
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-16">
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-16 scrollbar-fantasma">
+      {/* El buscador es lo que hace usable una carrera de cien: la lista deja
+          de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
+          gente como para que buscar sea más rápido que mirar. */}
+      {rows.length > 8 && (
+        // Pegado arriba: con cien filas, un buscador que se va con el
+        // desplazamiento obliga a subir del todo cada vez que se cambia de idea.
+        <div className="sticky top-14 z-[500] -mx-3 mb-2 bg-slate-950 px-3 pb-2">
+          <div className="relative">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar por nombre, dorsal o emoji…"
+            aria-label="Buscar participante"
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 pl-8 pr-3 py-2 text-sm focus:border-sky-600 focus:outline-none"
+          />
+          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-xs text-slate-600">🔍</span>
+          </div>
+        </div>
+      )}
       {rows.length === 0 && (
         <p className="mt-8 text-center text-sm text-slate-400">Todavía no hay participantes emitiendo.</p>
       )}
+      {rows.length > 0 && shown.length === 0 && (
+        <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
+      )}
       <ul className="space-y-1.5">
-        {rows.map(({ r, km, margin, stale, key }, i) => {
+        {shown.map(({ r, km, margin, stale, key }, i) => {
           return (
             <li key={key} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
               <div className="flex items-center gap-2">
@@ -372,6 +436,14 @@ function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
                 <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
                   {r.updatedAt !== null ? `hace ${agoLabel(now - r.updatedAt)}` : 'sin señal'}
                 </span>
+                {r.fix && (
+                  <button
+                    onClick={() => onFollow(key)}
+                    className={`shrink-0 ${following === key ? 'text-sky-300' : 'text-slate-400 hover:text-sky-400'}`}
+                  >
+                    {following === key ? '◎ siguiendo' : '◎ seguir'}
+                  </button>
+                )}
                 {!isPublic && r.sessionId && eventId && (
                   <a
                     href={`/?t=${encodeURIComponent(r.sessionId)}&e=${encodeURIComponent(eventId)}`}
@@ -390,11 +462,13 @@ function ListView({ rows, totalKm, now, isPublic, eventId, onPick }: {
 }
 
 /** La ficha del corredor elegido: lo justo para saber cómo va. */
-function RunnerCard({ row, now, totalKm, eventId, onClose }: {
+function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }: {
   row: Row
   now: number
   totalKm: number | null
   eventId: string | null
+  following: boolean
+  onFollow: () => void
   onClose: () => void
 }) {
   const { r, km, margin, stale } = row
@@ -410,7 +484,20 @@ function RunnerCard({ row, now, totalKm, eventId, onClose }: {
         )}
         <span className="truncate text-sm font-bold text-slate-100">{r.username}</span>
         {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
-        <button onClick={onClose} className="ml-auto shrink-0 text-lg leading-none text-slate-500 hover:text-slate-300">×</button>
+        {/* Seguir: el mapa se recoloca solo en cada refresco y deja de hacerlo
+            en cuanto se arrastra con la mano. */}
+        {r.fix && (
+          <button
+            onClick={onFollow}
+            title={following ? 'Dejar de seguirle' : 'Que el mapa le siga'}
+            className={`ml-auto shrink-0 rounded border px-2 py-0.5 text-[11px] transition-colors ${
+              following ? 'border-sky-700 bg-sky-950/60 text-sky-300' : 'border-slate-700 text-slate-300 hover:text-sky-400'
+            }`}
+          >
+            {following ? '◎ siguiendo' : '◎ seguir'}
+          </button>
+        )}
+        <button onClick={onClose} className={`shrink-0 text-lg leading-none text-slate-500 hover:text-slate-300 ${r.fix ? '' : 'ml-auto'}`}>×</button>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Dato valor={km !== null ? km.toFixed(1) : '—'} unidad={totalKm ? `de ${totalKm.toFixed(0)} km` : 'km'} />
@@ -518,6 +605,25 @@ function runnerIcon(color: string, emoji: string | null, selected: boolean, stal
 const EMOJI_ZOOM = 12
 const EMOJI_ALWAYS_UNDER = 12
 
+/**
+ * Mantiene el mapa centrado en quien se sigue, y suelta el seguimiento en
+ * cuanto el usuario arrastra.
+ *
+ * Lo segundo importa tanto como lo primero: un mapa que se recoloca solo cada
+ * diez segundos mientras intentas mirar otra cosa es un mapa peleándose
+ * contigo. `dragstart` solo lo dispara la mano, nunca el `panTo` de aquí.
+ */
+function FollowRunner({ lat, lon, onRelease }: { lat: number; lon: number; onRelease: () => void }) {
+  const map = useMap()
+  useEffect(() => { map.panTo([lat, lon], { animate: true }) }, [lat, lon, map])
+  useEffect(() => {
+    const soltar = () => onRelease()
+    map.on('dragstart', soltar)
+    return () => { map.off('dragstart', soltar) }
+  }, [map, onRelease])
+  return null
+}
+
 /** Avisa del zoom al componente de arriba: Leaflet lo tiene, React no. */
 function ZoomWatch({ onZoom }: { onZoom: (z: number) => void }) {
   const map = useMap()
@@ -528,6 +634,11 @@ function ZoomWatch({ onZoom }: { onZoom: (z: number) => void }) {
     return () => { map.off('zoomend', emit) }
   }, [map, onZoom])
   return null
+}
+
+/** Minúsculas y sin tildes, para comparar lo que se busca con lo que hay. */
+function fold(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 }
 
 /** Kilómetro de carrera: el vértice más cercano de la ruta. Sin ventana

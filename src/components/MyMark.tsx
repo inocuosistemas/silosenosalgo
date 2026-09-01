@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getProfile, saveProfile, authErrorMessage, AuthError } from '../lib/authClient'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
+import { Plegable } from './Plegable'
+import { eventColorHex, EVENT_COLORS } from '../../shared/eventColors'
 
 /**
  * "Mi marca": el emoji y el color con los que se entra a CUALQUIER evento.
@@ -54,8 +56,10 @@ export function MyMark() {
         </p>
       </div>
 
-      <div>
-        <h3 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Mi emoji</h3>
+      {/* Plegados en cuanto hay algo elegido: sesenta emojis y doce colores
+          desplegados son mucha pantalla para una decisión que se toma una vez
+          al año. El encabezado ya enseña cuál es. */}
+      <Plegable title="Mi emoji" defaultOpen={!emoji} summary={emoji ?? 'sin elegir'}>
         <EmojiField value={emoji} taken={[]} busy={busy} onPick={(e) => void guardar({ favEmoji: e })} />
         {emoji && (
           <button
@@ -66,10 +70,18 @@ export function MyMark() {
             Quitar mi emoji
           </button>
         )}
-      </div>
+      </Plegable>
 
-      <div>
-        <h3 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Mi color</h3>
+      <Plegable
+        title="Mi color"
+        defaultOpen={!color}
+        summary={color
+          ? <>
+              <span className="h-3 w-3 rounded-full" style={{ background: eventColorHex(color) }} />
+              {EVENT_COLORS.find((c) => c.slug === color)?.label ?? color}
+            </>
+          : 'sin elegir'}
+      >
         <ColorPalette value={color} taken={[]} busy={busy} onPick={(c) => void guardar({ favColor: c })} />
         {color && (
           <button
@@ -80,7 +92,7 @@ export function MyMark() {
             Quitar mi color
           </button>
         )}
-      </div>
+      </Plegable>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
       {saved && !error && <p className="text-xs text-emerald-400">Guardado ✓</p>}
