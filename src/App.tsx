@@ -2032,10 +2032,14 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             const disabledTitle = 'Disponible al calcular el plan (botón Calcular)'
             const disabledCls = 'bg-slate-900/60 text-slate-600 opacity-50 cursor-not-allowed italic'
             return (
-            // Y si aun así no cupieran —un botón más, una pantalla más
-            // estrecha—, la fila se desplaza en horizontal ella sola en vez de
-            // estirar la página entera.
-            <div className={`flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-fantasma ${
+            // SIN overflow-x-auto, y no por descuido: el menú de usuario y el
+            // panel de previsiones se despliegan en absoluto DENTRO de esta
+            // fila, y un contenedor con overflow-x auto también recorta en
+            // vertical (overflow-y pasa a computar auto) — el menú se abría y
+            // moría recortado a la altura de la fila. Si algún día no caben
+            // los botones, la fila entera baja de línea (el padre lleva
+            // flex-wrap) y el recorte de página de index.css sigue de red.
+            <div className={`flex max-w-full shrink-0 items-center gap-2 ${
               cabeceraCompacta ? 'ml-auto' : 'w-full justify-end sm:w-auto sm:ml-auto'
             }`}>
               <GuideLoader onLoad={onGuideLoaded} />
