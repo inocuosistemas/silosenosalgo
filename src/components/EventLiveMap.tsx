@@ -63,6 +63,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * de un toque.
    */
   const [panelOpen, setPanelOpen] = useState(true)
+  /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
+  const [profileOpen, setProfileOpen] = useState(true)
   /** Zoom actual: por debajo de cierto acercamiento los emojis no se leen. */
   const [zoom, setZoom] = useState(13)
   /**
@@ -171,6 +173,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [startsAt, plan])
 
   /**
+   * El perfil del recorrido, calculado UNA vez: la silueta en coordenadas de
+   * SVG más una función para saber a qué altura va quien pasa por un km.
+   *
+   * Se muestrea a ~400 puntos: la silueta de una carrera de 40 km no gana nada
+   * con los 5.000 puntos del GPX y sí cuesta pintarlos en cada refresco.
+   */
+  const profile = useMemo(() => (plan ? buildProfile(plan.track) : null), [plan])
+
+  /**
    * La carrera en tres números: cuánto mide, cuánto sube y cuánto tiempo hay.
    *
    * El tiempo disponible es el último cierre menos la salida — el corte de
@@ -189,6 +200,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [plan, cutoffs, startMs])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  /** La pantalla de espera: nadie ha mandado posición todavía. */
+  const waiting = runners !== null && withFix.length === 0
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
   const followed = useMemo(() => withFix.find((x) => x.key === following) ?? null, [withFix, following])
 
@@ -405,7 +418,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
           al punto con el dedo. Solo en el mapa; la lista ya es su propia
           leyenda. */}
       {view === 'mapa' && (
-        <div className="absolute inset-x-0 bottom-0 z-[1000] p-3">
+        <div className="absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
+          <div className="p-3 pb-1">
           {sel && (
             <RunnerCard
               row={sel} now={now} totalKm={route?.totalKm ?? null}
@@ -454,6 +468,36 @@ export default function EventLiveMap({ source }: { source: Source }) {
               )
             })}
           </div>
+          {/* Plegado, el reloj sigue a la vista y encima del perfil: es lo que
+              no se quiere perder mientras se mira por dónde pasa la carrera. */}
+          {waiting && !panelOpen && (
+            <div className="flex justify-center pb-1">
+              <button
+                onClick={() => setPanelOpen(true)}
+                className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs text-slate-200 shadow-lg shadow-slate-950/50 backdrop-blur hover:border-sky-700"
+              >
+                {startMs !== null && (
+                  <span className="font-mono tabular-nums text-slate-100">{countdownText(startMs - now)}</span>
+                )}
+                <span className="text-slate-400">{rows.length} en parrilla</span>
+                <span className="text-slate-500">▲</span>
+              </button>
+            </div>
+          )}
+          </div>
+          {/* El perfil, pegado abajo y a lo ancho: es la otra gráfica de la
+              carrera, y los mismos puntos de colores salen en las dos. */}
+          {profile && (
+            <EventProfile
+              profile={profile}
+              rows={rows}
+              pois={pois}
+              selected={selected}
+              onSelect={(k) => setSelected(k === selected ? null : k)}
+              open={profileOpen}
+              onToggle={() => setProfileOpen((v) => !v)}
+            />
+          )}
         </div>
       )}
 
@@ -462,12 +506,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
           un reloj que corre lo dice mejor que cualquier frase. El aviso de que
           los puntos llegarán cuando cada uno comparta su posición sigue ahí,
           pero pequeño y debajo: explica, no es la noticia. */}
-      {runners !== null && withFix.length === 0 && view === 'mapa' && (
-        panelOpen ? (
-        <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4">
+      {waiting && panelOpen && view === 'mapa' && (
+        <div className={`pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4 ${
+          profile && profileOpen ? 'pb-36' : 'pb-12'
+        }`}>
           {/* Alto acotado y con scroll dentro: en un movil bajo, el cartel más
-              el reloj más una parrilla larga se salían de la pantalla. */}
-          <div className="pointer-events-auto relative max-h-[calc(100dvh-5rem)] w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-slate-700 bg-slate-900 text-center shadow-xl shadow-slate-950/60">
+              el reloj más una parrilla larga se salían de la pantalla —y ahora
+              el perfil se lleva su trozo de abajo. */}
+          <div
+            className="pointer-events-auto relative w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-slate-700 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
+            style={{ maxHeight: profile && profileOpen ? 'calc(100dvh - 13rem)' : 'calc(100dvh - 6rem)' }}
+          >
             {/* Plegar: en el móvil este cuadro tapa el trazado, que es lo otro
                 que se viene a ver. Sale abierto porque antes de la salida el
                 reloj manda, y se recupera de un toque en la chapa de abajo. */}
@@ -529,25 +578,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </div>
           </div>
         </div>
-        ) : (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[900] flex justify-center p-3">
-            <button
-              onClick={() => setPanelOpen(true)}
-              className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs text-slate-200 shadow-lg shadow-slate-950/50 backdrop-blur hover:border-sky-700"
-            >
-              {/* Plegado sigue contando: el reloj es justo lo que no se quiere
-                  perder de vista mientras se mira el trazado. */}
-              {startMs !== null && (
-                <span className="font-mono tabular-nums text-slate-100">{countdownText(startMs - now)}</span>
-              )}
-              <span className="text-slate-400">
-                {rows.length} en parrilla
-              </span>
-              <span className="text-slate-500">▲</span>
-            </button>
-          </div>
-        )
-      )}
+        )}
     </div>
   )
 }
@@ -967,6 +998,165 @@ function StartCountdown({ startMs, now }: { startMs: number; now: number }) {
         })}
       </p>
     </>
+  )
+}
+
+/**
+ * El perfil del recorrido: silueta en coordenadas de SVG + altura por km.
+ *
+ * El SVG se estira con `preserveAspectRatio="none"`, así que se dibuja en una
+ * caja fija de 1000×100 y quien lo pinta lo escala a lo ancho que tenga. La
+ * altura de cada corredor NO se saca de la silueta muestreada sino del track
+ * entero (`eleAtKm`): el punto tiene que caer donde de verdad está, no donde
+ * cayó la muestra más cercana.
+ */
+const PROF_W = 1000
+const PROF_H = 100
+/** Recorrido casi llano: sin un mínimo de desnivel la silueta sale inventada. */
+const PROF_MIN_SPAN_M = 300
+
+interface Profile {
+  line: string
+  area: string
+  minE: number
+  maxE: number
+  totalKm: number
+  /** Y en coordenadas del SVG (0 arriba) para una altura dada. */
+  y: (ele: number) => number
+  /** Altura interpolada en un km del recorrido. */
+  eleAtKm: (km: number) => number
+}
+
+function buildProfile(track: { points: { ele: number }[]; cumKm: number[]; totalDistanceKm: number }): Profile | null {
+  const { points, cumKm } = track
+  if (points.length < 2 || cumKm.length !== points.length) return null
+  const totalKm = track.totalDistanceKm || cumKm[cumKm.length - 1] || 1
+
+  const step = Math.max(1, Math.ceil(points.length / 400))
+  const sel: number[] = []
+  for (let i = 0; i < points.length; i += step) sel.push(i)
+  if (sel[sel.length - 1] !== points.length - 1) sel.push(points.length - 1)
+
+  let minE = Infinity, maxE = -Infinity
+  for (const i of sel) {
+    const e = points[i].ele
+    if (e < minE) minE = e
+    if (e > maxE) maxE = e
+  }
+  if (!Number.isFinite(minE) || !Number.isFinite(maxE)) return null
+  if (maxE - minE < PROF_MIN_SPAN_M) {
+    const mid = (minE + maxE) / 2
+    minE = mid - PROF_MIN_SPAN_M / 2
+    maxE = mid + PROF_MIN_SPAN_M / 2
+  }
+  const eleSpan = maxE - minE || 1
+  const x = (km: number) => (km / totalKm) * PROF_W
+  const y = (ele: number) => PROF_H - 3 - ((ele - minE) / eleSpan) * (PROF_H - 6)
+
+  const coords = sel.map((i) => `${x(cumKm[i]).toFixed(1)},${y(points[i].ele).toFixed(1)}`)
+  const line = `M${coords.join('L')}`
+  const area = `M${x(cumKm[sel[0]]).toFixed(1)},${PROF_H}L${coords.join('L')}L${x(cumKm[sel[sel.length - 1]]).toFixed(1)},${PROF_H}Z`
+
+  const eleAtKm = (km: number): number => {
+    if (km <= cumKm[0]) return points[0].ele
+    if (km >= cumKm[cumKm.length - 1]) return points[points.length - 1].ele
+    // Binaria: el track puede traer miles de puntos y esto corre por corredor
+    // en cada refresco.
+    let lo = 0, hi = cumKm.length - 1
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1
+      if (cumKm[mid] <= km) lo = mid; else hi = mid
+    }
+    const span = cumKm[hi] - cumKm[lo]
+    const t = span > 0 ? (km - cumKm[lo]) / span : 0
+    return points[lo].ele + t * (points[hi].ele - points[lo].ele)
+  }
+
+  return { line, area, minE, maxE, totalKm, y, eleAtKm }
+}
+
+/**
+ * El perfil abajo del todo, con cada corredor en su sitio.
+ *
+ * El mapa dice DÓNDE va cada uno; el perfil dice CONTRA QUÉ va: quien está a
+ * mitad de una pared de 400 m no lleva la misma carrera que quien baja hacia
+ * meta aunque los dos vayan por el km 22. Antes de la salida sirve solo: es la
+ * carrera que se va a correr, de un vistazo.
+ */
+function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle }: {
+  profile: Profile
+  rows: Row[]
+  pois: { km: number; name: string; cutoffAt: number | null }[]
+  selected: string | null
+  onSelect: (key: string) => void
+  open: boolean
+  onToggle: () => void
+}) {
+  const { totalKm } = profile
+  return (
+    <div className="pointer-events-auto border-t border-slate-800 bg-slate-950/90 backdrop-blur">
+      <div className="flex items-center justify-between px-3 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+        <span>Perfil · {Math.round(profile.minE)}–{Math.round(profile.maxE)} m</span>
+        <button onClick={onToggle} className="rounded px-1.5 py-0.5 text-slate-400 hover:text-slate-200">
+          {open ? 'ocultar ▼' : 'ver el perfil ▲'}
+        </button>
+      </div>
+      {open && (
+        <div className="relative h-24 w-full">
+          <svg viewBox={`0 0 ${PROF_W} ${PROF_H}`} preserveAspectRatio="none" className="block h-full w-full">
+            <defs>
+              <linearGradient id="profFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.05" />
+              </linearGradient>
+            </defs>
+            <path d={profile.area} fill="url(#profFill)" />
+            <path d={profile.line} fill="none" stroke="#a78bfa" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+            {/* Los puntos del recorrido, como rayas verticales: los cierres en
+                ámbar, que son los que mandan. Sin nombre —no cabe— pero el
+                mapa los lleva rotulados justo encima. */}
+            {pois.map((poi) => (
+              <line
+                key={`${poi.km}-${poi.name}`}
+                x1={(poi.km / totalKm) * PROF_W} x2={(poi.km / totalKm) * PROF_W}
+                y1={0} y2={PROF_H}
+                stroke={poi.cutoffAt ? '#f59e0b' : '#475569'}
+                strokeWidth={1}
+                strokeOpacity={poi.cutoffAt ? 0.7 : 0.5}
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </svg>
+          {/* Los corredores van como HTML encima y no como <circle>: el SVG se
+              estira a lo ancho y un círculo dentro saldría ovalado. */}
+          {rows.map(({ r, km, key }) => {
+            if (km === null) return null
+            const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+            const isSel = key === selected
+            return (
+              <button
+                key={key}
+                onClick={() => onSelect(key)}
+                title={`${r.username} · km ${km.toFixed(1)} · ${Math.round(profile.eleAtKm(km))} m`}
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-950 transition-transform hover:scale-125"
+                style={{
+                  left: `${Math.max(0, Math.min(100, (km / totalKm) * 100))}%`,
+                  top: `${(profile.y(profile.eleAtKm(km)) / PROF_H) * 100}%`,
+                  width: isSel ? 16 : 12,
+                  height: isSel ? 16 : 12,
+                  background: color,
+                  boxShadow: isSel ? `0 0 0 2px ${color}` : undefined,
+                }}
+              />
+            )
+          })}
+          <span className="pointer-events-none absolute bottom-0.5 left-2 text-[10px] tabular-nums text-slate-500">0</span>
+          <span className="pointer-events-none absolute bottom-0.5 right-2 text-[10px] tabular-nums text-slate-500">
+            {totalKm.toFixed(1)} km
+          </span>
+        </div>
+      )}
+    </div>
   )
 }
 
