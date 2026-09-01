@@ -180,6 +180,56 @@ function Field(props: {
   )
 }
 
+/**
+ * Contraseña con OJO para verla mientras se escribe.
+ *
+ * En un móvil, a oscuras y con prisa, escribir una contraseña a ciegas y no
+ * poder comprobarla es la receta de acabar con una que no querías —y aquí no
+ * hay "he olvidado mi contraseña" que valga, así que el error se paga caro.
+ * Ver lo que se teclea es lo que de verdad evita la equivocación; la
+ * repetición de abajo solo la detecta.
+ */
+function PasswordField(props: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  autoComplete?: string
+  placeholder?: string
+  /** Aviso propio del campo (p. ej. "no coinciden"), en rojo bajo el borde. */
+  error?: string | null
+}) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div>
+      <label className="block text-xs text-slate-400 mb-1">{props.label}</label>
+      <div className="relative">
+        <input
+          type={visible ? 'text' : 'password'}
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete={props.autoComplete}
+          value={props.value}
+          onChange={(e) => props.onChange(e.target.value)}
+          placeholder={props.placeholder}
+          className={`w-full rounded-lg bg-slate-950 border px-3 py-2 pr-10 text-sm focus:outline-none ${
+            props.error ? 'border-red-800 focus:border-red-600' : 'border-slate-700 focus:border-sky-600'
+          }`}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-sky-400"
+        >
+          {visible ? '🙈' : '👁️'}
+        </button>
+      </div>
+      {props.error && <p className="mt-1 text-[11px] text-red-400">{props.error}</p>}
+    </div>
+  )
+}
+
 function LoginForm({ onSubmit, onDone }: { onSubmit: (u: string, p: string) => Promise<void>; onDone: () => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -203,7 +253,9 @@ function LoginForm({ onSubmit, onDone }: { onSubmit: (u: string, p: string) => P
   return (
     <form onSubmit={submit} className="space-y-3">
       <Field label="Usuario" type="text" value={username} onChange={setUsername} autoComplete="username" placeholder="tu_usuario" />
-      <Field label="Contraseña" type="password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="••••••••" />
+      {/* También aquí el ojo: quien duda de si tecleó bien su contraseña
+          necesita comprobarlo justo en el sitio donde se le rechaza. */}
+      <PasswordField label="Contraseña" value={password} onChange={setPassword} autoComplete="current-password" placeholder="••••••••" />
       {error && <p className="text-red-400 text-xs">{error}</p>}
       <button
         type="submit"
@@ -228,13 +280,19 @@ function RegisterForm({
 }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Solo cuando ya se ha escrito algo en la repetición: avisar de que "no
+  // coinciden" en cuanto se teclea la primera letra es regañar por adelantado.
+  const mismatch = password2.length > 0 && password !== password2
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (!usernameOk(username)) { setError(authErrorMessage('invalid_username')); return }
     if (!passwordOk(password)) { setError(authErrorMessage('invalid_password')); return }
+    if (password !== password2) { setError('Las dos contraseñas no coinciden.'); return }
     setBusy(true)
     setError(null)
     try {
@@ -251,11 +309,22 @@ function RegisterForm({
     <form onSubmit={submit} className="space-y-3">
       <p className="text-xs text-slate-400">Te han invitado a SiLoSeNoSalgo. Elige tu usuario y contraseña.</p>
       <Field label="Usuario" type="text" value={username} onChange={setUsername} autoComplete="username" placeholder="3–32 car.: a–z, 0–9, . _ -" />
-      <Field label="Contraseña" type="password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="mínimo 8 caracteres" />
+      <PasswordField label="Contraseña" value={password} onChange={setPassword} autoComplete="new-password" placeholder="mínimo 8 caracteres" />
+      {/* Se pide dos veces porque una contraseña mal tecleada aquí no tiene
+          arreglo desde la propia aplicación: no hay recuperación por correo, y
+          quien se equivoca se queda fuera de su cuenta recién creada. */}
+      <PasswordField
+        label="Repite la contraseña"
+        value={password2}
+        onChange={setPassword2}
+        autoComplete="new-password"
+        placeholder="la misma, para comprobar"
+        error={mismatch ? 'No coinciden.' : null}
+      />
       {error && <p className="text-red-400 text-xs">{error}</p>}
       <button
         type="submit"
-        disabled={busy || !username || !password}
+        disabled={busy || !username || !password || !password2 || mismatch}
         className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 transition-colors"
       >
         {busy ? 'Creando…' : 'Crear cuenta'}
