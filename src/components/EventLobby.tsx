@@ -311,6 +311,15 @@ export default function EventLobby({ id }: { id: string }) {
           `${members.length} ${members.length === 1 ? 'participante' : 'participantes'}`,
         ].filter(Boolean).join(' · ')}
       </p>
+      {/* Cuándo se publicó por última vez el recorrido. Sale para todos, no
+          solo para quien organiza: es el dato que dice si lo que tienes
+          planificado se hizo sobre esta versión o sobre una anterior. Va en
+          línea aparte para que no se confunda con la fecha de la carrera. */}
+      {event.planUpdatedAt != null && (
+        <p className="text-[11px] text-slate-500 mt-0.5">
+          Recorrido actualizado el {fmtDate(event.planUpdatedAt)}
+        </p>
+      )}
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
 

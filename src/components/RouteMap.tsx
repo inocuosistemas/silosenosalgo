@@ -5,6 +5,7 @@ import L from 'leaflet'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
 import { projectToTrack } from '../lib/customPois'
+import { cutoffWptKey } from '../lib/cutoffInference'
 import type { EnrichedWaypoint, EnrichedNamedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
 import { formatTime, formatDuration, haversineKm, elevationStatsForSegment, splitHoursMinutes } from '../lib/timing'
@@ -158,6 +159,15 @@ interface Props {
    * (its stable key upstream); `km` is the new snapped distance along the track.
    */
   onMovePoi?: (lat: number, lon: number, km: number) => void
+  /** Hora de salida — con ella el corte enseña, además de la hora, el tiempo de carrera. */
+  startTime?: Date
+  /**
+   * Cierres del evento por POI (clave `lat,lon` a 6 decimales), ya con el día
+   * inferido. El popup tira de aquí cuando el POI todavía no trae `cutoffTime`:
+   * la hora de corte es de la carrera y no depende de a qué ritmo vaya nadie,
+   * así que se puede enseñar antes de que haya plan calculado.
+   */
+  cutoffTimes?: Map<string, Date>
 }
 
 const DAYLIGHT_COLOR: Record<DaylightBand, string> = {
@@ -376,6 +386,8 @@ export function RouteMap({
   headerSlot,
   editablePois = false,
   onMovePoi,
+  startTime,
+  cutoffTimes,
 }: Props) {
   const { points } = track
 
@@ -1676,6 +1688,9 @@ export function RouteMap({
               // remounted as the list re-sorts after a move (and so a drag commits
               // against the right identity).
               const stableKey = `nwp-${wpt.lat.toFixed(6)},${wpt.lon.toFixed(6)}`
+              // El corte es dato de la carrera: si el POI aún no lo trae (antes
+              // de calcular el plan) se lee del mapa de cierres del evento.
+              const cutoffAt = wpt.cutoffTime ?? cutoffTimes?.get(cutoffWptKey(wpt.lat, wpt.lon)) ?? null
               return (
               <Marker
                 key={stableKey}
@@ -1718,10 +1733,15 @@ export function RouteMap({
                     {wpt.estimatedTime && (
                       <p>⏱️ Llegada: {formatTime(wpt.estimatedTime)}</p>
                     )}
-                    {wpt.cutoffTime && (
+                    {cutoffAt && (
                       <>
-                        <p style={{ color: '#fbbf24' }}>
-                          🚧 Corte: {formatTime(wpt.cutoffTime)}
+                        <p style={{ color: '#b45309' }}>
+                          🚧 Corte: {formatTime(cutoffAt)}
+                          {startTime && cutoffAt.getTime() > startTime.getTime() && (
+                            <span style={{ color: '#64748b' }}>
+                              {' · '}{formatDuration(cutoffAt.getTime() - startTime.getTime())} de carrera
+                            </span>
+                          )}
                         </p>
                         {wpt.cutoffMarginMin !== undefined && (
                           <p style={{

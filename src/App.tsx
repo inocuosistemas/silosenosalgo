@@ -2467,6 +2467,8 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             hoverKm={hoverKm}
             editablePois={appMode === 'plan' && relocatePois}
             onMovePoi={handleMovePoi}
+            startTime={startTime}
+            cutoffTimes={cutoffTimes}
           />
         )}
 
