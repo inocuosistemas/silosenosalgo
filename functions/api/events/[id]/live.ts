@@ -55,10 +55,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // desaparecía de la pantalla justo cuando lo que se pregunta es "¿ya está
   // emitiendo el mío?" — y no salir era indistinguible de no participar.
   //
-  // De cada uno, su sesión MÁS RECIENTE, esté activa o terminada: quien ya ha
-  // llegado a meta sigue siendo parte de la carrera y su último punto es justo
-  // lo que quieren ver los demás. El filtro por started_at máximo evita que una
-  // sesión reabierta duplique al corredor.
+  // De cada uno, UNA sesión: la que de verdad cuenta. Manda la que sigue
+  // abierta; entre varias, la que trae noticias más frescas, luego la de salida
+  // más tardía y, en último término, la fila más nueva.
+  //
+  // Se elige por id y no "la del started_at máximo" porque eso dejó de ser
+  // único: desde que elegir el evento pone su hora oficial de salida, todas las
+  // sesiones de una misma carrera comparten started_at, y quien armaba la
+  // baliza dos veces salía DUPLICADO en la parrilla —una vez "sin emitir" y
+  // otra "preparado"—. Terminada también vale: quien ya llegó a meta sigue
+  // siendo parte de la carrera y su último punto es lo que quieren ver.
   const rows = await env.DB.prepare(
     `SELECT t.id, m.user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
@@ -67,9 +73,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
-              ON t.event_id = m.event_id AND t.owner_user_id = m.user_id
-             AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
-                                  WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id)
+              ON t.id = (SELECT t2.id FROM tracking_sessions t2
+                          WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id
+                          ORDER BY (t2.status = 'active') DESC,
+                                   COALESCE(t2.updated_at, 0) DESC,
+                                   t2.started_at DESC,
+                                   t2.rowid DESC
+                          LIMIT 1)
       WHERE m.event_id = ?
       ORDER BY u.username`,
   ).bind(id).all<{

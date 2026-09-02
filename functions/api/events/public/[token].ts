@@ -52,9 +52,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
-              ON t.event_id = m.event_id AND t.owner_user_id = m.user_id
-             AND t.started_at = (SELECT MAX(t2.started_at) FROM tracking_sessions t2
-                                  WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id)
+              ON t.id = (SELECT t2.id FROM tracking_sessions t2
+                          WHERE t2.event_id = m.event_id AND t2.owner_user_id = m.user_id
+                          ORDER BY (t2.status = 'active') DESC,
+                                   COALESCE(t2.updated_at, 0) DESC,
+                                   t2.started_at DESC,
+                                   t2.rowid DESC
+                          LIMIT 1)
       WHERE m.event_id = ?
       ORDER BY u.username`,
   ).bind(ev.id).all<{
