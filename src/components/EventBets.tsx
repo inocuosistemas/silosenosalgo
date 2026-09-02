@@ -3,6 +3,8 @@ import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import { scoreBets, betMedal, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
 import { MarkBadge } from './MarkPicker'
+import { useAuth } from '../lib/AuthContext'
+import { Modal, LoginForm } from './AuthMenu'
 
 /**
  * La Porra: la pantalla donde quien mira se moja.
@@ -35,6 +37,8 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
   limitMin: number | null
   onBack: () => void
 }) {
+  const { user, login } = useAuth()
+  const [showLogin, setShowLogin] = useState(false)
   const [data, setData] = useState<EventBetsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -89,8 +93,10 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
     // cambian si alguien apuesta, así que basta con mirar de vez en cuando.
     const t = window.setInterval(() => void cargar(), 60_000)
     return () => window.clearInterval(t)
+    // Con la sesión en las dependencias: entrar desde aquí mismo tiene que
+    // convertir el "hace falta cuenta" en el formulario, sin recargar nada.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId])
+  }, [eventId, user?.username])
 
   const ranking = useMemo(
     () => (data ? scoreBets(data.bets, outcomes, data.startsAt) : []),
@@ -126,24 +132,55 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
   return (
     // Acotada y centrada: es una pantalla de texto, y a 1400 px de ancho una
     // fila de "Ana · acaba · +15" se lee de esquina a esquina.
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-24 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-28 scrollbar-fantasma">
       <div className="mx-auto w-full max-w-2xl">
-      <header className="mb-3">
+      <header className="mb-4">
         <h1 className="text-lg font-bold text-slate-100">🔮 La Porra</h1>
-        <p className="text-xs text-slate-400">
-          Aquí no se juega dinero: se juega el orgullo. Pronostica antes de la salida y mira cómo el
-          mapa te va dando o quitando la razón. Juega todo el mundo, corras o no — y sí, puedes
-          apostar por ti.
+        <p className="mt-0.5 text-xs text-slate-400">
+          Ni un euro: se juega el orgullo. Se pronostica hasta la salida; luego el mapa da y quita la razón.
         </p>
       </header>
 
+      {/* Quién juega, lo primero. La porra es de una cuenta, y sin ver cuál está
+          abierta —o que no hay ninguna— no se entiende ni por qué no sale el
+          formulario ni a nombre de quién va lo que se echa. */}
+      <section className={`mb-4 flex items-center gap-3 rounded-xl border p-3 ${
+        user ? 'border-slate-800 bg-slate-900/60' : 'border-amber-800/60 bg-amber-950/20'
+      }`}>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-800 text-lg">👤</span>
+        {user ? (
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wider text-slate-500">Juegas como</p>
+            <p className="truncate text-sm font-semibold text-slate-100">{user.username}</p>
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-100">No has iniciado sesión</p>
+            <p className="text-[11px] text-amber-200/70">Para pronosticar hace falta cuenta; mirar puede cualquiera.</p>
+          </div>
+        )}
+        {!user && (
+          <button
+            onClick={() => setShowLogin(true)}
+            className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
+          >
+            Entrar
+          </button>
+        )}
+      </section>
+
+      {showLogin && !user && (
+        <Modal title="Iniciar sesión" onClose={() => setShowLogin(false)}>
+          <LoginForm onSubmit={login} onDone={() => setShowLogin(false)} />
+        </Modal>
+      )}
+
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
 
-      {/* Por qué no puedes jugar, si es el caso. Un botón apagado sin
-          explicación es lo más irritante que hay. */}
-      {data && !puedeJugar && (
-        <p className="mb-3 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5 text-xs text-slate-400">
-          {data.whyNot === 'anon' && <>Para pronosticar hace falta cuenta — el ranking tiene que ser de alguien. Mirar, en cambio, puede cualquiera.</>}
+      {/* Por qué no puedes jugar, cuando no es por la cuenta: eso ya lo dice
+          la tarjeta de arriba, con su botón. */}
+      {data && !puedeJugar && data.whyNot && data.whyNot !== 'anon' && (
+        <p className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
           {data.whyNot === 'cerrada' && <>La porra se cerró en la salida. A las dos horas de carrera, acertar quién acaba ya no tiene mérito.</>}
           {data.whyNot === 'desactivada' && <>Esta carrera no tiene porra.</>}
         </p>
@@ -151,7 +188,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
 
       {/* ── El formulario, solo antes de la salida ───────────────────────── */}
       {puedeJugar && (
-        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
           <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Tu porra</h2>
 
           {/* El orden de llegada se monta TOCANDO en orden, que es como se
@@ -291,7 +328,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
       )}
 
       {/* ── El ranking ───────────────────────────────────────────────────── */}
-      <section>
+      <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
           Los oráculos {ranking.length > 0 && `· ${ranking.length}`}
         </h2>
@@ -302,8 +339,8 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
         ) : (
           <ul className="mt-1.5 space-y-1.5">
             {ranking.map((s, i) => (
-              <li key={s.author} className={`rounded-xl border p-2.5 ${
-                i === 0 && s.points > 0 ? 'border-amber-700/60 bg-amber-950/20' : 'border-slate-800 bg-slate-900/60'
+              <li key={s.author} className={`rounded-lg border p-2.5 ${
+                i === 0 && s.points > 0 ? 'border-amber-700/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/50'
               }`}>
                 <div className="flex items-center gap-2">
                   <span className="w-5 shrink-0 text-center text-sm">{betMedal(i)}</span>
@@ -344,7 +381,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
       </section>
 
       {/* Las reglas, al final y en pequeño: se juega antes de leerlas. */}
-      <details className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 p-2.5">
+      <details className="mb-4 rounded-xl border border-slate-800 bg-slate-900/40 p-3.5">
         <summary className="cursor-pointer text-[11px] uppercase tracking-wider text-slate-500">Cómo se puntúa</summary>
         <ul className="mt-2 space-y-1 text-[11px] text-slate-400">
           <li><b className="text-slate-200">20</b> — clavar el puesto de alguien en el orden de llegada.</li>
@@ -361,7 +398,12 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
         </ul>
       </details>
 
-      <button onClick={onBack} className="mt-4 text-xs text-sky-400 hover:text-sky-300">← Volver al mapa</button>
+      <button
+        onClick={onBack}
+        className="w-full rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
+      >
+        ← Volver al mapa
+      </button>
       </div>
     </div>
   )
@@ -422,7 +464,7 @@ function BetsPulse({ bets, runners, startsAt, limitMin }: {
   ) || 1
 
   return (
-    <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+    <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
       <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
         Cómo está la porra · {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
       </h2>

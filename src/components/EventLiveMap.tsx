@@ -15,6 +15,7 @@ import {
 import { isHttpUrl } from '../../shared/validate'
 import { MarkBadge } from './MarkPicker'
 import { EventBets, type BetRunner } from './EventBets'
+import { AuthMenu } from './AuthMenu'
 import type { RunnerOutcome } from '../lib/bets'
 
 /**
@@ -502,7 +503,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
           </button>
         )}
-        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
+        {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
+            hay porra: se pronostica con una cuenta, y sin saber cuál está
+            abierta —o si hay alguna— no se entiende por qué no se puede. */}
+        <div className="pointer-events-auto flex items-center gap-1.5">
+        <AuthMenu />
+        <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
           {(betsEnabled ? (['mapa', 'lista', 'porra'] as const) : (['mapa', 'lista'] as const)).map((v) => (
             <button
               key={v}
@@ -514,6 +520,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               {v === 'porra' ? '🔮 porra' : v}
             </button>
           ))}
+        </div>
         </div>
       </div>
       </div>
@@ -690,9 +697,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 className="mt-3 w-full rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-100 transition-colors hover:border-amber-600"
               >
                 🔮 Echa tu porra
-                <span className="mt-0.5 block text-[10px] font-normal text-amber-200/60">
-                  Ni un euro: se juega el orgullo. Solo hasta la salida.
-                </span>
               </button>
             )}
             <p className="mt-3 border-t border-slate-800 pt-2.5 text-[11px] leading-snug text-slate-500">
@@ -744,7 +748,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 pb-6 pt-24 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 pb-6 pt-28 scrollbar-fantasma">
       <div className="mx-auto w-full max-w-2xl px-3">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante

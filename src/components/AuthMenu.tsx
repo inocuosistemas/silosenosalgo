@@ -188,7 +188,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
  * fixed positioning. The overlay also scrolls when the card is taller than the
  * viewport (min-h-full + items-center inside an overflow-y-auto layer).
  */
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return createPortal(
     <div className="fixed inset-0 z-[2000] overflow-y-auto bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="flex min-h-full items-center justify-center p-4">
@@ -283,7 +283,7 @@ function PasswordField(props: {
   )
 }
 
-function LoginForm({ onSubmit, onDone }: { onSubmit: (u: string, p: string) => Promise<void>; onDone: () => void }) {
+export function LoginForm({ onSubmit, onDone }: { onSubmit: (u: string, p: string) => Promise<void>; onDone: () => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
