@@ -462,7 +462,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
         }`}
       >
       <div className="mx-auto flex max-w-5xl items-start justify-between gap-2 p-3">
-        {isPublic ? (
+        {/* Con el cuadro de la salida abierto, la pastilla de la carrera SOBRA:
+            dice lo mismo que él —el cartel ya lleva el nombre— y encima le
+            estorba, que en un móvil el botón de la web acaba pegado a su
+            esquina. Desaparece mientras está abierto y vuelve al plegarlo, con
+            los tres números y los enlaces oficiales dentro del cuadro para no
+            perder nada por el camino. */}
+        {isPublic && waiting && panelOpen && view === 'mapa' ? (
+          <div />
+        ) : isPublic ? (
           /* Fuera del mapa, la presentación sobra: ahí lo que hace falta es
              saber qué carrera es y poder volver. Los tres números y los enlaces
              de la organización se quedan en el mapa, que es donde hay sitio —en
@@ -687,6 +695,24 @@ export default function EventLiveMap({ source }: { source: Source }) {
               />
             )}
             <div className="p-4">
+            {/* El nombre, solo si no hay cartel: cuando lo hay, ya lo lleva
+                dibujado y repetirlo debajo es decirlo dos veces. */}
+            {!photoUrl && (
+              <p className="mb-1 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
+            )}
+            {raceStats && (
+              <p className="mb-2.5 flex flex-wrap items-center justify-center gap-x-2 text-[11px] tabular-nums text-slate-400">
+                <span>{raceStats.km.toFixed(1)} km</span>
+                <span className="text-slate-600">·</span>
+                <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
+                {raceStats.limitMin !== null && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <span>límite {durLabel(raceStats.limitMin)}</span>
+                  </>
+                )}
+              </p>
+            )}
             {startMs !== null ? (
               <StartCountdown startMs={startMs} now={now} />
             ) : (
@@ -735,6 +761,25 @@ export default function EventLiveMap({ source }: { source: Source }) {
             <p className="mt-3 border-t border-slate-800 pt-2.5 text-[11px] leading-snug text-slate-500">
               Los participantes aparecerán en el mapa cuando empiecen a compartir su posición.
             </p>
+            {/* Los enlaces de la organización, aquí dentro mientras el cuadro
+                tapa su sitio de siempre: a quien espera en meta le sirven tanto
+                como el reloj. */}
+            {isPublic && (isHttpUrl(links.trackingUrl) || isHttpUrl(links.websiteUrl)) && (
+              <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                {isHttpUrl(links.trackingUrl) && (
+                  <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
+                     className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-sky-400 hover:border-sky-700">
+                    ⏱️ Oficial ↗
+                  </a>
+                )}
+                {isHttpUrl(links.websiteUrl) && (
+                  <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
+                     className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-sky-400 hover:border-sky-700">
+                    🌐 Web ↗
+                  </a>
+                )}
+              </div>
+            )}
             </div>
           </div>
         </div>
