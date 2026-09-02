@@ -950,7 +950,7 @@ export default function EventLobby({ id }: { id: string }) {
       {/* El enlace para quien NO participa: familia, amigos, la organización.
           Es otra llave distinta de la de unirse — con esta se mira, no se
           entra— y se puede quitar sin tocar el evento. */}
-      {event.isOwner && (
+      {(event.isOwner || event.publicToken || me) && (
         <Plegable
           title="Seguimiento para quien no corre"
           summary={event.publicToken ? 'enlace activo' : 'sin publicar'}
@@ -961,21 +961,29 @@ export default function EventLobby({ id }: { id: string }) {
                 {eventPublicLink(event.publicToken)}
               </code>
               <div className="mt-2 flex flex-wrap gap-2">
+                {/* Copiar lo puede TODO participante: cada uno reparte el enlace
+                    a los suyos, que para eso comparte su posición. Publicar,
+                    regenerar y revocar siguen siendo del organizador: eso
+                    enseña —o apaga— a la carrera entera de golpe. */}
                 <button onClick={() => void copyPublic()} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50">
                   {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
                 </button>
-                <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
-                  Generar otro
-                </button>
-                <button onClick={() => void togglePublic(false)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
-                  Dejar de compartir
-                </button>
+                {event.isOwner && (
+                  <>
+                    <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+                      Generar otro
+                    </button>
+                    <button onClick={() => void togglePublic(false)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
+                      Dejar de compartir
+                    </button>
+                  </>
+                )}
               </div>
               <p className="mt-1.5 text-[11px] text-slate-500">
                 Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
               </p>
             </>
-          ) : (
+          ) : event.isOwner ? (
             <>
               <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-sky-800 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
                 Crear enlace público
@@ -984,6 +992,15 @@ export default function EventLobby({ id }: { id: string }) {
                 Para que la familia siga la carrera sin tener cuenta. Se puede revocar cuando quieras.
               </p>
             </>
+          ) : (
+            // Un participante no publica el evento entero —eso enseña a todos
+            // de golpe y es decisión de quien organiza— pero SÍ tiene una
+            // llave propia que repartir: la de su baliza, que solo le enseña a
+            // él y sale en la app al empezar a compartir.
+            <p className="text-[11px] text-slate-500">
+              Todavía no hay enlace de espectador: lo publica quien organiza. Para que los tuyos te sigan a TI,
+              comparte el enlace de tu baliza desde la app al empezar a compartir tu posición.
+            </p>
           )}
         </Plegable>
       )}

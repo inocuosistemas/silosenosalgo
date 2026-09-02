@@ -144,6 +144,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setRunners(live.runners as Runner[])
         setStartsAt(live.startsAt)
         setBetsEnabled(live.betsEnabled)
+        setEventName(live.name)
+        setPhotoUrl(live.photoUrl)
+        setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -497,9 +500,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
             esquina. Desaparece mientras está abierto y vuelve al plegarlo, con
             los tres números y los enlaces oficiales dentro del cuadro para no
             perder nada por el camino. */}
-        {isPublic && waiting && panelOpen && view === 'mapa' ? (
+        {waiting && panelOpen && view === 'mapa' ? (
           <div />
-        ) : isPublic ? (
+        ) : (
           /* Fuera del mapa, la presentación sobra: ahí lo que hace falta es
              saber qué carrera es y poder volver. Los tres números y los enlaces
              de la organización se quedan en el mapa, que es donde hay sitio —en
@@ -540,6 +543,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 buscarlos. Se validan al pintar: en la base puede haber enlaces
                 anteriores a la comprobación. */}
             <div className={`flex flex-wrap gap-1 ${view === 'mapa' ? '' : 'hidden'}`}>
+              {/* Volver a la parrilla, junto a los enlaces de la carrera: es
+                  otra forma de salir de aquí, no un rótulo de la cabecera. */}
+              {!isPublic && (
+                <a href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
+                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-slate-200 backdrop-blur hover:border-sky-700">
+                  ← Parrilla
+                </a>
+              )}
               {isHttpUrl(links.trackingUrl) && (
                 <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
                    className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
@@ -554,13 +565,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
               )}
             </div>
           </div>
-        ) : (
-          <a
-            href={`/?e=${encodeURIComponent(source.id)}`}
-            className="pointer-events-auto rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
-          >
-            ← Parrilla
-          </a>
         )}
         {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
             ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
@@ -807,7 +811,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             {/* Los enlaces de la organización, aquí dentro mientras el cuadro
                 tapa su sitio de siempre: a quien espera en meta le sirven tanto
                 como el reloj. */}
-            {isPublic && (isHttpUrl(links.trackingUrl) || isHttpUrl(links.websiteUrl)) && (
+            {(isHttpUrl(links.trackingUrl) || isHttpUrl(links.websiteUrl)) && (
               <div className="mt-2 flex flex-wrap justify-center gap-1.5">
                 {isHttpUrl(links.trackingUrl) && (
                   <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"

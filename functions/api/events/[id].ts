@@ -128,10 +128,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     isOwner,
   }
-  if (isOwner) {
-    if (ev.inviteCode) event.inviteCode = ev.inviteCode
-    event.publicToken = ev.publicToken
-  }
+  // El código de unión es del organizador: con él se ENTRA en la carrera, y
+  // repartirlo es decidir quién corre.
+  if (isOwner && ev.inviteCode) event.inviteCode = ev.inviteCode
+  // El enlace de espectador, en cambio, lo ve CUALQUIER participante — una vez
+  // publicado. PUBLICARLO sigue siendo del organizador, porque enseña a todos
+  // los participantes de golpe; pero cuando ya está publicado, esconderle el
+  // enlace a quien corre no protege nada y sí estorba: cada uno comparte su
+  // propia posición y su familia es justo el público de ese enlace. Sin esto
+  // había que pedírselo al organizador por privado.
+  if (isOwner || me) event.publicToken = ev.publicToken
 
   const res: EventDetailResponse = {
     event,

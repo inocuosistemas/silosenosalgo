@@ -680,6 +680,12 @@ export interface EventLiveResponse {
   startsAt: number | null
   /** Si este evento tiene porra (la enciende quien organiza). */
   betsEnabled: boolean
+  /** La carrera, presentada igual que en el enlace público: quien la corre
+   *  también quiere el cartel a la vista y los enlaces de la organización. */
+  name: string
+  photoUrl: string | null
+  trackingUrl: string | null
+  websiteUrl: string | null
   runners: EventLiveRunner[]
 }
 
