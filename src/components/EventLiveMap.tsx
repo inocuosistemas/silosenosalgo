@@ -73,6 +73,26 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * de un toque.
    */
   const [panelOpen, setPanelOpen] = useState(true)
+  /**
+   * Lo que mide la cabecera flotante, medido y no supuesto.
+   *
+   * Fuera del mapa es una barra sólida y el contenido va debajo, así que hay
+   * que apartarlo justo lo que ocupa. Un padding fijo se queda corto en cuanto
+   * la barra envuelve —un nombre largo, un móvil estrecho— y entonces la barra
+   * se come el título de lo que hay debajo, que es lo que pasaba.
+   */
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const [headerH, setHeaderH] = useState(84)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const medir = () => setHeaderH(el.getBoundingClientRect().height)
+    medir()
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
   const [profileOpen, setProfileOpen] = useState(true)
   /**
@@ -411,6 +431,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         </MapContainer>
       ) : view === 'porra' && eventId ? (
         <EventBets
+          topPad={headerH}
           eventId={eventId}
           runners={betRunners}
           outcomes={outcomes}
@@ -419,7 +440,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           onBack={() => setView('mapa')}
         />
       ) : (
-        <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
+        <ListView topPad={headerH} rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
                   eventId={source.kind === 'member' ? source.id : null}
                   following={following}
                   onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
@@ -431,15 +452,25 @@ export default function EventLiveMap({ source }: { source: Source }) {
           la pantalla entera, pero una fila de un participante estirada a 1400
           px deja el nombre a un lado y el dato al otro, con medio metro de
           nada en medio. El mapa y la silueta siguen a lo ancho. */}
-      <div className={`pointer-events-none absolute inset-x-0 top-0 z-[1000] ${
-        // Sobre el mapa flota; sobre la lista y la porra es una barra de
-        // verdad, con fondo: si no, el contenido se cuela por debajo y la
-        // tarjeta del nombre acaba encima de un botón.
-        view === 'mapa' ? '' : 'border-b border-slate-800 bg-slate-950/95 backdrop-blur'
-      }`}>
+      <div
+        ref={headerRef}
+        className={`pointer-events-none absolute inset-x-0 top-0 z-[1000] ${
+          // Sobre el mapa flota; sobre la lista y la porra es una barra de
+          // verdad, con fondo: si no, el contenido se cuela por debajo y la
+          // tarjeta del nombre acaba encima de un botón.
+          view === 'mapa' ? '' : 'border-b border-slate-800 bg-slate-950/95 backdrop-blur'
+        }`}
+      >
       <div className="mx-auto flex max-w-5xl items-start justify-between gap-2 p-3">
         {isPublic ? (
-          <div className="pointer-events-auto flex w-fit max-w-[min(19rem,62vw)] flex-col items-start gap-1">
+          /* Fuera del mapa, la presentación sobra: ahí lo que hace falta es
+             saber qué carrera es y poder volver. Los tres números y los enlaces
+             de la organización se quedan en el mapa, que es donde hay sitio —en
+             un móvil estrecho, con ellos la barra crecía a tres filas y tapaba
+             el título de lo que venía debajo. */
+          <div className={`pointer-events-auto flex min-w-0 flex-col items-start gap-1 ${
+            view === 'mapa' ? 'w-fit max-w-[min(19rem,62vw)]' : 'flex-1'
+          }`}>
             {/* La carrera en la esquina: el nombre y los tres números que la
                 describen. Quien abre este enlace puede no saber ni qué prueba
                 es —le ha llegado por un grupo—, así que un nombre suelto no
@@ -447,8 +478,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 que caber también sobre la lista, y una foto ahí le come las
                 primeras filas. */}
             <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur">
-              <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
-              {raceStats && (
+              <p className={`truncate px-2.5 text-sm font-bold text-slate-100 ${
+                view === 'mapa' ? 'pt-1.5' : 'py-1.5'
+              }`}>{eventName ?? 'Evento'}</p>
+              {raceStats && view === 'mapa' && (
                 <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
                   <span>{raceStats.km.toFixed(1)} km</span>
                   <span className="text-slate-600">·</span>
@@ -469,7 +502,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 lo que dan las webs oficiales—, y aquí no tiene parrilla donde
                 buscarlos. Se validan al pintar: en la base puede haber enlaces
                 anteriores a la comprobación. */}
-            <div className="flex flex-wrap gap-1">
+            <div className={`flex flex-wrap gap-1 ${view === 'mapa' ? '' : 'hidden'}`}>
               {isHttpUrl(links.trackingUrl) && (
                 <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
                    className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
@@ -506,7 +539,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
             hay porra: se pronostica con una cuenta, y sin saber cuál está
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
-        <div className="pointer-events-auto flex items-center gap-1.5">
+        <div className="pointer-events-auto flex shrink-0 items-center gap-1.5">
         <AuthMenu />
         <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
           {(betsEnabled ? (['mapa', 'lista', 'porra'] as const) : (['mapa', 'lista'] as const)).map((v) => (
@@ -727,8 +760,10 @@ type Row = {
  * repartidos por un valle no se comparan de un vistazo— y de paso es la
  * clasificación oficiosa del grupo.
  */
-function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick }: {
+function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick, topPad }: {
   rows: Row[]
+  /** Lo que mide la barra de arriba: el contenido empieza justo debajo. */
+  topPad: number
   totalKm: number | null
   now: number
   isPublic: boolean
@@ -748,7 +783,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 pb-6 pt-28 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
       <div className="mx-auto w-full max-w-2xl px-3">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
@@ -756,7 +791,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
       {rows.length > 8 && (
         // Pegado arriba: con cien filas, un buscador que se va con el
         // desplazamiento obliga a subir del todo cada vez que se cambia de idea.
-        <div className="sticky top-14 z-[500] -mx-3 mb-2 bg-slate-950 px-3 pb-2">
+        <div className="sticky z-[500] -mx-3 mb-2 bg-slate-950 px-3 pb-2" style={{ top: topPad }}>
           <div className="relative">
           <input
             type="search"

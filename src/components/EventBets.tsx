@@ -28,8 +28,10 @@ export interface BetRunner {
   color: string | null
 }
 
-export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBack }: {
+export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topPad, onBack }: {
   eventId: string
+  /** Lo que mide la barra de arriba: el contenido empieza justo debajo de ella. */
+  topPad: number
   runners: BetRunner[]
   outcomes: RunnerOutcome[]
   startsAt: number | null
@@ -132,11 +134,11 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
   return (
     // Acotada y centrada: es una pantalla de texto, y a 1400 px de ancho una
     // fila de "Ana · acaba · +15" se lee de esquina a esquina.
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-28 scrollbar-fantasma">
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
       <div className="mx-auto w-full max-w-2xl">
       <header className="mb-4">
-        <h1 className="text-lg font-bold text-slate-100">🔮 La Porra</h1>
-        <p className="mt-0.5 text-xs text-slate-400">
+        <h1 className="text-xl font-bold text-slate-100">🔮 La Porra</h1>
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">
           Ni un euro: se juega el orgullo. Se pronostica hasta la salida; luego el mapa da y quita la razón.
         </p>
       </header>
