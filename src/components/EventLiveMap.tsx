@@ -1328,17 +1328,34 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
   onHoverKey: (key: string | null) => void
 }) {
   const { totalKm } = profile
+  const señalado = rows.find((x) => x.key === hoverKey && x.km !== null) ?? null
   return (
     <div className="pointer-events-auto border-t border-slate-800 bg-slate-950/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-        <span>Perfil · {Math.round(profile.minE)}–{Math.round(profile.maxE)} m</span>
+        {/* Señalar a alguien lo dice AQUÍ y no en una etiqueta flotando sobre
+            su punto: en los extremos esa etiqueta se salía de la tira, y en un
+            punto alto se subía por encima del mapa. */}
+        {señalado ? (
+          <span className="truncate normal-case tracking-normal text-slate-200">
+            {señalado.r.emoji ?? ''} {señalado.r.username} · km {señalado.km!.toFixed(1)} ·{' '}
+            {Math.round(profile.eleAtKm(señalado.km!))} m
+          </span>
+        ) : (
+          <span>Perfil · {Math.round(profile.minE)}–{Math.round(profile.maxE)} m</span>
+        )}
         <button onClick={onToggle} className="rounded px-1.5 py-0.5 text-slate-400 hover:text-slate-200">
           {open ? 'ocultar ▼' : 'ver el perfil ▲'}
         </button>
       </div>
       {open && (
         <div
-          className="relative mx-auto h-24 w-full max-w-6xl cursor-crosshair"
+          // `overflow-hidden` porque TODO lo de dentro se coloca en porcentajes
+          // y en los extremos se sale por medio punto o por medio circulito: el
+          // kilómetro 37,7 cae en el 100%, y con el traslado de media anchura
+          // el punto asomaba un par de píxeles por la derecha. Dos píxeles de
+          // nada, pero el navegador saca su barra de desplazamiento horizontal
+          // y de repente la página entera se mueve de lado.
+          className="relative mx-auto h-24 w-full max-w-6xl cursor-crosshair overflow-hidden"
           // `touch-action: none` es lo que hace que el dedo ARRASTRE en vez de
           // desplazar la página: sin esto el navegador se queda el gesto y en
           // el móvil solo quedaba ir dando toques uno a uno.
@@ -1418,15 +1435,7 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
                   boxShadow: big ? `0 0 0 2px ${color}` : undefined,
                   zIndex: big ? 2 : 1,
                 }}
-              >
-                {/* Señalado, dice quién es: en el perfil los puntos no llevan
-                    nombre —no cabe— y sin esto hay que ir a buscarlo al mapa. */}
-                {isHover && (
-                  <span className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950/90 px-1 text-[10px] text-slate-100">
-                    {r.emoji ?? ''} {r.username}
-                  </span>
-                )}
-              </button>
+              />
             )
           })}
           <span className="pointer-events-none absolute bottom-0.5 left-2 text-[10px] tabular-nums text-slate-500">0</span>
