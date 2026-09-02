@@ -334,9 +334,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topP
         <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
           <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Los oráculos</h2>
           <p className="mt-1.5 text-xs text-slate-400">
-            Quién ha pronosticado qué, y cómo van de aciertos, se ve con la sesión iniciada. De
-            puertas afuera la porra se enseña en conjunto: cuántos dicen que acaba, cuánto tiempo le
-            dan — sin nombres.
+            Inicia sesión para ver los pronósticos de cada uno.
           </p>
         </section>
       )}
