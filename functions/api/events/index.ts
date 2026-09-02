@@ -88,14 +88,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             m.emoji AS myEmoji, m.color AS myColor, m.user_id IS NOT NULL AS isMember
        FROM events e LEFT JOIN event_members m ON m.event_id = e.id AND m.user_id = ?
       WHERE m.user_id IS NOT NULL ${organising ? 'OR e.created_by = ?' : ''}
-      -- Primero las que tienen fecha, de la mas reciente hacia atras: en una
-      -- lista de carreras lo que se busca es "la del sabado". Las que aun no
-      -- tienen dia van despues y entre ellas por cuando se crearon, que es lo
-      -- unico que se sabe de ellas — antes se mezclaban las dos cosas en una
-      -- sola columna y un evento sin fecha creado hoy se ponia por delante de
-      -- una carrera del mes que viene.
-      ORDER BY (e.starts_at IS NULL) ASC, e.starts_at DESC, e.created_at DESC LIMIT 50`,
-  ).bind(...(organising ? [user.id, user.id] : [user.id])).all<{
+      -- El orden de una lista de carreras es "que viene primero":
+      --   1. las que TIENEN fecha, antes que las que no;
+      --   2. las que estan POR VENIR, empezando por la mas proxima — la del
+      --      sabado antes que la del mes que viene, que es lo que se busca;
+      --   3. las ya corridas, de la mas reciente hacia atras;
+      --   4. las que no tienen dia, por cuando se crearon, que es lo unico que
+      --      se sabe de ellas.
+      -- Ordenar todas por fecha descendente ponia la de dentro de un mes por
+      -- delante de la de pasado manana, y mezclar salida y creacion en una
+      -- misma columna colaba un evento sin fecha creado hoy por delante de una
+      -- carrera de verdad.
+      ORDER BY (e.starts_at IS NULL) ASC,
+               (e.starts_at < ?) ASC,
+               CASE WHEN e.starts_at >= ? THEN e.starts_at END ASC,
+               e.starts_at DESC,
+               e.created_at DESC
+      LIMIT 50`,
+  ).bind(...(organising ? [user.id, user.id] : [user.id]), Date.now(), Date.now()).all<{
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null

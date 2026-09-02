@@ -199,6 +199,33 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /// Picking an event defaults the departure to the event's OFFICIAL start,
+    /// the same way picking a plan defaults it to the plan's. It is what the
+    /// organisation already knows, and nobody should have to type it again on
+    /// the start line with gloves on — and if the gun is still ahead, the beacon
+    /// stays ARMED and silent instead of burning GPS and showing where you
+    /// parked.
+    ///
+    /// A hand-set time is never overwritten: whoever touched it has a reason
+    /// (an earlier wave, an organiser who hasn't fixed the time yet), and an app
+    /// that undoes your choice when you switch events is one you stop trusting.
+    /// The exception is a time this same mechanism put there — that one belongs
+    /// to the event, so it leaves with it.
+    private func applyEventStart(previous: String?) {
+        let cameFromEvent = startAtTouched
+            && events.contains { $0.id == previous && $0.startsAt.map { Date(timeIntervalSince1970: $0 / 1000) } == startAt }
+        guard !startAtTouched || cameFromEvent else { return }
+        if let id = selectedEventId,
+           let ev = events.first(where: { $0.id == id }),
+           let ms = ev.startsAt, ms > 0 {
+            startAt = Date(timeIntervalSince1970: ms / 1000)
+            startAtTouched = true
+        } else if cameFromEvent {
+            startAt = Date()
+            startAtTouched = false
+        }
+    }
+
     /// When a plan is selected, default the departure to the PLAN's start so all
     /// paces/predictions follow the plan (not the activation moment). Adjustable.
     private func applyPlanStart() {
@@ -266,6 +293,7 @@ final class TrackingStore: ObservableObject {
     func setEvent(_ eventId: String?) {
         let previous = selectedEventId
         selectedEventId = eventId
+        applyEventStart(previous: previous)
         guard isSharing else { return }
         Task {
             // Quitar primero del anterior: una sesión pertenece a un evento, no

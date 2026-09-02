@@ -415,7 +415,29 @@ object TrackingStore {
      */
     fun ajustaEvento(eventoId: String?) {
         val anterior = _estado.value.eventoId
-        _estado.value = _estado.value.copy(eventoId = eventoId)
+        // La salida OFICIAL del evento pasa a ser la prevista, igual que hace
+        // el plan al elegirlo. Es lo que ya sabe la organización y lo que nadie
+        // debería tener que teclear a mano en la línea de salida con guantes —y
+        // de paso, si aún falta para la hora, la baliza se queda ARMADA y en
+        // silencio en vez de gastar GPS y enseñar dónde has aparcado.
+        //
+        // Solo se pisa la hora si NO la ha puesto nadie a mano: quien la ha
+        // tocado sabrá por qué (sale en otra tanda, o el organizador no la ha
+        // corregido todavía), y una app que le deshace la elección al cambiar
+        // de evento es una app en la que no se puede confiar. Al quitar el
+        // evento, la hora puesta por él se va con él.
+        val ev = _eventos.value.firstOrNull { it.id == eventoId }
+        val salidaEvento = ev?.startsAt?.takeIf { it > 0.0 }
+        val laPusoElEvento = _estado.value.salidaMs > 0.0 &&
+            _eventos.value.any { it.id == anterior && it.startsAt == _estado.value.salidaMs }
+        val libre = !_estado.value.salidaTocada || laPusoElEvento
+        _estado.value = when {
+            libre && salidaEvento != null ->
+                _estado.value.copy(eventoId = eventoId, salidaMs = salidaEvento, salidaTocada = true)
+            libre && laPusoElEvento ->
+                _estado.value.copy(eventoId = eventoId, salidaMs = 0.0, salidaTocada = false)
+            else -> _estado.value.copy(eventoId = eventoId)
+        }
         guardaActivo()
         if (!_estado.value.compartiendo) return
         val t = token ?: return

@@ -205,7 +205,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // dos cosas distintas para quien mira (una se arregla esperando, la otra
       // llamando por teléfono).
       const idle = r.status === 'idle'
-      return { r, km, margin, stale, idle, key: r.userId ?? r.username }
+      // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
+      // abierta con la hora de salida por delante y no manda una sola posición
+      // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
+      // nadie— pero eso, sin decirlo, se ve igual que un GPS que no funciona.
+      // Se reconoce por lo que hay: sesión abierta, sin ningún punto todavía y
+      // con la salida aún por llegar.
+      const armed = !idle && r.fix === null && r.startedAt !== null && r.startedAt > now
+      return { r, km, margin, stale, idle, armed, key: r.userId ?? r.username }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
@@ -585,7 +592,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle }) => {
+            {rows.map(({ r, key, idle, armed }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -593,9 +600,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   key={key}
                   onClick={() => setSelected(isSel ? null : key)}
                   disabled={!r.fix}
-                  title={idle ? `${r.username} está en la parrilla y todavía no emite` : undefined}
+                  title={
+                    armed ? `${r.username} tiene la baliza preparada; empieza a las ${hhmm(r.startedAt!)}`
+                      : idle ? `${r.username} está en la parrilla y todavía no emite`
+                      : undefined
+                  }
                   className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs backdrop-blur transition-colors disabled:opacity-60 ${
                     isSel ? 'border-slate-300 bg-slate-800/90 text-slate-100'
+                      : armed ? 'border-amber-800/70 bg-slate-900/90 text-amber-200/80'
                       : idle ? 'border-dashed border-slate-600 bg-slate-900/90 text-slate-400'
                       : 'border-slate-700 bg-slate-900/90 text-slate-300'
                   }`}
@@ -616,6 +628,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   {/* El borde discontinuo ya lo insinúa, pero a un participante
                       que falta en el mapa hay que decírselo con palabras: sin
                       esto se lee como un fallo de la aplicación. */}
+                  {armed && <span className="text-[10px] text-amber-400/80">preparado</span>}
                   {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
                 </button>
               )
@@ -728,7 +741,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
                 <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
-                  {rows.map(({ r, key, idle }) => (
+                  {rows.map(({ r, key, idle, armed }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
                       {r.bib && (
@@ -739,8 +752,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       <span className={`min-w-0 flex-1 truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
                         {r.username}
                       </span>
-                      <span className={`shrink-0 ${idle ? 'text-slate-500' : r.status === 'ended' ? 'text-slate-400' : 'text-emerald-400'}`}>
-                        {idle ? 'sin emitir' : r.status === 'ended' ? 'terminado' : 'emitiendo'}
+                      <span className={`shrink-0 ${
+                        armed ? 'text-amber-400/90' : idle ? 'text-slate-500'
+                          : r.status === 'ended' ? 'text-slate-400' : 'text-emerald-400'
+                      }`}>
+                        {armed ? `preparado · ${hhmm(r.startedAt!)}`
+                          : idle ? 'sin emitir'
+                          : r.status === 'ended' ? 'terminado' : 'emitiendo'}
                       </span>
                     </li>
                   ))}
@@ -795,6 +813,8 @@ type Row = {
   stale: boolean
   /** Está en la parrilla y aún no ha emitido: sale en la lista, no en el mapa. */
   idle: boolean
+  /** Baliza armada y en silencio: sale a una hora que todavía no ha llegado. */
+  armed: boolean
   key: string
 }
 
@@ -857,10 +877,12 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, key }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, key }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
-              idle ? 'border-dashed border-slate-800 bg-slate-900/30' : 'border-slate-800 bg-slate-900/60'
+              armed ? 'border-amber-900/50 bg-amber-950/10'
+                : idle ? 'border-dashed border-slate-800 bg-slate-900/30'
+                : 'border-slate-800 bg-slate-900/60'
             }`}>
               <div className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">{km !== null ? i + 1 : '·'}</span>
@@ -881,6 +903,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                   </button>
                 )}
                 {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+                {armed && <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">preparado</span>}
                 {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
                 <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
                   {km !== null ? `${km.toFixed(1)}` : '—'}
@@ -892,6 +915,12 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                   // Ni ritmo ni "hace X": de quien no ha emitido no hay nada que
                   // envejecer, y un "sin señal" ahí sugiere una avería que no hay.
                   <span className="text-slate-500">En la parrilla · aún no comparte su posición</span>
+                ) : armed ? (
+                  // Preparado no es una avería: es una baliza armada, callada a
+                  // propósito, que arranca sola a su hora.
+                  <span className="text-amber-400/90">
+                    🌙 Baliza preparada · empieza a las {hhmm(r.startedAt!)}
+                  </span>
                 ) : (
                   <>
                   <span className="text-slate-400">
