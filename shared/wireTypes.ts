@@ -436,8 +436,14 @@ export interface EventInfo {
    *  se sabe mirando si estás en `members`. */
   isMember?: boolean
   startsAt: number | null
+  /** Cierre de meta (epoch ms): a esa hora el evento se cierra solo. Sale del
+   *  último cierre del recorrido; null = esta carrera no tiene hora límite y
+   *  solo la termina quien organiza. */
+  endsAt?: number | null
   createdAt: number
   endedAt: number | null
+  /** Resultados congelados al cerrar. Solo en un evento terminado. */
+  stats?: EventStats | null
   /** El que lo creó puede editarlo: base, foto, código y borrado. */
   isOwner: boolean
   /** Código de unión MULTIUSO. Solo se envía al dueño del evento. */
@@ -563,6 +569,48 @@ export interface EventBetsInput {
   finish?: Record<string, boolean>
   /** Por participante: hora de meta (epoch ms). */
   finishTime?: Record<string, number>
+}
+
+/**
+ * ── Resultados congelados ──────────────────────────────────────────────────
+ *
+ * Lo que queda de una carrera cuando se cierra. Se calcula UNA vez, al cerrar,
+ * porque las trazas se purgan a las 48 h de la última posición: sin congelarlo,
+ * el lunes ya no se sabe quién ganó el sábado ni la porra puede resolverse.
+ */
+export interface EventRunnerStats {
+  username: string
+  bib: string | null
+  emoji: string | null
+  color: string | null
+  /** Kilómetros recorridos; null en quien no llegó a emitir. */
+  km: number | null
+  /** Minutos entre su salida y su última posición. */
+  minutos: number | null
+  /** Ritmo medio en minutos por kilómetro. */
+  ritmoMinKm: number | null
+  /** Su kilómetro más rápido, en minutos, y desde qué km del recorrido. */
+  mejorKmMin: number | null
+  mejorKmDesde: number | null
+  /** Llegó a meta (97% del recorrido). */
+  finished: boolean
+  /** Cuándo llegó (epoch ms). */
+  finishedAt: number | null
+  /** Llegó a mandar alguna posición. */
+  tracked: boolean
+}
+
+export interface EventStats {
+  /** Cuándo se calcularon. */
+  at: number
+  /** Distancia del recorrido con la que se juzgó la meta; null si no se sabía. */
+  totalKm: number | null
+  finishers: number
+  runners: number
+  /** El kilómetro más rápido de toda la carrera, con su dueño. */
+  fastestKm: { username: string; minutos: number; desdeKm: number } | null
+  /** Los participantes, en orden de llegada. */
+  corredores: EventRunnerStats[]
 }
 
 /** GET /api/events/:id — el lobby: el evento y quién está en él. */

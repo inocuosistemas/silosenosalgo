@@ -6,7 +6,7 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventBetsEnabled, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventBetsEnabled, endEvent, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -160,10 +160,32 @@ export default function EventLobby({ id }: { id: string }) {
     finally { setBusy(false) }
   }
 
+  async function guardarCierre(valor: string) {
+    const ms = valor ? new Date(valor).getTime() : null
+    if (valor && !Number.isFinite(ms as number)) return
+    setBusy(true); setError(null)
+    try { await setEventEnd(id, ms); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
+  }
+
   async function toggleColorsLocked(locked: boolean) {
     setBusy(true); setError(null)
     try {
       await setEventColorsLocked(id, locked)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  async function terminaCarrera(end: boolean) {
+    if (end && !window.confirm(
+      '¿Damos la carrera por terminada? Se congelan los resultados y deja de admitir gente. Puedes reabrirla.',
+    )) return
+    setBusy(true); setError(null)
+    try {
+      await endEvent(id, end)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -728,6 +750,116 @@ export default function EventLobby({ id }: { id: string }) {
         </Plegable>
       )}
 
+      {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
+          menú: es la acción que cierra la historia —congela los resultados y
+          deja de admitir gente— y hasta ahora sencillamente no existía. */}
+      {event.isOwner && (
+        <Plegable
+          title="🏁 Terminar la carrera"
+          summary={event.endedAt ? `terminada ${fmtDate(event.endedAt)}` : event.endsAt ? `cierra ${fmtDate(event.endsAt)}` : 'en marcha'}
+        >
+          {event.endedAt ? (
+            <>
+              <p className="text-[11px] text-slate-400">
+                Terminada el {fmtDate(event.endedAt)}. Los resultados están congelados: aunque las trazas se
+                borren a los dos días, lo que pasó ese día se queda.
+              </p>
+              <button
+                onClick={() => void terminaCarrera(false)}
+                disabled={busy}
+                className="mt-2 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:text-sky-400 disabled:opacity-50"
+              >
+                Reabrirla
+              </button>
+              <p className="mt-1 text-[10px] text-slate-600">
+                Al reabrir se tiran los resultados: con gente aún en carrera dirían que ganó quien iba primero.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-slate-400">
+                {event.endsAt
+                  ? <>Se cierra sola el {fmtDate(event.endsAt)}. Puedes adelantarlo o cambiar la hora.</>
+                  : <>Esta carrera no tiene hora de cierre, así que solo termina cuando lo digas tú. La pone
+                     sola el recorrido al publicarlo —es su último corte— o la escribes aquí.</>}
+              </p>
+              <label className="mt-2 block text-[11px] text-slate-500">
+                Cierre de meta
+                <input
+                  type="datetime-local"
+                  value={event.endsAt ? paraInput(event.endsAt) : ''}
+                  onChange={(e) => void guardarCierre(e.target.value)}
+                  disabled={busy}
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-600 focus:outline-none disabled:opacity-50"
+                />
+              </label>
+              {event.endsAt && (
+                <button
+                  onClick={() => void guardarCierre('')}
+                  disabled={busy}
+                  className="mt-1 text-[11px] text-slate-500 hover:text-red-400 disabled:opacity-50"
+                >
+                  Quitar la hora de cierre
+                </button>
+              )}
+              <button
+                onClick={() => void terminaCarrera(true)}
+                disabled={busy}
+                className="mt-2 rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:border-amber-600 disabled:opacity-50"
+              >
+                🏁 Darla por terminada ahora
+              </button>
+            </>
+          )}
+        </Plegable>
+      )}
+
+      {/* Los resultados, para todos: es lo que queda de la carrera. */}
+      {event.endedAt && event.stats && event.stats.corredores.length > 0 && (
+        <Plegable
+          title="🏆 Resultados"
+          defaultOpen
+          summary={`${event.stats.finishers} de ${event.stats.runners}`}
+        >
+          {event.stats.fastestKm && (
+            <p className="mb-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-2.5 py-1.5 text-[11px] text-amber-100">
+              ⚡ Kilómetro más rápido de la carrera: <b>{fmtRitmo(event.stats.fastestKm.minutos)}</b> —{' '}
+              {event.stats.fastestKm.username}, desde el km {event.stats.fastestKm.desdeKm.toFixed(1)}
+            </p>
+          )}
+          <ul className="space-y-1.5">
+            {event.stats.corredores.map((c, i) => (
+              <li key={c.username} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
+                    {c.finished ? i + 1 : '·'}
+                  </span>
+                  <MarkBadge emoji={c.emoji} color={c.color} size={20} />
+                  {c.bib && (
+                    <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
+                      {c.bib}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
+                  {c.finished
+                    ? <span className="shrink-0 text-xs font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                    : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
+                </div>
+                {c.tracked && (
+                  <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">
+                    <span>{c.km?.toFixed(1)} km</span>
+                    {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
+                    {c.mejorKmMin != null && (
+                      <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>
+                    )}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Plegable>
+      )}
+
       {/* La porra vive con los ajustes del EVENTO y no dentro de "Mi marca":
           quien organiza puede no correr, y allí ni siquiera veía la casilla.
           Es cosa de la carrera, como la salida o la foto. */}
@@ -1033,6 +1165,21 @@ function paraInput(ms: number): string {
   const d = new Date(ms)
   const p = (n: number) => n.toString().padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** Un ritmo o un tiempo de kilómetro: "4:35". */
+function fmtRitmo(min: number): string {
+  const m = Math.floor(min)
+  const s = Math.round((min - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** Un tiempo de carrera: "5h 12m". */
+function fmtDuracion(min: number | null): string {
+  if (min == null) return '—'
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`
 }
 
 function fmtDate(ms: number): string {

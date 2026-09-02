@@ -69,6 +69,20 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   const rawStart = Number(request.headers.get('X-Plan-Start'))
   const startsAt = Number.isFinite(rawStart) && rawStart > 0 ? Math.round(rawStart) : null
 
+  // Y con ella, lo que hace falta para que la carrera se acabe sola: cuánto
+  // mide —para saber quién llegó a meta— y a qué hora cierra meta, que es el
+  // último cierre del recorrido. Los dos los calcula el cliente por lo mismo
+  // que la salida: aquí el payload son bytes que no se abren.
+  //
+  // Estos sí se pisan al republicar, al revés que la salida: si el organizador
+  // mueve el corte de meta, la hora de cierre es la nueva. La salida se
+  // protege porque puede haberla corregido a mano en la parrilla; el cierre no
+  // se toca desde ningún otro sitio.
+  const rawKm = Number(request.headers.get('X-Plan-Km'))
+  const totalKm = Number.isFinite(rawKm) && rawKm > 0 ? rawKm : null
+  const rawEnd = Number(request.headers.get('X-Plan-End'))
+  const endsAt = Number.isFinite(rawEnd) && rawEnd > 0 ? Math.round(rawEnd) : null
+
   // El resumen de QUÉ cambió respecto a la base anterior, calculado por el
   // cliente que publica —es quien tiene delante las dos versiones—. Aquí se
   // guarda como texto y no se abre: igual que los payloads. Quien lo pinta lo
@@ -84,9 +98,10 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   await env.SHARE_KV.put(shareId, buf, { expirationTtl: TTL_SECONDS })
   await env.DB.prepare(
     `UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?),
+            plan_total_km = COALESCE(?, plan_total_km), ends_at = COALESCE(?, ends_at),
             plan_updated_at = ?, plan_change = ?
       WHERE id = ? AND created_by = ?`,
-  ).bind(shareId, planName, startsAt, Date.now(), planChange, id, user.id).run()
+  ).bind(shareId, planName, startsAt, totalKm, endsAt, Date.now(), planChange, id, user.id).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })
 }

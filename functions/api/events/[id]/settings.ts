@@ -38,13 +38,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body = (await readJson<{
-    colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
+    colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown; endsAt?: unknown
   }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
   const tocaSalida = body.startsAt !== undefined
   const tocaPorra = typeof body.betsEnabled === 'boolean'
-  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra) return json({ error: 'invalid_request' }, 400)
+  const tocaCierre = body.endsAt !== undefined
+  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre) {
+    return json({ error: 'invalid_request' }, 400)
+  }
 
   let startsAt: number | null = null
   if (tocaSalida && body.startsAt !== null) {
@@ -56,6 +59,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   // Un tope generoso pero real: esto viaja en cada carga de la parrilla, y sin
   // límite un pegote de mil líneas la volvería lenta para todos.
+  // La hora de cierre de meta a mano. Normalmente la pone el recorrido al
+  // publicarse —es su último corte— pero hay dos casos en los que hace falta
+  // escribirla: una carrera sin cortes que aun así termina a una hora, y un
+  // evento de antes de que esto existiera, que no puede quedarse sin cierre
+  // automático solo por ser anterior.
+  let endsAt: number | null = null
+  if (tocaCierre && body.endsAt !== null) {
+    if (typeof body.endsAt !== 'number' || !Number.isFinite(body.endsAt) || body.endsAt <= 0) {
+      return json({ error: 'invalid_request' }, 400)
+    }
+    endsAt = Math.round(body.endsAt)
+  }
+
   let notes: string | null = null
   if (tocaNotas) {
     const raw = typeof body.notes === 'string' ? body.notes.trim() : ''
@@ -84,6 +100,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     // una sorpresa cara. Dejan de verse, y vuelven si se reactiva.
     await env.DB.prepare('UPDATE events SET bets_enabled = ? WHERE id = ? AND created_by = ?')
       .bind(body.betsEnabled ? 1 : 0, id, user.id).run()
+  }
+  if (tocaCierre) {
+    await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
+      .bind(endsAt, id, user.id).run()
   }
   if (tocaSalida) {
     await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ? AND created_by = ?')

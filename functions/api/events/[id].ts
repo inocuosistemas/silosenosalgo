@@ -2,6 +2,8 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
+import { cierraSiTocaEvento } from '../../lib/eventStats'
+import type { EventStats } from '../../../shared/wireTypes'
 import { TOKEN_RE } from '../../../shared/validate'
 import type { EventDetailResponse, EventInfo, EventMember } from '../../../shared/wireTypes'
 
@@ -24,7 +26,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
-            bets_enabled AS betsEnabled,
+            bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats,
+            plan_total_km AS planTotalKm,
             ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
             tracking_url AS trackingUrl, website_url AS websiteUrl, notes AS notes,
             plan_updated_at AS planUpdatedAt, plan_change AS planChange
@@ -33,11 +36,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     colorsLocked: number; betsEnabled: number
+    endsAt: number | null; stats: string | null; planTotalKm: number | null
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null; notes: string | null
     planUpdatedAt: number | null; planChange: string | null
   }>()
   if (!ev) return json({ error: 'not_found' }, 404)
+
+  // Sin cron: una carrera pasada de su hora de cierre se cierra en el primer
+  // vistazo posterior, y ahí es donde se congelan los resultados. Un evento que
+  // nadie mira da igual que siga abierto un rato más.
+  const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
+    id: ev.id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
+  })
 
   // Pertenecer es la condición para ver: un evento del que no formas parte
   // responde 404 y no 403, para no confirmar que ese id existe. Con una
@@ -108,7 +119,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     planChange: ev.planChange,
     startsAt: ev.startsAt,
     createdAt: ev.createdAt,
-    endedAt: ev.endedAt,
+    endsAt: ev.endsAt,
+    endedAt,
+    // Los resultados solo tienen sentido en una carrera terminada, y solo si se
+    // llegaron a congelar (un evento cerrado antes de que esto existiera no los
+    // tiene). Se releen de la base cuando el cierre acaba de pasar aquí mismo.
+    stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     isOwner,
   }
   if (isOwner) {
@@ -153,4 +169,19 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   // El blob del plan base se queda en KV hasta que caduque solo: puede estar
   // referenciado por las sesiones que ya arrancaron con él.
   return new Response(null, { status: 204 })
+}
+
+/**
+ * Los resultados guardados. Si el cierre acaba de ocurrir en esta misma
+ * petición, la fila que se leyó al principio los trae a null: se releen.
+ */
+async function leeStats(env: Env, id: string, crudos: string | null): Promise<EventStats | null> {
+  let raw = crudos
+  if (!raw) {
+    const row = await env.DB.prepare('SELECT stats FROM events WHERE id = ?')
+      .bind(id).first<{ stats: string | null }>()
+    raw = row?.stats ?? null
+  }
+  if (!raw) return null
+  try { return JSON.parse(raw) as EventStats } catch { return null }
 }

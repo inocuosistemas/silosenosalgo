@@ -4,6 +4,7 @@ import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
+import { cierraSiTocaEvento } from '../../../lib/eventStats'
 import type {
   EventLiveResponse, EventLiveRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
@@ -36,9 +37,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const ev = await env.DB.prepare(
-    'SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, created_by AS createdBy FROM events WHERE id = ?')
-    .bind(id).first<{ planShareId: string | null; startsAt: number | null; betsEnabled: number; createdBy: string }>()
+    `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled,
+            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, created_by AS createdBy
+       FROM events WHERE id = ?`)
+    .bind(id).first<{
+      planShareId: string | null; startsAt: number | null; betsEnabled: number
+      endsAt: number | null; endedAt: number | null; planTotalKm: number | null; createdBy: string
+    }>()
   if (!ev) return json({ error: 'not_found' }, 404)
+  // El mapa también cierra la carrera cuando toca: es la pantalla que más se
+  // mira el día de la prueba, así que suele ser la primera en pasar por aquí
+  // después de la hora de cierre.
+  await cierraSiTocaEvento(env, { id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm })
 
   // Pertenecer es la condición para ver. 404 y no 403: quien no está dentro
   // tampoco tiene por qué saber que ese evento existe. Salvo quien lo organiza,

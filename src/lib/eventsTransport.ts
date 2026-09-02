@@ -5,6 +5,7 @@
  */
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
+import { inferCutoffDatesFromWaypoints } from './cutoffInference'
 import type { BaseChange } from './eventPlan'
 import type { EventPlanOverlay } from './eventPlan'
 import type {
@@ -144,6 +145,26 @@ export async function setEventNotes(id: string, notes: string): Promise<void> {
   return setEventSettings(id, { notes })
 }
 
+/**
+ * Terminar la carrera (o reabrirla). Solo quien organiza.
+ *
+ * Al terminar se congelan los resultados; al reabrir se tiran, porque unos
+ * resultados con gente todavía en carrera dirían que ganó quien iba primero.
+ */
+export async function endEvent(id: string, end: boolean): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/end`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ end }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** La hora a la que cierra meta (epoch ms), o null para quitarla. */
+export async function setEventEnd(id: string, endsAt: number | null): Promise<void> {
+  return setEventSettings(id, { endsAt })
+}
+
 /** La porra del evento: la enciende y la apaga quien organiza. */
 export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Promise<void> {
   return setEventSettings(id, { betsEnabled })
@@ -151,7 +172,7 @@ export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Pro
 
 async function setEventSettings(
   id: string,
-  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null; betsEnabled?: boolean },
+  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null; betsEnabled?: boolean; endsAt?: number | null },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
     method: 'POST', credentials: 'same-origin',
@@ -221,17 +242,50 @@ export async function setEventPlan(
   // nunca abre un payload —los trata como bytes opacos— y quien tiene delante
   // el dato es el cliente, que acaba de construirlo.
   const salida = Date.parse(base.startTimeISO)
+  // Dos datos más que el servidor no puede sacar del payload porque no lo abre:
+  // cuánto mide la carrera —con eso se sabe quién llegó a meta— y a qué hora
+  // cierra —con eso el evento se termina solo—. El cierre de meta es el último
+  // cierre del recorrido, resuelto con su día como en el mapa.
+  const km = base.track.totalDistanceKm
+  const cierre = ultimoCierre(base)
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/plan`, {
     method: 'PUT', credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Plan-Name': encodeURIComponent(planName),
       ...(Number.isFinite(salida) ? { 'X-Plan-Start': String(salida) } : {}),
+      ...(Number.isFinite(km) && km > 0 ? { 'X-Plan-Km': String(km) } : {}),
+      ...(cierre !== null ? { 'X-Plan-End': String(cierre) } : {}),
       ...(change ? { 'X-Plan-Change': encodeURIComponent(JSON.stringify(change)) } : {}),
     },
     body: new Blob([gz]),
   })
   if (!res.ok) throw errFrom(res)
+}
+
+/**
+ * La hora a la que cierra meta: el ÚLTIMO cierre del recorrido.
+ *
+ * Es lo que de verdad define hasta cuándo hay carrera. Se resuelve con la misma
+ * inferencia de día que el resto —una hora de pared suelta no dice si es de hoy
+ * o de mañana— y devuelve null cuando el recorrido no lleva cierres: una
+ * quedada de los martes no termina a ninguna hora, y entonces solo la cierra
+ * quien organiza.
+ */
+function ultimoCierre(base: SharePayloadV1): number | null {
+  const relojes = new Map(
+    Object.entries(base.cutoffWallClocks ?? {}).map(([k, v]) => [k, { hour: v.hour, minute: v.minute }]),
+  )
+  if (relojes.size === 0) return null
+  const salida = new Date(base.startTimeISO)
+  if (Number.isNaN(salida.getTime())) return null
+  const fechas = inferCutoffDatesFromWaypoints(base.track.namedWaypoints ?? [], relojes, salida)
+  let ultimo: number | null = null
+  for (const d of fechas.values()) {
+    const ms = d.getTime()
+    if (ultimo === null || ms > ultimo) ultimo = ms
+  }
+  return ultimo
 }
 
 /** La salida OFICIAL de la carrera (epoch ms), o null para quitarla. */
