@@ -24,7 +24,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body =
-    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown; eventId?: string }>(request)) || {}
+    (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown; eventId?: string; device?: string }>(request)) || {}
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
   // Movement type (nullable): store only a recognised value, else NULL = auto.
@@ -100,13 +100,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
   }
 
+  // De qué aparato sale esta baliza. Sirve para una sola cosa: que el móvil al
+  // que le quitamos la sesión pueda decir quién se la quitó. Texto corto y sin
+  // interpretar; si no viene, no pasa nada.
+  const device = typeof body.device === 'string' && body.device.trim()
+    ? body.device.trim().slice(0, 40)
+    : null
+
   const id = genId(16)
   // Expiry anchored to the LATER of now / planned start, so a session activated
   // before the race survives through it (and the retention window after).
   const expiresAt = Math.max(now, startedAt) + ttl
   await env.DB.prepare(
-    "INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status, started_at, expires_at, activity, event_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)",
-  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt, activity, eventId).run()
+    `INSERT INTO tracking_sessions (id, owner_user_id, title, plan_share_id, plan_name, status,
+                                    started_at, expires_at, activity, event_id, device)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+  ).bind(id, user.id, title, planShareId, planName, startedAt, expiresAt, activity, eventId, device).run()
 
   const res: CreateTrackResponse = { id, expiresAt }
   return json(res, 201)
@@ -124,12 +133,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const { results } = await env.DB.prepare(
     `SELECT id, title, plan_name AS planName, status, started_at AS startedAt, expires_at AS expiresAt,
-            updated_at AS updatedAt, ended_at AS endedAt, pinned, activity, event_id AS eventId
+            updated_at AS updatedAt, ended_at AS endedAt, pinned, activity, event_id AS eventId, device
        FROM tracking_sessions WHERE owner_user_id=? ORDER BY started_at DESC LIMIT 50`,
   ).bind(user.id).all<{
     id: string; title: string | null; planName: string | null; status: string
     startedAt: number; expiresAt: number; updatedAt: number | null; endedAt: number | null
-    pinned: number | null; activity: string | null; eventId: string | null
+    pinned: number | null; activity: string | null; eventId: string | null; device: string | null
   }>()
 
   const now = Date.now()
@@ -150,6 +159,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       // expiry; surface that as ended-at-expiry so the list reads correctly.
       endedAt: r.endedAt ?? (r.status === 'active' && expired ? r.expiresAt : null),
       pinned,
+      // De qué aparato salió. Lo usa el móvil relevado para poder decir quién le
+      // quitó la baliza, que es lo primero que se pregunta al verla apagada.
+      device: r.device,
       activity: isBeaconActivity(r.activity) ? r.activity : null,
       // A qué evento pertenece esta salida (null = baliza suelta). Lo necesitan
       // las apps para enseñar en qué carrera están emitiendo al retomar una

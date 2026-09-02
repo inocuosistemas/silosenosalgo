@@ -121,6 +121,8 @@ object TrackingStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var almacen: LocalStore
+    /** El contexto de aplicación, solo para leer el nombre del aparato. */
+    private var appCtx: Context? = null
     private lateinit var motor: LocationEngine
     private var api: Api = Api()
     private var tokenStore: TokenStore? = null
@@ -172,6 +174,7 @@ object TrackingStore {
         if (iniciado) return
         iniciado = true
         val app = context.applicationContext
+        appCtx = app
         almacen = LocalStore(app)
         tokenStore = TokenStore(app)
         motor = LocationEngine(app)
@@ -187,6 +190,50 @@ object TrackingStore {
      * aún queda lejos, la sesión queda ARMADA en espera: existe y se puede
      * compartir el enlace, pero no gasta GPS hasta que se acerca la hora.
      */
+    /**
+     * La sesion viva de esta cuenta que NO es la de este movil, si la hay.
+     *
+     * El servidor solo admite UNA sesion por cuenta y cierra la anterior al
+     * crear otra, sin avisar. Con dos moviles —uno de reserva, el del
+     * acompanante, el viejo con mas bateria— eso dejaba el otro mudo sin que
+     * nadie lo dijera. Se pregunta ANTES de crearla: despues ya esta hecho.
+     *
+     * Sin cobertura devuelve null y se arranca igual: quedarse sin salir por no
+     * poder comprobar algo seria el peor de los dos fallos.
+     */
+    /**
+     * Como se llama una sesion cuando hay que hablar de ella.
+     *
+     * Manda el EVENTO por encima de la ruta: una baliza unida a una carrera es
+     * "la Urbion", no "urbion-37k-v3.gpx". El nombre de la ruta es de archivo
+     * —lleva versiones, fechas y la coletilla de la organizacion— y no es como
+     * se llama esa salida entre quienes la corren.
+     */
+    /**
+     * Como se llama ESTE aparato, para que el otro movil sepa quien le quito la
+     * baliza. El nombre que le puso su dueño ("Galaxy de Jose") si el sistema lo
+     * da, y si no el modelo, que ya distingue un movil de otro.
+     */
+    private fun nombreDeEsteAparato(): String {
+        val puesto = runCatching {
+            appCtx?.let { android.provider.Settings.Global.getString(it.contentResolver, "device_name") }
+        }.getOrNull()
+        if (!puesto.isNullOrBlank()) return puesto
+        return "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
+    }
+
+    fun nombreDeSesion(s: TrackSessionSummary): String {
+        val ev = s.eventId?.let { id -> _eventos.value.firstOrNull { it.id == id } }
+        return ev?.name ?: s.title ?: s.planName ?: "Sin nombre"
+    }
+
+    suspend fun otraBalizaViva(): TrackSessionSummary? {
+        val t = token ?: return null
+        val mia = _estado.value.sessionId
+        return runCatching { api.listSessions(t) }.getOrNull()
+            ?.firstOrNull { it.isActive && it.id != mia }
+    }
+
     suspend fun empieza(
         titulo: String?,
         planId: String? = _estado.value.planId,
@@ -197,7 +244,9 @@ object TrackingStore {
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
         return runCatching {
-            val res = api.createTrack(t, titulo, planId, salidaMs, actividad, _estado.value.eventoId)
+            val res = api.createTrack(
+                t, titulo, planId, salidaMs, actividad, _estado.value.eventoId, nombreDeEsteAparato(),
+            )
             pendientes = emptyList()
             traza = emptyList()
             notasPendientes = emptyList()
@@ -477,6 +526,56 @@ object TrackingStore {
             salidaMs = salida ?: 0.0,
             salidaTocada = salida != null,
         )
+    }
+
+    /**
+     * Mientras esta ARMADA, comprobar de vez en cuando que la sesion sigue
+     * siendo suya.
+     *
+     * Una baliza armada calla a proposito hasta la hora de salida, asi que
+     * nunca recibe el 410 que le diria que el servidor la cerro —lo que pasa en
+     * cuanto otro movil de la misma cuenta arma la suya—. Sin esto se queda
+     * enseñando "armado" para siempre mientras el mapa la da por desconectada.
+     * Cada dos minutos y sin GPS: no rompe el ahorro que justifica el modo.
+     */
+    /**
+     * La nota que queda en el movil al que le quitaron la baliza.
+     *
+     * No es un aviso de los que se van solos: quien coge este movil dos horas
+     * mas tarde se encuentra una baliza apagada y merece saber por que sin
+     * tener que deducirlo. Sobrevive a cerrar la app y se va al descartarla.
+     */
+    private val _notaRelevo = MutableStateFlow(almacen.leeNotaRelevo())
+    val notaRelevo0: StateFlow<String?> = _notaRelevo
+    private var notaRelevo: String?
+        get() = _notaRelevo.value
+        set(v) { _notaRelevo.value = v; almacen.guardaNotaRelevo(v) }
+
+    fun descartaNotaRelevo() { notaRelevo = null }
+
+    /** Cada cuánto comprueba una baliza armada que sigue siendo la buena. */
+    private val COMPROBACION_ARMADA_MS = 120_000.0
+    private var ultimaComprobacionArmada = 0.0
+    suspend fun compruebaSigueSiendoMia() {
+        val e = _estado.value
+        if (!e.compartiendo || !e.enEspera) return
+        val id = e.sessionId ?: return
+        val t = token ?: return
+        if (ahoraMs - ultimaComprobacionArmada < COMPROBACION_ARMADA_MS) return
+        ultimaComprobacionArmada = ahoraMs
+        val todas = runCatching { api.listSessions(t) }.getOrNull() ?: return
+        val mia = todas.firstOrNull { it.id == id } ?: return
+        if (!mia.isActive) {
+            // Quien se la quito: la sesion viva de la cuenta, que es la que la
+            // cerro. Con su nombre de aparato la nota deja de ser un misterio.
+            val quien = todas.firstOrNull { it.isActive }?.device
+            para()
+            notaRelevo = if (quien != null) {
+                "Otra baliza tomo el relevo desde «$quien» y esta dejo de emitir."
+            } else {
+                "Otra baliza tuya tomo el relevo y esta dejo de emitir."
+            }
+        }
     }
 
     /** Fija a mano la hora de salida prevista (el DatePicker de iOS): ritmos y
@@ -1227,7 +1326,11 @@ object TrackingStore {
             // Armada y esperando la hora de salida NO significa incomunicada:
             // el enlace ya está compartido y la gente empieza a mandar ánimos
             // antes de que salgas. Antes se volvía aquí sin preguntar por ellos.
+            // Y de paso se comprueba que la sesión sigue siendo la buena: otro
+            // móvil de la misma cuenta pudo tomar el relevo mientras esta
+            // callaba.
             scope.launch { refrescaAnimos() }
+            scope.launch { compruebaSigueSiendoMia() }
             return
         }
         if (TrackingRules.tocaLatido(ahoraMs, ultimoIntentoMs, e.ritmo)) {

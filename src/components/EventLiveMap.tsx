@@ -37,6 +37,16 @@ import type { RunnerOutcome } from '../lib/bets'
 const POLL_MS = 10_000
 /** Pasado esto sin noticias, el punto se apaga: quieto no es lo mismo que sin señal. */
 const STALE_MS = 6 * 60_000
+/**
+ * Y pasado ESTO ya no es un hueco, es un agujero de cobertura.
+ *
+ * En montaña lo normal es quedarse sin red un rato largo —un valle, un bosque,
+ * una cara norte— y el punto se queda clavado donde entró. A los seis minutos
+ * basta con apagarlo; a los veinte hay que DECIRLO, porque quien mira lleva un
+ * rato viendo a alguien parado en el mismo sitio y la conclusión natural
+ * —"le ha pasado algo"— es casi siempre la equivocada.
+ */
+const LOST_MS = 20 * 60_000
 
 /** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
 type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
@@ -201,6 +211,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
       const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
+      // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
+      // última posición conocida, no donde está.
+      const lost = r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > LOST_MS
       // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
       // ABIERTA con la hora de salida por delante y no manda una sola posición
       // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
@@ -217,7 +230,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
       // señal" —que suena a avería— sino que aún no ha empezado.
       const idle = !armed && r.fix === null
-      return { r, km, margin, stale, idle, armed, key: r.userId ?? r.username }
+      return { r, km, margin, stale, lost, idle, armed, key: r.userId ?? r.username }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
@@ -601,7 +614,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed }) => {
+            {rows.map(({ r, key, idle, armed, lost }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -638,6 +651,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       que falta en el mapa hay que decírselo con palabras: sin
                       esto se lee como un fallo de la aplicación. */}
                   {armed && <span className="text-[10px] text-amber-400/80">preparado</span>}
+                  {lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
                   {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
                 </button>
               )
@@ -750,7 +764,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
                 <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
-                  {rows.map(({ r, key, idle, armed }) => (
+                  {rows.map(({ r, key, idle, armed, lost }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
                       {r.bib && (
@@ -763,11 +777,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       </span>
                       <span className={`shrink-0 ${
                         armed ? 'text-amber-400/90' : idle ? 'text-slate-500'
-                          : r.status === 'ended' ? 'text-slate-400' : 'text-emerald-400'
+                          : r.status === 'ended' ? 'text-slate-400'
+                          : lost ? 'text-amber-400/90' : 'text-emerald-400'
                       }`}>
                         {armed ? `preparado · ${hhmm(r.startedAt!)}`
                           : idle ? 'sin emitir'
-                          : r.status === 'ended' ? 'terminado' : 'emitiendo'}
+                          : r.status === 'ended' ? 'terminado'
+                          : lost ? 'sin cobertura' : 'emitiendo'}
                       </span>
                     </li>
                   ))}
@@ -824,6 +840,8 @@ type Row = {
   idle: boolean
   /** Baliza armada y en silencio: sale a una hora que todavía no ha llegado. */
   armed: boolean
+  /** Lleva más de veinte minutos sin mandar nada: el punto es su última conocida. */
+  lost: boolean
   key: string
 }
 
@@ -886,7 +904,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, key }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, lost, key }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -944,7 +962,9 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                     </span>
                   )}
                   <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
-                    {r.updatedAt !== null ? `hace ${agoLabel(now - r.updatedAt)}` : 'sin señal'}
+                    {r.updatedAt === null ? 'sin señal'
+                      : lost ? `📡 sin cobertura · hace ${agoLabel(now - r.updatedAt)}`
+                      : `hace ${agoLabel(now - r.updatedAt)}`}
                   </span>
                   {r.fix && (
                     <button
@@ -1015,7 +1035,11 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Dato valor={km !== null ? km.toFixed(1) : '—'} unidad={totalKm ? `de ${totalKm.toFixed(0)} km` : 'km'} />
         <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />
-        <Dato valor={ago ?? '—'} unidad="última señal" tono={stale ? 'text-amber-400' : 'text-slate-100'} />
+        <Dato
+          valor={ago ?? '—'}
+          unidad={row.lost ? 'sin cobertura' : 'última señal'}
+          tono={stale ? 'text-amber-400' : 'text-slate-100'}
+        />
       </div>
       {/* El margen sobre el cierre: en una carrera con cortes, es LA pregunta.
           Proyectado con el ritmo que lleva, no con el planificado (ver

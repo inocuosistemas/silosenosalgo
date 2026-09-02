@@ -1,0 +1,13 @@
+-- De que aparato salio cada baliza.
+--
+-- El servidor solo admite UNA sesion por cuenta: al armar la baliza en otro
+-- movil, la anterior se cierra. Ahora se avisa antes de hacerlo, pero al movil
+-- relevado hay que contarle QUE paso cuando lo coja su dueño —"esto ya no
+-- emite"— y lo primero que se pregunta uno es "¿desde donde se la he quitado?".
+-- Con el nombre del aparato la respuesta es una linea: "la tomo el Galaxy A26".
+--
+-- Es un nombre para leer, no un identificador: no identifica a nadie mas que a
+-- ti mismo frente a ti mismo, no se enseña a los seguidores y en iOS ni
+-- siquiera es unico (el sistema devuelve el modelo). Por eso se guarda tal cual
+-- y sin indice.
+ALTER TABLE tracking_sessions ADD COLUMN device TEXT;

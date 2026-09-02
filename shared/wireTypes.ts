@@ -353,6 +353,9 @@ export interface TrackSessionSummary {
    *  apps para enseñar en qué carrera se está emitiendo al retomar una sesión
    *  que empezó en otro momento. */
   eventId?: string | null
+  /** Nombre del aparato desde el que se abrió, para poder decir quién relevó a
+   *  quién. Nulo en sesiones anteriores a que esto existiera. */
+  device?: string | null
 }
 
 export interface TrackSessionsResponse {

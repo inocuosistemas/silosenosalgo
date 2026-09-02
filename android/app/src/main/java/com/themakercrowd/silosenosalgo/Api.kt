@@ -272,6 +272,7 @@ class Api(
         startAt: Double? = null,
         activity: BeaconActivity? = null,
         eventId: String? = null,
+        device: String? = null,
     ): CreateTrackResponse {
         val (body, status) = request(
             "api/track", "POST", token,
@@ -284,6 +285,9 @@ class Api(
                 // miembro; si no lo eres nace suelta en vez de fallar, que lo
                 // importante es salir a correr.
                 if (eventId != null) put("eventId", JsonPrimitive(eventId))
+                // De qué aparato sale. Solo se usa para que el móvil al que le
+                // quitemos la baliza pueda decir quién se la quitó.
+                if (!device.isNullOrEmpty()) put("device", JsonPrimitive(device))
             },
         )
         if (!ok(status)) throw decodeError(body, status)

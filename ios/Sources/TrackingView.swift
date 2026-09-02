@@ -126,6 +126,28 @@ struct TrackingView: View {
         NavigationStack {
             Form {
                 Section {
+                    // Por qué esta baliza dejó de emitir, si fue otro móvil el
+                    // que se la llevó. Va ARRIBA y con su botón de descartar:
+                    // quien coge este teléfono más tarde se encuentra la baliza
+                    // apagada y lo primero que necesita es la razón.
+                    if let nota = store.takeoverNote {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("🔀")
+                            Text(nota).font(.footnote).foregroundStyle(Theme.amber200)
+                            Spacer(minLength: 4)
+                            Button {
+                                store.takeoverNote = nil
+                            } label: {
+                                Image(systemName: "xmark").font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.slate400)
+                        }
+                        .padding(10)
+                        .background(Theme.amber950.opacity(0.35))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    }
                     statusContent
                     // El botón, junto al estado y no al final de la pantalla:
                     // es LA acción, y donde se lee "detenido" es donde se va a
@@ -571,6 +593,27 @@ struct TrackingView: View {
                 Button("Cancelar", role: .cancel) { pendingRename = nil }
             } message: { _ in
                 Text("Ponle un nombre para identificar este seguimiento más tarde.")
+            }
+            // Otra baliza de la misma cuenta está viva: se pregunta antes de
+            // quitársela. El servidor solo admite una por cuenta y cierra la
+            // anterior sin avisar, así que sin esto arrancar aquí dejaba el
+            // otro móvil mudo y nadie se enteraba.
+            .alert("Ya tienes una baliza en marcha", isPresented: Binding(
+                get: { store.takeoverAsk != nil },
+                set: { if !$0 { store.takeoverAsk = nil } }
+            ), presenting: store.takeoverAsk) { otra in
+                Button("Pasarla a este móvil") {
+                    Task {
+                        store.takeoverAsk = nil
+                        await store.startSharing(
+                            title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title,
+                            force: true,
+                        )
+                    }
+                }
+                Button("Cancelar", role: .cancel) { store.takeoverAsk = nil }
+            } message: { otra in
+                Text("«\(store.labelForSession(otra))» está emitiendo desde otro dispositivo. Solo puede haber una baliza por cuenta: si sigues, esa se desarma y esta toma el relevo.")
             }
             .scrollContentBackground(.hidden)
             .background(Theme.slate950)

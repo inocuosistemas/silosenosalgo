@@ -80,6 +80,7 @@ struct TrackSessionSummary: Codable, Identifiable, Equatable {
     let activity: BeaconActivity?  // movement type; nil = auto/unset (or old server)
     /// Evento al que pertenece la salida; nil = baliza suelta (o servidor viejo).
     let eventId: String?
+    let device: String?
 
     /// Pinned state with a safe default for responses predating the field.
     var isPinned: Bool { pinned ?? false }
@@ -316,7 +317,7 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
-    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil, eventId: String? = nil) async throws -> CreateTrackResponse {
+    static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil, eventId: String? = nil, device: String? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
         if let planId { body["planId"] = planId }
@@ -326,6 +327,9 @@ enum API {
         // si no lo eres, la sesión nace suelta en vez de fallar — lo importante
         // es salir a correr.
         if let eventId { body["eventId"] = eventId }
+        // De qué aparato sale. Solo se usa para que el móvil al que le quitemos
+        // la baliza pueda decir quién se la quitó.
+        if let device, !device.isEmpty { body["device"] = device }
         let (data, http) = try await request("api/track", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)

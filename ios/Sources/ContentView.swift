@@ -34,6 +34,10 @@ enum Theme {
     static let slate100 = Color(red: 0.945, green: 0.961, blue: 0.976) // #f1f5f9
     static let sky600   = Color(red: 0.008, green: 0.518, blue: 0.780) // #0284c7
     static let sky500   = Color(red: 0.055, green: 0.647, blue: 0.914) // #0ea5e9
+    // Ámbar: los avisos que no son errores —una baliza armada, un relevo— y que
+    // en rojo asustarían sin motivo.
+    static let amber200 = Color(red: 0.992, green: 0.902, blue: 0.541) // #fde68a
+    static let amber950 = Color(red: 0.271, green: 0.098, blue: 0.020) // #451a03
 
     /// Los doce colores de los participantes de un evento (shared/eventColors.ts).
     ///

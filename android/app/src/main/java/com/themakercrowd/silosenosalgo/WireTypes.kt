@@ -86,6 +86,8 @@ data class TrackSessionSummary(
     /** Evento al que pertenece la salida; null = baliza suelta (o servidor
      *  viejo que no manda el campo). */
     val eventId: String? = null,
+    /** Nombre del aparato desde el que se abrio, para decir quien relevo a quien. */
+    val device: String? = null,
 ) {
     val isActive: Boolean get() = status == "active"
 

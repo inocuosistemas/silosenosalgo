@@ -22,6 +22,20 @@ class LocalStore(context: Context) {
     private val raiz = File(context.filesDir, "seguimiento")
     private val prefs = context.getSharedPreferences("slsns_seguimiento", Context.MODE_PRIVATE)
 
+    /**
+     * La nota de "otra baliza tomo el relevo".
+     *
+     * En preferencias y no en el estado de la sesion: precisamente sobrevive a
+     * que la sesion desaparezca, que es cuando hace falta. Quien coge este movil
+     * dos horas mas tarde tiene que encontrar la razon, no una baliza apagada
+     * sin explicacion.
+     */
+    fun leeNotaRelevo(): String? = prefs.getString("notaRelevo", null)
+
+    fun guardaNotaRelevo(nota: String?) {
+        prefs.edit().apply { if (nota == null) remove("notaRelevo") else putString("notaRelevo", nota) }.apply()
+    }
+
     /** El estado de la sesión viva, para reanudarla tras un reinicio o una
      *  muerte del proceso. */
     @Serializable

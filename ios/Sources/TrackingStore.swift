@@ -33,6 +33,31 @@ final class TrackingStore: ObservableObject {
     @Published var lastSentAt: Date?
     @Published var pingCount = 0
     @Published var lastError: String?
+    /**
+     Otra baliza de la misma cuenta está viva ahora mismo y hay que preguntar
+     antes de quitársela.
+
+     El servidor solo admite UNA sesión por cuenta y cierra la anterior al crear
+     otra, sin avisar. Con dos móviles —cosa normal: uno de reserva, el del
+     acompañante, el viejo con más batería— eso significaba que arrancar aquí
+     dejaba la otra muda sin que nadie lo dijera, y encima la otra seguía
+     enseñando "armado" porque una baliza armada no habla con el servidor.
+     */
+    @Published var takeoverAsk: TrackSessionSummary?
+    /**
+     La nota que queda en el móvil al que le quitaron la baliza.
+
+     No es un aviso de los que se van solos: quien coge este móvil dos horas más
+     tarde se encuentra una baliza apagada y merece saber por qué sin tener que
+     deducirlo. Sobrevive a cerrar la app —se guarda en disco— y solo se va
+     cuando se lee y se descarta.
+     */
+    @Published var takeoverNote: String? = UserDefaults.standard.string(forKey: "takeoverNote") {
+        didSet {
+            if let takeoverNote { UserDefaults.standard.set(takeoverNote, forKey: "takeoverNote") }
+            else { UserDefaults.standard.removeObject(forKey: "takeoverNote") }
+        }
+    }
     @Published var lastLocation: CLLocation?
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var plans: [PlanSummary] = []
@@ -469,14 +494,25 @@ final class TrackingStore: ObservableObject {
         ViewerDataProvider.shared.setNotes(token: session.id, notes: localNotes)
     }
 
-    func startSharing(title: String?) async {
+    /// Empezar a compartir. `force` salta el aviso de relevo: lo pone la vista
+    /// cuando quien usa la app ya ha dicho que sí a quitarle la baliza al otro
+    /// móvil.
+    func startSharing(title: String?, force: Bool = false) async {
         lastError = nil
+        // ¿Hay otra baliza viva en esta cuenta? Se pregunta ANTES de crear la
+        // sesión: después ya está hecho, y "acabo de dejar mudo el otro móvil"
+        // no es algo que se pueda deshacer con un botón de atrás.
+        if !force, let otra = await activeElsewhere() {
+            takeoverAsk = otra
+            return
+        }
+        takeoverAsk = nil
         location.requestAuthorization()
         do {
             // If the user didn't set a departure time, use "now" at share time
             // (not the stale value from when the screen opened).
             let start = startAtTouched ? startAt : Date()
-            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId)
+            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId, device: Self.deviceName)
             sessionToken = res.id
             activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true
@@ -1131,6 +1167,84 @@ final class TrackingStore: ObservableObject {
     /// so followers don't see a frozen "lost signal".
     private let heartbeatSeconds: TimeInterval = 150
 
+    /**
+     Cómo se llama una sesión cuando hay que hablar de ella.
+
+     Manda el EVENTO por encima de la ruta: una baliza unida a una carrera es
+     "la Urbión", no "urbion-37k-v3.gpx". El nombre de la ruta es de archivo
+     —lleva versiones, fechas y la coletilla de la organización— y no es como se
+     llama esa salida entre quienes la corren.
+     */
+    /**
+     Cómo se llama este aparato, para que el otro móvil sepa quién le quitó la
+     baliza.
+
+     Desde iOS 16 el sistema no da el nombre que le puso su dueño salvo con un
+     permiso especial: `UIDevice.name` devuelve el modelo ("iPhone"). Se le pega
+     el identificador de hardware, que sí distingue un iPhone 14 de un 16 —que
+     es de lo que se trata cuando alguien tiene dos—.
+     */
+    static let deviceName: String = {
+        var sys = utsname()
+        uname(&sys)
+        let modelo = withUnsafePointer(to: &sys.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(validatingUTF8: $0) ?? "" }
+        }
+        let nombre = UIDevice.current.name
+        return modelo.isEmpty || nombre.contains(modelo) ? nombre : "\(nombre) (\(modelo))"
+    }()
+
+    func labelForSession(_ s: TrackSessionSummary) -> String {
+        if let id = s.eventId, let ev = events.first(where: { $0.id == id }) { return ev.name }
+        return s.title ?? s.planName ?? "Sin nombre"
+    }
+
+    /// La sesión viva de esta cuenta que NO es la de este móvil, si la hay.
+    ///
+    /// Sale del listado propio del dueño, que ya se usa en "Mis seguimientos":
+    /// una petición pequeña y sin GPS. Si no hay cobertura no se inventa nada
+    /// —devuelve nil— y se arranca: quedarse sin salir por no poder comprobar
+    /// algo sería el peor de los dos fallos.
+    private func activeElsewhere() async -> TrackSessionSummary? {
+        guard let all = try? await API.listSessions(token: token) else { return nil }
+        return all.first { $0.status == "active" && $0.id != sessionToken }
+    }
+
+    /**
+     Mientras está ARMADA, comprobar de vez en cuando que la sesión sigue siendo
+     suya.
+
+     Una baliza armada calla a propósito hasta la hora de salida, así que nunca
+     recibe el 410 que le diría que el servidor la cerró —lo que pasa en cuanto
+     otro móvil de la misma cuenta arma la suya—. Sin esto se queda enseñando
+     "armado" para siempre mientras el mapa la da por desconectada, que es
+     justo lo que no puede pasar en la línea de salida.
+
+     Cada dos minutos y sin GPS: no rompe el ahorro de batería que justifica el
+     modo armado.
+     */
+    private func checkStillOurs() async {
+        guard isSharing, isStandby, let id = sessionToken else { return }
+        guard Date().timeIntervalSince(lastArmedCheck) >= armedCheckSeconds else { return }
+        lastArmedCheck = Date()
+        guard let all = try? await API.listSessions(token: token) else { return }
+        guard let mine = all.first(where: { $0.id == id }) else { return }
+        if mine.status != "active" {
+            // Quién se la quitó: la sesión viva de la cuenta, que es la que la
+            // cerró. Con su nombre de aparato la nota deja de ser un misterio
+            // —"¿desde dónde me la he quitado?"— y pasa a ser un dato.
+            let quien = all.first { $0.status == "active" }?.device
+            await stopSharing()
+            takeoverNote = quien != nil
+                ? "Otra baliza tomó el relevo desde «\(quien!)» y esta dejó de emitir."
+                : "Otra baliza tuya tomó el relevo y esta dejó de emitir."
+        }
+    }
+
+    /// Cada cuánto comprueba una baliza armada que sigue siendo la buena.
+    private let armedCheckSeconds: TimeInterval = 120
+    private var lastArmedCheck = Date.distantPast
+
     /// How early (before the planned start) standby switches to live tracking.
     /// A small margin absorbs clock drift between the phone and the organisation.
     private let startLeadSeconds: TimeInterval = 120
@@ -1275,6 +1389,7 @@ final class TrackingStore: ObservableObject {
                 // Primary trigger to leave standby when stationary at the start
                 // line (coarse location may deliver no callbacks while still).
                 self?.maybeBeginFromStandby()
+                await self?.checkStillOurs()
                 self?.sampleBatteryIfDue()
                 // Los ánimos vienen del servidor (los escriben los seguidores),
                 // así que se traen con el mismo pulso que el resto.

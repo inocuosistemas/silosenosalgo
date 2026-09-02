@@ -275,6 +275,10 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var permisoFondo by remember { mutableStateOf(TrackingStore.gps.hayPermisoSegundoPlano()) }
     var titulo by remember { mutableStateOf("") }
     var arrancando by remember { mutableStateOf(false) }
+    /** La otra baliza viva de esta cuenta, mientras se pregunta si relevarla. */
+    var relevo by remember { mutableStateOf<TrackSessionSummary?>(null) }
+    /** La nota que quedó si a ESTE móvil le quitaron la baliza. */
+    val notaRelevo by TrackingStore.notaRelevo0.collectAsState()
     var viendoMapa by remember { mutableStateOf(false) }
     var descargandoMapa by remember { mutableStateOf(false) }
     val guias by TrackingStore.guias.collectAsState()
@@ -460,6 +464,58 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // —allí el enlace y las cifras viven al final—, porque en marcha esta
         // pantalla se abre para mirar cómo va, y repartir esa información entre
         // el principio y el final obliga a recorrerla entera cada vez.
+        // Por qué esta baliza dejó de emitir, si fue otro móvil el que se la
+        // llevó. Con su botón de descartar: quien coge este teléfono más tarde
+        // se encuentra la baliza apagada y lo primero que necesita es la razón.
+        notaRelevo?.let { nota ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Paleta.ambar.copy(alpha = 0.12f))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text("🔀", modifier = Modifier.padding(end = 8.dp))
+                Text(nota, style = MaterialTheme.typography.bodySmall, color = Paleta.ambar, modifier = Modifier.weight(1f))
+                TextButton(onClick = { TrackingStore.descartaNotaRelevo() }) { Text("✕") }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Otra baliza de la misma cuenta está viva: se pregunta antes de
+        // quitársela. Solo puede haber una por cuenta —una persona está en un
+        // sitio— pero el relevo tiene que ser una decisión, no una sorpresa.
+        relevo?.let { otra ->
+            AlertDialog(
+                onDismissRequest = { relevo = null },
+                title = { Text("Ya tienes una baliza en marcha") },
+                text = {
+                    Text(
+                        "«${TrackingStore.nombreDeSesion(otra)}» está emitiendo desde otro " +
+                            "dispositivo. Solo puede haber una baliza por cuenta: si sigues, esa se desarma " +
+                            "y esta toma el relevo.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val elegida = otra
+                        relevo = null
+                        arrancando = true
+                        scope.launch {
+                            TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                            arrancando = false
+                            if (TrackingStore.estado.value.compartiendo) TrackingService.arranca(context)
+                            // `elegida` solo se usa para el texto; el servidor ya
+                            // cierra la anterior al crear esta.
+                            check(elegida.id.isNotEmpty())
+                        }
+                    }) { Text("Pasarla a este móvil") }
+                },
+                dismissButton = { TextButton(onClick = { relevo = null }) { Text("Cancelar") } },
+            )
+        }
+
         EstadoCompacto(
             estado = estado,
             arrancando = arrancando,
@@ -468,6 +524,16 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onEmpezar = {
                 arrancando = true
                 scope.launch {
+                    // ¿Hay otra baliza viva en esta cuenta? Se pregunta antes de
+                    // quitársela: el servidor cierra la anterior sin avisar, y
+                    // "acabo de dejar mudo el otro móvil" no se deshace con un
+                    // botón de atrás.
+                    val otra = TrackingStore.otraBalizaViva()
+                    if (otra != null) {
+                        relevo = otra
+                        arrancando = false
+                        return@launch
+                    }
                     TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
                     arrancando = false
                     // El servicio se arranca DESPUÉS de que exista la sesión:
