@@ -201,17 +201,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
       const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
-      // Quien no ha abierto baliza no está "sin señal": está sin empezar, y son
-      // dos cosas distintas para quien mira (una se arregla esperando, la otra
-      // llamando por teléfono).
-      const idle = r.status === 'idle'
       // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
-      // abierta con la hora de salida por delante y no manda una sola posición
+      // ABIERTA con la hora de salida por delante y no manda una sola posición
       // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
       // nadie— pero eso, sin decirlo, se ve igual que un GPS que no funciona.
-      // Se reconoce por lo que hay: sesión abierta, sin ningún punto todavía y
-      // con la salida aún por llegar.
-      const armed = !idle && r.fix === null && r.startedAt !== null && r.startedAt > now
+      //
+      // Que la sesión siga abierta es parte de la definición y no un detalle:
+      // quien armó la baliza para probar y luego dejó de compartir tiene una
+      // sesión CERRADA, sin posiciones y con la salida todavía por delante, y
+      // se quedaba anunciado como "preparado" para siempre sin estarlo.
+      const armed = r.status === 'active' && r.fix === null
+        && r.startedAt !== null && r.startedAt > now
+      // Y sin una sola posición no ha emitido: da igual que no haya abierto
+      // baliza, que la tenga abierta sin mandar nada o que la cerrara sin
+      // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
+      // señal" —que suena a avería— sino que aún no ha empezado.
+      const idle = !armed && r.fix === null
       return { r, km, margin, stale, idle, armed, key: r.userId ?? r.username }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
@@ -280,7 +285,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
         tracked: r.fix !== null,
         finished,
         finishedAt: finished ? r.updatedAt : null,
-        settled: finished || r.status === 'ended',
+        // Cerrar una baliza que NUNCA mandó nada no decide nada: quien la armó
+        // para probar y la apagó puede estar corriendo igual con el móvil en el
+        // bolsillo. Sin una sola posición su carrera queda sin resolver, que es
+        // la verdad, en vez de contarse como abandono.
+        settled: finished || (r.status === 'ended' && r.fix !== null),
       }
     })
   }, [rows, route])
@@ -902,7 +911,10 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                     {r.username}
                   </button>
                 )}
-                {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+                {/* "Terminado" es haber acabado de emitir algo. Una baliza
+                    cerrada sin una sola posición no terminó nada: no ha
+                    empezado, y ponerle las dos etiquetas se contradice. */}
+                {!idle && r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
                 {armed && <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">preparado</span>}
                 {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
                 <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
