@@ -14,6 +14,8 @@
  *  - for share links (`?s=<id>`), looks up the tiny `${id}:og` sidecar in KV and
  *    overrides `<title>`, og:title/description and twitter:title/description with
  *    the outing's own name + summary;
+ *  - for event JOIN links (`?evento=<código>`), the one pasted in the club's
+ *    group chat: the race's own poster, its name, the day and how many are in;
  *  - for live-tracking links (`?t=<token>`), reads the session from D1 and says
  *    whether it's LIVE, whose it is and which route, plus that route's own card
  *    as the image. Without this, sharing a live track previewed with the app
@@ -26,6 +28,23 @@
 interface Env {
   SHARE_KV: KVNamespace
   DB: D1Database
+}
+
+/**
+ * El día de la carrera, en castellano y en hora española.
+ *
+ * En el borde no hay zona horaria del que mira —el crawler de WhatsApp puede
+ * estar en cualquier parte— y una carrera tiene la hora del sitio donde se
+ * corre, así que se fija Madrid en vez de dejar que salga en UTC y anuncie una
+ * salida a las 06:30 que en realidad es a las 08:30.
+ */
+function fechaLarga(ms: number): string {
+  try {
+    return new Date(ms).toLocaleString('es-ES', {
+      weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Madrid',
+    })
+  } catch { return '' }
 }
 
 /** HTMLRewriter handler that sets one attribute to a fixed value. */
@@ -45,6 +64,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const isTrackLink = !!track && /^[A-Za-z0-9_-]{16,32}$/.test(track)
   const eventToken = url.searchParams.get('ev')
   const isEventLink = !!eventToken && /^[A-Za-z0-9_-]{16,32}$/.test(eventToken)
+  const joinCode = url.searchParams.get('evento')
+  const isJoinLink = !!joinCode && /^[A-Za-z0-9_-]{8,64}$/.test(joinCode)
 
   // Share links get a per-link image (the rendered track card, served by
   // /og/<id>.png with a brand-card fallback). Everything else gets the brand
@@ -135,6 +156,46 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         } else {
           imageUrl = `${url.origin}/og-live.png`
         }
+      }
+    } catch { /* sin datos del evento, vista previa de marca */ }
+  }
+
+  // Enlace para UNIRSE a un evento (`?evento=<código>`). Es el que se pega en el
+  // grupo del club, y hasta ahora se previsualizaba con el logo y el eslogan de
+  // la aplicación: "previsión meteorológica hora a hora", que no invita a nada
+  // ni dice a qué te están invitando. Quien lo recibe decide si tocar por lo que
+  // ve en esa pastilla, así que lleva el cartel de la carrera, su nombre, el día
+  // y cuántos van apuntados.
+  if (isJoinLink) {
+    try {
+      const row = await ctx.env.DB.prepare(
+        `SELECT e.id, e.name, e.starts_at AS startsAt, e.ended_at AS endedAt,
+                e.photo_key AS photoKey, e.photo_at AS photoAt,
+                (SELECT COUNT(*) FROM event_members m WHERE m.event_id = e.id) AS members
+           FROM events e WHERE e.invite_code = ?`,
+      ).bind(joinCode).first<{
+        id: string; name: string; startsAt: number | null; endedAt: number | null
+        photoKey: string | null; photoAt: number | null; members: number
+      }>()
+      if (row) {
+        const raw = row.name.trim()
+        const name = raw.length > 44 ? `${raw.slice(0, 43).trimEnd()}…` : raw
+        // Lo primero del título es lo único que se lee seguro: que te invitan y
+        // a qué. Una carrera ya terminada lo dice, para que nadie se apunte a
+        // algo que pasó.
+        title = row.endedAt ? `🏁 ${name} · terminada` : `🎽 Te apuntas a ${name}`
+        const cuando = row.startsAt ? fechaLarga(row.startsAt) : null
+        const quienes = row.members === 1 ? '1 participante' : `${row.members} participantes`
+        desc = row.endedAt
+          ? `Esta carrera ya se corrió. ${quienes} en la parrilla.`
+          : [
+              cuando,
+              `${quienes} en la parrilla`,
+              'Toca para entrar y compartir tu posición en el mapa común.',
+            ].filter(Boolean).join(' · ')
+        imageUrl = row.photoKey
+          ? `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
+          : `${url.origin}/og-live.png`
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
