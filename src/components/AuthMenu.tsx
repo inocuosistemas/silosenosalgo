@@ -122,13 +122,18 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           )}
         </div>
       ) : (
+        /* Un emoji gris a media opacidad sobre fondo oscuro no se ve —y lo que
+           no se ve no se pulsa—. Entrar es una acción, así que se viste como
+           las demás: pastilla con borde, y con la palabra, que un muñeco suelto
+           tampoco dice qué hace. Mismo aspecto que el botón de la sesión
+           iniciada, para que sea el mismo sitio siempre. */
         <button
           onClick={() => setShowLogin(true)}
           title="Iniciar sesión"
           aria-label="Iniciar sesión"
-          className="px-2 py-2 rounded-lg text-slate-500 hover:text-sky-400 transition-colors text-base leading-none opacity-70 hover:opacity-100"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
         >
-          👤
+          👤 <span>Entrar</span>
         </button>
       )}
 
