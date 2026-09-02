@@ -176,6 +176,7 @@ object TrackingStore {
         val app = context.applicationContext
         appCtx = app
         almacen = LocalStore(app)
+        _notaRelevo.value = almacen.leeNotaRelevo()
         tokenStore = TokenStore(app)
         motor = LocationEngine(app)
         motor.onLectura = ::alLlegarLectura
@@ -545,7 +546,10 @@ object TrackingStore {
      * mas tarde se encuentra una baliza apagada y merece saber por que sin
      * tener que deducirlo. Sobrevive a cerrar la app y se va al descartarla.
      */
-    private val _notaRelevo = MutableStateFlow(almacen.leeNotaRelevo())
+    // Arranca VACIA y se llena en `inicia()`, no aqui: la inicializacion del
+    // objeto ocurre al cargar la clase, antes de que exista el almacen, y
+    // leerlo aqui tumbaba la app entera antes de pintar nada.
+    private val _notaRelevo = MutableStateFlow<String?>(null)
     val notaRelevo0: StateFlow<String?> = _notaRelevo
     private var notaRelevo: String?
         get() = _notaRelevo.value
