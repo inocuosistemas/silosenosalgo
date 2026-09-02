@@ -326,10 +326,21 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topP
 
       {/* ── Cómo está la porra ───────────────────────────────────────────── */}
       {data && data.bets.length > 0 && (
-        <BetsPulse bets={data.bets} runners={runners} startsAt={data.startsAt} limitMin={limitMin} />
+        <BetsPulse bets={data.bets} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin} />
       )}
 
-      {/* ── El ranking ───────────────────────────────────────────────────── */}
+      {/* ── El ranking, solo para quien juega ────────────────────────────── */}
+      {!user && data && data.bets.length > 0 && (
+        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
+          <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Los oráculos</h2>
+          <p className="mt-1.5 text-xs text-slate-400">
+            Quién ha pronosticado qué, y cómo van de aciertos, se ve con la sesión iniciada. De
+            puertas afuera la porra se enseña en conjunto: cuántos dicen que acaba, cuánto tiempo le
+            dan — sin nombres.
+          </p>
+        </section>
+      )}
+      {user && (
       <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
           Los oráculos {ranking.length > 0 && `· ${ranking.length}`}
@@ -381,6 +392,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topP
           </ul>
         )}
       </section>
+      )}
 
       {/* Las reglas, al final y en pequeño: se juega antes de leerlas. */}
       <details className="mb-4 rounded-xl border border-slate-800 bg-slate-900/40 p-3.5">
@@ -429,13 +441,16 @@ const C_NO = '#f97316'
 const C_VOTO = '#fbbf24'
 const C_TIEMPO = '#a78bfa'
 
-function BetsPulse({ bets, runners, startsAt, limitMin }: {
+function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
   bets: EventBetsResponse['bets']
+  players: number
   runners: BetRunner[]
   startsAt: number | null
   limitMin: number | null
 }) {
-  const jugadores = new Set(bets.map((b) => b.author)).size
+  // Del servidor: sin sesión los pronósticos llegan sin firma, así que aquí no
+  // hay nombres que contar.
+  const jugadores = players
 
   // Quién gana, según la porra: cuántos ponen a cada uno en el primer puesto.
   const votos = runners.map((r) => ({

@@ -517,7 +517,12 @@ export type BetKind =
   | 'finish_time'
 
 export interface EventBet {
-  /** Quién pronostica. */
+  /**
+   * Quién pronostica. Llega VACÍO a quien pregunta sin sesión: de puertas
+   * afuera la porra se enseña en conjunto —cuántos dicen qué— y no quién dijo
+   * qué. Lo que alguien pronostica sobre una carrera es suyo y de los que
+   * juegan con él, no de cualquiera con el enlace.
+   */
   author: string
   /** A quién apunta; vacío en las apuestas de la carrera entera. */
   target: string
@@ -542,6 +547,8 @@ export interface EventBetsResponse {
    */
   canBet: boolean
   whyNot?: 'anon' | 'cerrada' | 'desactivada'
+  /** Cuántos han jugado. Va aparte porque sin nombres no se puede contar. */
+  players: number
   bets: EventBet[]
 }
 

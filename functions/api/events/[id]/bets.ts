@@ -65,9 +65,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       ORDER BY ua.username`,
   ).bind(id).all<{ author: string; target: string; kind: string; value: string }>()
 
+  // Sin sesión, la porra se enseña en conjunto y sin firmas: cuántos dicen que
+  // acaba, cuánto le dan de tiempo. Quién dijo qué —y el ranking, que es una
+  // lista de nombres con nota— es para quien juega. El enlace público circula
+  // por grupos de familia y no tiene por qué repartir eso.
+  const anonimo = !user
   const bets: EventBet[] = (rows.results ?? []).map((r) => ({
-    author: r.author, target: r.target, kind: r.kind as BetKind, value: r.value,
+    author: anonimo ? '' : r.author, target: r.target, kind: r.kind as BetKind, value: r.value,
   }))
+  const players = new Set((rows.results ?? []).map((r) => r.author)).size
 
   let canBet = false
   let whyNot: EventBetsResponse['whyNot']
@@ -83,6 +89,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     me: user?.username ?? null,
     canBet,
     ...(canBet ? {} : { whyNot }),
+    players,
     bets,
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
