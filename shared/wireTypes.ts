@@ -437,9 +437,13 @@ export interface EventInfo {
   isMember?: boolean
   startsAt: number | null
   /** Cierre de meta (epoch ms): a esa hora el evento se cierra solo. Sale del
-   *  último cierre del recorrido; null = esta carrera no tiene hora límite y
-   *  solo la termina quien organiza. */
+   *  último cierre del recorrido, o de la salida más el límite; null = esta
+   *  carrera no tiene hora límite y solo la termina quien organiza. */
   endsAt?: number | null
+  /** El límite de tiempo de la carrera, en minutos. Con la salida publicada, la
+   *  hora de cierre es una resta: así se dice como se anuncia una carrera
+   *  —"sale a las 8:00, tienes 8 horas"— en vez de calculando la hora. */
+  limitMin?: number | null
   createdAt: number
   endedAt: number | null
   /** Resultados congelados al cerrar. Solo en un evento terminado. */

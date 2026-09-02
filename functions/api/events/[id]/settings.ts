@@ -38,14 +38,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const body = (await readJson<{
-    colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown; endsAt?: unknown
+    colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
+    endsAt?: unknown; limitMin?: unknown
   }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
   const tocaSalida = body.startsAt !== undefined
   const tocaPorra = typeof body.betsEnabled === 'boolean'
   const tocaCierre = body.endsAt !== undefined
-  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre) {
+  const tocaLimite = body.limitMin !== undefined
+  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite) {
     return json({ error: 'invalid_request' }, 400)
   }
 
@@ -70,6 +72,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       return json({ error: 'invalid_request' }, 400)
     }
     endsAt = Math.round(body.endsAt)
+  }
+
+  // El límite de tiempo, en minutos. Tope de una semana: por encima de eso no
+  // es un límite, es un dedo que se ha quedado pulsado.
+  let limitMin: number | null = null
+  if (tocaLimite && body.limitMin !== null) {
+    if (typeof body.limitMin !== 'number' || !Number.isFinite(body.limitMin)
+        || body.limitMin <= 0 || body.limitMin > 7 * 24 * 60) {
+      return json({ error: 'invalid_request' }, 400)
+    }
+    limitMin = Math.round(body.limitMin)
   }
 
   let notes: string | null = null
@@ -105,9 +118,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
       .bind(endsAt, id, user.id).run()
   }
+  if (tocaLimite) {
+    await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')
+      .bind(limitMin, id, user.id).run()
+  }
   if (tocaSalida) {
     await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ? AND created_by = ?')
       .bind(startsAt, id, user.id).run()
   }
+  // La hora de cierre es la verdad —es contra lo que se cierra la carrera— pero
+  // se puede llegar a ella por dos caminos. Si hay salida y límite, la resta
+  // manda: tocar cualquiera de los dos recalcula la hora, que es lo que espera
+  // quien acaba de mover la salida media hora. Si se escribió la hora a mano y
+  // hay salida, se deduce el límite, para poder enseñarlo.
+  if (tocaLimite || tocaSalida || tocaCierre) {
+    const ev2 = await env.DB.prepare(
+      'SELECT starts_at AS startsAt, ends_at AS endsAt, limit_min AS limitMin FROM events WHERE id = ?',
+    ).bind(id).first<{ startsAt: number | null; endsAt: number | null; limitMin: number | null }>()
+    if (ev2) {
+      if (!tocaCierre && ev2.startsAt !== null && ev2.limitMin !== null) {
+        await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
+          .bind(ev2.startsAt + ev2.limitMin * 60_000, id, user.id).run()
+      } else if (tocaCierre && ev2.startsAt !== null && ev2.endsAt !== null && ev2.endsAt > ev2.startsAt) {
+        await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')
+          .bind(Math.round((ev2.endsAt - ev2.startsAt) / 60_000), id, user.id).run()
+      }
+    }
+  }
+
   return new Response(null, { status: 204 })
 }

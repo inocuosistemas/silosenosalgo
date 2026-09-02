@@ -6,7 +6,8 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventBetsEnabled, endEvent, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit,
+  setEventBetsEnabled, endEvent, joinEvent,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -165,6 +166,15 @@ export default function EventLobby({ id }: { id: string }) {
     if (valor && !Number.isFinite(ms as number)) return
     setBusy(true); setError(null)
     try { await setEventEnd(id, ms); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
+  }
+
+  async function guardarLimite(horas: string) {
+    const h = horas.trim() ? Number(horas) : null
+    if (h !== null && (!Number.isFinite(h) || h <= 0)) return
+    setBusy(true); setError(null)
+    try { await setEventLimit(id, h === null ? null : Math.round(h * 60)); await refresh() }
     catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
     finally { setBusy(false) }
   }
@@ -783,6 +793,25 @@ export default function EventLobby({ id }: { id: string }) {
                   : <>Esta carrera no tiene hora de cierre, así que solo termina cuando lo digas tú. La pone
                      sola el recorrido al publicarlo —es su último corte— o la escribes aquí.</>}
               </p>
+              {/* La forma en que se anuncia una carrera: "sale a las 8:00 y
+                  tienes 8 horas". Con la salida publicada, la hora de cierre es
+                  una resta y no hay por qué pedirle a nadie que la calcule. */}
+              <label className="mt-2 block text-[11px] text-slate-500">
+                Límite de tiempo (horas)
+                <input
+                  type="number" inputMode="decimal" min={0} step={0.5}
+                  defaultValue={event.limitMin != null ? String(Math.round((event.limitMin / 60) * 100) / 100) : ''}
+                  onBlur={(e) => void guardarLimite(e.target.value)}
+                  disabled={busy || !event.startsAt}
+                  placeholder={event.startsAt ? 'p. ej. 8' : 'pon antes la salida oficial'}
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-600 focus:outline-none disabled:opacity-50"
+                />
+              </label>
+              {!event.startsAt && (
+                <p className="mt-1 text-[10px] text-amber-500/80">
+                  El límite se cuenta desde la salida, así que primero hay que fijarla arriba.
+                </p>
+              )}
               <label className="mt-2 block text-[11px] text-slate-500">
                 Cierre de meta
                 <input

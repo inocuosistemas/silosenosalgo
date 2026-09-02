@@ -99,9 +99,12 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   await env.DB.prepare(
     `UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?),
             plan_total_km = COALESCE(?, plan_total_km), ends_at = COALESCE(?, ends_at),
+            limit_min = CASE
+              WHEN ? IS NOT NULL AND starts_at IS NOT NULL AND ? > starts_at
+              THEN CAST((? - starts_at) / 60000 AS INTEGER) ELSE limit_min END,
             plan_updated_at = ?, plan_change = ?
       WHERE id = ? AND created_by = ?`,
-  ).bind(shareId, planName, startsAt, totalKm, endsAt, Date.now(), planChange, id, user.id).run()
+  ).bind(shareId, planName, startsAt, totalKm, endsAt, endsAt, endsAt, endsAt, Date.now(), planChange, id, user.id).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })
 }

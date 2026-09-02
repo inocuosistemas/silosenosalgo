@@ -165,6 +165,11 @@ export async function setEventEnd(id: string, endsAt: number | null): Promise<vo
   return setEventSettings(id, { endsAt })
 }
 
+/** El límite de tiempo de la carrera en minutos, o null para quitarlo. */
+export async function setEventLimit(id: string, limitMin: number | null): Promise<void> {
+  return setEventSettings(id, { limitMin })
+}
+
 /** La porra del evento: la enciende y la apaga quien organiza. */
 export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Promise<void> {
   return setEventSettings(id, { betsEnabled })
@@ -172,7 +177,10 @@ export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Pro
 
 async function setEventSettings(
   id: string,
-  patch: { colorsLocked?: boolean; notes?: string; startsAt?: number | null; betsEnabled?: boolean; endsAt?: number | null },
+  patch: {
+    colorsLocked?: boolean; notes?: string; startsAt?: number | null
+    betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null
+  },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
     method: 'POST', credentials: 'same-origin',
