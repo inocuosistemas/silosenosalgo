@@ -500,6 +500,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
             esquina. Desaparece mientras está abierto y vuelve al plegarlo, con
             los tres números y los enlaces oficiales dentro del cuadro para no
             perder nada por el camino. */}
+        {/* La salida de esta pantalla va SIEMPRE visible para quien corre: la
+            tarjeta de la carrera se esconde con el cuadro de la salida abierto
+            —dice lo mismo que él— pero el "volver" no es presentación, es
+            navegación, y esconderlo deja encerrado a quien solo quería mirar el
+            mapa un momento. */}
+        <div className="pointer-events-auto flex min-w-0 flex-col items-start gap-1">
+        {!isPublic && (
+          <a
+            href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
+            className="w-fit rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
+          >
+            ← Parrilla
+          </a>
+        )}
         {waiting && panelOpen && view === 'mapa' ? (
           <div />
         ) : (
@@ -543,14 +557,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 buscarlos. Se validan al pintar: en la base puede haber enlaces
                 anteriores a la comprobación. */}
             <div className={`flex flex-wrap gap-1 ${view === 'mapa' ? '' : 'hidden'}`}>
-              {/* Volver a la parrilla, junto a los enlaces de la carrera: es
-                  otra forma de salir de aquí, no un rótulo de la cabecera. */}
-              {!isPublic && (
-                <a href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
-                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-slate-200 backdrop-blur hover:border-sky-700">
-                  ← Parrilla
-                </a>
-              )}
               {isHttpUrl(links.trackingUrl) && (
                 <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
                    className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
@@ -566,6 +572,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </div>
           </div>
         )}
+        </div>
         {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
             ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
             un modo activo que no se ve es un modo que desconcierta. */}
