@@ -30,23 +30,6 @@ export function UserManager() {
   const [resetLinks, setResetLinks] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  // Ref por estado y no `useRef`: la lista no existe en el primer render (se
-  // está cargando), y un `useRef` se quedaría a nulo para siempre.
-  const [listEl, setListEl] = useState<HTMLDivElement | null>(null)
-
-  // La barra de desplazamiento asoma mientras se desplaza y se retira sola al
-  // parar; el resto del tiempo la lista no lleva ningún borde gris al lado.
-  useEffect(() => {
-    if (!listEl) return
-    let t = 0
-    const onScroll = () => {
-      listEl.classList.add('is-scrolling')
-      window.clearTimeout(t)
-      t = window.setTimeout(() => listEl.classList.remove('is-scrolling'), 800)
-    }
-    listEl.addEventListener('scroll', onScroll, { passive: true })
-    return () => { listEl.removeEventListener('scroll', onScroll); window.clearTimeout(t) }
-  }, [listEl])
 
   const refresh = useCallback(async () => {
     try { setUsers((await listUsers()).users); setError(null) }
@@ -115,7 +98,7 @@ export function UserManager() {
       ) : shown.length === 0 ? (
         <p className="text-xs text-slate-500">Ninguna cuenta se llama así.</p>
       ) : (
-        <div ref={setListEl} className="space-y-2 max-h-96 overflow-y-auto scrollbar-fantasma">
+        <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-fantasma">
           {shown.map((u) => {
             const link = resetLinks[u.id]
             const isMe = u.id === me?.id

@@ -202,23 +202,38 @@
    ocupa siempre, pintada o no, así que nada se mueve al aparecer.
    En un móvil no hay ratón ni falta: el sistema ya enseña la suya durante el
    gesto y la retira después, que es justo este comportamiento. */
+/* Y es lo que lleva TODA la aplicación por defecto, no solo quien se acuerde
+   de pedirlo: la barra del sistema —gris, ancha y con sus flechitas en
+   Windows— aparecía en cualquier panel nuevo y rompía el conjunto oscuro. La
+   clase se queda como estaba para no tener que tocar quien ya la usaba. */
+*,
 .scrollbar-fantasma {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
   transition: scrollbar-color 0.35s ease;
 }
+*:hover,
+*.is-scrolling,
 .scrollbar-fantasma:hover,
 .scrollbar-fantasma.is-scrolling {
   scrollbar-color: #334155 transparent;
 }
-.scrollbar-fantasma::-webkit-scrollbar { width: 6px; height: 6px; }
-.scrollbar-fantasma::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-fantasma::-webkit-scrollbar-thumb {
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+/* Las flechitas de los extremos: en un panel oscuro son dos cuadrados grises
+   que no pinta nadie ahí, y nadie las usa desde que hay rueda. */
+::-webkit-scrollbar-button { display: none; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 9999px;
   transition: background 0.35s ease;
 }
-.scrollbar-fantasma:hover::-webkit-scrollbar-thumb,
-.scrollbar-fantasma.is-scrolling::-webkit-scrollbar-thumb {
+:hover::-webkit-scrollbar-thumb,
+.is-scrolling::-webkit-scrollbar-thumb {
   background: #334155;                     /* slate-700 */
+}
+:hover::-webkit-scrollbar-thumb:hover,
+.is-scrolling::-webkit-scrollbar-thumb:hover {
+  background: #475569;                     /* slate-600, al agarrarla */
 }

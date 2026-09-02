@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { reloadOnceForChunkError } from './lib/chunkReload'
+import { initGhostScrollbars } from './lib/scrollbars'
 import { AuthProvider } from './lib/AuthContext'
 import { TOKEN_RE, INVITE_RE } from '../shared/validate'
 
@@ -45,6 +46,10 @@ const isPublicEvent = !isViewer && !isEvent && !isJoin && !!publicEvent && TOKEN
 if (import.meta.env.DEV) {
   void import('./lib/anchoGuard').then((m) => m.vigilaElAncho())
 }
+
+// La barra de desplazamiento, discreta en toda la aplicación: asoma mientras
+// se usa y se retira sola.
+initGhostScrollbars()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
