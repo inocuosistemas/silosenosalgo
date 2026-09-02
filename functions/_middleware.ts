@@ -16,6 +16,8 @@
  *    the outing's own name + summary;
  *  - for event JOIN links (`?evento=<código>`), the one pasted in the club's
  *    group chat: the race's own poster, its name, the day and how many are in;
+ *  - for ACCOUNT invites (`?invite=<código>`), the only door in: says it is an
+ *    invitation and whether it still works — never who sent it;
  *  - for live-tracking links (`?t=<token>`), reads the session from D1 and says
  *    whether it's LIVE, whose it is and which route, plus that route's own card
  *    as the image. Without this, sharing a live track previewed with the app
@@ -66,6 +68,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const isEventLink = !!eventToken && /^[A-Za-z0-9_-]{16,32}$/.test(eventToken)
   const joinCode = url.searchParams.get('evento')
   const isJoinLink = !!joinCode && /^[A-Za-z0-9_-]{8,64}$/.test(joinCode)
+  const invite = url.searchParams.get('invite')
+  const isInviteLink = !!invite && /^[A-Za-z0-9_-]{8,64}$/.test(invite)
 
   // Share links get a per-link image (the rendered track card, served by
   // /og/<id>.png with a brand-card fallback). Everything else gets the brand
@@ -198,6 +202,37 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
           : `${url.origin}/og-live.png`
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
+  }
+
+  // Invitación para CREAR CUENTA (`?invite=<código>`). El alta es solo por
+  // invitación, así que este enlace es la única puerta de entrada — y se
+  // previsualizaba igual que la portada, sin decir que lo que hay al otro lado
+  // es una invitación personal y de un solo uso.
+  //
+  // Aquí no se enseña ni quién invita ni nada de la cuenta: el código viaja por
+  // donde viaja y una vista previa la ve cualquiera del grupo. Solo si el
+  // enlace SIRVE todavía, que es lo único que necesita saber quien lo recibe
+  // —y lo que evita que alguien pelee con un enlace ya gastado—.
+  if (isInviteLink) {
+    try {
+      const row = await ctx.env.DB.prepare(
+        'SELECT used_by AS usedBy, expires_at AS expiresAt FROM invitations WHERE code = ?',
+      ).bind(invite).first<{ usedBy: string | null; expiresAt: number | null }>()
+      if (row) {
+        const gastada = row.usedBy !== null
+        const caducada = row.expiresAt !== null && Date.now() > row.expiresAt
+        if (gastada || caducada) {
+          title = '🎟️ Invitación ya usada'
+          desc = gastada
+            ? 'Esta invitación se usó para crear una cuenta. Pide otra a quien te la mandó.'
+            : 'Esta invitación ha caducado. Pide otra a quien te la mandó.'
+        } else {
+          title = '🎟️ Tienes una invitación'
+          desc = 'Crea tu cuenta en SiLoSeNoSalgo: planifica la carrera hora a hora, comparte tu posición en directo y sigue a los tuyos en el mapa.'
+        }
+        imageUrl = `${url.origin}/og-card.png`
+      }
+    } catch { /* sin datos de la invitación, vista previa de marca */ }
   }
 
   if (isShareLink) {
