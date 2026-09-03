@@ -117,7 +117,19 @@ export default function EventLobby({ id }: { id: string }) {
         // que al publicarlo. Solo si falta: si el organizador puso una hora a
         // mano, esa manda.
         const cierre = ev.endsAt == null ? (ultimoCierre(base) ?? undefined) : undefined
-        await setEventTotalKm(id, km, simplificaTrazado(base), base.paceConfig?.activity, cierre)
+        // Y solo se manda LO QUE FALTA. Un recorrido sin cortes no tiene cierre
+        // que copiar, así que ese hueco no se va a llenar nunca: sin esta
+        // comprobación, cada visita a su parrilla reescribía el trazado entero
+        // para no cambiar nada.
+        const faltaTrazado = !finoYa || ev.planTotalKm == null
+        if (!faltaTrazado && !cierre && ev.activity) return
+        await setEventTotalKm(
+          id,
+          km,
+          faltaTrazado ? simplificaTrazado(base) : undefined,
+          base.paceConfig?.activity,
+          cierre,
+        )
         await refresh()
       } catch { /* sin recorrido a mano se queda como estaba */ }
     })()
