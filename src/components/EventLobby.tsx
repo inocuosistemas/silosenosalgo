@@ -6,8 +6,8 @@ import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit,
-  setEventBetsEnabled, endEvent, joinEvent,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
+  setEventBetsEnabled, endEvent, joinEvent, getEventPlan,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -75,6 +75,32 @@ export default function EventLobby({ id }: { id: string }) {
     const t = window.setInterval(() => void refresh(), REFRESH_MS)
     return () => window.clearInterval(t)
   }, [refresh, status, user])
+
+  /**
+   * Completa la distancia del recorrido si al evento le falta.
+   *
+   * Es dato del recorrido y llega al publicarlo, pero los eventos creados antes
+   * de que existiera se quedaron sin él — y sin él no se puede decir quién
+   * llegó a meta: los resultados salían con "0 de 3 llegaron". Lo calcula aquí
+   * quien organiza, que es quien puede escribirlo, abriendo el payload que el
+   * servidor nunca abre. Una vez y en silencio.
+   */
+  useEffect(() => {
+    const ev = data?.event
+    if (!ev?.isOwner || !ev.planShareId || ev.planTotalKm != null) return
+    let vivo = true
+    void (async () => {
+      try {
+        const base = await getEventPlan(ev.planShareId!)
+        const km = base.track.totalDistanceKm
+        if (!vivo || !Number.isFinite(km) || km <= 0) return
+        await setEventTotalKm(id, km)
+        await refresh()
+      } catch { /* sin recorrido a mano se queda como estaba */ }
+    })()
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.event?.isOwner, data?.event?.planShareId, data?.event?.planTotalKm])
 
   if (status !== 'ready') {
     return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>

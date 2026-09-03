@@ -183,6 +183,14 @@ export async function getEventReplay(source: { kind: 'member'; id: string } | { 
   return res.json() as Promise<EventReplay>
 }
 
+/**
+ * La distancia del recorrido (km). La manda quien tiene el payload delante; el
+ * servidor no lo abre nunca. Con ella se sabe quién llegó a meta.
+ */
+export async function setEventTotalKm(id: string, totalKm: number): Promise<void> {
+  return setEventSettings(id, { totalKm })
+}
+
 /** La porra del evento: la enciende y la apaga quien organiza. */
 export async function setEventBetsEnabled(id: string, betsEnabled: boolean): Promise<void> {
   return setEventSettings(id, { betsEnabled })
@@ -192,7 +200,7 @@ async function setEventSettings(
   id: string,
   patch: {
     colorsLocked?: boolean; notes?: string; startsAt?: number | null
-    betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null
+    betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null; totalKm?: number
   },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {

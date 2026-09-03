@@ -443,6 +443,10 @@ export interface EventInfo {
    *  último cierre del recorrido, o de la salida más el límite; null = esta
    *  carrera no tiene hora límite y solo la termina quien organiza. */
   endsAt?: number | null
+  /** Distancia del recorrido en km. Con ella se sabe quién llegó a meta; null
+   *  = el evento aún no la tiene (se rellena al publicar el recorrido, y la
+   *  parrilla la completa sola en los eventos anteriores a que existiera). */
+  planTotalKm?: number | null
   /** El límite de tiempo de la carrera, en minutos. Con la salida publicada, la
    *  hora de cierre es una resta: así se dice como se anuncia una carrera
    *  —"sale a las 8:00, tienes 8 horas"— en vez de calculando la hora. */

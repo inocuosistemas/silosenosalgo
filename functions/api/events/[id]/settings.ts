@@ -4,6 +4,7 @@ import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { EVENT_NOTES_MAX as NOTES_MAX } from '../../../../shared/wireTypes'
+import { cierraEvento } from '../../../lib/eventStats'
 
 /**
  * POST /api/events/:id/settings — los ajustes del evento que decide quien organiza.
@@ -39,7 +40,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const body = (await readJson<{
     colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
-    endsAt?: unknown; limitMin?: unknown
+    endsAt?: unknown; limitMin?: unknown; totalKm?: unknown
   }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
@@ -47,7 +48,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const tocaPorra = typeof body.betsEnabled === 'boolean'
   const tocaCierre = body.endsAt !== undefined
   const tocaLimite = body.limitMin !== undefined
-  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite) {
+  const tocaKm = typeof body.totalKm === 'number' && Number.isFinite(body.totalKm) && body.totalKm > 0
+  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite && !tocaKm) {
     return json({ error: 'invalid_request' }, 400)
   }
 
@@ -117,6 +119,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (tocaCierre) {
     await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
       .bind(endsAt, id, user.id).run()
+  }
+  // La distancia del recorrido. La calcula quien tiene delante el payload —el
+  // servidor no lo abre nunca— y normalmente llega al publicarlo; esto es para
+  // los eventos anteriores a que existiera, que si no se quedan sin saber quién
+  // llegó a meta para siempre.
+  if (tocaKm) {
+    await env.DB.prepare('UPDATE events SET plan_total_km = ? WHERE id = ? AND created_by = ?')
+      .bind(body.totalKm as number, id, user.id).run()
+    // Si la carrera YA está cerrada, sus resultados se congelaron sin este dato
+    // —y por eso decían que no llegó nadie—. Se recalculan con él.
+    const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt FROM events WHERE id = ?')
+      .bind(id).first<{ endedAt: number | null }>()
+    if (cerrado?.endedAt) await cierraEvento(env, id, cerrado.endedAt, body.totalKm as number)
   }
   if (tocaLimite) {
     await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')

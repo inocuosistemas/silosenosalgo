@@ -121,6 +121,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     createdAt: ev.createdAt,
     endsAt: ev.endsAt,
     limitMin: ev.limitMin,
+    planTotalKm: ev.planTotalKm,
     endedAt,
     // Los resultados solo tienen sentido en una carrera terminada, y solo si se
     // llegaron a congelar (un evento cerrado antes de que esto existiera no los
