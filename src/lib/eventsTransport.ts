@@ -187,8 +187,12 @@ export async function getEventReplay(source: { kind: 'member'; id: string } | { 
  * La distancia del recorrido (km). La manda quien tiene el payload delante; el
  * servidor no lo abre nunca. Con ella se sabe quién llegó a meta.
  */
-export async function setEventTotalKm(id: string, totalKm: number): Promise<void> {
-  return setEventSettings(id, { totalKm })
+export async function setEventTotalKm(
+  id: string,
+  totalKm: number,
+  polyline?: [number, number, number][],
+): Promise<void> {
+  return setEventSettings(id, { totalKm, polyline })
 }
 
 /** La porra del evento: la enciende y la apaga quien organiza. */
@@ -200,7 +204,8 @@ async function setEventSettings(
   id: string,
   patch: {
     colorsLocked?: boolean; notes?: string; startsAt?: number | null
-    betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null; totalKm?: number
+    betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null
+    totalKm?: number; polyline?: [number, number, number][]
   },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {

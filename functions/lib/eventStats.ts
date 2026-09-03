@@ -61,6 +61,51 @@ function kmMasRapido(pts: TrailPoint[], acumulado: number[]): { minutos: number;
   return mejor
 }
 
+/** El trazado guardado del evento: [lat, lon, kmAcumulado] por punto. */
+export type Polilinea = [number, number, number][]
+
+/**
+ * El kilómetro del recorrido más lejano que alcanzó una traza.
+ *
+ * Se recorre la traza EN ORDEN proyectando cada posición sobre el trazado, y
+ * cada proyección busca solo en una ventana alrededor del kilómetro anterior.
+ * Eso es lo que hace que funcione en un circuito que acaba donde empieza: sin
+ * la ventana, el punto más cercano al volver a meta es el de la salida y el
+ * avance se desploma a cero justo al terminar.
+ *
+ * Se devuelve el MÁXIMO alcanzado y no el último: quien cruza meta y sigue
+ * andando hasta el coche no des-corre la carrera.
+ */
+function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): number | null {
+  if (linea.length < 2 || pts.length === 0) return null
+  let previo: number | null = null
+  let max = 0
+  let dentro = 0
+  for (const p of pts) {
+    let desde = 0
+    let hasta = linea.length - 1
+    if (previo !== null) {
+      while (desde < linea.length && linea[desde][2] < previo - 3) desde++
+      hasta = desde
+      while (hasta + 1 < linea.length && linea[hasta + 1][2] <= previo + 3) hasta++
+      if (desde > hasta) desde = hasta
+    }
+    let mejor = -1
+    let mejorD = Infinity
+    for (let i = desde; i <= hasta; i++) {
+      const d = metros({ t: 0, lat: p.lat, lon: p.lon }, { t: 0, lat: linea[i][0], lon: linea[i][1] })
+      if (d < mejorD) { mejorD = d; mejor = i }
+    }
+    if (mejor < 0 || mejorD > toleranciaM) continue
+    previo = linea[mejor][2]
+    dentro++
+    if (previo > max) max = previo
+  }
+  // Sin ningún punto sobre el recorrido no se sabe nada: fue por otro sitio, o
+  // el trazado guardado no es el de esta carrera.
+  return dentro > 0 ? max : null
+}
+
 interface FilaSesion {
   username: string
   bib: string | null
@@ -81,7 +126,11 @@ interface FilaSesion {
  * GPS no clava el último metro—. Sin ella no se declara meta a nadie: mejor no
  * decir nada que dar por finisher a quien se quedó en el km 30.
  */
-export function calculaEstadisticas(filas: FilaSesion[], totalKm: number | null): EventStats {
+export function calculaEstadisticas(
+  filas: FilaSesion[],
+  totalKm: number | null,
+  linea: Polilinea | null = null,
+): EventStats {
   const corredores: EventRunnerStats[] = []
 
   for (const f of filas) {
@@ -108,11 +157,14 @@ export function calculaEstadisticas(filas: FilaSesion[], totalKm: number | null)
     const acumulado: number[] = [0]
     for (let i = 1; i < pts.length; i++) acumulado.push(acumulado[i - 1] + metros(pts[i - 1], pts[i]))
 
-    // La distancia que vale es la del RECORRIDO si la baliza la reportó: la
-    // suma de la traza infla con el ruido del GPS y con los rodeos del
-    // avituallamiento. Si no hay km del recorrido, la traza es lo que hay.
+    // Lo que vale es el AVANCE SOBRE EL RECORRIDO, y por este orden: el
+    // proyectado contra el trazado guardado (lo mejor: no lo infla el ruido ni
+    // lo acorta perder cobertura al final), el que reportó la baliza, y solo
+    // como último recurso la suma de la traza — que mide otra cosa y es lo que
+    // daba 8,69 km en una carrera de 7,46.
     const kmTraza = acumulado[acumulado.length - 1] / 1000
-    const km = f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza
+    const avance = linea ? avanceSobreRuta(linea, pts) : null
+    const km = avance ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
     const desde = f.startedAt ?? pts[0].t
     const hasta = pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
@@ -217,6 +269,17 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
   try { return JSON.parse(raw) as EventStats } catch { return null }
 }
 
+/** El trazado simplificado del evento, si lo tiene. */
+export async function leePolilinea(env: Env, eventId: string): Promise<Polilinea | null> {
+  const row = await env.DB.prepare('SELECT plan_polyline AS linea FROM events WHERE id = ?')
+    .bind(eventId).first<{ linea: string | null }>()
+  if (!row?.linea) return null
+  try {
+    const parsed = JSON.parse(row.linea) as Polilinea
+    return Array.isArray(parsed) && parsed.length > 1 ? parsed : null
+  } catch { return null }
+}
+
 /** Cierra el evento a la hora dada y guarda los resultados. */
 export async function cierraEvento(
   env: Env,
@@ -224,7 +287,8 @@ export async function cierraEvento(
   endedAt: number,
   totalKm: number | null,
 ): Promise<EventStats> {
-  const stats = calculaEstadisticas(await sesionesDelEvento(env, eventId), totalKm)
+  const linea = await leePolilinea(env, eventId)
+  const stats = calculaEstadisticas(await sesionesDelEvento(env, eventId), totalKm, linea)
   await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ? WHERE id = ?')
     .bind(endedAt, JSON.stringify(stats), eventId).run()
   return stats

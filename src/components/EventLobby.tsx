@@ -14,6 +14,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { Plegable } from './Plegable'
+import type { SharePayloadV1 } from '../lib/sharePayload'
 import { BaseChangeNotice } from './BaseChangeNotice'
 
 /**
@@ -87,14 +88,15 @@ export default function EventLobby({ id }: { id: string }) {
    */
   useEffect(() => {
     const ev = data?.event
-    if (!ev?.isOwner || !ev.planShareId || ev.planTotalKm != null) return
+    if (!ev?.isOwner || !ev.planShareId) return
+    if (ev.planTotalKm != null && ev.hasPolyline) return
     let vivo = true
     void (async () => {
       try {
         const base = await getEventPlan(ev.planShareId!)
         const km = base.track.totalDistanceKm
         if (!vivo || !Number.isFinite(km) || km <= 0) return
-        await setEventTotalKm(id, km)
+        await setEventTotalKm(id, km, simplificaTrazado(base))
         await refresh()
       } catch { /* sin recorrido a mano se queda como estaba */ }
     })()
@@ -1237,6 +1239,31 @@ function paraInput(ms: number): string {
   const d = new Date(ms)
   const p = (n: number) => n.toString().padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/**
+ * El trazado en lo justo para medir avance: [lat, lon, km] remuestreado.
+ *
+ * Un recorrido trae miles de puntos y con ochocientos sobra para proyectar
+ * posiciones —entre dos puntos consecutivos quedan unos metros—, así que se
+ * manda remuestreado. Lo hace el navegador porque es quien entiende el formato
+ * del recorrido; al servidor le llegan solo coordenadas.
+ */
+function simplificaTrazado(base: SharePayloadV1): [number, number, number][] {
+  const pts = base.track.points
+  const cum = base.track.cumKm
+  if (!pts?.length || cum?.length !== pts.length) return []
+  const max = 800
+  const paso = Math.max(1, Math.ceil(pts.length / max))
+  const out: [number, number, number][] = []
+  for (let i = 0; i < pts.length; i += paso) {
+    out.push([Number(pts[i].lat.toFixed(6)), Number(pts[i].lon.toFixed(6)), Number(cum[i].toFixed(3))])
+  }
+  const ultimo = pts.length - 1
+  if (out[out.length - 1][2] !== Number(cum[ultimo].toFixed(3))) {
+    out.push([Number(pts[ultimo].lat.toFixed(6)), Number(pts[ultimo].lon.toFixed(6)), Number(cum[ultimo].toFixed(3))])
+  }
+  return out
 }
 
 /** Un ritmo o un tiempo de kilómetro: "4:35". */

@@ -447,6 +447,10 @@ export interface EventInfo {
    *  = el evento aún no la tiene (se rellena al publicar el recorrido, y la
    *  parrilla la completa sola en los eventos anteriores a que existiera). */
   planTotalKm?: number | null
+  /** Si el evento tiene ya el trazado simplificado con el que se mide el avance
+   *  de cada corredor. Solo se dice si lo tiene, no se manda: son cientos de
+   *  puntos que la parrilla no pinta. */
+  hasPolyline?: boolean
   /** El límite de tiempo de la carrera, en minutos. Con la salida publicada, la
    *  hora de cierre es una resta: así se dice como se anuncia una carrera
    *  —"sale a las 8:00, tienes 8 horas"— en vez de calculando la hora. */

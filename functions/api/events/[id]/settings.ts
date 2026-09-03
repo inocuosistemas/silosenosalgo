@@ -40,7 +40,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const body = (await readJson<{
     colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
-    endsAt?: unknown; limitMin?: unknown; totalKm?: unknown
+    endsAt?: unknown; limitMin?: unknown; totalKm?: unknown; polyline?: unknown
   }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
@@ -125,8 +125,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // los eventos anteriores a que existiera, que si no se quedan sin saber quién
   // llegó a meta para siempre.
   if (tocaKm) {
-    await env.DB.prepare('UPDATE events SET plan_total_km = ? WHERE id = ? AND created_by = ?')
-      .bind(body.totalKm as number, id, user.id).run()
+    // El trazado simplificado viaja con la distancia: los dos salen del mismo
+    // payload y los dos sirven para lo mismo —saber por dónde va y hasta dónde
+    // llegó cada uno—. Se guarda tal cual, como texto, y solo se usa para
+    // proyectar posiciones.
+    const linea = Array.isArray(body.polyline) && body.polyline.length > 1
+      ? JSON.stringify(body.polyline).slice(0, 400_000)
+      : null
+    await env.DB.prepare(
+      'UPDATE events SET plan_total_km = ?, plan_polyline = COALESCE(?, plan_polyline) WHERE id = ? AND created_by = ?',
+    ).bind(body.totalKm as number, linea, id, user.id).run()
     // Si la carrera YA está cerrada, sus resultados se congelaron sin este dato
     // —y por eso decían que no llegó nadie—. Se recalculan con él.
     const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt FROM events WHERE id = ?')
