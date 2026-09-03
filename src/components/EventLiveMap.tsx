@@ -514,7 +514,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
           nada en medio. El mapa y la silueta siguen a lo ancho. */}
       <div
         ref={headerRef}
-        className={`pointer-events-none absolute inset-x-0 top-0 z-[1000] ${
+        // Por encima del resto de lo que flota sobre el mapa: el menú de usuario
+        // cuelga de aquí, y con el mismo z-index que el cartel de "carrera
+        // terminada" ganaba el cartel por ser posterior en el DOM — el menú se
+        // abría por debajo.
+        className={`pointer-events-none absolute inset-x-0 top-0 z-[1200] ${
           // Sobre el mapa flota; sobre la lista y la porra es una barra de
           // verdad, con fondo: si no, el contenido se cuela por debajo y la
           // tarjeta del nombre acaba encima de un botón.
