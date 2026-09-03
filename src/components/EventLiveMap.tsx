@@ -369,7 +369,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar no es la carrera, y en un evento con recorrido marcado no cuenta
       // nada —solo dibuja al que volvió andando cruzando el trazado al revés—.
       const enCarrera = metaEn != null ? r.tail.filter((p) => p.t <= metaEn) : r.tail
-      const tail = sanitizeTrail(enCarrera, tope).points
+      let tail = sanitizeTrail(enCarrera, tope).points
+      // El último tramo, el que el GPS no llegó a contar: la meta se da por
+      // cruzada al 97%, así que la última lectura buena puede quedarse
+      // doscientos metros antes del final. Se cierra POR EL RECORRIDO —esos
+      // metros los corrió— y así la cola acaba en la meta y no colgando a
+      // mitad de un parque.
+      if (acabo && route && tail.length > 0) {
+        const ult = tail[tail.length - 1]
+        const kmUlt = projectKm(ult.lat, ult.lon, route, route.totalKm * 0.97, 1)
+        if (kmUlt != null) {
+          const resto = route.pts.filter((_, i) => route.cumKm[i] > kmUlt)
+          if (resto.length > 0) {
+            tail = tail.concat(resto.map(([lat, lon]) => ({ t: ult.t, lat, lon })))
+          }
+        }
+      }
       return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial])

@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from './db'
 import type { TrailPoint, EventReplay, EventReplayRunner } from '../../shared/wireTypes'
-import { sinSaltos, leeStats } from './eventStats'
+import { sinSaltos, leeStats, leePolilinea, type Polilinea } from './eventStats'
 
 /**
  * lib/replay.ts — la carrera entera, para volver a verla.
@@ -18,6 +18,47 @@ import { sinSaltos, leeStats } from './eventStats'
  */
 
 const MAX_PUNTOS = 600
+
+/**
+ * El último tramo, el que el GPS no llegó a contar.
+ *
+ * La meta se da por cruzada al 97% del recorrido —el receptor no clava el
+ * último metro y el arco nunca cae en el punto exacto del GPX—, así que la
+ * última lectura buena de cada uno puede estar doscientos metros antes del
+ * final y en un sitio distinto para cada uno. En el replay eso se ve fatal: los
+ * tres se paran desperdigados por el parque en vez de cruzar la meta, y quien
+ * lo mira entiende que no llegaron.
+ *
+ * Se cierra POR EL RECORRIDO, no en línea recta: se enganchan los puntos del
+ * trazado que quedaban desde donde se le vio por última vez hasta el final,
+ * repartiendo el tiempo que falta. Es lo que hizo —esos metros los corrió— y
+ * lo único que no se sabe es por qué lado exacto de la acera.
+ */
+function cierraEnMeta(pts: TrailPoint[], linea: Polilinea, metaMs: number): TrailPoint[] {
+  const ultimo = pts[pts.length - 1]
+  if (!ultimo) return pts
+  // Dónde se le vio por última vez, buscando solo en el tramo final: en un
+  // circuito el punto más cercano a la meta es también el de la salida.
+  const desde = linea.findIndex((q) => q[2] >= linea[linea.length - 1][2] * 0.9)
+  if (desde < 0) return pts
+  let mejor = -1
+  let mejorD = Infinity
+  for (let i = desde; i < linea.length; i++) {
+    const d = Math.hypot((linea[i][0] - ultimo.lat) * 111_320,
+                         (linea[i][1] - ultimo.lon) * 111_320 * Math.cos((ultimo.lat * Math.PI) / 180))
+    if (d < mejorD) { mejorD = d; mejor = i }
+  }
+  // Lejos del trazado no se inventa nada: si su última posición no está sobre
+  // el recorrido, arrastrarla hasta la meta sería dibujar lo que no pasó.
+  if (mejor < 0 || mejorD > 250) return pts
+  const cola = linea.slice(mejor + 1)
+  if (cola.length === 0) return pts
+  const hueco = Math.max(0, metaMs - ultimo.t)
+  return pts.concat(cola.map((q, i) => ({
+    t: ultimo.t + (hueco * (i + 1)) / cola.length,
+    lat: q[0], lon: q[1],
+  })))
+}
 
 /** Uno de cada n, conservando siempre el primero y el último. */
 function remuestrea(pts: TrailPoint[], max: number): TrailPoint[] {
@@ -61,6 +102,8 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
   const ev = await env.DB.prepare('SELECT ended_at AS endedAt, stats FROM events WHERE id = ?')
     .bind(eventId).first<{ endedAt: number | null; stats: string | null }>()
   const stats = ev?.endedAt ? await leeStats(env, eventId, ev.stats) : null
+  // El trazado, para poder cerrar el último tramo de quien llegó.
+  const linea = stats ? await leePolilinea(env, eventId) : null
   const metaDe = new Map<string, number>()
   for (const c of stats?.corredores ?? []) {
     if (c.finishedAt != null) metaDe.set(c.username, c.finishedAt)
@@ -91,7 +134,7 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
     const meta = metaDe.get(r.username)
     if (meta != null) {
       const enCarrera = pts.filter((p) => p.t <= meta)
-      if (enCarrera.length >= 2) pts = enCarrera
+      if (enCarrera.length >= 2) pts = linea ? cierraEnMeta(enCarrera, linea, meta) : enCarrera
     }
     // Quien no llegó a emitir no sale en el replay: una fila vacía moviéndose
     // por ningún sitio no cuenta nada.
