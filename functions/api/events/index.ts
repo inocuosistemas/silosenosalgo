@@ -5,6 +5,7 @@ import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
 import type { CreateEventResponse, EventsListResponse, EventInfo } from '../../../shared/wireTypes'
 import { assignColor, isEventColor } from '../../../shared/eventColors'
+import { isBeaconActivity } from '../../../shared/validate'
 import { EMOJI_POOL, emojiOk, foldEmoji } from '../../../shared/emoji'
 
 /**
@@ -84,7 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             e.photo_key AS photoKey, e.photo_at AS photoAt, e.starts_at AS startsAt,
             e.created_at AS createdAt, e.ended_at AS endedAt, e.created_by AS createdBy,
             e.invite_code AS inviteCode, e.public_token AS publicToken, e.colors_locked AS colorsLocked,
-            e.bets_enabled AS betsEnabled,
+            e.bets_enabled AS betsEnabled, e.activity AS activity,
             m.emoji AS myEmoji, m.color AS myColor, m.user_id IS NOT NULL AS isMember
        FROM events e LEFT JOIN event_members m ON m.event_id = e.id AND m.user_id = ?
       WHERE m.user_id IS NOT NULL ${organising ? 'OR e.created_by = ?' : ''}
@@ -109,7 +110,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
-    colorsLocked: number; betsEnabled: number; myEmoji: string | null; myColor: string | null; isMember: number
+    colorsLocked: number; betsEnabled: number; activity: string | null; myEmoji: string | null; myColor: string | null; isMember: number
   }>()
 
   const events: EventInfo[] = (rows.results ?? []).map((r) => {
@@ -123,6 +124,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       photoAt: r.photoAt,
       colorsLocked: !!r.colorsLocked,
       betsEnabled: !!r.betsEnabled,
+      // Para que la baliza la herede al elegir el evento.
+      activity: isBeaconActivity(r.activity) ? r.activity : null,
       // La marca de QUIEN PREGUNTA en cada evento. Va en la lista y no solo en
       // la parrilla porque las apps del móvil no tienen parrilla: es lo único
       // que necesitan para enseñarte, antes de salir, con qué te van a ver los

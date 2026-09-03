@@ -599,10 +599,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
             acababa dibujado DEBAJO del botón de usuario. Un contenedor que
             puede quedarse sin ancho no es sitio para algo que no puede
             encogerse. */}
+        {/* `pointer-events-auto` obligatorio: la barra entera los tiene
+            apagados para poder arrastrar el mapa por debajo de ella, así que
+            todo lo que sea PULSABLE tiene que volver a encenderlos. Sin esto el
+            volver se veía perfectamente y no respondía al dedo. */}
         {!isPublic && (
           <a
             href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
-            className="shrink-0 rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
+            aria-label="Volver a la parrilla"
+            className="pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/90 text-base text-slate-200 backdrop-blur hover:border-sky-700 active:bg-slate-800"
           >
             ←
           </a>

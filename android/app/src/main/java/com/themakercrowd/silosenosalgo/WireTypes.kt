@@ -127,6 +127,9 @@ data class EventSummary(
      */
     val myEmoji: String? = null,
     val myColor: String? = null,
+    /** De que va la carrera: 'walk' | 'run' | 'bike'. La baliza la hereda al
+     *  elegir el evento, que es quien la sabe —del trazado no se deduce—. */
+    val activity: String? = null,
 ) {
     val isOver: Boolean get() = endedAt != null
 }
@@ -197,6 +200,9 @@ data class PlanSummary(
      *  si es suelta. Sirve para ofrecer primero la de la carrera que se está
      *  corriendo en vez de todas revueltas. */
     val eventId: String? = null,
+    /** De qué va la previsión, si se eligió al planificar. La baliza la hereda,
+     *  igual que la hora de salida. */
+    val activity: String? = null,
 )
 
 /** Error del API con el mismo repertorio de códigos y textos que iOS: los dos

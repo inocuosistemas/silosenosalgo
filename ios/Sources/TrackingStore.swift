@@ -262,15 +262,38 @@ final class TrackingStore: ObservableObject {
             startAt = Date()
             startAtTouched = false
         }
+        applyEventActivity()
+    }
+
+    /// The ACTIVITY is inherited from the event too: the race knows whether it
+    /// is a walk, a run or a ride, and the beacon has no business guessing it —
+    /// the guess is a p85 of GPS speeds, which is exactly what goes wrong on a
+    /// phone with a poor fix. It matters for the impossible-reading filter (12
+    /// km/h is a GPS jump on foot and a gentle pace on a bike) and for the pace
+    /// shown.
+    ///
+    /// Only fills in "Automático": whoever picked one by hand had a reason (a
+    /// ride on a running event to sweep the course, walking it with a child),
+    /// and an app that undoes your choice is one you stop trusting.
+    private func applyEventActivity() {
+        guard activity == nil,
+              let id = selectedEventId,
+              let ev = events.first(where: { $0.id == id }),
+              let a = ev.activity.flatMap(BeaconActivity.init(rawValue:)) else { return }
+        setActivity(a)
     }
 
     /// When a plan is selected, default the departure to the PLAN's start so all
     /// paces/predictions follow the plan (not the activation moment). Adjustable.
     private func applyPlanStart() {
         guard let id = selectedPlanId,
-              let p = plans.first(where: { $0.id == id }),
-              let iso = p.startTime,
-              let d = Self.parseISO(iso) else { return }
+              let p = plans.first(where: { $0.id == id }) else { return }
+        // La actividad viene del plan igual que la hora: es la que se eligió al
+        // planificar, con el recorrido delante. Solo rellena "Automático".
+        if activity == nil, let a = p.activity.flatMap(BeaconActivity.init(rawValue:)) {
+            setActivity(a)
+        }
+        guard let iso = p.startTime, let d = Self.parseISO(iso) else { return }
         startAt = d
         startAtTouched = true
     }

@@ -3,7 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
-import { TOKEN_RE } from '../../../shared/validate'
+import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
 import type { PlanMeta, PlansListResponse } from '../../../shared/wireTypes'
 
 /** Under D1's ~2 MB row cap. Client mirrors this. */
@@ -27,7 +27,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const rows = await env.DB.prepare(
     `SELECT id, name, route_name AS routeName, distance_km AS distanceKm, elev_gain_m AS elevGainM,
             start_time AS startTime, created_at AS createdAt, updated_at AS updatedAt,
-            event_id AS eventId
+            event_id AS eventId, activity AS activity
        FROM plans WHERE user_id=? ORDER BY updated_at DESC LIMIT 200`,
   ).bind(user.id).all<PlanMeta>()
   const res: PlansListResponse = { plans: rows.results ?? [] }
@@ -55,14 +55,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // evento puede haberse borrado y la previsión sigue siendo tuya.
   const eventIdRaw = decodeHeader(request.headers.get('X-Plan-Event')).trim()
   const eventId = TOKEN_RE.test(eventIdRaw) ? eventIdRaw : null
+  // De qué va: caminata, carrera o bici. La baliza la hereda al elegir la
+  // previsión, y de ella dependen los filtros de lecturas imposibles.
+  const actRaw = decodeHeader(request.headers.get('X-Plan-Activity')).trim()
+  const activity = isBeaconActivity(actRaw) ? actRaw : null
   const now = Date.now()
   const id = genId(8)
 
   await env.DB.prepare(
-    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at, event_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now, eventId).run()
+    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at, event_id, activity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now, eventId, activity).run()
 
-  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now, eventId }
+  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now, eventId, activity }
   return json(meta, 201)
 }

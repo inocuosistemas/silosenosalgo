@@ -28,6 +28,8 @@ function planHeaders(p: SharePayloadV1, name: string, eventId?: string | null): 
   // De qué evento salió, cuando se está planificando sobre su recorrido. Va por
   // cabecera como el resto de metadatos: el cuerpo son bytes comprimidos.
   if (eventId) h['X-Plan-Event'] = encodeURIComponent(eventId)
+  // Y de qué va la cosa. Se manda suelta porque el servidor no abre el blob.
+  if (p.paceConfig?.activity) h['X-Plan-Activity'] = p.paceConfig.activity
   return h
 }
 

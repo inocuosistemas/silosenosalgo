@@ -513,16 +513,27 @@ object TrackingStore {
         // evento, la hora puesta por él se va con él.
         val ev = _eventos.value.firstOrNull { it.id == eventoId }
         val salidaEvento = ev?.startsAt?.takeIf { it > 0.0 }
+        // La ACTIVIDAD también se hereda: la carrera sabe de qué va y la baliza
+        // no tiene por qué adivinarlo. Importa para los filtros de lecturas
+        // malas —12 km/h andando es un salto de GPS y en bici es ir de paseo— y
+        // para el ritmo que se enseña. Solo si está en Automático: quien la ha
+        // elegido a mano sabrá por qué (va en bici a una marcha, acompaña).
+        val actEvento = BeaconActivity.fromWire(ev?.activity)
         val laPusoElEvento = _estado.value.salidaMs > 0.0 &&
             _eventos.value.any { it.id == anterior && it.startsAt == _estado.value.salidaMs }
         val libre = !_estado.value.salidaTocada || laPusoElEvento
-        _estado.value = when {
-            libre && salidaEvento != null ->
-                _estado.value.copy(eventoId = eventoId, salidaMs = salidaEvento, salidaTocada = true)
-            libre && laPusoElEvento ->
-                _estado.value.copy(eventoId = eventoId, salidaMs = 0.0, salidaTocada = false)
-            else -> _estado.value.copy(eventoId = eventoId)
+        val conActividad = { e: Estado ->
+            if (e.actividad == null && actEvento != null) e.copy(actividad = actEvento) else e
         }
+        _estado.value = conActividad(
+            when {
+                libre && salidaEvento != null ->
+                    _estado.value.copy(eventoId = eventoId, salidaMs = salidaEvento, salidaTocada = true)
+                libre && laPusoElEvento ->
+                    _estado.value.copy(eventoId = eventoId, salidaMs = 0.0, salidaTocada = false)
+                else -> _estado.value.copy(eventoId = eventoId)
+            },
+        )
         guardaActivo()
         if (!_estado.value.compartiendo) return
         val t = token ?: return
@@ -557,10 +568,15 @@ object TrackingStore {
         // Sin plan (o sin hora en el plan) la salida vuelve a "ahora", que se
         // resuelve al pulsar "Empezar": dejar aquí la hora de este instante la
         // volvería rancia si se comparte más tarde.
+        // La ACTIVIDAD también viene del plan: es la que se eligió al
+        // planificar, con el recorrido delante, y de ella dependen los filtros
+        // de lecturas imposibles. Solo rellena si está en Automático.
+        val actPlan = BeaconActivity.fromWire(plan?.activity)
         _estado.value = _estado.value.copy(
             planId = planId,
             salidaMs = salida ?: 0.0,
             salidaTocada = salida != null,
+            actividad = _estado.value.actividad ?: actPlan,
         )
     }
 

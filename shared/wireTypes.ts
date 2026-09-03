@@ -84,6 +84,10 @@ export interface PlanMeta {
    *  la baliza distinga cuál de tus previsiones es la de esa carrera, y
    *  sobrevive a que el evento se borre. */
   eventId?: string | null
+  /** De qué va: 'walk' | 'run' | 'bike'. Copia fuera del blob de lo que se
+   *  eligió al planificar, para que la baliza pueda heredarla sin bajarse el
+   *  recorrido. Opcional: las previsiones antiguas no la tienen. */
+  activity?: string | null
 }
 
 export interface PlansListResponse {

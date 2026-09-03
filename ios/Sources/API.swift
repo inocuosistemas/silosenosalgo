@@ -107,6 +107,10 @@ struct EventSummary: Codable, Identifiable, Equatable {
     /// Opcionales: son nulos contra un servidor anterior a que esto existiera.
     let myEmoji: String?
     let myColor: String?
+    /// De qué va la carrera: "walk" | "run" | "bike". La baliza la hereda al
+    /// elegir el evento, que es quien lo sabe — del trazado no se deduce.
+    /// Opcional: nulo contra un servidor anterior a que esto existiera.
+    let activity: String?
 
     var isOver: Bool { endedAt != nil }
 }
@@ -124,6 +128,9 @@ struct PlanSummary: Codable, Identifiable, Equatable {
     /// si es suelta. Sirve para ofrecer primero la del evento que se está
     /// corriendo en vez de todas revueltas.
     let eventId: String?
+    /// De qué va la previsión, si se eligió al planificar. La baliza la hereda,
+    /// igual que la hora de salida.
+    let activity: String?
 }
 
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.
