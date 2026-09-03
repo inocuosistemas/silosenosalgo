@@ -13,6 +13,8 @@ import {
   eventCutoffs, marginToNextCutoff, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
 import { isHttpUrl } from '../../shared/validate'
+import { sanitizeTrail } from '../lib/trailSmoothing'
+import { ACTIVITY_MAX_SPEED_KMH } from '../lib/timing'
 import { MarkBadge } from './MarkPicker'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
@@ -308,7 +310,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
       // señal" —que suena a avería— sino que aún no ha empezado.
       const idle = !armed && r.fix === null
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key }
+      // La cola, sin los picotazos. Un móvil con mala señal manda saltos de
+      // decenas de metros que en el mapa se ven como rayos que salen del
+      // corredor y vuelven: no ha estado ahí, y dibujarlo es contar una carrera
+      // falsa. Se cortan los que exigirían una velocidad imposible PARA SU
+      // ACTIVIDAD —12 km/h es un salto andando y un paseo en bici—, que es lo
+      // mismo que ya se hacía en la baliza individual y en los resultados.
+      const tope = r.activity && r.activity in ACTIVITY_MAX_SPEED_KMH
+        ? ACTIVITY_MAX_SPEED_KMH[r.activity as keyof typeof ACTIVITY_MAX_SPEED_KMH]
+        : undefined
+      const tail = sanitizeTrail(r.tail, tope).points
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
@@ -469,7 +481,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key, km, desviadoM }) => {
+          {withFix.map(({ r, stale, key, km, desviadoM, tail }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
             const suelto = !anclados || desviadoM > DESVIADO_M || km === null || !route
@@ -482,14 +494,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     colores claros —lima, ámbar— que sobre un mapa de fondo claro
                     casi desaparecen; la sombra los levanta sin tocarles el tono,
                     que es lo que identifica a cada corredor. */}
-                {r.tail.length > 1 && (
+                {tail.length > 1 && (
                   <>
                     <Polyline
-                      positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                      positions={tail.map((p) => [p.lat, p.lon] as [number, number])}
                       pathOptions={{ color: '#020617', weight: isSel ? 8 : 6, opacity: stale ? 0.12 : 0.25 }}
                     />
                     <Polyline
-                      positions={r.tail.map((p) => [p.lat, p.lon] as [number, number])}
+                      positions={tail.map((p) => [p.lat, p.lon] as [number, number])}
                       pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
                     />
                   </>

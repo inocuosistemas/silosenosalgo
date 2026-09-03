@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from './db'
 import type { TrailPoint, EventReplay, EventReplayRunner } from '../../shared/wireTypes'
+import { sinSaltos } from './eventStats'
 
 /**
  * lib/replay.ts — la carrera entera, para volver a verla.
@@ -32,7 +33,8 @@ function remuestrea(pts: TrailPoint[], max: number): TrailPoint[] {
 export async function construyeReplay(env: Env, eventId: string): Promise<EventReplay> {
   const rows = await env.DB.prepare(
     `SELECT u.username AS username, m.bib AS bib, m.emoji AS emoji, m.color AS color,
-            t.started_at AS startedAt, t.trail AS trail
+            t.started_at AS startedAt, t.trail AS trail,
+            (SELECT e.activity FROM events e WHERE e.id = m.event_id) AS actividad
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
@@ -47,7 +49,7 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
       ORDER BY u.username`,
   ).bind(eventId).all<{
     username: string; bib: string | null; emoji: string | null; color: string | null
-    startedAt: number | null; trail: string | null
+    startedAt: number | null; trail: string | null; actividad: string | null
   }>()
 
   const runners: EventReplayRunner[] = []
@@ -65,6 +67,12 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
           .sort((a, b) => a.t - b.t)
       }
     } catch { pts = [] }
+    // Sin los picotazos de mala señal: el replay dibuja la línea entera, y un
+    // salto de 60 metros y vuelta se ve como un rayo saliendo del corredor. Es
+    // el MISMO filtro que descarta esos puntos en los resultados, así que el
+    // mapa y los números cuentan lo mismo.
+    const limpios = sinSaltos(pts, r.actividad)
+    if (limpios.length >= 2) pts = limpios
     // Quien no llegó a emitir no sale en el replay: una fila vacía moviéndose
     // por ningún sitio no cuenta nada.
     if (pts.length < 2) continue

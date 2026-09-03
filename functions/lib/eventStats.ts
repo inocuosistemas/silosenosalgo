@@ -35,6 +35,31 @@ const LIMITES: Record<string, { maxKmh: number; minMinPorKm: number }> = {
  *  salto raro que recortarle la marca a un ciclista. */
 const LIMITE_POR_DEFECTO = { maxKmh: 80, minMinPorKm: 0.75 }
 
+/**
+ * La traza sin los saltos del receptor: un punto que exige ir más rápido de lo
+ * que permite la actividad no es una posición, es ruido. Se descarta el punto y
+ * se sigue comparando contra el último bueno, para que un salto y su vuelta no
+ * cuenten como dos tramos imposibles.
+ *
+ * Lo usan los RESULTADOS y el REPLAY: si el número dice que nadie corrió a 65
+ * km/h, la línea del mapa tampoco puede dibujarlo. Devuelve la traza tal cual
+ * cuando el filtro se lo llevaría casi todo — con dos puntos malos no se
+ * reconstruye nada mejor que lo que llegó.
+ */
+export function sinSaltos(pts: TrailPoint[], actividad: string | null | undefined): TrailPoint[] {
+  const lim = limitesDe(actividad)
+  const out: TrailPoint[] = []
+  for (const p of pts) {
+    const ant = out[out.length - 1]
+    if (ant) {
+      const dt = (p.t - ant.t) / 1000
+      if (dt > 0 && (metros(ant, p) / dt) * 3.6 > lim.maxKmh) continue
+    }
+    out.push(p)
+  }
+  return out
+}
+
 function limitesDe(actividad: string | null | undefined) {
   return (actividad && LIMITES[actividad]) || LIMITE_POR_DEFECTO
 }
@@ -228,15 +253,7 @@ export function calculaEstadisticas(
     // se sigue comparando contra el último bueno, para que un salto y su vuelta
     // no cuenten como dos tramos imposibles.
     const lim = limitesDe(actividad)
-    const limpios: TrailPoint[] = []
-    for (const p of pts) {
-      const ant = limpios[limpios.length - 1]
-      if (ant) {
-        const dt = (p.t - ant.t) / 1000
-        if (dt > 0 && (metros(ant, p) / dt) * 3.6 > lim.maxKmh) continue
-      }
-      limpios.push(p)
-    }
+    const limpios = sinSaltos(pts, actividad)
     if (limpios.length >= 2) pts = limpios
 
     // Sin una sola posición no hay resultado que contar: sale con lo que se
