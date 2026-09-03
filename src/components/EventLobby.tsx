@@ -961,12 +961,25 @@ export default function EventLobby({ id }: { id: string }) {
               {event.stats.fastestKm.username}, desde el km {event.stats.fastestKm.desdeKm.toFixed(1)}
             </p>
           )}
+          {(() => {
+            const p = event.stats!.corredores.filter((c) => c.puesto != null).map((c) => c.puesto)
+            return new Set(p).size < p.length
+          })() && (
+            <p className="mb-2 rounded-lg border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-400">
+              🤝 Hay puestos compartidos: el paso por meta se calcula entre dos lecturas
+              del GPS y cada tiempo lleva su margen. Cuando dos márgenes se tocan,
+              cualquiera de los dos pudo llegar antes.
+            </p>
+          )}
           <ul className="space-y-1.5">
             {event.stats.corredores.map((c, i) => (
               <li key={c.username} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
                 <div className="flex items-center gap-2">
+                  {/* El puesto que dice el resultado, no la fila en la que
+                      cayó: los que llegan dentro del margen del otro comparten
+                      número, y el siguiente se salta los empatados. */}
                   <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
-                    {c.finished ? i + 1 : '·'}
+                    {c.finished ? (c.puesto ?? i + 1) : '·'}
                   </span>
                   <MarkBadge emoji={c.emoji} color={c.color} size={20} />
                   {c.bib && (
@@ -976,7 +989,14 @@ export default function EventLobby({ id }: { id: string }) {
                   )}
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
                   {c.finished
-                    ? <span className="shrink-0 text-xs font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                    ? (
+                      <span className="shrink-0 text-right">
+                        <span className="text-xs font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                        {c.margenMs != null && c.margenMs >= 5000 && (
+                          <span className="ml-1 text-[10px] tabular-nums text-slate-500">±{Math.round(c.margenMs / 1000)}s</span>
+                        )}
+                      </span>
+                    )
                     : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
                 </div>
                 {c.tracked && (
