@@ -38,6 +38,23 @@ interface Props {
 }
 
 export function EventReplay({ source, route, topPad, onBack }: Props) {
+  /**
+   * El trazado con su kilómetro acumulado, calculado una vez.
+   *
+   * Hace falta para imantar: para pegar a alguien al recorrido hay que saber a
+   * qué punto del trazado corresponde su posición, y para no saltar al otro
+   * extremo en un circuito hay que poder comparar kilómetros.
+   */
+  const geo = useMemo(() => {
+    if (!route || route.length < 2) return null
+    const cum = [0]
+    for (let i = 1; i < route.length; i++) {
+      cum.push(cum[i - 1] + metros(route[i - 1], route[i]) / 1000)
+    }
+    return { pts: route, cum }
+  }, [route])
+  /** Imantado por defecto, como en el mapa en directo. */
+  const [anclados, setAnclados] = useState(true)
   const [datos, setDatos] = useState<Datos | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [t, setT] = useState(0)
@@ -78,8 +95,16 @@ export function EventReplay({ source, route, topPad, onBack }: Props) {
   /** Dónde está cada uno en el instante `t`, y por dónde ha pasado ya. */
   const posiciones = useMemo(() => {
     if (!datos) return []
-    return datos.runners.map((r) => ({ r, ...posicionEn(r, t) }))
-  }, [datos, t])
+    return datos.runners.map((r) => {
+      const base = posicionEn(r, t)
+      if (!anclados || !geo || !base.pos) return { r, ...base }
+      // Imantado: se pinta en su punto del trazado, no donde temblaba el GPS.
+      // Fuera de ruta se respeta la posición cruda —a más de cien metros ya no
+      // es el receptor, es que iba por otro sitio— igual que en el directo.
+      const p = pegaAlTrazado(geo, base.pos)
+      return { r, ...base, pos: p ?? base.pos }
+    })
+  }, [datos, t, anclados, geo])
 
   const centro = useMemo<[number, number]>(() => {
     const conPos = posiciones.find((p) => p.pos)
@@ -186,6 +211,19 @@ export function EventReplay({ source, route, topPad, onBack }: Props) {
                 ×{v}
               </button>
             ))}
+            {geo && (
+              <button
+                onClick={() => setAnclados((v) => !v)}
+                title={anclados
+                  ? 'Pegados al recorrido; toca para verlos donde decía su GPS'
+                  : 'Posición del GPS; toca para pegarlos al recorrido'}
+                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                  anclados ? 'border-slate-600 text-slate-300' : 'border-slate-700 text-slate-500'
+                }`}
+              >
+                {anclados ? '🧲' : '📍'}
+              </button>
+            )}
             <span className="ml-auto text-[11px] text-slate-500">
               {posiciones.filter((p) => p.pos).length} en carrera
             </span>
@@ -230,6 +268,40 @@ function posicionEn(r: EventReplayRunner, t: number): { pos: [number, number] | 
   if (hueco > AUSENTE_MS) return { pos: null, recorrido }
   const f = hueco > 0 ? (t - a.t) / hueco : 0
   return { pos: [a.lat + f * (b.lat - a.lat), a.lon + f * (b.lon - a.lon)], recorrido }
+}
+
+/** Metros entre dos posiciones. */
+function metros(a: [number, number], b: [number, number]): number {
+  const R = 6_371_000
+  const la1 = (a[0] * Math.PI) / 180
+  const la2 = (b[0] * Math.PI) / 180
+  const dla = la2 - la1
+  const dlo = ((b[1] - a[1]) * Math.PI) / 180
+  const h = Math.sin(dla / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dlo / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+/**
+ * La posición pegada al trazado, o null si está demasiado lejos.
+ *
+ * Aquí se busca en TODO el trazado y no en una ventana, y se puede: el replay
+ * ya sabe la carrera entera, así que no hay riesgo de "adelantar" a nadie —lo
+ * que se pinta es su posición, no su avance— y en un circuito el punto más
+ * cercano es el bueno salvo en el cruce exacto, donde los dos ramales están a
+ * un paso y da igual cuál se elija.
+ */
+function pegaAlTrazado(
+  geo: { pts: [number, number][]; cum: number[] },
+  pos: [number, number],
+  toleranciaM = 100,
+): [number, number] | null {
+  let mejor = -1
+  let mejorD = Infinity
+  for (let i = 0; i < geo.pts.length; i++) {
+    const d = metros(pos, geo.pts[i])
+    if (d < mejorD) { mejorD = d; mejor = i }
+  }
+  return mejor >= 0 && mejorD <= toleranciaM ? geo.pts[mejor] : null
 }
 
 /** El icono, igual que en el mapa en directo para no tener que reaprenderlo. */
