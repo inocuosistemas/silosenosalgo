@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
@@ -7,6 +7,7 @@ import {
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
+  ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -86,17 +87,31 @@ export default function EventLobby({ id }: { id: string }) {
    * quien organiza, que es quien puede escribirlo, abriendo el payload que el
    * servidor nunca abre. Una vez y en silencio.
    */
+  /** Eventos a los que ya se les intentó completar los datos en esta visita. */
+  const rellenado = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     const ev = data?.event
     if (!ev?.isOwner || !ev.planShareId) return
-    if (ev.planTotalKm != null && ev.hasPolyline && ev.activity) return
+    if (ev.planTotalKm != null && ev.hasPolyline && ev.activity && ev.endsAt != null) return
+    // Una vez por evento y por visita, pase lo que pase. La condición de arriba
+    // no basta como freno: un recorrido SIN cortes no tiene cierre que copiar,
+    // así que `endsAt` seguiría vacío después de intentarlo y la parrilla se
+    // bajaría el payload entero en cada refresco. Lo que hay que recordar no es
+    // el resultado, es que ya se intentó.
+    if (rellenado.current.has(ev.id)) return
+    rellenado.current.add(ev.id)
     let vivo = true
     void (async () => {
       try {
         const base = await getEventPlan(ev.planShareId!)
         const km = base.track.totalDistanceKm
         if (!vivo || !Number.isFinite(km) || km <= 0) return
-        await setEventTotalKm(id, km, simplificaTrazado(base), base.paceConfig?.activity)
+        // El cierre de meta sale del propio recorrido —su último corte—, igual
+        // que al publicarlo. Solo si falta: si el organizador puso una hora a
+        // mano, esa manda.
+        const cierre = ev.endsAt == null ? (ultimoCierre(base) ?? undefined) : undefined
+        await setEventTotalKm(id, km, simplificaTrazado(base), base.paceConfig?.activity, cierre)
         await refresh()
       } catch { /* sin recorrido a mano se queda como estaba */ }
     })()

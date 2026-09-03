@@ -206,8 +206,10 @@ export async function setEventTotalKm(
   totalKm: number,
   polyline?: [number, number, number][],
   activity?: string,
+  /** El cierre de meta que dice el recorrido, si el evento aún no tiene. */
+  endsAt?: number,
 ): Promise<void> {
-  return setEventSettings(id, { totalKm, polyline, activity })
+  return setEventSettings(id, { totalKm, polyline, activity, ...(endsAt ? { endsAt } : {}) })
 }
 
 /** De qué va la carrera: caminata, carrera o bici. Solo quien organiza. */
@@ -329,7 +331,12 @@ export async function setEventPlan(
  * quedada de los martes no termina a ninguna hora, y entonces solo la cierra
  * quien organiza.
  */
-function ultimoCierre(base: SharePayloadV1): number | null {
+/**
+ * La hora a la que cierra la meta según el recorrido: el ÚLTIMO de sus cortes,
+ * resuelto con su día como en el mapa. Es lo que hace que la carrera se termine
+ * sola, y sale del propio trazado sin que nadie tenga que teclear nada.
+ */
+export function ultimoCierre(base: SharePayloadV1): number | null {
   const relojes = new Map(
     Object.entries(base.cutoffWallClocks ?? {}).map(([k, v]) => [k, { hour: v.hour, minute: v.minute }]),
   )
