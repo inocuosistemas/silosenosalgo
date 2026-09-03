@@ -94,7 +94,7 @@ function metros(a: TrailPoint, b: TrailPoint): number {
  * Sobre el avance no puede pasar: un salto lateral de treinta metros no mueve
  * el kilómetro del recorrido, que es lo que de verdad se ha progresado.
  */
-function kmMasRapidoEnRuta(serie: [number, number][], minMinPorKm: number): { minutos: number; desdeKm: number } | null {
+function kmMasRapidoEnRuta(serie: [number, number, number][], minMinPorKm: number): { minutos: number; desdeKm: number } | null {
   if (serie.length < 2) return null
   let mejor: { minutos: number; desdeKm: number } | null = null
   for (let j = 1; j < serie.length; j++) {
@@ -169,8 +169,16 @@ interface Avance {
   enMs: number
   /** Cuándo pisó el recorrido por primera vez: el crono empieza ahí. */
   desdeMs: number
-  /** El avance punto a punto: [hora, kilómetro del recorrido]. */
-  serie: [number, number][]
+  /**
+   * El avance punto a punto: [hora, kilómetro del recorrido, metros andados
+   * desde la lectura anterior].
+   *
+   * Los metros van aparte porque NO son la diferencia de kilómetros: al cruzar
+   * la meta el recorrido se acaba y la proyección se queda clavada en el final,
+   * pero la persona sigue andando. Esa diferencia es justo la que hace falta
+   * para cronometrar el cruce (ver `crucaMeta`).
+   */
+  serie: [number, number, number][]
 }
 
 /**
@@ -222,7 +230,8 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
   let enMs = pts[0].t
   let desdeMs: number | null = null
   let dentro = 0
-  const serie: [number, number][] = []
+  const serie: [number, number, number][] = []
+  let anterior: TrailPoint | null = null
   for (const p of pts) {
     let desde = 0
     let hasta = linea.length - 1
@@ -252,7 +261,8 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
     previo = km
     dentro++
     if (desdeMs === null) desdeMs = p.t
-    serie.push([p.t, previo])
+    serie.push([p.t, previo, anterior ? metros(anterior, p) : 0])
+    anterior = p
     if (previo > max) { max = previo; enMs = p.t }
   }
   // Sin ningún punto sobre el recorrido no se sabe nada: fue por otro sitio, o
@@ -532,7 +542,7 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
  * una sola lectura es mucho más ruidosa que el promedio de un tramo.
  */
 function crucaMeta(
-  serie: [number, number][], totalKm: number | null, tolKm: number, circuito: boolean,
+  serie: [number, number, number][], totalKm: number | null, tolKm: number, circuito: boolean,
 ): { ms: number; margenMs: number } | null {
   if (totalKm === null || serie.length === 0) return null
   // Haber pasado por la mitad solo se exige en un CIRCUITO, que es donde la
@@ -567,7 +577,18 @@ function crucaMeta(
     // se cruzó antes de que lo empezáramos a ver. Y sin nada que interpolar
     // tampoco hay margen que declarar: la hora es la de esa lectura.
     if (!previo || previo[1] >= meta || km <= previo[1]) return { ms: t, margenMs: 0 }
-    const ms = previo[0] + ((meta - previo[1]) / (km - previo[1])) * (t - previo[0])
+    // Cuánto se avanzó entre las dos lecturas. Normalmente lo dice el
+    // recorrido, pero al llegar al final el recorrido SE ACABA y la proyección
+    // se queda clavada mientras la persona sigue corriendo: quien cruza la meta
+    // a diez metros por delante de la línea aparece avanzando esos diez metros
+    // y no los treinta que dio. Con esa cuenta corta, el cruce se iba entero a
+    // la lectura de después —un minuto entero si la baliza va ahorrando
+    // batería—, que es el sesgo que se quería quitar. Cuando pasa, mandan los
+    // metros que midió el GPS sobre el suelo.
+    let avance = km - previo[1]
+    const suelo = serie[i][2] / 1000
+    if (km >= totalKm - 1e-9 && suelo > avance) avance = suelo
+    const ms = previo[0] + ((meta - previo[1]) / avance) * (t - previo[0])
     // Lo único que se sabe de verdad es que cruzó ENTRE las dos lecturas: en
     // el hueco pudo apretar o pudo pararse a atarse la zapatilla, y la
     // interpolación reparte el tramo a velocidad constante porque es la mejor
