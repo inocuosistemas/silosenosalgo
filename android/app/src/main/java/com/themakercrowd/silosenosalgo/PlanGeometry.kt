@@ -131,6 +131,54 @@ object PlanGeometry {
     }
 
     /**
+     * En qué kilometro del RECORRIDO esta una posicion.
+     *
+     * Se busca el punto del trazado mas cercano, pero solo dentro de una
+     * VENTANA alrededor del kilometro anterior. Eso es lo que distingue este
+     * calculo de "el punto mas cercano" a secas, y no es un detalle: en un
+     * circuito que empieza y acaba en el mismo pueblo, o en una ruta que pasa
+     * dos veces por el mismo collado, el punto mas cercano al llegar a meta es
+     * el de la salida — y el corredor aparece en el km 0 despues de cinco
+     * horas. Con la ventana no puede saltar hacia atras medio recorrido.
+     *
+     * La primera vez (sin km anterior) se busca en todo el trazado, que es lo
+     * unico que se puede hacer y ademas es correcto: al empezar se esta donde
+     * se esta.
+     *
+     * Devuelve null si la posicion queda LEJOS del recorrido (mas de 250 m):
+     * quien va por otro sitio no tiene kilometro de esta ruta, y decir uno
+     * inventado es peor que no decir ninguno.
+     */
+    fun proyectaKm(
+        puntos: List<PuntoPlan>,
+        kmAcum: List<Double>,
+        lat: Double,
+        lon: Double,
+        kmPrevio: Double?,
+        ventanaKm: Double = 3.0,
+        toleranciaM: Double = 250.0,
+    ): Double? {
+        if (puntos.isEmpty() || puntos.size != kmAcum.size) return null
+        var desde = 0
+        var hasta = puntos.size - 1
+        if (kmPrevio != null) {
+            val min = kmPrevio - ventanaKm
+            val max = kmPrevio + ventanaKm
+            desde = kmAcum.indexOfFirst { it >= min }.let { if (it < 0) puntos.size - 1 else it }
+            hasta = kmAcum.indexOfLast { it <= max }.let { if (it < 0) desde else it }
+            if (hasta < desde) hasta = desde
+        }
+        var mejor = -1
+        var mejorD = Double.MAX_VALUE
+        for (i in desde..hasta) {
+            val d = TrackingRules.distanciaMetros(lat, lon, puntos[i].lat, puntos[i].lon)
+            if (d < mejorD) { mejorD = d; mejor = i }
+        }
+        if (mejor < 0 || mejorD > toleranciaM) return null
+        return kmAcum[mejor]
+    }
+
+    /**
      * Para cada nota, en qué kilómetro de la ruta prevista cae y cuánto desnivel
      * llevaba acumulado ahí. Es lo que convierte "una fuente en algún sitio" en
      * "la fuente del km 23,4, tras 1.200 m de subida".

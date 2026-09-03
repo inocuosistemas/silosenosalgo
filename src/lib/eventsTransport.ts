@@ -11,7 +11,7 @@ import type { EventPlanOverlay } from './eventPlan'
 import type {
   CreateEventResponse, EventDetailResponse, EventInfo, EventsListResponse, JoinEventResponse,
   CreateInviteResponse, EventLiveResponse, EventPublicResponse,
-  EventBetsResponse, EventBetsInput,
+  EventBetsResponse, EventBetsInput, EventReplay,
 } from '../../shared/wireTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 
@@ -168,6 +168,19 @@ export async function setEventEnd(id: string, endsAt: number | null): Promise<vo
 /** El límite de tiempo de la carrera en minutos, o null para quitarlo. */
 export async function setEventLimit(id: string, limitMin: number | null): Promise<void> {
   return setEventSettings(id, { limitMin })
+}
+
+/**
+ * La carrera entera para volver a verla. Se pide UNA vez —trae las trazas
+ * completas— y por eso no viaja en el feed del mapa.
+ */
+export async function getEventReplay(source: { kind: 'member'; id: string } | { kind: 'public'; token: string }): Promise<EventReplay> {
+  const url = source.kind === 'member'
+    ? `/api/events/${encodeURIComponent(source.id)}/replay`
+    : `/api/events/public/${encodeURIComponent(source.token)}/replay`
+  const res = await fetchSafe(url, { credentials: 'same-origin', cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return res.json() as Promise<EventReplay>
 }
 
 /** La porra del evento: la enciende y la apaga quien organiza. */

@@ -15,6 +15,7 @@ import {
 import { isHttpUrl } from '../../shared/validate'
 import { MarkBadge } from './MarkPicker'
 import { EventBets, type BetRunner } from './EventBets'
+import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
 import type { RunnerOutcome } from '../lib/bets'
 
@@ -77,7 +78,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<'mapa' | 'lista' | 'porra' | 'meta'>('mapa')
+  const [view, setView] = useState<'mapa' | 'lista' | 'porra' | 'meta' | 'replay'>('mapa')
   const [now, setNow] = useState(Date.now())
   /**
    * Si el cuadro de la salida está desplegado. Empieza abierto —antes de la
@@ -468,6 +469,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
           )}
           <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
         </MapContainer>
+      ) : view === 'replay' ? (
+        <EventReplay source={source} route={route?.pts ?? null} topPad={headerH} onBack={() => setView('mapa')} />
       ) : view === 'meta' && stats ? (
         <ResultsView stats={stats} endedAt={endedAt} topPad={headerH} onBack={() => setView('mapa')} />
       ) : view === 'porra' && eventId ? (
@@ -502,7 +505,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           view === 'mapa' ? '' : 'border-b border-slate-800 bg-slate-950/95 backdrop-blur'
         }`}
       >
-      <div className="mx-auto flex max-w-5xl items-start justify-between gap-2 p-3">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-start justify-between gap-2 p-3">
         {/* Con el cuadro de la salida abierto, la pastilla de la carrera SOBRA:
             dice lo mismo que él —el cartel ya lleva el nombre— y encima le
             estorba, que en un móvil el botón de la web acaba pegado a su
@@ -523,7 +526,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ← Parrilla
           </a>
         )}
-        {waiting && panelOpen && view === 'mapa' ? (
+        {view !== 'mapa' || (waiting && panelOpen) ? (
+          // Fuera del mapa el nombre de la carrera sobra —la lista, la porra y
+          // los resultados llevan su propio título— y con cuatro pestañas ya no
+          // cabía: el nombre se comía al selector y al usuario. Y con el cuadro
+          // de la salida abierto tampoco, que ese ya lo dice.
           <div />
         ) : (
           /* Fuera del mapa, la presentación sobra: ahí lo que hace falta es
@@ -602,9 +609,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {([
             'mapa', 'lista',
             ...(betsEnabled ? ['porra' as const] : []),
-            // Una carrera terminada estrena pestaña: es lo que se viene a ver
-            // cuando ya no hay nada moviéndose por el mapa.
+            // Una carrera terminada estrena pestañas: los resultados y el
+            // replay son lo que se viene a ver cuando ya no hay nada
+            // moviéndose por el mapa.
             ...(endedAt !== null && stats ? ['meta' as const] : []),
+            ...(endedAt !== null ? ['replay' as const] : []),
           ] as const).map((v) => (
             <button
               key={v}
@@ -613,7 +622,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {v === 'porra' ? '🔮 porra' : v === 'meta' ? '🏆 meta' : v}
+              {v === 'porra' ? '🔮 porra' : v === 'meta' ? '🏆 meta' : v === 'replay' ? '⏱️ replay' : v}
             </button>
           ))}
         </div>

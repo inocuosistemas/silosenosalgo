@@ -65,7 +65,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
             className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
           >
             👤 <span className="hidden sm:inline max-w-[8rem] truncate">{user.username}</span>
-            {user.isAdmin && <span className="text-[10px] text-amber-400">admin</span>}
+            {user.isAdmin && <span className="hidden sm:inline text-[10px] text-amber-400">admin</span>}
           </button>
           {menuOpen && (
             <>

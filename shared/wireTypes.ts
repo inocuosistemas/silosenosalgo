@@ -626,6 +626,36 @@ export interface EventStats {
   corredores: EventRunnerStats[]
 }
 
+/**
+ * ── Replay ─────────────────────────────────────────────────────────────────
+ *
+ * La carrera entera para volver a verla, con los iconos moviéndose. Va por su
+ * propia puerta y no en el feed del mapa: el directo manda la cola de cada
+ * traza cada diez segundos, y esto es lo contrario — se pide una vez y necesita
+ * todo el recorrido.
+ */
+export interface EventReplayPoint {
+  /** Hora del GPS (epoch ms). */
+  t: number
+  lat: number
+  lon: number
+}
+
+export interface EventReplayRunner {
+  username: string
+  bib: string | null
+  emoji: string | null
+  color: string | null
+  points: EventReplayPoint[]
+}
+
+export interface EventReplay {
+  /** Primer y último instante con posición de alguien (epoch ms). */
+  from: number
+  to: number
+  runners: EventReplayRunner[]
+}
+
 /** GET /api/events/:id — el lobby: el evento y quién está en él. */
 export interface EventDetailResponse {
   event: EventInfo
