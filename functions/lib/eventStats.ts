@@ -299,9 +299,19 @@ export function calculaEstadisticas(
     // pasó, y su meta habría quedado fijada a las 05:31—.
     const hasta = crucaMeta(avance?.serie ?? [], totalKm) ?? avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
+    // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
+    // andando al coche, dar la vuelta a por el que viene detrás o irse a
+    // desayunar no son parte de la prueba, y medir ahí regala o roba marcas —el
+    // camino de vuelta en coche a 20 km/h es el kilómetro más rápido de
+    // cualquiera—. Como la serie va ordenada por hora, quedarse en la meta es
+    // quedarse con el principio.
+    const finDeCarrera = (t: number) => t <= hasta
+    const serieCarrera = (avance?.serie ?? []).filter(([t]) => finDeCarrera(t))
+    let nPts = pts.length
+    while (nPts > 1 && !finDeCarrera(pts[nPts - 1].t)) nPts--
     // Sobre el avance si lo hay; si no, sobre la traza, que es lo que queda.
-    const mejor = (avance ? kmMasRapidoEnRuta(avance.serie, lim.minMinPorKm) : null)
-      ?? kmMasRapido(pts, acumulado)
+    const mejor = (avance ? kmMasRapidoEnRuta(serieCarrera, lim.minMinPorKm) : null)
+      ?? kmMasRapido(pts.slice(0, nPts), acumulado.slice(0, nPts))
     const finished = totalKm != null && km >= totalKm * 0.97
 
     corredores.push({

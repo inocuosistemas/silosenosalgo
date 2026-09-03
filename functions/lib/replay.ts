@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from './db'
 import type { TrailPoint, EventReplay, EventReplayRunner } from '../../shared/wireTypes'
-import { sinSaltos } from './eventStats'
+import { sinSaltos, leeStats } from './eventStats'
 
 /**
  * lib/replay.ts — la carrera entera, para volver a verla.
@@ -52,6 +52,20 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
     startedAt: number | null; trail: string | null; actividad: string | null
   }>()
 
+  // La hora a la que cada uno cruzó la meta, de los resultados ya congelados.
+  // Cruzada la meta se acabó la carrera: lo que se hizo después —volver al
+  // coche, ir a por el que venía detrás— no es la prueba, y verlo pasear por el
+  // mapa media hora después de llegar no cuenta nada y confunde a quien mira.
+  // Sin resultados congelados (una carrera cerrada antes de que existieran) se
+  // enseña todo, que es mejor que nada.
+  const ev = await env.DB.prepare('SELECT ended_at AS endedAt, stats FROM events WHERE id = ?')
+    .bind(eventId).first<{ endedAt: number | null; stats: string | null }>()
+  const stats = ev?.endedAt ? await leeStats(env, eventId, ev.stats) : null
+  const metaDe = new Map<string, number>()
+  for (const c of stats?.corredores ?? []) {
+    if (c.finishedAt != null) metaDe.set(c.username, c.finishedAt)
+  }
+
   const runners: EventReplayRunner[] = []
   let desde = Infinity
   let hasta = -Infinity
@@ -73,6 +87,12 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
     // mapa y los números cuentan lo mismo.
     const limpios = sinSaltos(pts, r.actividad)
     if (limpios.length >= 2) pts = limpios
+    // Hasta la meta y ni un punto más, para quien la cruzó.
+    const meta = metaDe.get(r.username)
+    if (meta != null) {
+      const enCarrera = pts.filter((p) => p.t <= meta)
+      if (enCarrera.length >= 2) pts = enCarrera
+    }
     // Quien no llegó a emitir no sale en el replay: una fila vacía moviéndose
     // por ningún sitio no cuenta nada.
     if (pts.length < 2) continue

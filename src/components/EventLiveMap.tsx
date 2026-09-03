@@ -261,6 +261,33 @@ export default function EventLiveMap({ source }: { source: Source }) {
    */
   const kmPrevio = useRef<Map<string, number>>(new Map())
 
+  /**
+   * Quién ya cruzó la meta. Una vez llegado, la carrera se acabó para él y su
+   * punto se queda EN la meta: lo que haga después —volver andando al coche, ir
+   * a por el que viene detrás— no es la prueba. Sin esto se le ve retroceder
+   * por el recorrido media hora después de llegar, y en el perfil el punto
+   * aparece desplazado como si no hubiera terminado.
+   *
+   * Vive en una ref y no en el estado porque es MEMORIA del seguimiento: haber
+   * llegado no se deshace porque el siguiente refresco le pille en otro sitio.
+   */
+  const llego = useRef<Set<string>>(new Set())
+  /** Y a qué hora llegó, para poder cortarle la cola ahí mismo. */
+  const horaMeta = useRef<Map<string, number>>(new Map())
+
+  /**
+   * La hora de meta de los resultados CONGELADOS, que es la buena: la calculó
+   * el servidor con la traza entera. La detección de aquí solo hace falta en
+   * directo, mientras la carrera no ha cerrado y no hay resultados todavía.
+   */
+  const metaOficial = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of stats?.corredores ?? []) {
+      if (c.finishedAt != null) m.set(c.username, c.finishedAt)
+    }
+    return m
+  }, [stats])
+
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
@@ -283,6 +310,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
         km = km ?? proyectado
       }
       if (km != null) kmPrevio.current.set(key, km)
+      // Meta: el final del recorrido con margen, que el GPS no clava el último
+      // metro y el arco nunca cae en el punto exacto del GPX. El mismo 97% con
+      // el que el servidor da a alguien por llegado, para que el mapa y los
+      // resultados no puedan contradecirse.
+      if (route && km != null && km >= route.totalKm * 0.97) {
+        llego.current.add(key)
+        if (!horaMeta.current.has(key) && r.updatedAt != null) horaMeta.current.set(key, r.updatedAt)
+      }
+      const metaEn = metaOficial.get(r.username) ?? horaMeta.current.get(key) ?? null
+      const acabo = metaEn != null || (route != null && llego.current.has(key))
+      if (route && acabo) km = route.totalKm
       // Lejos del trazado no se le ancla: se le deja donde dice su GPS y se
       // avisa. Anclar a alguien que va por otro valle es dibujar una carrera
       // que no está corriendo.
@@ -327,10 +365,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
       const tope = act && act in ACTIVITY_MAX_SPEED_KMH
         ? ACTIVITY_MAX_SPEED_KMH[act as keyof typeof ACTIVITY_MAX_SPEED_KMH]
         : undefined
-      const tail = sanitizeTrail(r.tail, tope).points
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail }
+      // Y la cola se corta en la meta: la sombra de por dónde se fue DESPUÉS de
+      // llegar no es la carrera, y en un evento con recorrido marcado no cuenta
+      // nada —solo dibuja al que volvió andando cruzando el trazado al revés—.
+      const enCarrera = metaEn != null ? r.tail.filter((p) => p.t <= metaEn) : r.tail
+      const tail = sanitizeTrail(enCarrera, tope).points
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
-  }, [runners, route, cutoffs, now, actividad])
+  }, [runners, route, cutoffs, now, actividad, metaOficial])
 
 
   /**
@@ -489,10 +531,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key, km, desviadoM, tail }) => {
+          {withFix.map(({ r, stale, key, km, desviadoM, tail, acabo }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
-            const suelto = !anclados || desviadoM > DESVIADO_M || km === null || !route
+            // Quien terminó va EN la meta, se esté imantando o no: su última
+            // posición conocida es donde estaba media hora después de llegar, y
+            // pintarlo ahí es decir que no acabó. Sin recorrido descargado no
+            // hay meta que enseñar, así que se le deja donde dice su GPS.
+            const enMeta = acabo && route !== null && km !== null
+            const suelto = !enMeta && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
             const punto: [number, number] = (!suelto && coordsAtKm(route!, km!)) || [r.fix!.lat, r.fix!.lon]
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
