@@ -76,10 +76,21 @@ export type Polilinea = [number, number, number][]
  * Se devuelve el MÁXIMO alcanzado y no el último: quien cruza meta y sigue
  * andando hasta el coche no des-corre la carrera.
  */
-function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): number | null {
+interface Avance {
+  /** El kilómetro más lejano alcanzado. */
+  km: number
+  /** Cuándo se alcanzó (epoch ms): el momento de cruzar meta, si llegó. */
+  enMs: number
+  /** Cuándo pisó el recorrido por primera vez: el crono empieza ahí. */
+  desdeMs: number
+}
+
+function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): Avance | null {
   if (linea.length < 2 || pts.length === 0) return null
   let previo: number | null = null
   let max = 0
+  let enMs = pts[0].t
+  let desdeMs: number | null = null
   let dentro = 0
   for (const p of pts) {
     let desde = 0
@@ -99,11 +110,12 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
     if (mejor < 0 || mejorD > toleranciaM) continue
     previo = linea[mejor][2]
     dentro++
-    if (previo > max) max = previo
+    if (desdeMs === null) desdeMs = p.t
+    if (previo > max) { max = previo; enMs = p.t }
   }
   // Sin ningún punto sobre el recorrido no se sabe nada: fue por otro sitio, o
   // el trazado guardado no es el de esta carrera.
-  return dentro > 0 ? max : null
+  return dentro > 0 ? { km: max, enMs, desdeMs: desdeMs ?? pts[0].t } : null
 }
 
 interface FilaSesion {
@@ -164,9 +176,16 @@ export function calculaEstadisticas(
     // daba 8,69 km en una carrera de 7,46.
     const kmTraza = acumulado[acumulado.length - 1] / 1000
     const avance = linea ? avanceSobreRuta(linea, pts) : null
-    const km = avance ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
-    const desde = f.startedAt ?? pts[0].t
-    const hasta = pts[pts.length - 1].t
+    const km = avance?.km ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
+
+    // El tiempo que vale es el que se estuvo EN EL CIRCUITO, no el que la
+    // baliza estuvo encendida. Son cosas distintas y la diferencia es enorme:
+    // se arma media hora antes de salir, y luego se deja puesta hasta el coche
+    // o hasta que uno se acuerda. Se cuenta desde que se pisa el recorrido
+    // hasta que se alcanza el punto más lejano —cruzar meta— y no hasta la
+    // última posición, que suele ser el aparcamiento.
+    const desde = avance?.desdeMs ?? f.startedAt ?? pts[0].t
+    const hasta = avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     const mejor = kmMasRapido(pts, acumulado)
     const finished = totalKm != null && km >= totalKm * 0.97

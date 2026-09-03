@@ -49,6 +49,15 @@ const STALE_MS = 6 * 60_000
  */
 const LOST_MS = 20 * 60_000
 
+/**
+ * A partir de aquí ya no es el temblor del GPS: es que va por otro sitio.
+ *
+ * Treinta metros los da cualquier móvil en un bolsillo bajo los árboles; cien
+ * ya no, y menos de forma sostenida. Pasado ese punto no se ancla a nadie al
+ * trazado —seria dibujar una carrera que no está corriendo— y se avisa.
+ */
+const DESVIADO_M = 100
+
 /** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
 type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
 
@@ -109,6 +118,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
   const [profileOpen, setProfileOpen] = useState(true)
+  /**
+   * Los corredores, ANCLADOS al trazado por defecto.
+   *
+   * El GPS de un móvil en el bolsillo se pasea veinte o treinta metros: en el
+   * mapa eso son corredores por los tejados, dentro del río o por la calle de
+   * al lado, y quien mira acaba dudando de la posición en vez de leerla. Pegado
+   * al recorrido se lee lo que de verdad importa —por dónde va y cuánto le
+   * queda— y el error del GPS deja de contarse como información.
+   *
+   * Se puede quitar, porque hay un caso en que la posición cruda es la buena:
+   * cuando alguien se sale de verdad. Por eso, además, a quien se aleja mucho
+   * NO se le ancla aunque el modo esté puesto, y se le marca.
+   */
+  const [anclados, setAnclados] = useState(true)
   /**
    * Si el cartel de "carrera terminada" está desplegado. Empieza abierto: al
    * abrir el mapa de una carrera que ya acabó, lo primero que se quiere saber es
@@ -231,15 +254,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // puede saltar al otro extremo del trazado en un circuito, que es lo que
       // dejaba sin detectar la meta.
       const key = r.userId ?? r.username
+      const medida = { m: 0 }
       let km: number | null = r.fix?.trackKm ?? null
-      if (km == null && r.fix && route) {
+      if (r.fix && route) {
         let cerca = kmPrevio.current.get(key) ?? null
-        if (cerca == null) {
+        if (cerca == null && km == null) {
           for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca)
         }
-        km = projectKm(r.fix.lat, r.fix.lon, route, cerca)
+        const proyectado = projectKm(r.fix.lat, r.fix.lon, route, km ?? cerca, 3, medida)
+        km = km ?? proyectado
       }
       if (km != null) kmPrevio.current.set(key, km)
+      // Lejos del trazado no se le ancla: se le deja donde dice su GPS y se
+      // avisa. Anclar a alguien que va por otro valle es dibujar una carrera
+      // que no está corriendo.
+      const desviadoM = r.fix && route ? medida.m : 0
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && r.startedAt !== null
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
@@ -263,7 +292,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
       // señal" —que suena a avería— sino que aún no ha empezado.
       const idle = !armed && r.fix === null
-      return { r, km, margin, stale, lost, idle, armed, key }
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
@@ -424,7 +453,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key }) => {
+          {withFix.map(({ r, stale, key, km, desviadoM }) => {
+            // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
+            // está puesto y no se ha ido lejos; si no, donde dice su GPS.
+            const suelto = !anclados || desviadoM > DESVIADO_M || km === null || !route
+            const punto: [number, number] = (!suelto && coordsAtKm(route!, km!)) || [r.fix!.lat, r.fix!.lon]
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
             return (
@@ -446,7 +479,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   </>
                 )}
                 <Marker
-                  position={[r.fix!.lat, r.fix!.lon]}
+                  position={punto}
                   icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji)}
                   eventHandlers={{
                     click: () => setSelected(isSel ? null : key),
@@ -458,7 +491,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 />
                 {(isSel || key === hoverKey) && (
                   <CircleMarker
-                    center={[r.fix!.lat, r.fix!.lon]}
+                    center={punto}
                     radius={18}
                     pathOptions={{ color, weight: 2, fill: false, opacity: isSel ? 0.8 : 0.5, dashArray: isSel ? undefined : '3 3' }}
                   />
@@ -689,10 +722,25 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onClose={() => setSelected(null)}
             />
           )}
+          {/* Cómo se pintan los corredores. Anclado es lo normal; suelto sirve
+              para ver el GPS crudo cuando alguien se sale de verdad. */}
+          {route && withFix.length > 0 && (
+            <div className="mb-1 flex justify-end">
+              <button
+                onClick={() => setAnclados((v) => !v)}
+                title={anclados
+                  ? 'Ahora se pintan pegados al recorrido; toca para verlos donde dice su GPS'
+                  : 'Ahora se pintan donde dice su GPS; toca para pegarlos al recorrido'}
+                className="rounded-full border border-slate-700 bg-slate-900/90 px-2.5 py-1 text-[11px] text-slate-300 backdrop-blur hover:border-sky-700"
+              >
+                {anclados ? '🧲 pegados al recorrido' : '📍 posición del GPS'}
+              </button>
+            </div>
+          )}
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed, lost }) => {
+            {rows.map(({ r, key, idle, armed, lost, desviadoM }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -730,6 +778,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       esto se lee como un fallo de la aplicación. */}
                   {armed && <span className="text-[10px] text-amber-400/80">preparado</span>}
                   {lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
+                  {desviadoM > DESVIADO_M && (
+                    <span className="text-[10px] text-amber-400/80" title={`Fuera del recorrido: a unos ${Math.round(desviadoM)} m`}>↯</span>
+                  )}
                   {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
                 </button>
               )
@@ -1003,6 +1054,8 @@ type Row = {
   armed: boolean
   /** Lleva más de veinte minutos sin mandar nada: el punto es su última conocida. */
   lost: boolean
+  /** A cuántos metros del trazado está su última posición. */
+  desviadoM: number
   key: string
 }
 
@@ -1065,7 +1118,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, lost, key }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -1125,6 +1178,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                   <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
                     {r.updatedAt === null ? 'sin señal'
                       : lost ? `📡 sin cobertura · hace ${agoLabel(now - r.updatedAt)}`
+                      : desviadoM > DESVIADO_M ? `↯ fuera del recorrido · ${Math.round(desviadoM)} m`
                       : `hace ${agoLabel(now - r.updatedAt)}`}
                   </span>
                   {r.fix && (
@@ -1487,6 +1541,7 @@ function projectKm(
   route: { pts: [number, number][]; cumKm: number[] },
   nearKm?: number | null,
   windowKm = 3,
+  fuera?: { m: number },
 ): number | null {
   let desde = 0
   let hasta = route.pts.length - 1
@@ -1500,7 +1555,11 @@ function projectKm(
     const d = (route.pts[i][0] - lat) ** 2 + ((route.pts[i][1] - lon) * Math.cos((lat * Math.PI) / 180)) ** 2
     if (d < bd) { bd = d; bi = i }
   }
-  return bi >= 0 ? route.cumKm[bi] ?? null : null
+  if (bi < 0) return null
+  // Cuánto se separa del trazado, en metros aproximados: sirve para avisar de
+  // que alguien va por otro sitio en vez de pegarlo al recorrido y mentir.
+  if (fuera) fuera.m = Math.sqrt(bd) * 111_320
+  return route.cumKm[bi] ?? null
 }
 
 /** Lat/lon del punto que está en el km `km` del recorrido, interpolando. */
