@@ -1044,12 +1044,32 @@ final class TrackingStore: ObservableObject {
     func eventPolyline() async -> [(lat: Double, lon: Double)]? {
         guard let shareId = activeEvent?.planShareId ?? events.first(where: { $0.id == selectedEventId })?.planShareId,
               let bytes = try? await API.fetchSharePayload(shareId: shareId) else { return nil }
+        refreshSessionPlan(bytes)
         return PlanGeometry.polyline(fromGzip: bytes)
     }
 
     func planPolyline(for planId: String) async -> [(lat: Double, lon: Double)]? {
         guard let bytes = try? await API.fetchPlanPayload(token: token, planId: planId) else { return nil }
+        refreshSessionPlan(bytes)
         return PlanGeometry.polyline(fromGzip: bytes)
+    }
+
+    /// Guarda como recorrido de la sesión en marcha el que se acaba de bajar.
+    ///
+    /// Los dos de arriba solo se llaman desde la pantalla del mapa offline, que
+    /// para calcular el corredor de teselas necesita el recorrido VIGENTE y se
+    /// lo baja de todas formas. Aprovecharlo sale gratis y arregla un caso real:
+    /// si la organización cambia el trazado —la alternativa por mal tiempo— la
+    /// baliza se quedaba con el viejo, porque lo guarda al abrir la sesión y no
+    /// lo vuelve a mirar. Así basta con entrar a preparar el mapa, que es lo que
+    /// vas a hacer igualmente, en vez de cerrar la baliza y volverla a abrir.
+    ///
+    /// Android hace esto desde siempre, sin pretenderlo. Esto es igualarlo: dos
+    /// apps que se usan en la misma carrera no pueden pedir cosas distintas.
+    private func refreshSessionPlan(_ bytes: Data) {
+        guard let sessionId = sessionToken else { return }
+        try? bytes.write(to: LocalStore.planURL(sessionId), options: .atomic)
+        loadRouteGeometry(for: sessionId)
     }
 
     /// Best-effort: fetch the linked plan's gzipped bytes once (online) and cache
