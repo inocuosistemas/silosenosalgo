@@ -802,12 +802,10 @@ export default function EventLobby({ id }: { id: string }) {
           title="Salida oficial"
           summary={event.startsAt ? fmtDate(event.startsAt) : 'sin fijar'}
         >
-          <input
-            type="datetime-local"
-            value={event.startsAt ? paraInput(event.startsAt) : ''}
-            onChange={(e) => void guardarSalida(e.target.value)}
-            disabled={busy}
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-sky-600 focus:outline-none disabled:opacity-50"
+          <CampoFechaHora
+            valor={event.startsAt}
+            onGuardar={guardarSalida}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-sky-600 focus:outline-none"
           />
           <p className="mt-1.5 text-[11px] text-slate-500">
             El día y la hora de la carrera. Es con lo que arranca quien planifica sobre este recorrido, así que
@@ -925,12 +923,10 @@ export default function EventLobby({ id }: { id: string }) {
               )}
               <label className="mt-2 block text-[11px] text-slate-500">
                 Cierre de meta
-                <input
-                  type="datetime-local"
-                  value={event.endsAt ? paraInput(event.endsAt) : ''}
-                  onChange={(e) => void guardarCierre(e.target.value)}
-                  disabled={busy}
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-600 focus:outline-none disabled:opacity-50"
+                <CampoFechaHora
+                  valor={event.endsAt ?? null}
+                  onGuardar={guardarCierre}
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-600 focus:outline-none"
                 />
               </label>
               {event.endsAt && (
@@ -1280,6 +1276,61 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-lg px-4 py-6">{children}</div>
     </div>
+  )
+}
+
+/**
+ * Un día y una hora que se guardan solos.
+ *
+ * Escribir una fecha son varios pasos —día, mes, año, hora, minuto— y hasta el
+ * último el campo NO vale: `datetime-local` devuelve cadena vacía mientras
+ * falte algo. Atado directamente al servidor eso hacía tres cosas mal a la vez:
+ * cada paso guardaba una fecha a medias (y la vacía BORRABA la salida), el
+ * campo se deshabilitaba mientras guardaba —y deshabilitar un campo cierra el
+ * calendario del móvil y te echa fuera— y, para rematar, la parrilla se
+ * refresca cada pocos segundos y te reescribía encima lo que estabas
+ * escribiendo.
+ *
+ * Aquí lo que se teclea vive en local hasta que está completo. Se guarda al
+ * salir del campo, y también sola tras un momento sin tocarlo —hay quien
+ * termina de escribir y cierra la sección sin salir del campo, y esa fecha no
+ * se puede perder—. Vacío no guarda nunca: para quitar la hora está su botón,
+ * que es una decisión y no un descuido a medio escribir.
+ */
+function CampoFechaHora({ valor, onGuardar, className }: {
+  valor: number | null
+  onGuardar: (texto: string) => void | Promise<void>
+  className: string
+}) {
+  const [borrador, setBorrador] = useState<string | null>(null)
+  const reloj = useRef<number | undefined>(undefined)
+  const delServidor = valor ? paraInput(valor) : ''
+
+  useEffect(() => () => window.clearTimeout(reloj.current), [])
+
+  const guarda = (texto: string) => {
+    window.clearTimeout(reloj.current)
+    if (!texto || !Number.isFinite(new Date(texto).getTime())) return
+    if (texto === delServidor) return
+    void onGuardar(texto)
+  }
+
+  return (
+    <input
+      type="datetime-local"
+      value={borrador ?? delServidor}
+      onChange={(e) => {
+        const texto = e.target.value
+        setBorrador(texto)
+        // Con calma: mientras se teclea el año, "2026" pasa por 0002 y 0202, y
+        // cada uno de esos es una fecha completa y válida que no hay que
+        // guardar. Medio segundo de silencio es que ya ha terminado.
+        window.clearTimeout(reloj.current)
+        reloj.current = window.setTimeout(() => guarda(texto), 600)
+      }}
+      onBlur={(e) => { guarda(e.target.value); setBorrador(null) }}
+      className={className}
+    />
   )
 }
 
