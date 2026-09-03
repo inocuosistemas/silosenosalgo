@@ -82,6 +82,11 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   const totalKm = Number.isFinite(rawKm) && rawKm > 0 ? rawKm : null
   const rawEnd = Number(request.headers.get('X-Plan-End'))
   const endsAt = Number.isFinite(rawEnd) && rawEnd > 0 ? Math.round(rawEnd) : null
+  // De qué va la carrera. No se puede sacar del trazado —un circuito de 7 km se
+  // anda, se corre y se pedalea igual— pero sí del plan con el que se publica:
+  // el planificador ya pregunta la actividad para calcular ritmos.
+  const rawAct = request.headers.get('X-Plan-Activity')
+  const activity = rawAct && ['walk', 'run', 'bike'].includes(rawAct) ? rawAct : null
 
   // El resumen de QUÉ cambió respecto a la base anterior, calculado por el
   // cliente que publica —es quien tiene delante las dos versiones—. Aquí se
@@ -99,12 +104,16 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   await env.DB.prepare(
     `UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?),
             plan_total_km = COALESCE(?, plan_total_km), ends_at = COALESCE(?, ends_at),
+            activity = COALESCE(activity, ?),
             limit_min = CASE
               WHEN ? IS NOT NULL AND starts_at IS NOT NULL AND ? > starts_at
               THEN CAST((? - starts_at) / 60000 AS INTEGER) ELSE limit_min END,
             plan_updated_at = ?, plan_change = ?
       WHERE id = ? AND created_by = ?`,
-  ).bind(shareId, planName, startsAt, totalKm, endsAt, endsAt, endsAt, endsAt, Date.now(), planChange, id, user.id).run()
+  ).bind(
+    shareId, planName, startsAt, totalKm, endsAt, activity,
+    endsAt, endsAt, endsAt, Date.now(), planChange, id, user.id,
+  ).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })
 }

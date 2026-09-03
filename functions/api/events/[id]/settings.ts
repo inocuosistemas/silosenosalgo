@@ -40,7 +40,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const body = (await readJson<{
     colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
-    endsAt?: unknown; limitMin?: unknown; totalKm?: unknown; polyline?: unknown
+    endsAt?: unknown; limitMin?: unknown; totalKm?: unknown; polyline?: unknown; activity?: unknown
   }>(request)) || {}
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
@@ -49,7 +49,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const tocaCierre = body.endsAt !== undefined
   const tocaLimite = body.limitMin !== undefined
   const tocaKm = typeof body.totalKm === 'number' && Number.isFinite(body.totalKm) && body.totalKm > 0
-  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite && !tocaKm) {
+  const tocaActividad = typeof body.activity === 'string' && ['walk', 'run', 'bike'].includes(body.activity)
+  if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite
+      && !tocaKm && !tocaActividad) {
     return json({ error: 'invalid_request' }, 400)
   }
 
@@ -140,6 +142,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt FROM events WHERE id = ?')
       .bind(id).first<{ endedAt: number | null }>()
     if (cerrado?.endedAt) await cierraEvento(env, id, cerrado.endedAt, body.totalKm as number)
+  }
+  if (tocaActividad) {
+    // Cambia los filtros de velocidad de los resultados, asi que si la carrera
+    // ya esta cerrada hay que volver a pasarlos: con la actividad equivocada,
+    // o se cuelan saltos de GPS o se recortan marcas buenas.
+    await env.DB.prepare('UPDATE events SET activity = ? WHERE id = ? AND created_by = ?')
+      .bind(body.activity as string, id, user.id).run()
+    const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt, plan_total_km AS km FROM events WHERE id = ?')
+      .bind(id).first<{ endedAt: number | null; km: number | null }>()
+    if (cerrado?.endedAt) await cierraEvento(env, id, cerrado.endedAt, cerrado.km)
   }
   if (tocaLimite) {
     await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')

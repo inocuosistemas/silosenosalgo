@@ -447,6 +447,11 @@ export interface EventInfo {
    *  = el evento aún no la tiene (se rellena al publicar el recorrido, y la
    *  parrilla la completa sola en los eventos anteriores a que existiera). */
   planTotalKm?: number | null
+  /** De qué va la carrera: 'walk' | 'run' | 'bike'. Sale del plan con el que se
+   *  publicó el recorrido y quien organiza puede corregirla. Manda en los
+   *  filtros de velocidad de los resultados: 12 km/h andando es imposible y en
+   *  bici es ir de paseo. */
+  activity?: BeaconActivity | null
   /** Si el evento tiene ya el trazado simplificado con el que se mide el avance
    *  de cada corredor. Solo se dice si lo tiene, no se manda: son cientos de
    *  puntos que la parrilla no pinta. */
@@ -512,6 +517,8 @@ export interface EventPublicResponse {
    *  tanto o más que a los participantes. */
   trackingUrl: string | null
   websiteUrl: string | null
+  /** De qué va la carrera: caminata, carrera o bici. */
+  activity: BeaconActivity | null
   /** Cuándo terminó la carrera (epoch ms), o null si sigue en marcha. Quien
    *  espera en meta necesita saberlo tanto como los que corren: sin esto, una
    *  carrera acabada se ve igual que una en la que nadie emite. */
@@ -730,6 +737,8 @@ export interface EventLiveResponse {
   photoUrl: string | null
   trackingUrl: string | null
   websiteUrl: string | null
+  /** De qué va la carrera: caminata, carrera o bici. */
+  activity: BeaconActivity | null
   /** Cuándo terminó la carrera (epoch ms), o null si sigue en marcha. */
   endedAt: number | null
   /** Los resultados congelados al cerrarla. Solo en una carrera terminada. */

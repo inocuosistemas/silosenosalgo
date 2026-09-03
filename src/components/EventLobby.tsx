@@ -7,7 +7,7 @@ import {
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
-  setEventBetsEnabled, endEvent, recomputeEventStats, joinEvent, getEventPlan,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -89,14 +89,14 @@ export default function EventLobby({ id }: { id: string }) {
   useEffect(() => {
     const ev = data?.event
     if (!ev?.isOwner || !ev.planShareId) return
-    if (ev.planTotalKm != null && ev.hasPolyline) return
+    if (ev.planTotalKm != null && ev.hasPolyline && ev.activity) return
     let vivo = true
     void (async () => {
       try {
         const base = await getEventPlan(ev.planShareId!)
         const km = base.track.totalDistanceKm
         if (!vivo || !Number.isFinite(km) || km <= 0) return
-        await setEventTotalKm(id, km, simplificaTrazado(base))
+        await setEventTotalKm(id, km, simplificaTrazado(base), base.paceConfig?.activity)
         await refresh()
       } catch { /* sin recorrido a mano se queda como estaba */ }
     })()
@@ -228,6 +228,13 @@ export default function EventLobby({ id }: { id: string }) {
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     } finally { setBusy(false) }
+  }
+
+  async function cambiaActividad(a: 'walk' | 'run' | 'bike') {
+    setBusy(true); setError(null)
+    try { await setEventActivity(id, a); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
   }
 
   async function recalcular() {
@@ -798,6 +805,39 @@ export default function EventLobby({ id }: { id: string }) {
         </Plegable>
       )}
 
+      {/* De qué va la carrera. Manda en cómo se leen las trazas: el umbral que
+          descarta un salto de GPS no puede ser el mismo andando que en bici,
+          donde 12 km/h es ir de paseo. Sale sola del recorrido publicado; esto
+          es para corregirla. */}
+      {event.isOwner && (
+        <Plegable
+          title="Tipo de actividad"
+          summary={event.activity ? ACTIVIDADES[event.activity] ?? event.activity : 'sin definir'}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {(['walk', 'run', 'bike'] as const).map((a) => (
+              <button
+                key={a}
+                onClick={() => void cambiaActividad(a)}
+                disabled={busy}
+                className={`rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                  event.activity === a
+                    ? 'border-sky-500 bg-sky-500/15 text-sky-200'
+                    : 'border-slate-700 text-slate-300 hover:border-slate-500'
+                }`}
+              >
+                {ACTIVIDADES[a]}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Con ella se descartan los saltos del GPS al calcular los resultados: lo que es imposible
+            caminando —12 km/h— en bici es ir de paseo. Si la carrera ya está cerrada, cambiarla
+            recalcula los resultados.
+          </p>
+        </Plegable>
+      )}
+
       {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
           menú: es la acción que cierra la historia —congela los resultados y
           deja de admitir gente— y hasta ahora sencillamente no existía. */}
@@ -1286,6 +1326,13 @@ function simplificaTrazado(base: SharePayloadV1): [number, number, number][] {
     out.push([Number(pts[ultimo].lat.toFixed(6)), Number(pts[ultimo].lon.toFixed(6)), Number(cum[ultimo].toFixed(3))])
   }
   return out
+}
+
+/** Cómo se llama cada actividad, con su icono. */
+const ACTIVIDADES: Record<string, string> = {
+  walk: '🚶 Caminata',
+  run: '🏃 Carrera',
+  bike: '🚴 Bicicleta',
 }
 
 /** Un ritmo o un tiempo de kilómetro: "4:35". */

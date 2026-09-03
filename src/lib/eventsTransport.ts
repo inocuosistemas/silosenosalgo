@@ -205,8 +205,14 @@ export async function setEventTotalKm(
   id: string,
   totalKm: number,
   polyline?: [number, number, number][],
+  activity?: string,
 ): Promise<void> {
-  return setEventSettings(id, { totalKm, polyline })
+  return setEventSettings(id, { totalKm, polyline, activity })
+}
+
+/** De qué va la carrera: caminata, carrera o bici. Solo quien organiza. */
+export async function setEventActivity(id: string, activity: 'walk' | 'run' | 'bike'): Promise<void> {
+  return setEventSettings(id, { activity })
 }
 
 /** La porra del evento: la enciende y la apaga quien organiza. */
@@ -219,7 +225,7 @@ async function setEventSettings(
   patch: {
     colorsLocked?: boolean; notes?: string; startsAt?: number | null
     betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null
-    totalKm?: number; polyline?: [number, number, number][]
+    totalKm?: number; polyline?: [number, number, number][]; activity?: string
   },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {
@@ -304,6 +310,9 @@ export async function setEventPlan(
       ...(Number.isFinite(salida) ? { 'X-Plan-Start': String(salida) } : {}),
       ...(Number.isFinite(km) && km > 0 ? { 'X-Plan-Km': String(km) } : {}),
       ...(cierre !== null ? { 'X-Plan-End': String(cierre) } : {}),
+      // De qué va la carrera: sale del plan, que es quien la sabe. Del trazado
+      // no se puede deducir —un circuito se anda, se corre y se pedalea igual—.
+      ...(base.paceConfig?.activity ? { 'X-Plan-Activity': base.paceConfig.activity } : {}),
       ...(change ? { 'X-Plan-Change': encodeURIComponent(JSON.stringify(change)) } : {}),
     },
     body: new Blob([gz]),

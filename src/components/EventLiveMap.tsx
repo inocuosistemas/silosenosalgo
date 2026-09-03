@@ -58,6 +58,9 @@ const LOST_MS = 20 * 60_000
  */
 const DESVIADO_M = 100
 
+/** El icono de cada actividad, que dice de un vistazo de qué va la carrera. */
+const ICONO_ACTIVIDAD: Record<string, string> = { walk: '🚶', run: '🏃', bike: '🚴' }
+
 /** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
 type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
 
@@ -81,6 +84,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
    */
   const [eventId, setEventId] = useState<string | null>(source.kind === 'member' ? source.id : null)
   const [betsEnabled, setBetsEnabled] = useState(false)
+  /** De qué va la carrera: caminata, carrera o bici. */
+  const [actividad, setActividad] = useState<string | null>(null)
   /** Cuándo terminó la carrera y qué quedó de ella. */
   const [endedAt, setEndedAt] = useState<number | null>(null)
   const [stats, setStats] = useState<EventStats | null>(null)
@@ -182,6 +187,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setBetsEnabled(live.betsEnabled)
         setEndedAt(live.endedAt)
         setStats(live.stats)
+        setActividad(live.activity)
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
@@ -193,6 +199,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
         setEndedAt(live.endedAt)
         setStats(live.stats)
+        setActividad(live.activity)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -638,6 +645,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               )}
               {raceStats && view === 'mapa' && (
                 <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
+                  {actividad && <span>{ICONO_ACTIVIDAD[actividad] ?? ''}</span>}
                   <span>{raceStats.km.toFixed(1)} km</span>
                   <span className="text-slate-600">·</span>
                   <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>

@@ -28,7 +28,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
 
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
-            starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled,
+            starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled, activity,
             ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
@@ -36,6 +36,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     trackingUrl: string | null; websiteUrl: string | null
     startsAt: number | null; photoKey: string | null; photoAt: number | null; betsEnabled: number
     endsAt: number | null; endedAt: number | null; planTotalKm: number | null; stats: string | null
+    activity: string | null
   }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
   // enlace que no lleva a ningún sitio, y no hay nada que explicarle a quien lo
@@ -121,6 +122,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       : null,
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
+    // De qué va la carrera: la enseña el mapa y manda en los filtros de
+    // velocidad de los resultados.
+    activity: isBeaconActivity(ev.activity) ? ev.activity : null,
     endedAt,
     stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     runners,

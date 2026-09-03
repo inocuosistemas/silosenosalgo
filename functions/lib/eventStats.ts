@@ -17,6 +17,28 @@ import type { TrailPoint, EventStats, EventRunnerStats } from '../../shared/wire
  * el km lo calcula quien corre, que es quien lo sabe.
  */
 
+/**
+ * Lo que se puede hacer de verdad con cada actividad.
+ *
+ * `maxKmh` corta los saltos del GPS —lo que no es posible moviéndose así— y
+ * `minMinPorKm` es el suelo por debajo del cual un "kilómetro rapidísimo" es un
+ * salto y no una marca. Los dos tienen que depender de la actividad: 12 km/h
+ * andando es imposible y en bici es ir de paseo; un kilómetro en dos minutos es
+ * un salto a pie y una bajada normal sobre ruedas.
+ */
+const LIMITES: Record<string, { maxKmh: number; minMinPorKm: number }> = {
+  walk: { maxKmh: 12, minMinPorKm: 4 },
+  run: { maxKmh: 25, minMinPorKm: 2.5 },
+  bike: { maxKmh: 80, minMinPorKm: 0.75 },
+}
+/** Sin actividad declarada, lo prudente es el techo más alto: mejor colar un
+ *  salto raro que recortarle la marca a un ciclista. */
+const LIMITE_POR_DEFECTO = { maxKmh: 80, minMinPorKm: 0.75 }
+
+function limitesDe(actividad: string | null | undefined) {
+  return (actividad && LIMITES[actividad]) || LIMITE_POR_DEFECTO
+}
+
 /** Metros entre dos puntos por la fórmula del semiverseno. */
 function metros(a: TrailPoint, b: TrailPoint): number {
   const R = 6_371_000
@@ -47,7 +69,7 @@ function metros(a: TrailPoint, b: TrailPoint): number {
  * Sobre el avance no puede pasar: un salto lateral de treinta metros no mueve
  * el kilómetro del recorrido, que es lo que de verdad se ha progresado.
  */
-function kmMasRapidoEnRuta(serie: [number, number][]): { minutos: number; desdeKm: number } | null {
+function kmMasRapidoEnRuta(serie: [number, number][], minMinPorKm: number): { minutos: number; desdeKm: number } | null {
   if (serie.length < 2) return null
   let mejor: { minutos: number; desdeKm: number } | null = null
   for (let j = 1; j < serie.length; j++) {
@@ -68,9 +90,10 @@ function kmMasRapidoEnRuta(serie: [number, number][]): { minutos: number; desdeK
     const t = (objetivo - serie[i][1]) / tramo
     const inicio = serie[i][0] + t * (serie[i + 1][0] - serie[i][0])
     const minutos = (serie[j][0] - inicio) / 60_000
-    // Menos de dos minutos por kilómetro no lo hace nadie a pie: es un salto
-    // de GPS, y precisamente de eso va este cálculo.
-    if (minutos <= 2) continue
+    // Por debajo del suelo de la actividad no es una marca, es un salto del
+    // receptor: cuatro minutos por kilómetro andando, dos y medio corriendo,
+    // cuarenta y cinco segundos en bici.
+    if (minutos <= minMinPorKm) continue
     if (!mejor || minutos < mejor.minutos) mejor = { minutos, desdeKm: serie[i][1] }
   }
   return mejor
@@ -186,6 +209,8 @@ export function calculaEstadisticas(
   linea: Polilinea | null = null,
   /** La salida OFICIAL de la carrera: el pistoletazo, si lo hay. */
   startsAt: number | null = null,
+  /** De qué va la carrera: manda en los filtros de velocidad. */
+  actividad: string | null = null,
 ): EventStats {
   const corredores: EventRunnerStats[] = []
 
@@ -198,6 +223,21 @@ export function calculaEstadisticas(
       } catch { pts = [] }
     }
     pts.sort((a, b) => a.t - b.t)
+    // Fuera los saltos del receptor: un punto que exige ir más rápido de lo que
+    // permite la actividad no es una posición, es ruido. Se descarta el punto y
+    // se sigue comparando contra el último bueno, para que un salto y su vuelta
+    // no cuenten como dos tramos imposibles.
+    const lim = limitesDe(actividad)
+    const limpios: TrailPoint[] = []
+    for (const p of pts) {
+      const ant = limpios[limpios.length - 1]
+      if (ant) {
+        const dt = (p.t - ant.t) / 1000
+        if (dt > 0 && (metros(ant, p) / dt) * 3.6 > lim.maxKmh) continue
+      }
+      limpios.push(p)
+    }
+    if (limpios.length >= 2) pts = limpios
 
     // Sin una sola posición no hay resultado que contar: sale con lo que se
     // sabe (que estaba en la parrilla) y sin números inventados.
@@ -243,7 +283,8 @@ export function calculaEstadisticas(
     const hasta = crucaMeta(avance?.serie ?? [], totalKm) ?? avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     // Sobre el avance si lo hay; si no, sobre la traza, que es lo que queda.
-    const mejor = (avance ? kmMasRapidoEnRuta(avance.serie) : null) ?? kmMasRapido(pts, acumulado)
+    const mejor = (avance ? kmMasRapidoEnRuta(avance.serie, lim.minMinPorKm) : null)
+      ?? kmMasRapido(pts, acumulado)
     const finished = totalKm != null && km >= totalKm * 0.97
 
     corredores.push({
@@ -379,10 +420,10 @@ export async function cierraEvento(
   totalKm: number | null,
 ): Promise<EventStats> {
   const linea = await leePolilinea(env, eventId)
-  const ev = await env.DB.prepare('SELECT starts_at AS startsAt FROM events WHERE id = ?')
-    .bind(eventId).first<{ startsAt: number | null }>()
+  const ev = await env.DB.prepare('SELECT starts_at AS startsAt, activity FROM events WHERE id = ?')
+    .bind(eventId).first<{ startsAt: number | null; activity: string | null }>()
   const stats = calculaEstadisticas(
-    await sesionesDelEvento(env, eventId), totalKm, linea, ev?.startsAt ?? null,
+    await sesionesDelEvento(env, eventId), totalKm, linea, ev?.startsAt ?? null, ev?.activity ?? null,
   )
   await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ? WHERE id = ?')
     .bind(endedAt, JSON.stringify(stats), eventId).run()

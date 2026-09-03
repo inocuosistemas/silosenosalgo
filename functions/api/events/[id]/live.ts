@@ -37,7 +37,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const ev = await env.DB.prepare(
-    `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled,
+    `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, activity,
             ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, created_by AS createdBy,
             name, photo_key AS photoKey, photo_at AS photoAt, stats,
             tracking_url AS trackingUrl, website_url AS websiteUrl
@@ -46,6 +46,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       planShareId: string | null; startsAt: number | null; betsEnabled: number
       endsAt: number | null; endedAt: number | null; planTotalKm: number | null; createdBy: string
       name: string; photoKey: string | null; photoAt: number | null; stats: string | null
+      activity: string | null
       trackingUrl: string | null; websiteUrl: string | null
     }>()
   if (!ev) return json({ error: 'not_found' }, 404)
@@ -154,6 +155,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       : null,
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
+    // De qué va la carrera: la enseña el mapa y manda en los filtros de
+    // velocidad de los resultados.
+    activity: isBeaconActivity(ev.activity) ? ev.activity : null,
     endedAt,
     stats: endedAt !== null ? await leeStats(env, id, ev.stats) : null,
     runners,
