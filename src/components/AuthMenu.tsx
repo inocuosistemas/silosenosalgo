@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
 import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../lib/authClient'
@@ -34,6 +34,17 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const [showInvites, setShowInvites] = useState(false)
   const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  /**
+   * De qué lado cae el desplegable.
+   *
+   * Iba siempre anclado a la derecha del botón, que está bien cuando el botón
+   * vive en la esquina derecha de la cabecera —como en la portada— y se sale de
+   * la pantalla cuando no: en el mapa del evento el botón está pegado al borde
+   * izquierdo y el menú se abría fuera, medio cortado. Se decide al abrir, con
+   * la posición real del botón.
+   */
+  const botonRef = useRef<HTMLButtonElement | null>(null)
+  const [aLaIzquierda, setALaIzquierda] = useState(false)
 
   const clearInvite = useCallback(() => {
     const url = new URL(window.location.href)
@@ -61,7 +72,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       {user ? (
         <div className="relative">
           <button
-            onClick={() => setMenuOpen((v) => !v)}
+            ref={botonRef}
+            onClick={() => {
+              const r = botonRef.current?.getBoundingClientRect()
+              if (r) setALaIzquierda(r.left < window.innerWidth / 2)
+              setMenuOpen((v) => !v)
+            }}
             className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
           >
             👤 <span className="hidden sm:inline max-w-[8rem] truncate">{user.username}</span>
@@ -70,7 +86,9 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-[1900]" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 mt-1 z-[2000] min-w-[12rem] rounded-lg bg-slate-900 border border-slate-700 shadow-xl py-1">
+              <div className={`absolute mt-1 z-[2000] min-w-[12rem] max-w-[80vw] rounded-lg bg-slate-900 border border-slate-700 shadow-xl py-1 ${
+                aLaIzquierda ? 'left-0' : 'right-0'
+              }`}>
                 <div className="px-3 py-2 text-xs text-slate-500 border-b border-slate-800">
                   Sesión iniciada como<br />
                   <span className="text-slate-300 font-medium">{user.username}</span>
