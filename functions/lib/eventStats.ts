@@ -173,6 +173,48 @@ interface Avance {
   serie: [number, number][]
 }
 
+/**
+ * A qué distancia queda un punto de un SEGMENTO del trazado, y por dónde.
+ *
+ * Proyectar sobre el vértice más cercano deja la resolución a merced de lo
+ * fino que sea el trazado guardado, y el guardado tiene un techo de 800
+ * puntos: en un circuito de 7 km son 11 metros entre vértices, pero en una
+ * ultra de 160 km son doscientos. Proyectando sobre el segmento el kilómetro
+ * sale con precisión de metros mida lo que mida la carrera.
+ *
+ * En metros planos locales: a esta escala la diferencia con la esfera es
+ * despreciable y evita tres senos y un arcoseno por vértice.
+ */
+function enSegmento(
+  p: { lat: number; lon: number }, a: [number, number, number], b: [number, number, number],
+): { d: number; km: number } {
+  const kx = 111_320 * Math.cos((p.lat * Math.PI) / 180)
+  const ky = 110_540
+  const ax = (a[1] - p.lon) * kx, ay = (a[0] - p.lat) * ky
+  const bx = (b[1] - p.lon) * kx, by = (b[0] - p.lat) * ky
+  const dx = bx - ax, dy = by - ay
+  const largo = dx * dx + dy * dy
+  const f = largo > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / largo)) : 0
+  return { d: Math.hypot(ax + f * dx, ay + f * dy), km: a[2] + f * (b[2] - a[2]) }
+}
+
+/**
+ * Cuánto margen hay que dar a la meta, en kilómetros.
+ *
+ * No un porcentaje: el 3% de un circuito de 7 km son doscientos metros, pero
+ * el de una ultra de 160 son casi cinco kilómetros —quien abandona a cuatro
+ * del final saldría como que llegó—. Es una distancia, y solo se estira si el
+ * trazado guardado es tan basto que no puede afinar más: cincuenta metros de
+ * suelo, o media separación entre vértices si esta es mayor.
+ */
+function toleranciaMeta(linea: Polilinea): number {
+  const seps: number[] = []
+  for (let i = 1; i < linea.length; i++) seps.push(linea[i][2] - linea[i - 1][2])
+  if (seps.length === 0) return 0.05
+  seps.sort((a, b) => a - b)
+  return Math.max(0.05, (seps[Math.floor(seps.length / 2)] ?? 0) / 2)
+}
+
 function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): Avance | null {
   if (linea.length < 2 || pts.length === 0) return null
   let previo: number | null = null
@@ -197,7 +239,17 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
       if (d < mejorD) { mejorD = d; mejor = i }
     }
     if (mejor < 0 || mejorD > toleranciaM) continue
-    previo = linea[mejor][2]
+    // Afinar sobre los dos segmentos que salen de ese vértice: el punto casi
+    // nunca cae justo encima de uno, y quedarse en el vértice redondea el
+    // kilómetro a la resolución del trazado.
+    let km = linea[mejor][2]
+    let dMin = mejorD
+    for (const [i, j] of [[mejor - 1, mejor], [mejor, mejor + 1]]) {
+      if (i < 0 || j >= linea.length) continue
+      const r = enSegmento(p, linea[i], linea[j])
+      if (r.d < dMin) { dMin = r.d; km = r.km }
+    }
+    previo = km
     dentro++
     if (desdeMs === null) desdeMs = p.t
     serie.push([p.t, previo])
@@ -238,6 +290,16 @@ export function calculaEstadisticas(
   actividad: string | null = null,
 ): EventStats {
   const corredores: EventRunnerStats[] = []
+  // Cuánto margen da la meta: lo que el trazado guardado permite afinar, y
+  // nunca menos de cincuenta metros. Es de la CARRERA, no de cada corredor.
+  const tolMeta = linea ? toleranciaMeta(linea) : (totalKm ?? 0) * 0.03
+  // ¿Acaba donde empieza? Un circuito necesita precauciones que un punto a
+  // punto no: en él, estar en la meta y estar en la salida es lo mismo.
+  const circuito = linea !== null && linea.length > 1
+    && metros(
+      { t: 0, lat: linea[0][0], lon: linea[0][1] },
+      { t: 0, lat: linea[linea.length - 1][0], lon: linea[linea.length - 1][1] },
+    ) < 200
 
   for (const f of filas) {
     let pts: TrailPoint[] = []
@@ -297,7 +359,8 @@ export function calculaEstadisticas(
     // circuito la meta es el mismo sitio que la salida, así que quien llega
     // andando por el último tramo ya está en el 97% antes de empezar —a JM le
     // pasó, y su meta habría quedado fijada a las 05:31—.
-    const hasta = crucaMeta(avance?.serie ?? [], totalKm) ?? avance?.enMs ?? pts[pts.length - 1].t
+    const cruce = crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
+    const hasta = cruce ?? avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
     // andando al coche, dar la vuelta a por el que viene detrás o irse a
@@ -312,7 +375,10 @@ export function calculaEstadisticas(
     // Sobre el avance si lo hay; si no, sobre la traza, que es lo que queda.
     const mejor = (avance ? kmMasRapidoEnRuta(serieCarrera, lim.minMinPorKm) : null)
       ?? kmMasRapido(pts.slice(0, nPts), acumulado.slice(0, nPts))
-    const finished = totalKm != null && km >= totalKm * 0.97
+    // Llegar es haber CRUZADO la línea, no haber estado cerca del final alguna
+    // vez. La diferencia importa en un circuito: quien llega andando a la
+    // salida por el último tramo pisa el kilómetro final antes de empezar, y
+    // por el máximo alcanzado salía como llegado sin haber corrido.
 
     corredores.push({
       username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
@@ -321,8 +387,8 @@ export function calculaEstadisticas(
       ritmoMinKm: km > 0.5 ? Math.round((minutos / km) * 100) / 100 : null,
       mejorKmMin: mejor ? Math.round(mejor.minutos * 100) / 100 : null,
       mejorKmDesde: mejor ? Math.round(mejor.desdeKm * 10) / 10 : null,
-      finished,
-      finishedAt: finished ? hasta : null,
+      finished: cruce !== null,
+      finishedAt: cruce,
       tracked: true,
     })
   }
@@ -413,17 +479,61 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
 }
 
 /**
- * El instante de cruzar meta: la primera llegada al final DESPUÉS de haber
- * pasado por la mitad del recorrido.
+ * El instante de cruzar meta.
+ *
+ * La meta es una LÍNEA: el kilómetro final del recorrido menos el margen que
+ * el trazado guardado permite afinar. Se busca la primera lectura que ya está
+ * pasada esa línea —después de haber pasado por la mitad, que en un circuito
+ * la meta y la salida son el mismo sitio— y se INTERPOLA con la anterior el
+ * momento exacto del cruce.
+ *
+ * Interpolar es la diferencia entre un cronómetro y una estimación grosera.
+ * Antes se devolvía la hora de esa primera lectura pasada del 97%, y con
+ * lecturas cada minuto eso son minutos enteros de regalo: en la carrera de
+ * referencia, a uno se le cortaba a 161 metros de la meta y llegaba 78
+ * segundos después. Y el error era distinto para cada uno, o sea que podía
+ * cambiar el ORDEN de llegada, que es lo que de verdad no se puede fallar.
+ *
+ * El tramo entre las dos lecturas se recorre a velocidad constante: es la
+ * mejor información que hay: la velocidad instantánea que declara el GPS de
+ * una sola lectura es mucho más ruidosa que el promedio de un tramo.
  */
-function crucaMeta(serie: [number, number][], totalKm: number | null): number | null {
+function crucaMeta(
+  serie: [number, number][], totalKm: number | null, tolKm: number, circuito: boolean,
+): number | null {
   if (totalKm === null || serie.length === 0) return null
-  const meta = totalKm * 0.97
+  // Haber pasado por la mitad solo se exige en un CIRCUITO, que es donde la
+  // meta y la salida son el mismo sitio y estar en una es estar en la otra. En
+  // un punto a punto la exigencia sobra y hace daño: a quien se le murió la
+  // baliza y la reabrió en el kilómetro 20 de 30 se le daría por no llegado
+  // aunque cruzara la meta delante de todos.
   const mitad = totalKm * 0.5
-  let hecho = false
-  for (const [t, km] of serie) {
-    if (km <= mitad) hecho = true
-    else if (hecho && km >= meta) return t
+
+  // Lo más lejos que llegó DESPUÉS de pasar por la mitad. Con la proyección
+  // afinada sobre el segmento, quien pisa la meta marca el final exacto del
+  // recorrido, así que la línea se pone ahí mismo y no un margen antes: el
+  // margen solo hace falta para DECIDIR si llegó, no para cronometrarlo. Y
+  // quien se quedó a doce metros por donde le dejó su última lectura se
+  // cronometra en esos doce metros, que es lo mejor que se sabe de él.
+  let hecho = !circuito
+  let tope = 0
+  for (const [, km] of serie) {
+    if (circuito && km <= mitad) hecho = true
+    else if (hecho && km > tope) tope = km
+  }
+  if (!hecho || tope < totalKm - tolKm) return null
+  const meta = Math.min(totalKm, tope)
+
+  hecho = !circuito
+  for (let i = 0; i < serie.length; i++) {
+    const [t, km] = serie[i]
+    if (circuito && km <= mitad) { hecho = true; continue }
+    if (!hecho || km < meta) continue
+    const previo = i > 0 ? serie[i - 1] : null
+    // Sin lectura anterior por detrás de la línea no hay nada que interpolar:
+    // se cruzó antes de que lo empezáramos a ver.
+    if (!previo || previo[1] >= meta || km <= previo[1]) return t
+    return previo[0] + ((meta - previo[1]) / (km - previo[1])) * (t - previo[0])
   }
   return null
 }

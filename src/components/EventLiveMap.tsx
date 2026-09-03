@@ -59,6 +59,8 @@ const LOST_MS = 20 * 60_000
  * trazado —seria dibujar una carrera que no está corriendo— y se avisa.
  */
 const DESVIADO_M = 100
+/** A cuántos metros del final se da la meta por cruzada. Ver eventStats. */
+const META_M = 50
 
 /** El icono de cada actividad, que dice de un vistazo de qué va la carrera. */
 const ICONO_ACTIVIDAD: Record<string, string> = { walk: '🚶', run: '🏃', bike: '🚴' }
@@ -310,11 +312,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
         km = km ?? proyectado
       }
       if (km != null) kmPrevio.current.set(key, km)
-      // Meta: el final del recorrido con margen, que el GPS no clava el último
-      // metro y el arco nunca cae en el punto exacto del GPX. El mismo 97% con
-      // el que el servidor da a alguien por llegado, para que el mapa y los
-      // resultados no puedan contradecirse.
-      if (route && km != null && km >= route.totalKm * 0.97) {
+      // Meta: el final del recorrido con un margen en METROS, que el GPS no
+      // clava el último metro y el arco nunca cae en el punto exacto del GPX.
+      // En metros y no en porcentaje: el 3% de una ultra de 160 km son casi
+      // cinco kilómetros, y daría por llegado a quien aún no ha entrado en el
+      // último avituallamiento.
+      if (route && km != null && km >= route.totalKm - META_M / 1000) {
         llego.current.add(key)
         if (!horaMeta.current.has(key) && r.updatedAt != null) horaMeta.current.set(key, r.updatedAt)
       }
@@ -377,7 +380,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // mitad de un parque.
       if (acabo && route && tail.length > 0) {
         const ult = tail[tail.length - 1]
-        const kmUlt = projectKm(ult.lat, ult.lon, route, route.totalKm * 0.97, 1)
+        const kmUlt = projectKm(ult.lat, ult.lon, route, route.totalKm - META_M / 1000, 1)
         if (kmUlt != null) {
           const resto = route.pts.filter((_, i) => route.cumKm[i] > kmUlt)
           if (resto.length > 0) {
