@@ -624,10 +624,26 @@ export interface EventRunnerStats {
   /** Su kilómetro más rápido, en minutos, y desde qué km del recorrido. */
   mejorKmMin: number | null
   mejorKmDesde: number | null
-  /** Llegó a meta (97% del recorrido). */
+  /** Cruzó la meta. */
   finished: boolean
   /** Cuándo llegó (epoch ms). */
   finishedAt: number | null
+  /**
+   * Cuánto puede fallar esa hora, en milisegundos.
+   *
+   * El paso por meta se INTERPOLA entre la última lectura de acá y la primera
+   * de allá, así que la hora real está en algún punto de ese hueco: con
+   * lecturas cada minuto y medio —lo normal si el móvil ahorra batería— el
+   * margen es de decenas de segundos. Sin esto, un puesto decidido por nueve
+   * segundos parece una foto de meta y es una casualidad.
+   */
+  margenMs: number | null
+  /**
+   * El puesto. Comparte número con quien llega dentro de su margen: si los dos
+   * tiempos podrían estar en cualquier orden, ordenarlos sería inventarse un
+   * resultado. Null en quien no llegó.
+   */
+  puesto: number | null
   /** Llegó a mandar alguna posición. */
   tracked: boolean
 }

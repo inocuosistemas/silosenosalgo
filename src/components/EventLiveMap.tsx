@@ -1361,6 +1361,11 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
   topPad: number
   onBack: () => void
 }) {
+  // ¿Hay algún puesto repartido? Los resultados viejos no traen `puesto`, así
+  // que se mira sobre lo que hay y no se anuncia un empate inventado.
+  const puestos = stats.corredores.filter((c) => c.puesto != null).map((c) => c.puesto)
+  const hayEmpate = new Set(puestos).size < puestos.length
+
   return (
     <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
       <div className="mx-auto w-full max-w-2xl">
@@ -1382,12 +1387,24 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
           </p>
         )}
 
+        {/* Empates: si dos llegadas caen dentro del margen de la otra no se
+            pueden ordenar, y decirlo aquí evita que alguien discuta un puesto
+            que el cronómetro no ha decidido. */}
+        {hayEmpate && (
+          <p className="mb-3 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+            🤝 Hay puestos compartidos. El paso por meta se calcula entre dos
+            lecturas del GPS, así que cada tiempo lleva un margen: cuando dos
+            márgenes se tocan, cualquiera de los dos pudo llegar antes y se
+            reparte el puesto.
+          </p>
+        )}
+
         <ul className="space-y-1.5">
           {stats.corredores.map((c, i) => (
             <li key={c.username} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
-                  {c.finished ? i + 1 : '·'}
+                  {c.finished ? (c.puesto ?? i + 1) : '·'}
                 </span>
                 <MarkBadge emoji={c.emoji} color={c.color} size={20} />
                 {c.bib && (
@@ -1397,7 +1414,17 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
                 {c.finished
-                  ? <span className="shrink-0 text-sm font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                  ? (
+                    <span className="shrink-0 text-right">
+                      <span className="text-sm font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                      {/* El margen, pegado al tiempo: un tiempo sin él invita a
+                          comparar segundos que no existen. Por debajo de cinco
+                          segundos no se enseña, que es ruido de maquetación. */}
+                      {c.margenMs != null && c.margenMs >= 5000 && (
+                        <span className="ml-1 text-[10px] tabular-nums text-slate-500">±{Math.round(c.margenMs / 1000)}s</span>
+                      )}
+                    </span>
+                  )
                   : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
               </div>
               {c.tracked && (

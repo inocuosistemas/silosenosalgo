@@ -324,7 +324,7 @@ export function calculaEstadisticas(
       corredores.push({
         username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
         km: null, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
-        finished: false, finishedAt: null, tracked: false,
+        finished: false, finishedAt: null, margenMs: null, puesto: null, tracked: false,
       })
       continue
     }
@@ -360,7 +360,7 @@ export function calculaEstadisticas(
     // andando por el último tramo ya está en el 97% antes de empezar —a JM le
     // pasó, y su meta habría quedado fijada a las 05:31—.
     const cruce = crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
-    const hasta = cruce ?? avance?.enMs ?? pts[pts.length - 1].t
+    const hasta = cruce?.ms ?? avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
     // andando al coche, dar la vuelta a por el que viene detrás o irse a
@@ -388,7 +388,9 @@ export function calculaEstadisticas(
       mejorKmMin: mejor ? Math.round(mejor.minutos * 100) / 100 : null,
       mejorKmDesde: mejor ? Math.round(mejor.desdeKm * 10) / 10 : null,
       finished: cruce !== null,
-      finishedAt: cruce,
+      finishedAt: cruce?.ms ?? null,
+      margenMs: cruce ? Math.round(cruce.margenMs) : null,
+      puesto: null,
       tracked: true,
     })
   }
@@ -402,6 +404,37 @@ export function calculaEstadisticas(
     if (a.tracked !== b.tracked) return a.tracked ? -1 : 1
     return (b.km ?? -1) - (a.km ?? -1)
   })
+
+  // El PUESTO, con los empates que el cronómetro no puede deshacer.
+  //
+  // Cada llegada es un intervalo [hora - margen, hora + margen], no un
+  // instante. Si el siguiente pudo llegar antes que el anterior —si los
+  // intervalos se tocan— ponerlos en fila es inventarse un resultado: se
+  // reparte el mismo puesto y el siguiente número se salta los empatados, como
+  // en cualquier clasificación. Si la carrera se midió con lecturas cada dos
+  // minutos, es muy posible que acaben todos en el primer puesto: incómodo,
+  // pero es lo que se sabe.
+  //
+  // La cadena es transitiva a propósito: si A se solapa con B y B con C, los
+  // tres comparten puesto aunque A y C no se toquen. Deshacer ese empate
+  // pidiendo un orden entre A y C exigiría creerse una precisión que no está.
+  let puesto = 0
+  let colocados = 0
+  let topeGrupo = -Infinity
+  for (const c of corredores) {
+    if (!c.finished || c.finishedAt === null) break
+    const m = c.margenMs ?? 0
+    if (c.finishedAt - m > topeGrupo) {
+      // Llega limpiamente después del grupo anterior: puesto nuevo, saltándose
+      // tantos números como empatados hubiera antes.
+      puesto = colocados + 1
+      topeGrupo = c.finishedAt + m
+    } else {
+      topeGrupo = Math.max(topeGrupo, c.finishedAt + m)
+    }
+    c.puesto = puesto
+    colocados++
+  }
 
   const conKm = corredores.filter((c) => c.mejorKmMin != null)
   const record = conKm.length > 0
@@ -500,7 +533,7 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
  */
 function crucaMeta(
   serie: [number, number][], totalKm: number | null, tolKm: number, circuito: boolean,
-): number | null {
+): { ms: number; margenMs: number } | null {
   if (totalKm === null || serie.length === 0) return null
   // Haber pasado por la mitad solo se exige en un CIRCUITO, que es donde la
   // meta y la salida son el mismo sitio y estar en una es estar en la otra. En
@@ -531,9 +564,16 @@ function crucaMeta(
     if (!hecho || km < meta) continue
     const previo = i > 0 ? serie[i - 1] : null
     // Sin lectura anterior por detrás de la línea no hay nada que interpolar:
-    // se cruzó antes de que lo empezáramos a ver.
-    if (!previo || previo[1] >= meta || km <= previo[1]) return t
-    return previo[0] + ((meta - previo[1]) / (km - previo[1])) * (t - previo[0])
+    // se cruzó antes de que lo empezáramos a ver. Y sin nada que interpolar
+    // tampoco hay margen que declarar: la hora es la de esa lectura.
+    if (!previo || previo[1] >= meta || km <= previo[1]) return { ms: t, margenMs: 0 }
+    const ms = previo[0] + ((meta - previo[1]) / (km - previo[1])) * (t - previo[0])
+    // Lo único que se sabe de verdad es que cruzó ENTRE las dos lecturas: en
+    // el hueco pudo apretar o pudo pararse a atarse la zapatilla, y la
+    // interpolación reparte el tramo a velocidad constante porque es la mejor
+    // suposición, no porque sea la verdad. El margen es la distancia al
+    // extremo más lejano del hueco: garantiza que la hora real está dentro.
+    return { ms, margenMs: Math.max(ms - previo[0], t - ms) }
   }
   return null
 }
