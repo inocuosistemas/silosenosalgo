@@ -316,13 +316,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // falsa. Se cortan los que exigirían una velocidad imposible PARA SU
       // ACTIVIDAD —12 km/h es un salto andando y un paseo en bici—, que es lo
       // mismo que ya se hacía en la baliza individual y en los resultados.
-      const tope = r.activity && r.activity in ACTIVITY_MAX_SPEED_KMH
-        ? ACTIVITY_MAX_SPEED_KMH[r.activity as keyof typeof ACTIVITY_MAX_SPEED_KMH]
+      //
+      // La actividad de SU sesión y, si no la declaró, la del evento. Una
+      // baliza vieja no manda ninguna —la hereda del evento a partir de la 343—
+      // y sin este respaldo sus picotazos serían justo los únicos que se
+      // seguirían dibujando: los del que no puede actualizar la app. La del
+      // evento es la buena de todos modos; la de la sesión solo manda por si
+      // alguien va en bici barriendo una carrera a pie.
+      const act = r.activity ?? actividad
+      const tope = act && act in ACTIVITY_MAX_SPEED_KMH
+        ? ACTIVITY_MAX_SPEED_KMH[act as keyof typeof ACTIVITY_MAX_SPEED_KMH]
         : undefined
       const tail = sanitizeTrail(r.tail, tope).points
       return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
-  }, [runners, route, cutoffs, now])
+  }, [runners, route, cutoffs, now, actividad])
 
 
   /**
