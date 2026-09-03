@@ -6,6 +6,7 @@ struct TrackingView: View {
     @EnvironmentObject var auth: AuthStore
     @ObservedObject private var store = TrackingStore.shared
     @ObservedObject private var guideLibrary = GuideLibrary.shared
+    @ObservedObject private var net = Reachability.shared
     @State private var title = ""
     @State private var pendingDelete: TrackSessionSummary?
     @State private var pendingRename: TrackSessionSummary?
@@ -126,6 +127,23 @@ struct TrackingView: View {
         NavigationStack {
             Form {
                 Section {
+                    // Si hay red o no. Va ARRIBA porque explica media pantalla:
+                    // las previsiones, los eventos y los seguimientos viven en
+                    // el servidor, así que sin cobertura salen vacíos y sin
+                    // este aviso parece que no tienes nada. Solo aparece cuando
+                    // falta: cuando hay red no hay nada que contar.
+                    if !net.online {
+                        HStack(spacing: 8) {
+                            Text("📵")
+                            Text("Sin conexión. Lo que ves es lo guardado en el móvil: las listas del servidor no se pueden consultar. La baliza SÍ funciona — las posiciones se guardan y se envían al recuperar cobertura.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.amber200)
+                        }
+                        .padding(10)
+                        .background(Theme.amber950.opacity(0.35))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    }
                     // Meta. No se para la baliza sola —hay quien sigue andando
                     // hasta el coche— pero se dice y se ofrece el botón.
                     if store.isSharing && store.atFinish {
@@ -447,7 +465,12 @@ struct TrackingView: View {
                 if !store.isSharing {
                     Section {
                         if store.sessions.isEmpty {
-                            Text("No tienes seguimientos.")
+                            // Sin red la lista viene vacía por no poder
+                            // consultarla, no por no tener nada: decir "no
+                            // tienes" seria mentir.
+                            Text(net.online
+                                 ? "No tienes seguimientos."
+                                 : "Sin conexión: no se pueden consultar tus seguimientos.")
                                 .font(.caption)
                                 .foregroundStyle(Theme.slate400)
                         } else {

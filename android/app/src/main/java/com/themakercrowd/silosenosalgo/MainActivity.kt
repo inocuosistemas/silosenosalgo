@@ -277,6 +277,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var arrancando by remember { mutableStateOf(false) }
     /** La otra baliza viva de esta cuenta, mientras se pregunta si relevarla. */
     var relevo by remember { mutableStateOf<TrackSessionSummary?>(null) }
+    val hayRed by Conectividad.online.collectAsState()
+    LaunchedEffect(Unit) { Conectividad.inicia(context) }
     /** La nota que quedó si a ESTE móvil le quitaron la baliza. */
     val notaRelevo by TrackingStore.notaRelevo0.collectAsState()
     var viendoMapa by remember { mutableStateOf(false) }
@@ -464,6 +466,32 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // —allí el enlace y las cifras viven al final—, porque en marcha esta
         // pantalla se abre para mirar cómo va, y repartir esa información entre
         // el principio y el final obliga a recorrerla entera cada vez.
+        // Si hay red o no. Va ARRIBA porque explica media pantalla: las
+        // previsiones, los eventos y los seguimientos viven en el servidor, asi
+        // que sin cobertura salen vacios y sin este aviso parece que no tienes
+        // nada. Solo aparece cuando falta.
+        if (!hayRed) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Paleta.ambar.copy(alpha = 0.12f))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text("📵", modifier = Modifier.padding(end = 8.dp))
+                Text(
+                    "Sin conexión. Lo que ves es lo guardado en el móvil: las listas del servidor no se " +
+                        "pueden consultar. La baliza SÍ funciona — las posiciones se guardan y se envían al " +
+                        "recuperar cobertura.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.ambar,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
         // Meta. No se para la baliza sola —hay quien sigue andando hasta el
         // coche, y cortarle la traza seria decidir por el— pero se dice y se
         // ofrece el boton, que es lo que se busca al cruzar el arco.
