@@ -85,6 +85,17 @@ class LocationEngine(private val context: Context) {
      * para no reiniciar el GPS por gusto (un reenganche pierde el arranque en
      * caliente y las primeras lecturas vuelven a ser malas).
      */
+    /** Qué proveedor se está usando de verdad, ya resuelto el respaldo. */
+    var proveedorEnUso: String? = null
+        private set
+
+    /** Si la app tiene permiso de ubicación PRECISA. Con el aproximado, Android
+     *  entrega posiciones de kilómetros aunque el GPS esté encendido. */
+    fun hayPermisoPreciso(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
     @SuppressLint("MissingPermission")
     fun aplica(ajuste: TrackingRules.AjusteGps) {
         if (!hayPermiso()) return
@@ -161,18 +172,33 @@ class LocationEngine(private val context: Context) {
         ajusteActual = null
     }
 
-    /** Si el proveedor pedido no está disponible se cae al otro antes que
-     *  quedarse sin lecturas: media posición es mejor que ninguna. */
+    /**
+     * Si el proveedor pedido no está disponible se cae al otro antes que
+     * quedarse sin lecturas: media posición es mejor que ninguna.
+     *
+     * Pero se APUNTA cuál acabó usándose. Caer a la red y no decirlo es lo peor
+     * de los dos mundos: la baliza sigue emitiendo —parece que todo va bien— y
+     * manda posiciones de treinta metros y sin velocidad durante toda la
+     * carrera. Con esto la pantalla puede avisar de que hay que encender el GPS.
+     */
     private fun nombreProveedor(p: TrackingRules.Proveedor, m: LocationManager): String {
         val preferido = when (p) {
             TrackingRules.Proveedor.GPS -> LocationManager.GPS_PROVIDER
             TrackingRules.Proveedor.RED -> LocationManager.NETWORK_PROVIDER
         }
-        if (runCatching { m.isProviderEnabled(preferido) }.getOrDefault(false)) return preferido
+        if (runCatching { m.isProviderEnabled(preferido) }.getOrDefault(false)) {
+            proveedorEnUso = preferido
+            return preferido
+        }
         val alternativo = if (preferido == LocationManager.GPS_PROVIDER) {
             LocationManager.NETWORK_PROVIDER
         } else {
             LocationManager.GPS_PROVIDER
+        }
+        proveedorEnUso = if (runCatching { m.isProviderEnabled(alternativo) }.getOrDefault(false)) {
+            alternativo
+        } else {
+            preferido
         }
         return if (runCatching { m.isProviderEnabled(alternativo) }.getOrDefault(false)) {
             alternativo

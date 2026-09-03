@@ -464,6 +464,36 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // —allí el enlace y las cifras viven al final—, porque en marcha esta
         // pantalla se abre para mirar cómo va, y repartir esa información entre
         // el principio y el final obliga a recorrerla entera cada vez.
+        // Con qué se está emitiendo. Un aviso, no un error: la baliza funciona,
+        // pero con treinta metros de error y sin velocidad, y por fuera no se
+        // nota. Quien lo lee puede encender el GPS y arreglarlo en diez
+        // segundos; sin el aviso se entera al ver la traza al día siguiente.
+        if (estado.compartiendo && (estado.porRed || estado.sinPrecision)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Paleta.ambar.copy(alpha = 0.12f))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text("📡", modifier = Modifier.padding(end = 8.dp))
+                Text(
+                    if (estado.sinPrecision) {
+                        "Esta app solo tiene ubicación APROXIMADA: las posiciones salen con cientos de " +
+                            "metros de error. Dale permiso de ubicación precisa en los ajustes del sistema."
+                    } else {
+                        "Emitiendo por red y no por GPS: las posiciones traen ~30 m de error y sin " +
+                            "velocidad. Enciende la ubicación por GPS (o el modo de alta precisión)."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.ambar,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
         // Por qué esta baliza dejó de emitir, si fue otro móvil el que se la
         // llevó. Con su botón de descartar: quien coge este teléfono más tarde
         // se encuentra la baliza apagada y lo primero que necesita es la razón.

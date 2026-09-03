@@ -55,6 +55,16 @@ object TrackingStore {
          *  pantalla: espejo de `startAtTouched` en iOS. */
         val salidaTocada: Boolean = false,
         val retenerHoras: Double = 48.0,
+        /**
+         * Emitiendo por RED en vez de por GPS. Pasa cuando el GPS está apagado
+         * o el móvil en modo de ubicación de ahorro: la app se cae al respaldo
+         * para no quedarse sin nada, pero las posiciones traen treinta metros de
+         * error y ninguna velocidad. Hay que decirlo, porque por fuera parece
+         * que todo va bien.
+         */
+        val porRed: Boolean = false,
+        /** Sin permiso de ubicación PRECISA, Android da posiciones de kilómetros. */
+        val sinPrecision: Boolean = false,
         /** Posiciones registradas y aún sin subir (atasco sin cobertura). */
         val pendientes: Int = 0,
         /** Posiciones efectivamente subidas en esta sesión. */
@@ -947,6 +957,14 @@ object TrackingStore {
                 // distancia: a 60 km/h, 15 s son 250 m y no 100.
                 TrackingRules.ajusteGps(e.ritmo, e.actividadEfectiva)
             },
+        )
+        // Con qué se está emitiendo de verdad. El motor cae a la red cuando el
+        // GPS esta apagado, y eso hay que enseñarlo: media posicion es mejor que
+        // ninguna, pero solo si quien emite sabe que va con media.
+        _estado.value = _estado.value.copy(
+            porRed = !e.enEspera &&
+                motor.proveedorEnUso == android.location.LocationManager.NETWORK_PROVIDER,
+            sinPrecision = !motor.hayPermisoPreciso(),
         )
     }
 
