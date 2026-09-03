@@ -62,6 +62,77 @@ enum PlanGeometry {
         return nil
     }
 
+    /// El recorrido cargado una vez: puntos y kilómetro acumulado.
+    struct Route {
+        let points: [(lat: Double, lon: Double)]
+        let cumKm: [Double]
+        var totalKm: Double { cumKm.last ?? 0 }
+    }
+
+    /// El recorrido de una sesión, tal como se guardó al empezar a compartir.
+    static func route(forSession token: String) -> Route? {
+        guard let gz = try? Data(contentsOf: LocalStore.planURL(token)),
+              let json = Gzip.inflate(gz),
+              let obj = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let track = obj["track"] as? [String: Any],
+              let raw = track["points"] as? [[String: Any]], raw.count > 1 else { return nil }
+        let pts = raw.compactMap { p -> (lat: Double, lon: Double)? in
+            guard let lat = p["lat"] as? Double, let lon = p["lon"] as? Double else { return nil }
+            return (lat, lon)
+        }
+        guard pts.count == raw.count else { return nil }
+        let supplied = track["cumKm"] as? [Double]
+        if let supplied, supplied.count == pts.count { return Route(points: pts, cumKm: supplied) }
+        var cum = [0.0]
+        for i in 1..<pts.count {
+            let a = CLLocation(latitude: pts[i - 1].lat, longitude: pts[i - 1].lon)
+            let b = CLLocation(latitude: pts[i].lat, longitude: pts[i].lon)
+            cum.append(cum[i - 1] + a.distance(from: b) / 1000)
+        }
+        return Route(points: pts, cumKm: cum)
+    }
+
+    /**
+     En qué kilómetro del recorrido está una posición.
+
+     Se busca el punto más cercano, pero solo dentro de una VENTANA alrededor
+     del kilómetro anterior. Eso es lo que lo separa de "el más cercano" a
+     secas: en un circuito que acaba donde empieza, o en una ruta que pasa dos
+     veces por el mismo collado, el más cercano al cruzar meta es el de la
+     salida — y el corredor aparecería en el km 0 tras cinco horas.
+
+     Devuelve `nil` lejos del recorrido (más de 250 m): quien va por otro sitio
+     no tiene kilómetro de esta ruta, y uno inventado es peor que ninguno.
+     */
+    static func projectKm(
+        _ route: Route,
+        lat: Double,
+        lon: Double,
+        previousKm: Double?,
+        windowKm: Double = 3,
+        toleranceM: Double = 250,
+    ) -> Double? {
+        let pts = route.points
+        let cum = route.cumKm
+        guard pts.count == cum.count, !pts.isEmpty else { return nil }
+        var from = 0
+        var to = pts.count - 1
+        if let previousKm {
+            from = cum.firstIndex(where: { $0 >= previousKm - windowKm }) ?? pts.count - 1
+            to = cum.lastIndex(where: { $0 <= previousKm + windowKm }) ?? from
+            if to < from { to = from }
+        }
+        let here = CLLocation(latitude: lat, longitude: lon)
+        var best = -1
+        var bestD = Double.greatestFiniteMagnitude
+        for i in from...to {
+            let d = here.distance(from: CLLocation(latitude: pts[i].lat, longitude: pts[i].lon))
+            if d < bestD { bestD = d; best = i }
+        }
+        guard best >= 0, bestD <= toleranceM else { return nil }
+        return cum[best]
+    }
+
     /// Route km and accumulated ascent at the nearest planned-route point for
     /// every note. D+ uses the same 1 m hysteresis as the web GPX calculations.
     static func noteMetrics(forSession token: String, notes: [Note]) -> [String: NoteMetrics] {

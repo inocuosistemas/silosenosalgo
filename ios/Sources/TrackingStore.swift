@@ -43,6 +43,19 @@ final class TrackingStore: ObservableObject {
      dejaba la otra muda sin que nadie lo dijera, y encima la otra seguía
      enseñando "armado" porque una baliza armada no habla con el servidor.
      */
+    /**
+     Ha llegado al final del recorrido.
+
+     No para la baliza sola —hay quien sigue andando hasta el coche, y cortarle
+     la traza sería decidir por él— pero lo dice y ofrece el botón, que es lo que
+     se busca al cruzar el arco.
+     */
+    @Published var atFinish = false
+
+    /// El recorrido de esta salida y el último kilómetro conocido sobre él.
+    private var routeGeometry: PlanGeometry.Route?
+    private var lastRouteKm: Double?
+
     @Published var takeoverAsk: TrackSessionSummary?
     /**
      La nota que queda en el móvil al que le quitaron la baliza.
@@ -650,10 +663,26 @@ final class TrackingStore: ObservableObject {
     }
 
     private func makeFix(from loc: CLLocation) -> Fix {
-        Fix(
+        // El kilómetro sobre el RECORRIDO, con ventana móvil: sin esto viajaba
+        // siempre a nil y nadie —ni el mapa del evento ni los resultados— podía
+        // saber por dónde iba nadie ni quién había terminado.
+        let km = routeGeometry.flatMap {
+            PlanGeometry.projectKm($0, lat: loc.coordinate.latitude, lon: loc.coordinate.longitude,
+                                   previousKm: lastRouteKm)
+        }
+        if let km {
+            lastRouteKm = km
+            // Meta con margen: el GPS no clava el último metro y el arco nunca
+            // cae en el punto exacto del GPX, así que exigir el 100% sería no
+            // detectarla nunca.
+            if let total = routeGeometry?.totalKm, total > 0.5, km >= total * 0.99, !atFinish {
+                atFinish = true
+            }
+        }
+        return Fix(
             lat: loc.coordinate.latitude,
             lon: loc.coordinate.longitude,
-            trackKm: nil,
+            trackKm: km,
             speed: loc.speed >= 0 ? loc.speed : nil,
             heading: loc.course >= 0 ? loc.course : nil,
             accuracy: loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : nil,
@@ -1004,12 +1033,33 @@ final class TrackingStore: ObservableObject {
     /// them so the offline viewer can overlay the planned route. Never blocks
     /// sharing; if offline it simply won't be available until refetched.
     private func cachePlanBytes(for sessionId: String, planId: String?) {
-        guard let planId else { return }
         Task {
-            if let bytes = try? await API.fetchPlanPayload(token: token, planId: planId) {
-                try? bytes.write(to: LocalStore.planURL(sessionId), options: .atomic)
+            // La previsión propia manda; si no hay, la del evento, que es un
+            // recorrido como cualquier otro solo que vive en la carrera. Antes
+            // solo se guardaba la propia, así que quien corría "con la del
+            // evento" se quedaba sin recorrido con el que medir nada.
+            var bytes: Data?
+            if let planId {
+                bytes = try? await API.fetchPlanPayload(token: token, planId: planId)
+            } else if let shareId = activeEvent?.planShareId {
+                bytes = try? await API.fetchSharePayload(shareId: shareId)
             }
+            guard let bytes else { return }
+            try? bytes.write(to: LocalStore.planURL(sessionId), options: .atomic)
+            await MainActor.run { self.loadRouteGeometry(for: sessionId) }
         }
+    }
+
+    /**
+     Deja el recorrido en memoria para poder decir por qué kilómetro va quien
+     corre.
+
+     Se hace una vez por sesión: descomprimir el trazado y acumular kilómetros
+     en cada lectura del GPS sería tirar batería justo en lo que más la cuida.
+     */
+    private func loadRouteGeometry(for sessionId: String) {
+        routeGeometry = PlanGeometry.route(forSession: sessionId)
+        lastRouteKm = nil
     }
 
     // MARK: Resume-on-relaunch ("last known state")
@@ -1096,6 +1146,11 @@ final class TrackingStore: ObservableObject {
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         ViewerDataProvider.shared.update(token: s.token, fix: lastFix, reportedFix: nil, trail: trail)
         ViewerDataProvider.shared.setNotes(token: s.token, notes: notes)
+
+        // El recorrido ya está en disco de cuando empezó: sin esto, reanudar
+        // tras un cierre de la app dejaba de calcular el kilómetro a mitad de
+        // carrera.
+        loadRouteGeometry(for: s.token)
 
         // Re-arm standby if the planned start is still ahead; else resume live.
         if startAt.timeIntervalSinceNow > startLeadSeconds {

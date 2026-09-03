@@ -65,6 +65,12 @@ object TrackingStore {
         val porRed: Boolean = false,
         /** Sin permiso de ubicación PRECISA, Android da posiciones de kilómetros. */
         val sinPrecision: Boolean = false,
+        /**
+         * Ha llegado al final del recorrido. No para la baliza sola —hay quien
+         * sigue andando hasta el coche, y cortar la traza por su cuenta seria
+         * decidir por el— pero lo dice y ofrece dejar de compartir.
+         */
+        val enMeta: Boolean = false,
         /** Posiciones registradas y aún sin subir (atasco sin cobertura). */
         val pendientes: Int = 0,
         /** Posiciones efectivamente subidas en esta sesión. */
@@ -133,6 +139,21 @@ object TrackingStore {
     private lateinit var almacen: LocalStore
     /** El contexto de aplicación, solo para leer el nombre del aparato. */
     private var appCtx: Context? = null
+
+    /**
+     * El RECORRIDO de esta salida, en memoria, para poder decir por qué
+     * kilómetro va quien corre.
+     *
+     * Hasta ahora `trackKm` viajaba siempre a null: nadie lo calculaba. Sin él
+     * el mapa del evento tenía que adivinar el kilómetro proyectando la
+     * posición sobre el trazado por cercanía, que en un circuito que acaba
+     * donde empieza pone en el km 0 al que acaba de cruzar meta —y con eso no
+     * hay forma de saber quién ha terminado—.
+     */
+    private var rutaPuntos: List<PlanGeometry.PuntoPlan>? = null
+    private var rutaKmAcum: List<Double>? = null
+    /** El último kilómetro conocido: es lo que impide saltar hacia atrás. */
+    private var ultimoKmRuta: Double? = null
     private lateinit var motor: LocationEngine
     private var api: Api = Api()
     private var tokenStore: TokenStore? = null
@@ -308,6 +329,10 @@ object TrackingStore {
         val guardado = almacen.leeActivo() ?: return false
         pendientes = almacen.leePendientes(guardado.sessionId)
         traza = almacen.leeTraza(guardado.sessionId)
+        // El recorrido ya está en disco de cuando empezó: sin esto, reanudar
+        // tras una muerte del proceso dejaba de calcular el kilómetro a mitad
+        // de carrera.
+        cargaGeometriaGuardada(guardado.sessionId)
         cargaNotasDe(guardado.sessionId)
         cargaAnimosDe(guardado.sessionId)
         almacen.leeForma(guardado.sessionId)?.let { ViewerData.cargaForma(it.factor, it.log) }
@@ -797,12 +822,39 @@ object TrackingStore {
      * vuelva a pedir.
      */
     private fun cachePlan(sessionId: String, planId: String?) {
-        val id = planId ?: return
-        val t = token ?: return
         scope.launch {
-            runCatching { api.fetchPlanPayload(t, id) }
-                .onSuccess { almacen.guardaPlan(sessionId, it) }
+            val bytes = when {
+                // La previsión propia manda; si no hay, la del evento, que es un
+                // recorrido como cualquier otro solo que vive en la carrera.
+                planId != null -> token?.let { t -> runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() }
+                else -> eventoActual()?.planShareId?.let { runCatching { api.fetchSharePayload(it) }.getOrNull() }
+            }
+            if (bytes != null) {
+                almacen.guardaPlan(sessionId, bytes)
+                cargaGeometriaRuta(bytes)
+            }
         }
+    }
+
+    /**
+     * Deja el recorrido listo en memoria para proyectar posiciones.
+     *
+     * Se hace una vez por sesión: descomprimir y acumular kilómetros de un
+     * trazado de miles de puntos en cada lectura del GPS sería tirar batería
+     * justo en lo que más la cuida.
+     */
+    private fun cargaGeometriaRuta(gz: ByteArray) {
+        val puntos = PlanGeometry.puntosConAltitud(gz)
+        if (puntos.isNullOrEmpty()) return
+        rutaPuntos = puntos
+        rutaKmAcum = PlanGeometry.kmAcumulado(puntos)
+        ultimoKmRuta = null
+    }
+
+    /** Al reanudar una sesión viva, el recorrido ya está en disco. */
+    private fun cargaGeometriaGuardada(sessionId: String) {
+        val gz = almacen.leePlan(sessionId) ?: return
+        cargaGeometriaRuta(gz)
     }
 
     /** Deja pasar al backend una petición del visor incrustado (dar un "me
@@ -1020,12 +1072,39 @@ object TrackingStore {
             TrackingRules.mantenPosicion(anclaPosicion!!, fix)
         }
 
-        registra(aRegistrar)
+        registra(conKilometro(aRegistrar))
         // Los ánimos se piden aquí y no solo en el tic periódico: el tic va con
         // un `Handler`, que se para cuando la CPU se suspende con la pantalla
         // apagada. La entrega de una posición SÍ despierta el móvil, así que
         // este es el momento fiable para preguntar.
         scope.launch { vacia(); refrescaAnimos() }
+    }
+
+    /**
+     * La misma posición, con el kilómetro del recorrido puesto — y con la meta
+     * detectada si toca.
+     *
+     * La proyección va con ventana móvil (ver `PlanGeometry.proyectaKm`): busca
+     * cerca del último kilómetro conocido, así que no puede saltar al otro
+     * extremo del trazado porque la ruta se cruce consigo misma. Si la posición
+     * queda lejos del recorrido no se inventa nada: `trackKm` se queda a null,
+     * que es lo que significa "voy por otro sitio".
+     */
+    private fun conKilometro(fix: Fix): Fix {
+        val puntos = rutaPuntos ?: return fix
+        val kms = rutaKmAcum ?: return fix
+        val km = PlanGeometry.proyectaKm(puntos, kms, fix.lat, fix.lon, ultimoKmRuta) ?: return fix
+        ultimoKmRuta = km
+
+        // Meta: el final del recorrido, con margen. El GPS no clava el último
+        // metro y el arco de meta nunca cae en el punto exacto del GPX, así que
+        // exigir el 100% seria no detectarla nunca.
+        val total = kms.lastOrNull() ?: 0.0
+        if (total > 0.5 && km >= total * 0.99 && !_estado.value.enMeta) {
+            _estado.value = _estado.value.copy(enMeta = true)
+            guardaActivo()
+        }
+        return fix.copy(trackKm = km)
     }
 
     /** Registra en local (y persiste) antes de intentar subir nada. */

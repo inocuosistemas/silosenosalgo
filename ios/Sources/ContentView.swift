@@ -38,6 +38,8 @@ enum Theme {
     // en rojo asustarían sin motivo.
     static let amber200 = Color(red: 0.992, green: 0.902, blue: 0.541) // #fde68a
     static let amber950 = Color(red: 0.271, green: 0.098, blue: 0.020) // #451a03
+    static let emerald300 = Color(red: 0.431, green: 0.906, blue: 0.718) // #6ee7b7
+    static let emerald950 = Color(red: 0.008, green: 0.235, blue: 0.153) // #022c22
 
     /// Los doce colores de los participantes de un evento (shared/eventColors.ts).
     ///

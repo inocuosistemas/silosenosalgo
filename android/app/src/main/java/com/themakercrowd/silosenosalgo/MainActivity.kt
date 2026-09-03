@@ -464,6 +464,30 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // —allí el enlace y las cifras viven al final—, porque en marcha esta
         // pantalla se abre para mirar cómo va, y repartir esa información entre
         // el principio y el final obliga a recorrerla entera cada vez.
+        // Meta. No se para la baliza sola —hay quien sigue andando hasta el
+        // coche, y cortarle la traza seria decidir por el— pero se dice y se
+        // ofrece el boton, que es lo que se busca al cruzar el arco.
+        if (estado.compartiendo && estado.enMeta) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Paleta.verde.copy(alpha = 0.12f))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🏁", modifier = Modifier.padding(end = 8.dp))
+                Text(
+                    "Has llegado al final del recorrido.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.verde,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { TrackingService.para(context) }) { Text("Terminar") }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
         // Con qué se está emitiendo. Un aviso, no un error: la baliza funciona,
         // pero con treinta metros de error y sin velocidad, y por fuera no se
         // nota. Quien lo lee puede encender el GPS y arreglarlo en diez

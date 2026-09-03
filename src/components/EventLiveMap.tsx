@@ -207,17 +207,33 @@ export default function EventLiveMap({ source }: { source: Source }) {
     }))
   }, [plan, cutoffs])
 
+  /**
+   * El último kilómetro conocido de cada corredor, para que la proyección no
+   * pueda saltar hacia atrás medio recorrido. Vive fuera del render porque es
+   * memoria del seguimiento, no algo que se pinte.
+   */
+  const kmPrevio = useRef<Map<string, number>>(new Map())
+
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
-      // El km que manda la baliza manda sobre el proyectado: el suyo lo calcula
-      // quien va corriendo, sabe por dónde viene y no se salta un lazo del
-      // recorrido. Proyectar por cercanía, en cambio, pone en el km 0 a quien
-      // acaba de cruzar la meta de un circuito que empieza y acaba en el mismo
-      // pueblo — y con eso la porra daba por no llegado al que ya había llegado.
-      const km = r.fix
-        ? (r.fix.trackKm ?? (route ? projectKm(r.fix.lat, r.fix.lon, route) : null))
-        : null
+      // El km que manda la baliza manda sobre el proyectado: lo calcula quien
+      // va corriendo y sabe por dónde viene. Pero hasta ahora ninguna app lo
+      // mandaba, así que aquí se calcula igual de bien: se ARRASTRA el último
+      // kilómetro conocido de cada uno y se proyecta en una ventana a su
+      // alrededor, sembrando con su cola la primera vez. Así el cálculo no
+      // puede saltar al otro extremo del trazado en un circuito, que es lo que
+      // dejaba sin detectar la meta.
+      const key = r.userId ?? r.username
+      let km: number | null = r.fix?.trackKm ?? null
+      if (km == null && r.fix && route) {
+        let cerca = kmPrevio.current.get(key) ?? null
+        if (cerca == null) {
+          for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca)
+        }
+        km = projectKm(r.fix.lat, r.fix.lon, route, cerca)
+      }
+      if (km != null) kmPrevio.current.set(key, km)
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && r.startedAt !== null
         ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
         : null
@@ -241,7 +257,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
       // señal" —que suena a avería— sino que aún no ha empezado.
       const idle = !armed && r.fix === null
-      return { r, km, margin, stale, lost, idle, armed, key: r.userId ?? r.username }
+      return { r, km, margin, stale, lost, idle, armed, key }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now])
 
@@ -1357,9 +1373,35 @@ function fold(value: string): string {
 /** Kilómetro de carrera: el vértice más cercano de la ruta. Sin ventana
  *  temporal como en el visor individual — aquí basta con "por dónde va", y una
  *  ida y vuelta ambigua se resuelve entrando en su baliza. */
-function projectKm(lat: number, lon: number, route: { pts: [number, number][]; cumKm: number[] }): number | null {
+/**
+ * En qué kilómetro del recorrido está una posición.
+ *
+ * Con `nearKm` se busca SOLO en una ventana alrededor de ese kilómetro, y eso
+ * es lo que distingue este cálculo de "el punto más cercano" a secas: en un
+ * circuito que acaba donde empieza —o en una ruta que pasa dos veces por el
+ * mismo collado— el punto más cercano al cruzar meta es el de la salida, y el
+ * corredor aparecía en el km 0 después de cinco horas. Con eso no había forma
+ * de saber quién había terminado.
+ *
+ * Sin `nearKm` (el primer punto que se ve de alguien) se busca en todo el
+ * trazado, que es lo único que se puede hacer y además es correcto.
+ */
+function projectKm(
+  lat: number,
+  lon: number,
+  route: { pts: [number, number][]; cumKm: number[] },
+  nearKm?: number | null,
+  windowKm = 3,
+): number | null {
+  let desde = 0
+  let hasta = route.pts.length - 1
+  if (nearKm != null) {
+    desde = route.cumKm.findIndex((k) => k >= nearKm - windowKm)
+    if (desde < 0) desde = route.pts.length - 1
+    for (hasta = desde; hasta + 1 < route.cumKm.length && route.cumKm[hasta + 1] <= nearKm + windowKm; hasta++) { /* avanza */ }
+  }
   let bi = -1, bd = Infinity
-  for (let i = 0; i < route.pts.length; i++) {
+  for (let i = desde; i <= hasta; i++) {
     const d = (route.pts[i][0] - lat) ** 2 + ((route.pts[i][1] - lon) * Math.cos((lat * Math.PI) / 180)) ** 2
     if (d < bd) { bd = d; bi = i }
   }

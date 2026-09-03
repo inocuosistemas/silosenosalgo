@@ -160,4 +160,44 @@ class PlanGeometryTest {
         assertTrue(bomba.size < 1024 * 1024)
         assertNull(PlanGeometry.descomprime(bomba))
     }
+
+    /**
+     * Un CIRCUITO: sale y vuelve al mismo sitio. Al cruzar meta, el punto mas
+     * cercano del trazado es el de la salida — proyectar por cercania a secas
+     * devolveria el km 0 despues de recorrerlo entero, que es exactamente lo
+     * que dejaba sin detectar el final de ruta.
+     */
+    @Test
+    fun `proyecta sin saltar al principio en un circuito`() {
+        // Cuadrado de ~1 km de lado que vuelve al origen.
+        val puntos = listOf(
+            PlanGeometry.PuntoPlan(42.000, -2.000, 0.0),
+            PlanGeometry.PuntoPlan(42.009, -2.000, 0.0),
+            PlanGeometry.PuntoPlan(42.009, -1.988, 0.0),
+            PlanGeometry.PuntoPlan(42.000, -1.988, 0.0),
+            PlanGeometry.PuntoPlan(42.000, -2.000, 0.0),
+        )
+        val kms = PlanGeometry.kmAcumulado(puntos)
+        val total = kms.last()
+
+        // Sin km previo, al principio: km 0.
+        val salida = PlanGeometry.proyectaKm(puntos, kms, 42.000, -2.000, null)
+        assertEquals(0.0, salida!!, 0.2)
+
+        // Ya de vuelta en meta (misma coordenada que la salida) pero viniendo
+        // del km anterior: tiene que dar el TOTAL, no cero.
+        val meta = PlanGeometry.proyectaKm(puntos, kms, 42.000, -2.000, total - 0.3)
+        assertEquals(total, meta!!, 0.3)
+    }
+
+    /** Lejos del recorrido no se inventa kilometro. */
+    @Test
+    fun `fuera de la ruta no devuelve kilometro`() {
+        val puntos = listOf(
+            PlanGeometry.PuntoPlan(42.000, -2.000, 0.0),
+            PlanGeometry.PuntoPlan(42.010, -2.000, 0.0),
+        )
+        val kms = PlanGeometry.kmAcumulado(puntos)
+        assertNull(PlanGeometry.proyectaKm(puntos, kms, 42.500, -2.500, null))
+    }
 }

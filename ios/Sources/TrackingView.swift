@@ -126,6 +126,23 @@ struct TrackingView: View {
         NavigationStack {
             Form {
                 Section {
+                    // Meta. No se para la baliza sola —hay quien sigue andando
+                    // hasta el coche— pero se dice y se ofrece el botón.
+                    if store.isSharing && store.atFinish {
+                        HStack(spacing: 8) {
+                            Text("🏁")
+                            Text("Has llegado al final del recorrido.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.emerald300)
+                            Spacer(minLength: 4)
+                            Button("Terminar") { Task { await store.stopSharing() } }
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .padding(10)
+                        .background(Theme.emerald950.opacity(0.35))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    }
                     // Por qué esta baliza dejó de emitir, si fue otro móvil el
                     // que se la llevó. Va ARRIBA y con su botón de descartar:
                     // quien coge este teléfono más tarde se encuentra la baliza
