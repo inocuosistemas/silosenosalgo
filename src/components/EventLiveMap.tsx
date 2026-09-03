@@ -110,6 +110,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
   /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
   const [profileOpen, setProfileOpen] = useState(true)
   /**
+   * Si el cartel de "carrera terminada" está desplegado. Empieza abierto: al
+   * abrir el mapa de una carrera que ya acabó, lo primero que se quiere saber es
+   * justo eso y cómo quedó. Se pliega igual que el de la salida.
+   */
+  const [finPanelOpen, setFinPanelOpen] = useState(true)
+  /**
    * Las dos gráficas, enlazadas por el ratón.
    *
    * `hoverKm` es el punto del recorrido que se está señalando en el perfil: el
@@ -537,13 +543,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
             —dice lo mismo que él— pero el "volver" no es presentación, es
             navegación, y esconderlo deja encerrado a quien solo quería mirar el
             mapa un momento. */}
-        <div className="pointer-events-auto flex min-w-0 flex-col items-start gap-1">
+        {/* Volver y la tarjeta, EN LA MISMA FILA. Apilados sumaban una tercera
+            planta a una cabecera que ya envuelve con cuatro pestañas, y en un
+            móvil eso acababa en un solape con todo lo que flota sobre el
+            mapa. */}
+        <div className="pointer-events-auto flex min-w-0 flex-1 items-start gap-1.5">
         {!isPublic && (
           <a
             href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
-            className="w-fit rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
+            className="shrink-0 rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-1.5 text-xs text-slate-200 backdrop-blur hover:border-sky-700"
           >
-            ← Parrilla
+            ←
           </a>
         )}
         {view !== 'mapa' || (waiting && panelOpen) ? (
@@ -571,6 +581,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
               <p className={`truncate px-2.5 text-sm font-bold text-slate-100 ${
                 view === 'mapa' ? 'pt-1.5' : 'py-1.5'
               }`}>{eventName ?? 'Evento'}</p>
+              {/* Que la carrera TERMINÓ, aquí dentro: es un dato de la carrera
+                  como los kilómetros, y flotando aparte se le cruzaba a todo lo
+                  demás. Lleva a los resultados, que es lo que se busca al
+                  leerlo. */}
+              {endedAt !== null && view === 'mapa' && (
+                <button
+                  onClick={() => setFinPanelOpen(true)}
+                  className="flex w-full items-center gap-1.5 border-t border-slate-800 px-2.5 py-1 text-left text-[11px] text-amber-200 hover:bg-amber-950/20"
+                >
+                  🏁 Carrera terminada
+                  <span className="text-amber-300/70">· cómo quedó →</span>
+                </button>
+              )}
               {raceStats && view === 'mapa' && (
                 <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
                   <span>{raceStats.km.toFixed(1)} km</span>
@@ -749,19 +772,87 @@ export default function EventLiveMap({ source }: { source: Source }) {
         </div>
       )}
 
-      {/* Que la carrera ha TERMINADO. Sin esto, una carrera acabada se ve igual
-          que una en la que nadie emite: puntos quietos y ningún dato nuevo, y
-          quien espera en meta se queda mirando la pantalla sin saber si se ha
-          perdido algo. Va sobre el mapa y lleva a los resultados. */}
-      {endedAt !== null && view === 'mapa' && (
-        <button
-          onClick={() => stats && setView('meta')}
-          className="pointer-events-auto absolute inset-x-0 z-[1000] mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-700/70 bg-slate-950/95 px-3 py-1.5 text-xs text-amber-100 shadow-lg backdrop-blur"
-          style={{ top: headerH + 8 }}
-        >
-          🏁 Carrera terminada
-          {stats && <span className="text-amber-300/80">· ver resultados →</span>}
-        </button>
+      {/* La carrera TERMINÓ. Igual de grande que el cuadro de la salida y por el
+          mismo motivo: es el otro momento en que el mapa deja de ser lo que se
+          viene a mirar. Con lo que de verdad se pregunta —quién ganó, en qué
+          tiempo, cuántos acabaron— y las dos puertas a lo que queda: los
+          resultados y el replay. */}
+      {endedAt !== null && view === 'mapa' && finPanelOpen && (
+        <div className={`pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4 ${
+          profile && profileOpen ? 'pb-36' : 'pb-12'
+        }`}>
+          <div
+            className="pointer-events-auto relative w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-amber-800/60 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
+            style={{ maxHeight: profile && profileOpen ? 'calc(100dvh - 13rem)' : 'calc(100dvh - 6rem)' }}
+          >
+            <button
+              onClick={() => setFinPanelOpen(false)}
+              aria-label="Ocultar el resumen de la carrera"
+              className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full border border-slate-700 bg-slate-950/80 text-xs text-slate-300 backdrop-blur hover:text-white"
+            >
+              ✕
+            </button>
+            {photoUrl && (
+              <img src={photoUrl} alt="" style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }} className="w-full object-cover" />
+            )}
+            <div className="p-4">
+              <p className="text-[11px] uppercase tracking-wider text-amber-400/80">Carrera terminada</p>
+              <p className="mt-0.5 text-2xl font-bold text-slate-100">🏁 {eventName ?? 'Evento'}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                {new Date(endedAt).toLocaleString('es-ES', {
+                  weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+                })}
+              </p>
+
+              {stats && (
+                <>
+                  <p className="mt-2.5 text-sm text-slate-200">
+                    <b>{stats.finishers}</b> de {stats.runners} llegaron a meta
+                  </p>
+                  {/* El podio: los tres primeros con su tiempo. Es lo que se
+                      cuenta al llegar a casa; el resto está en Resultados. */}
+                  {stats.corredores.filter((c) => c.finished).length > 0 && (
+                    <ul className="mt-2 space-y-1 border-t border-slate-800 pt-2.5 text-left">
+                      {stats.corredores.filter((c) => c.finished).slice(0, 3).map((c, i) => (
+                        <li key={c.username} className="flex items-center gap-1.5 text-[11px]">
+                          <span className="w-4 text-center">{['🥇', '🥈', '🥉'][i]}</span>
+                          <MarkBadge emoji={c.emoji} color={c.color} size={18} />
+                          <span className="min-w-0 flex-1 truncate text-slate-100">{c.username}</span>
+                          <span className="shrink-0 font-bold tabular-nums text-emerald-300">
+                            {c.minutos != null ? durLabel(c.minutos) : '—'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {stats.fastestKm && (
+                    <p className="mt-2 text-[11px] text-amber-200/90">
+                      ⚡ Kilómetro más rápido: <b>{ritmoLabel(stats.fastestKm.minutos)}</b>{' '}
+                      — {stats.fastestKm.username}
+                    </p>
+                  )}
+                </>
+              )}
+
+              <div className="mt-3 flex gap-1.5">
+                {stats && (
+                  <button
+                    onClick={() => setView('meta')}
+                    className="flex-1 rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-100 hover:border-amber-600"
+                  >
+                    🏆 Resultados
+                  </button>
+                )}
+                <button
+                  onClick={() => setView('replay')}
+                  className="flex-1 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-sky-700"
+                >
+                  ⏱️ Ver el replay
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Mapa sin nadie: antes de la salida esto no es un vacío, es una espera.
@@ -1706,6 +1797,13 @@ function readHoverKm(clientX: number, el: HTMLElement, totalKm: number, emit: (k
   if (r.width <= 0) return
   const t = (clientX - r.left) / r.width
   emit(Math.max(0, Math.min(1, t)) * totalKm)
+}
+
+/** Un ritmo o un tiempo de kilómetro en minutos decimales: "5:44". */
+function ritmoLabel(min: number): string {
+  const m = Math.floor(min)
+  const s = Math.round((min - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 /** Días, horas, minutos y segundos de un intervalo, ya con sus dos cifras. */
