@@ -133,6 +133,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
    */
   const [anclados, setAnclados] = useState(true)
   /**
+   * El menú de opciones del mapa.
+   *
+   * El imán se queda puesto casi siempre —quitarlo es lo excepcional— así que
+   * un botón permanente en pantalla cobraba sitio todos los días para una
+   * decisión que se toma una vez al año. Aquí dentro no estorba y sigue estando
+   * donde se busca: junto al resto de lo que se ve o se deja de ver.
+   */
+  const [opcionesAbiertas, setOpcionesAbiertas] = useState(false)
+  /**
    * Si el cartel de "carrera terminada" está desplegado. Empieza abierto: al
    * abrir el mapa de una carrera que ya acabó, lo primero que se quiere saber es
    * justo eso y cómo quedó. Se pliega igual que el de la salida.
@@ -706,6 +715,54 @@ export default function EventLiveMap({ source }: { source: Source }) {
       </div>
       </div>
 
+      {/* Opciones del mapa. Rueda pequeña, esquina derecha, sin fondo que tape
+          terreno: es un ajuste, no una acción de todos los días. */}
+      {view === 'mapa' && (
+        <div
+          className="absolute right-3 z-[1050]"
+          style={{ bottom: (profile && profileOpen ? 132 : 44) + (withFix.length > 0 ? 44 : 0) }}
+        >
+          {opcionesAbiertas && (
+            <>
+              <div className="fixed inset-0 z-[1040]" onClick={() => setOpcionesAbiertas(false)} />
+              <div className="absolute bottom-12 right-0 z-[1050] w-56 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
+                <button
+                  onClick={() => { setAnclados((v) => !v); setOpcionesAbiertas(false) }}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <span>{anclados ? '🧲' : '📍'}</span>
+                  <span>
+                    {anclados ? 'Pegados al recorrido' : 'Posición del GPS'}
+                    <span className="mt-0.5 block text-[10px] text-slate-500">
+                      {anclados
+                        ? 'El punto se pega al trazado; el temblor del GPS no cuenta.'
+                        : 'Se pinta la posición cruda, tal cual llega.'}
+                    </span>
+                  </span>
+                </button>
+                {profile && (
+                  <button
+                    onClick={() => { setProfileOpen((v) => !v); setOpcionesAbiertas(false) }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    <span>📈</span>
+                    <span>{profileOpen ? 'Ocultar el perfil' : 'Ver el perfil'}</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          <button
+            onClick={() => setOpcionesAbiertas((v) => !v)}
+            aria-label="Opciones del mapa"
+            title="Opciones del mapa"
+            className="grid h-10 w-10 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-base backdrop-blur active:scale-95"
+          >
+            ⚙️
+          </button>
+        </div>
+      )}
+
       {/* Tira de participantes: leyenda y selector a la vez — con diez puntos de
           colores, una leyenda que no sirve para seleccionar obliga a acertarle
           al punto con el dedo. Solo en el mapa; la lista ya es su propia
@@ -721,21 +778,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onFollow={() => setFollowing(following === sel.key ? null : sel.key)}
               onClose={() => setSelected(null)}
             />
-          )}
-          {/* Cómo se pintan los corredores. Anclado es lo normal; suelto sirve
-              para ver el GPS crudo cuando alguien se sale de verdad. */}
-          {route && withFix.length > 0 && (
-            <div className="mb-1 flex justify-end">
-              <button
-                onClick={() => setAnclados((v) => !v)}
-                title={anclados
-                  ? 'Ahora se pintan pegados al recorrido; toca para verlos donde dice su GPS'
-                  : 'Ahora se pintan donde dice su GPS; toca para pegarlos al recorrido'}
-                className="rounded-full border border-slate-700 bg-slate-900/90 px-2.5 py-1 text-[11px] text-slate-300 backdrop-blur hover:border-sky-700"
-              >
-                {anclados ? '🧲 pegados al recorrido' : '📍 posición del GPS'}
-              </button>
-            </div>
           )}
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}

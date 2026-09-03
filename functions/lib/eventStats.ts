@@ -142,6 +142,8 @@ export function calculaEstadisticas(
   filas: FilaSesion[],
   totalKm: number | null,
   linea: Polilinea | null = null,
+  /** La salida OFICIAL de la carrera: el pistoletazo, si lo hay. */
+  startsAt: number | null = null,
 ): EventStats {
   const corredores: EventRunnerStats[] = []
 
@@ -178,13 +180,17 @@ export function calculaEstadisticas(
     const avance = linea ? avanceSobreRuta(linea, pts) : null
     const km = avance?.km ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
 
-    // El tiempo que vale es el que se estuvo EN EL CIRCUITO, no el que la
-    // baliza estuvo encendida. Son cosas distintas y la diferencia es enorme:
-    // se arma media hora antes de salir, y luego se deja puesta hasta el coche
-    // o hasta que uno se acuerda. Se cuenta desde que se pisa el recorrido
-    // hasta que se alcanza el punto más lejano —cruzar meta— y no hasta la
-    // última posición, que suele ser el aparcamiento.
-    const desde = avance?.desdeMs ?? f.startedAt ?? pts[0].t
+    // El crono empieza en la SALIDA OFICIAL, como en cualquier carrera. Es lo
+    // único que hace comparables los tiempos de gente que fue junta: la hora a
+    // la que cada uno encendió su baliza no la decide la carrera, y "la primera
+    // vez que pisa el recorrido" tampoco vale —quien llega a la salida andando
+    // por el último tramo del circuito la pisa media hora antes, y su crono
+    // arrancaba ahí—. Sin salida oficial se cae a lo mejor que hay: el primer
+    // punto sobre el recorrido.
+    //
+    // Y termina al alcanzar el punto más lejano —cruzar meta— y no en la última
+    // posición, que suele ser el aparcamiento.
+    const desde = startsAt ?? avance?.desdeMs ?? f.startedAt ?? pts[0].t
     const hasta = avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     const mejor = kmMasRapido(pts, acumulado)
@@ -307,7 +313,11 @@ export async function cierraEvento(
   totalKm: number | null,
 ): Promise<EventStats> {
   const linea = await leePolilinea(env, eventId)
-  const stats = calculaEstadisticas(await sesionesDelEvento(env, eventId), totalKm, linea)
+  const ev = await env.DB.prepare('SELECT starts_at AS startsAt FROM events WHERE id = ?')
+    .bind(eventId).first<{ startsAt: number | null }>()
+  const stats = calculaEstadisticas(
+    await sesionesDelEvento(env, eventId), totalKm, linea, ev?.startsAt ?? null,
+  )
   await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ? WHERE id = ?')
     .bind(endedAt, JSON.stringify(stats), eventId).run()
   return stats

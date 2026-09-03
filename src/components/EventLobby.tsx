@@ -7,7 +7,7 @@ import {
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
-  setEventBetsEnabled, endEvent, joinEvent, getEventPlan,
+  setEventBetsEnabled, endEvent, recomputeEventStats, joinEvent, getEventPlan,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -224,6 +224,16 @@ export default function EventLobby({ id }: { id: string }) {
     setBusy(true); setError(null)
     try {
       await endEvent(id, end)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  async function recalcular() {
+    setBusy(true); setError(null)
+    try {
+      await recomputeEventStats(id)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -802,13 +812,25 @@ export default function EventLobby({ id }: { id: string }) {
                 Terminada el {fmtDate(event.endedAt)}. Los resultados están congelados: aunque las trazas se
                 borren a los dos días, lo que pasó ese día se queda.
               </p>
-              <button
-                onClick={() => void terminaCarrera(false)}
-                disabled={busy}
-                className="mt-2 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:text-sky-400 disabled:opacity-50"
-              >
-                Reabrirla
-              </button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void recalcular()}
+                  disabled={busy}
+                  className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:text-sky-400 disabled:opacity-50"
+                >
+                  Recalcular resultados
+                </button>
+                <button
+                  onClick={() => void terminaCarrera(false)}
+                  disabled={busy}
+                  className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:text-sky-400 disabled:opacity-50"
+                >
+                  Reabrirla
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-slate-600">
+                Los resultados se congelan al cerrar; recalcúlalos si el cálculo ha mejorado desde entonces.
+              </p>
               <p className="mt-1 text-[10px] text-slate-600">
                 Al reabrir se tiran los resultados: con gente aún en carrera dirían que ganó quien iba primero.
               </p>

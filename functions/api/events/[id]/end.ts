@@ -35,8 +35,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!ev) return json({ error: 'not_found' }, 404)
   if (ev.createdBy !== user.id) return json({ error: 'forbidden' }, 403)
 
-  const body = (await readJson<{ end?: unknown }>(request)) || {}
+  const body = (await readJson<{ end?: unknown; recompute?: unknown }>(request)) || {}
   const cerrar = body.end !== false
+
+  // Recalcular sin reabrir: los resultados se congelan al cerrar, y eso es lo
+  // que se quiere —las trazas se purgan— pero significa que se quedan con el
+  // criterio que hubiera ese día. Cuando el criterio mejora, hay que poder
+  // volver a pasarlo sin tocar la hora de cierre ni la carrera.
+  if (body.recompute === true) {
+    const ev2 = await env.DB.prepare('SELECT ended_at AS endedAt FROM events WHERE id = ?')
+      .bind(id).first<{ endedAt: number | null }>()
+    if (!ev2?.endedAt) return json({ error: 'not_ended' }, 409)
+    await cierraEvento(env, id, ev2.endedAt, ev.totalKm)
+    return new Response(null, { status: 204 })
+  }
 
   if (cerrar) {
     // `ended_at` se fija con COALESCE dentro de cierraEvento: cerrar dos veces

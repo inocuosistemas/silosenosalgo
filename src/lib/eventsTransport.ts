@@ -160,6 +160,20 @@ export async function endEvent(id: string, end: boolean): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Vuelve a calcular los resultados de una carrera ya cerrada, sin reabrirla.
+ * Hace falta porque se congelan: cuando el cálculo mejora, los guardados se
+ * quedan con el criterio viejo.
+ */
+export async function recomputeEventStats(id: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/end`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recompute: true }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 /** La hora a la que cierra meta (epoch ms), o null para quitarla. */
 export async function setEventEnd(id: string, endsAt: number | null): Promise<void> {
   return setEventSettings(id, { endsAt })
