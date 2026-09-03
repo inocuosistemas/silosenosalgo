@@ -585,11 +585,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
             —dice lo mismo que él— pero el "volver" no es presentación, es
             navegación, y esconderlo deja encerrado a quien solo quería mirar el
             mapa un momento. */}
-        {/* Volver y la tarjeta, EN LA MISMA FILA. Apilados sumaban una tercera
-            planta a una cabecera que ya envuelve con cuatro pestañas, y en un
-            móvil eso acababa en un solape con todo lo que flota sobre el
-            mapa. */}
-        <div className="pointer-events-auto flex min-w-0 flex-1 items-start gap-1.5">
+        {/* Cada cosa es un elemento de la MISMA fila que envuelve, sin columnas
+            anidadas. Con el volver metido en una columna `flex-1`, en un móvil
+            estrecho esa columna se encogía a cero —puede, porque lleva
+            `min-w-0`— y el chip, que no se encoge, se desbordaba fuera de ella:
+            acababa dibujado DEBAJO del botón de usuario. Un contenedor que
+            puede quedarse sin ancho no es sitio para algo que no puede
+            encogerse. */}
         {!isPublic && (
           <a
             href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
@@ -598,7 +600,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ←
           </a>
         )}
-        {view !== 'mapa' || (waiting && panelOpen) ? (
+        {view !== 'mapa' || (waiting && panelOpen) || (endedAt !== null && finPanelOpen) ? (
           // Fuera del mapa el nombre de la carrera sobra —la lista, la porra y
           // los resultados llevan su propio título— y con cuatro pestañas ya no
           // cabía: el nombre se comía al selector y al usuario. Y con el cuadro
@@ -610,9 +612,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
              de la organización se quedan en el mapa, que es donde hay sitio —en
              un móvil estrecho, con ellos la barra crecía a tres filas y tapaba
              el título de lo que venía debajo. */
-          <div className={`pointer-events-auto flex min-w-0 flex-col items-start gap-1 ${
-            view === 'mapa' ? 'w-fit max-w-[min(19rem,62vw)]' : 'flex-1'
-          }`}>
+          <div className="pointer-events-auto flex min-w-0 max-w-[min(19rem,62vw)] flex-col items-start gap-1">
             {/* La carrera en la esquina: el nombre y los tres números que la
                 describen. Quien abre este enlace puede no saber ni qué prueba
                 es —le ha llegado por un grupo—, así que un nombre suelto no
@@ -673,7 +673,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </div>
           </div>
         )}
-        </div>
         {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
             ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
             un modo activo que no se ve es un modo que desconcierta. */}
