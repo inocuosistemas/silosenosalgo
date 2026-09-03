@@ -70,7 +70,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   return (
     <>
       {user ? (
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             ref={botonRef}
             onClick={() => {
@@ -86,7 +86,11 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-[1900]" onClick={() => setMenuOpen(false)} />
-              <div className={`absolute mt-1 z-[2000] min-w-[12rem] max-w-[80vw] rounded-lg bg-slate-900 border border-slate-700 shadow-xl py-1 ${
+              {/* Ancho PROPIO y fijo, no un mínimo: metido en una cabecera que
+                  envuelve, el menú acababa estrujado a un hilo de un píxel —se
+                  veía como una raya vertical saliendo del botón— porque un
+                  ancho mínimo cede cuando quien manda es el contenedor. */}
+              <div className={`absolute mt-1 z-[2000] w-56 max-w-[80vw] overflow-hidden rounded-lg bg-slate-900 border border-slate-700 shadow-xl py-1 ${
                 aLaIzquierda ? 'left-0' : 'right-0'
               }`}>
                 <div className="px-3 py-2 text-xs text-slate-500 border-b border-slate-800">

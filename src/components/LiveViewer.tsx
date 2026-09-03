@@ -939,23 +939,54 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     // otherwise the plain global nearest (no trail yet → nothing to anchor to).
     if (!seeded) {
       const g = globalNearest(fixLat, fixLon)
-      return { km: cumKm[g.idx] ?? 0, distKm: g.dist }
+      return { km: cumKm[g.idx] ?? 0, distKm: g.dist, punto: pts[g.idx] ?? null }
     }
     const fixTs = fixAt ?? fixUpdatedAt
     const dtSec = fixTs != null && anchorTs != null ? (fixTs - anchorTs) / 1000 : 0
     const w = windowNearest(fixLat, fixLon, anchorKm, dtSec)
-    return { km: cumKm[w.idx] ?? anchorKm, distKm: w.dist }
+    // El punto del TRAZADO al que se ha emparejado: es donde se pinta al
+    // corredor cuando está pegado al recorrido.
+    return { km: cumKm[w.idx] ?? anchorKm, distKm: w.dist, punto: pts[w.idx] ?? null }
   }, [plan, fixLat, fixLon, fixAt, fixUpdatedAt, trail])
 
   // Off-route with hysteresis (no flicker at the boundary): off at >250 m from
   // the route, back on at <120 m. Avoids snapping to a bogus "progress" when the
   // runner is far from the route (e.g. at home before the start).
+  /**
+   * El corredor, PEGADO al trazado por defecto.
+   *
+   * El GPS de un móvil en el bolsillo se pasea veinte o treinta metros, y aquí
+   * —donde se mira la posición de UNA persona con lupa— eso se nota más que en
+   * ningún otro sitio: el punto salta a la acera de enfrente, al tejado o
+   * dentro del río, y quien mira acaba dudando de la posición en vez de leerla.
+   * Emparejado al recorrido se lee lo que importa: por dónde va y cuánto le
+   * queda.
+   *
+   * Se apaga con un toque, y NO se aplica a quien está de verdad fuera de ruta
+   * —ahí la posición cruda es justo la información—.
+   */
+  const [anclado, setAnclado] = useState(true)
+
   const [offRoute, setOffRoute] = useState(false)
   useEffect(() => {
     if (!nearest) { if (offRoute) setOffRoute(false); return }
     if (nearest.distKm > 0.25 && !offRoute) setOffRoute(true)
     else if (nearest.distKm <= 0.12 && offRoute) setOffRoute(false)
   }, [nearest, offRoute])
+
+  /**
+   * Dónde se pinta el corredor: en su emparejamiento con el trazado, o donde
+   * dice el GPS.
+   *
+   * Fuera de ruta manda siempre el GPS: pegar al trazado a quien se ha
+   * despistado es dibujar una carrera que no está haciendo, y justo entonces la
+   * posición cruda es lo único que sirve para ir a buscarlo.
+   */
+  const posicionPintada = useMemo<[number, number] | null>(() => {
+    if (!fixLat || !fixLon) return null
+    if (!anclado || offRoute || !nearest?.punto) return [fixLat, fixLon]
+    return [nearest.punto.lat, nearest.punto.lon]
+  }, [anclado, offRoute, nearest, fixLat, fixLon])
 
   // Static per-POI plan data (segment distance/elevation + planned elapsed from
   // start), computed once per plan — not on every 1s freshness re-render.
@@ -1907,9 +1938,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {/* El latido solo mientras hay senal viva: es lo que significa. Parado
               o acabado, el punto se queda quieto y eso ya informa. */}
           {fix && !ended && !fr?.stale && (
-            <Marker position={[fix.lat, fix.lon]} icon={pulseDivIcon(fixColor)} interactive={false} />
+            <Marker position={posicionPintada!} icon={pulseDivIcon(fixColor)} interactive={false} />
           )}
-          {fix && <CircleMarker center={[fix.lat, fix.lon]} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
+          {fix && <CircleMarker center={posicionPintada!} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
           {/* Destello de la nota recién tocada. La `key` cambia en cada toque a
               propósito: sin ella React reutilizaría el mismo elemento, la
               animación no volvería a empezar y saltar a una segunda nota no
@@ -2454,6 +2485,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             <path d="M12 1.6v3.6M12 18.8v3.6M1.6 12h3.6M18.8 12h3.6" />
             <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
           </svg>
+        </button>
+      )}
+
+      {/* Pegado al recorrido, o donde dice el GPS. Junto al de recentrar, que es
+          el otro mando del mapa, y solo cuando hay recorrido con el que
+          emparejar. Fuera de ruta el modo no se aplica y el botón lo dice. */}
+      {fix && plan && (
+        <button
+          type="button"
+          onClick={() => setAnclado((v) => !v)}
+          aria-label={anclado ? 'Ver la posición del GPS' : 'Pegar al recorrido'}
+          title={offRoute
+            ? 'Está fuera del recorrido: se enseña su posición del GPS'
+            : anclado
+              ? 'Pegado al recorrido; toca para ver la posición del GPS'
+              : 'Posición del GPS; toca para pegarlo al recorrido'}
+          className="absolute bottom-36 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
+        >
+          {offRoute ? '↯' : anclado ? '🧲' : '📍'}
         </button>
       )}
 

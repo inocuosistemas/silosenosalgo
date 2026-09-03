@@ -679,7 +679,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
         {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
             hay porra: se pronostica con una cuenta, y sin saber cuál está
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
-        <div className="pointer-events-auto flex shrink-0 items-center gap-1.5">
+        <div className="pointer-events-auto flex shrink-0 flex-wrap items-start justify-end gap-1.5">
         <AuthMenu />
         <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
           {([
