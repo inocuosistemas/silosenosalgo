@@ -504,6 +504,12 @@ export interface EventPublicResponse {
    *  tanto o más que a los participantes. */
   trackingUrl: string | null
   websiteUrl: string | null
+  /** Cuándo terminó la carrera (epoch ms), o null si sigue en marcha. Quien
+   *  espera en meta necesita saberlo tanto como los que corren: sin esto, una
+   *  carrera acabada se ve igual que una en la que nadie emite. */
+  endedAt: number | null
+  /** Los resultados congelados al cerrarla. */
+  stats: EventStats | null
   runners: EventPublicRunner[]
 }
 
@@ -686,6 +692,10 @@ export interface EventLiveResponse {
   photoUrl: string | null
   trackingUrl: string | null
   websiteUrl: string | null
+  /** Cuándo terminó la carrera (epoch ms), o null si sigue en marcha. */
+  endedAt: number | null
+  /** Los resultados congelados al cerrarla. Solo en una carrera terminada. */
+  stats: EventStats | null
   runners: EventLiveRunner[]
 }
 

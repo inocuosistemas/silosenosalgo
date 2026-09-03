@@ -2,7 +2,7 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
-import { cierraSiTocaEvento } from '../../lib/eventStats'
+import { cierraSiTocaEvento, leeStats } from '../../lib/eventStats'
 import type { EventStats } from '../../../shared/wireTypes'
 import { TOKEN_RE } from '../../../shared/validate'
 import type { EventDetailResponse, EventInfo, EventMember } from '../../../shared/wireTypes'
@@ -176,19 +176,4 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   // El blob del plan base se queda en KV hasta que caduque solo: puede estar
   // referenciado por las sesiones que ya arrancaron con él.
   return new Response(null, { status: 204 })
-}
-
-/**
- * Los resultados guardados. Si el cierre acaba de ocurrir en esta misma
- * petición, la fila que se leyó al principio los trae a null: se releen.
- */
-async function leeStats(env: Env, id: string, crudos: string | null): Promise<EventStats | null> {
-  let raw = crudos
-  if (!raw) {
-    const row = await env.DB.prepare('SELECT stats FROM events WHERE id = ?')
-      .bind(id).first<{ stats: string | null }>()
-    raw = row?.stats ?? null
-  }
-  if (!raw) return null
-  try { return JSON.parse(raw) as EventStats } catch { return null }
 }

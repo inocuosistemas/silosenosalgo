@@ -4,7 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
 import { eventColorHex } from '../../shared/eventColors'
-import type { EventPublicRunner } from '../../shared/wireTypes'
+import type { EventPublicRunner, EventStats } from '../../shared/wireTypes'
 import {
   getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError, EVENT_PHOTO_ASPECT,
 } from '../lib/eventsTransport'
@@ -71,10 +71,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
    */
   const [eventId, setEventId] = useState<string | null>(source.kind === 'member' ? source.id : null)
   const [betsEnabled, setBetsEnabled] = useState(false)
+  /** Cuándo terminó la carrera y qué quedó de ella. */
+  const [endedAt, setEndedAt] = useState<number | null>(null)
+  const [stats, setStats] = useState<EventStats | null>(null)
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<'mapa' | 'lista' | 'porra'>('mapa')
+  const [view, setView] = useState<'mapa' | 'lista' | 'porra' | 'meta'>('mapa')
   const [now, setNow] = useState(Date.now())
   /**
    * Si el cuadro de la salida está desplegado. Empieza abierto —antes de la
@@ -138,6 +141,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setPhotoUrl(live.photoUrl)
         setEventId(live.id)
         setBetsEnabled(live.betsEnabled)
+        setEndedAt(live.endedAt)
+        setStats(live.stats)
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
@@ -147,6 +152,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
         setEventName(live.name)
         setPhotoUrl(live.photoUrl)
         setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
+        setEndedAt(live.endedAt)
+        setStats(live.stats)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -461,6 +468,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
           )}
           <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
         </MapContainer>
+      ) : view === 'meta' && stats ? (
+        <ResultsView stats={stats} endedAt={endedAt} topPad={headerH} onBack={() => setView('mapa')} />
       ) : view === 'porra' && eventId ? (
         <EventBets
           topPad={headerH}
@@ -590,7 +599,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
         <div className="pointer-events-auto flex shrink-0 items-center gap-1.5">
         <AuthMenu />
         <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
-          {(betsEnabled ? (['mapa', 'lista', 'porra'] as const) : (['mapa', 'lista'] as const)).map((v) => (
+          {([
+            'mapa', 'lista',
+            ...(betsEnabled ? ['porra' as const] : []),
+            // Una carrera terminada estrena pestaña: es lo que se viene a ver
+            // cuando ya no hay nada moviéndose por el mapa.
+            ...(endedAt !== null && stats ? ['meta' as const] : []),
+          ] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -598,7 +613,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {v === 'porra' ? '🔮 porra' : v}
+              {v === 'porra' ? '🔮 porra' : v === 'meta' ? '🏆 meta' : v}
             </button>
           ))}
         </div>
@@ -703,6 +718,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
             />
           )}
         </div>
+      )}
+
+      {/* Que la carrera ha TERMINADO. Sin esto, una carrera acabada se ve igual
+          que una en la que nadie emite: puntos quietos y ningún dato nuevo, y
+          quien espera en meta se queda mirando la pantalla sin saber si se ha
+          perdido algo. Va sobre el mapa y lleva a los resultados. */}
+      {endedAt !== null && view === 'mapa' && (
+        <button
+          onClick={() => stats && setView('meta')}
+          className="pointer-events-auto absolute inset-x-0 z-[1000] mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-700/70 bg-slate-950/95 px-3 py-1.5 text-xs text-amber-100 shadow-lg backdrop-blur"
+          style={{ top: headerH + 8 }}
+        >
+          🏁 Carrera terminada
+          {stats && <span className="text-amber-300/80">· ver resultados →</span>}
+        </button>
       )}
 
       {/* Mapa sin nadie: antes de la salida esto no es un vacío, es una espera.
@@ -1003,6 +1033,97 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
       </div>
     </div>
   )
+}
+
+/**
+ * Los resultados de una carrera terminada.
+ *
+ * Lo que queda cuando ya no hay nada moviéndose por el mapa. Sale de los datos
+ * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
+ * purgan y esto tiene que seguir contando quién ganó el sábado.
+ */
+function ResultsView({ stats, endedAt, topPad, onBack }: {
+  stats: EventStats
+  endedAt: number | null
+  topPad: number
+  onBack: () => void
+}) {
+  return (
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
+      <div className="mx-auto w-full max-w-2xl">
+        <header className="mb-4">
+          <h1 className="text-xl font-bold text-slate-100">🏆 Resultados</h1>
+          <p className="mt-1 text-xs text-slate-400">
+            {stats.finishers} de {stats.runners} llegaron a meta
+            {endedAt !== null && ` · carrera cerrada el ${new Date(endedAt).toLocaleString('es-ES', {
+              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            })}`}
+          </p>
+        </header>
+
+        {/* El kilómetro más rápido de la carrera: el dato que se discute luego. */}
+        {stats.fastestKm && (
+          <p className="mb-3 rounded-xl border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
+            ⚡ Kilómetro más rápido: <b>{fmtRitmo(stats.fastestKm.minutos)}</b> — {stats.fastestKm.username},
+            desde el km {stats.fastestKm.desdeKm.toFixed(1)}
+          </p>
+        )}
+
+        <ul className="space-y-1.5">
+          {stats.corredores.map((c, i) => (
+            <li key={c.username} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
+                  {c.finished ? i + 1 : '·'}
+                </span>
+                <MarkBadge emoji={c.emoji} color={c.color} size={20} />
+                {c.bib && (
+                  <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
+                    {c.bib}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
+                {c.finished
+                  ? <span className="shrink-0 text-sm font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                  : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
+              </div>
+              {c.tracked && (
+                <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">
+                  <span>{c.km?.toFixed(1)} km</span>
+                  {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
+                  {c.mejorKmMin != null && (
+                    <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>
+                  )}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <button
+          onClick={onBack}
+          className="mt-4 w-full rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
+        >
+          ← Volver al mapa
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Un ritmo o un tiempo de kilómetro: "4:35". */
+function fmtRitmo(min: number): string {
+  const m = Math.floor(min)
+  const s = Math.round((min - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** Un tiempo de carrera: "5h 12m". */
+function fmtDuracion(min: number | null): string {
+  if (min == null) return '—'
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`
 }
 
 /** La ficha del corredor elegido: lo justo para saber cómo va. */

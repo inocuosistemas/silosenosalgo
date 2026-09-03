@@ -199,6 +199,24 @@ export async function cierraSiTocaEvento(
   return ev.endsAt
 }
 
+/**
+ * Los resultados guardados de un evento.
+ *
+ * Se le pasa lo que ya se leyó de la fila para no ir dos veces a la base; si
+ * viene vacío —porque el cierre acaba de ocurrir en esta misma petición— se
+ * releen.
+ */
+export async function leeStats(env: Env, id: string, crudos: string | null): Promise<EventStats | null> {
+  let raw = crudos
+  if (!raw) {
+    const row = await env.DB.prepare('SELECT stats FROM events WHERE id = ?')
+      .bind(id).first<{ stats: string | null }>()
+    raw = row?.stats ?? null
+  }
+  if (!raw) return null
+  try { return JSON.parse(raw) as EventStats } catch { return null }
+}
+
 /** Cierra el evento a la hora dada y guarda los resultados. */
 export async function cierraEvento(
   env: Env,

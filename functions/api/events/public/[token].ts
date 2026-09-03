@@ -3,7 +3,7 @@ import type { Env } from '../../../lib/db'
 import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
-import { cierraSiTocaEvento } from '../../../lib/eventStats'
+import { cierraSiTocaEvento, leeStats } from '../../../lib/eventStats'
 import type {
   EventPublicResponse, EventPublicRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
@@ -29,19 +29,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
             starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled,
-            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm
+            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
     id: string; name: string; planShareId: string | null
     trackingUrl: string | null; websiteUrl: string | null
     startsAt: number | null; photoKey: string | null; photoAt: number | null; betsEnabled: number
-    endsAt: number | null; endedAt: number | null; planTotalKm: number | null
+    endsAt: number | null; endedAt: number | null; planTotalKm: number | null; stats: string | null
   }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
   // enlace que no lleva a ningún sitio, y no hay nada que explicarle a quien lo
   // tenga guardado.
   if (!ev) return json({ error: 'not_found' }, 404)
-  await cierraSiTocaEvento(env, { id: ev.id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm })
+  const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
+    id: ev.id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
+  })
 
   // Desde la PARRILLA, igual que en `/live`: quien espera en meta también
   // quiere ver al suyo antes de que empiece a emitir, y "no aparece" no puede
@@ -119,6 +121,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       : null,
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
+    endedAt,
+    stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     runners,
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })

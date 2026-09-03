@@ -4,7 +4,7 @@ import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
-import { cierraSiTocaEvento } from '../../../lib/eventStats'
+import { cierraSiTocaEvento, leeStats } from '../../../lib/eventStats'
 import type {
   EventLiveResponse, EventLiveRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
@@ -39,20 +39,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const ev = await env.DB.prepare(
     `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled,
             ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, created_by AS createdBy,
-            name, photo_key AS photoKey, photo_at AS photoAt,
+            name, photo_key AS photoKey, photo_at AS photoAt, stats,
             tracking_url AS trackingUrl, website_url AS websiteUrl
        FROM events WHERE id = ?`)
     .bind(id).first<{
       planShareId: string | null; startsAt: number | null; betsEnabled: number
       endsAt: number | null; endedAt: number | null; planTotalKm: number | null; createdBy: string
-      name: string; photoKey: string | null; photoAt: number | null
+      name: string; photoKey: string | null; photoAt: number | null; stats: string | null
       trackingUrl: string | null; websiteUrl: string | null
     }>()
   if (!ev) return json({ error: 'not_found' }, 404)
   // El mapa también cierra la carrera cuando toca: es la pantalla que más se
   // mira el día de la prueba, así que suele ser la primera en pasar por aquí
   // después de la hora de cierre.
-  await cierraSiTocaEvento(env, { id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm })
+  const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
+    id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
+  })
 
   // Pertenecer es la condición para ver. 404 y no 403: quien no está dentro
   // tampoco tiene por qué saber que ese evento existe. Salvo quien lo organiza,
@@ -152,6 +154,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       : null,
     trackingUrl: ev.trackingUrl,
     websiteUrl: ev.websiteUrl,
+    endedAt,
+    stats: endedAt !== null ? await leeStats(env, id, ev.stats) : null,
     runners,
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
