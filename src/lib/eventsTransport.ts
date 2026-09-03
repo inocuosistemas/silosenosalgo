@@ -5,6 +5,7 @@
  */
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
+import { simplificaTrazado } from './eventPlan'
 import { inferCutoffDatesFromWaypoints } from './cutoffInference'
 import type { BaseChange } from './eventPlan'
 import type { EventPlanOverlay } from './eventPlan'
@@ -320,6 +321,20 @@ export async function setEventPlan(
     body: new Blob([gz]),
   })
   if (!res.ok) throw errFrom(res)
+
+  // Y detrás, el trazado con el que el SERVIDOR mide: es lo único que él puede
+  // usar para saber por qué kilómetro va cada uno, porque el recorrido que
+  // acabamos de subir no lo va a abrir nunca. Sale de esta misma base, así que
+  // publicar y medir no pueden discrepar.
+  //
+  // Va en una segunda petición porque son decenas de kilobytes de coordenadas:
+  // en una cabecera no caben. Si falla, no se pierde nada —el servidor acaba de
+  // borrar el anterior justo por esto, y la parrilla lo rehace al abrirla— así
+  // que no se le estropea la publicación a nadie por ello.
+  if (Number.isFinite(km) && km > 0) {
+    try { await setEventSettings(id, { totalKm: km, polyline: simplificaTrazado(base) }) }
+    catch { /* lo rehará la parrilla */ }
+  }
 }
 
 /**
