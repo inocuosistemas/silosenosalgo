@@ -16,7 +16,7 @@ import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
-import type { SharePayloadV1 } from '../lib/sharePayload'
+import { simplificaTrazado, trazadoBastaFino } from '../lib/eventPlan'
 import { BaseChangeNotice } from './BaseChangeNotice'
 
 /**
@@ -94,7 +94,12 @@ export default function EventLobby({ id }: { id: string }) {
   useEffect(() => {
     const ev = data?.event
     if (!ev?.isOwner || !ev.planShareId) return
-    if (ev.planTotalKm != null && ev.hasPolyline && ev.activity && ev.endsAt != null) return
+    // El trazado también se rehace si el guardado es demasiado basto: los
+    // eventos anteriores a que se muestreara por distancia llevan 800 puntos
+    // repartidos por toda la carrera, que en una de cien kilómetros son ciento
+    // veinte metros entre vértices.
+    const finoYa = ev.hasPolyline && trazadoBastaFino(ev.polylinePts, ev.planTotalKm)
+    if (ev.planTotalKm != null && finoYa && ev.activity && ev.endsAt != null) return
     // Una vez por evento y por visita, pase lo que pase. La condición de arriba
     // no basta como freno: un recorrido SIN cortes no tiene cierre que copiar,
     // así que `endsAt` seguiría vacío después de intentarlo y la parrilla se
@@ -1293,22 +1298,6 @@ function paraInput(ms: number): string {
  * manda remuestreado. Lo hace el navegador porque es quien entiende el formato
  * del recorrido; al servidor le llegan solo coordenadas.
  */
-function simplificaTrazado(base: SharePayloadV1): [number, number, number][] {
-  const pts = base.track.points
-  const cum = base.track.cumKm
-  if (!pts?.length || cum?.length !== pts.length) return []
-  const max = 800
-  const paso = Math.max(1, Math.ceil(pts.length / max))
-  const out: [number, number, number][] = []
-  for (let i = 0; i < pts.length; i += paso) {
-    out.push([Number(pts[i].lat.toFixed(6)), Number(pts[i].lon.toFixed(6)), Number(cum[i].toFixed(3))])
-  }
-  const ultimo = pts.length - 1
-  if (out[out.length - 1][2] !== Number(cum[ultimo].toFixed(3))) {
-    out.push([Number(pts[ultimo].lat.toFixed(6)), Number(pts[ultimo].lon.toFixed(6)), Number(cum[ultimo].toFixed(3))])
-  }
-  return out
-}
 
 /** Cómo se llama cada actividad, con su icono. */
 const ACTIVIDADES: Record<string, string> = {

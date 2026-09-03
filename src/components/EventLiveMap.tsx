@@ -62,6 +62,8 @@ const LOST_MS = 20 * 60_000
 const DESVIADO_M = 100
 /** A cuántos metros del final se da la meta por cruzada. Ver eventStats. */
 const META_M = 50
+/** Las medallas del podio, por PUESTO (que se comparte en los empates). */
+const MEDALLAS = ['🥇', '🥈', '🥉']
 
 /** El icono de cada actividad, que dice de un vistazo de qué va la carrera. */
 const ICONO_ACTIVIDAD: Record<string, string> = { walk: '🚶', run: '🏃', bike: '🚴' }
@@ -114,18 +116,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * la barra envuelve —un nombre largo, un móvil estrecho— y entonces la barra
    * se come el título de lo que hay debajo, que es lo que pasaba.
    */
-  const headerRef = useRef<HTMLDivElement | null>(null)
-  const [headerH, setHeaderH] = useState(84)
-  useEffect(() => {
-    const el = headerRef.current
-    if (!el) return
-    const medir = () => setHeaderH(el.getBoundingClientRect().height)
-    medir()
-    const ro = new ResizeObserver(medir)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
   /** Si el perfil de abajo está desplegado. Como el cuadro: abierto por defecto. */
   const [profileOpen, setProfileOpen] = useState(true)
   /**
@@ -502,12 +492,34 @@ export default function EventLiveMap({ source }: { source: Source }) {
   /** Los nombres de los puntos, solo cuando hay sitio para leerlos. */
   const showPoiNames = zoom >= POI_NAMES_ZOOM || pois.length <= 6
 
+  /** La vista de turno cuando no se está mirando el mapa. */
+  const vistaSinMapa = view === 'replay' ? (
+    <EventReplay source={source} route={route?.pts ?? null} onBack={() => setView('mapa')} />
+  ) : view === 'meta' && stats ? (
+    <ResultsView stats={stats} endedAt={endedAt} onBack={() => setView('mapa')} />
+  ) : view === 'porra' && eventId ? (
+    <EventBets
+      eventId={eventId}
+      runners={betRunners}
+      outcomes={outcomes}
+      startsAt={startsAt}
+      limitMin={raceStats?.limitMin ?? null}
+      onBack={() => setView('mapa')}
+    />
+  ) : (
+    <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
+              eventId={source.kind === 'member' ? source.id : null}
+              following={following}
+              onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
+              onPick={(k) => { setSelected(k); setView('mapa') }} />
+  )
+
   const center: [number, number] = withFix[0]?.r.fix
     ? [withFix[0].r.fix!.lat, withFix[0].r.fix!.lon]
     : route?.pts[0] ?? [42.7, -0.52]
 
   return (
-    <div className="relative h-[100dvh] w-full bg-slate-950">
+    <div className={`relative h-[100dvh] w-full bg-slate-950 ${view === 'mapa' ? '' : 'flex flex-col'}`}>
       {view === 'mapa' ? (
         <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -626,26 +638,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
           )}
           <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
         </MapContainer>
-      ) : view === 'replay' ? (
-        <EventReplay source={source} route={route?.pts ?? null} topPad={headerH} onBack={() => setView('mapa')} />
-      ) : view === 'meta' && stats ? (
-        <ResultsView stats={stats} endedAt={endedAt} topPad={headerH} onBack={() => setView('mapa')} />
-      ) : view === 'porra' && eventId ? (
-        <EventBets
-          topPad={headerH}
-          eventId={eventId}
-          runners={betRunners}
-          outcomes={outcomes}
-          startsAt={startsAt}
-          limitMin={raceStats?.limitMin ?? null}
-          onBack={() => setView('mapa')}
-        />
       ) : (
-        <ListView topPad={headerH} rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
-                  eventId={source.kind === 'member' ? source.id : null}
-                  following={following}
-                  onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
-                  onPick={(k) => { setSelected(k); setView('mapa') }} />
+        // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
+        // contenido va DEBAJO, en una columna. Así no hay hueco que reservar ni
+        // altura que medir, y no puede volver a solaparse —que es justo lo que
+        // pasaba cuando el volver y las pestañas caían en dos filas y la medida
+        // se había quedado con la altura de una—.
+        <div className="min-h-0 flex-1">{vistaSinMapa}</div>
       )}
 
       {/* Cabecera: volver, nombre (en el público, que no tiene parrilla) y vistas */}
@@ -654,16 +653,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
           px deja el nombre a un lado y el dato al otro, con medio metro de
           nada en medio. El mapa y la silueta siguen a lo ancho. */}
       <div
-        ref={headerRef}
         // Por encima del resto de lo que flota sobre el mapa: el menú de usuario
         // cuelga de aquí, y con el mismo z-index que el cartel de "carrera
         // terminada" ganaba el cartel por ser posterior en el DOM — el menú se
         // abría por debajo.
-        className={`pointer-events-none absolute inset-x-0 top-0 z-[1200] ${
-          // Sobre el mapa flota; sobre la lista y la porra es una barra de
-          // verdad, con fondo: si no, el contenido se cuela por debajo y la
-          // tarjeta del nombre acaba encima de un botón.
-          view === 'mapa' ? '' : 'border-b border-slate-800 bg-slate-950/95 backdrop-blur'
+        className={`pointer-events-none z-[1200] ${
+          // Sobre el mapa FLOTA, que el mapa se quiere entero. En las demás
+          // vistas es una barra de verdad, en la columna y por delante del
+          // contenido: `order-first` la sube sin tener que moverla en el
+          // código, donde va después a propósito —el menú de usuario cuelga de
+          // ella y tiene que quedar por encima de todo—.
+          view === 'mapa'
+            ? 'absolute inset-x-0 top-0'
+            : 'order-first shrink-0 border-b border-slate-800 bg-slate-950/95'
         }`}
       >
       <div className="mx-auto flex max-w-5xl flex-wrap items-start justify-between gap-2 p-3">
@@ -1001,12 +1003,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     <b>{stats.finishers}</b> de {stats.runners} llegaron a meta
                   </p>
                   {/* El podio: los tres primeros con su tiempo. Es lo que se
-                      cuenta al llegar a casa; el resto está en Resultados. */}
+                      cuenta al llegar a casa; el resto está en Resultados.
+                      La medalla la decide el PUESTO, no la fila: si tres
+                      comparten el primero, las tres son de oro. Repartir plata
+                      y bronce por el orden en que salieron de la consulta sería
+                      contradecir a los resultados en la pantalla que más se
+                      mira. */}
                   {stats.corredores.filter((c) => c.finished).length > 0 && (
                     <ul className="mt-2 space-y-1 border-t border-slate-800 pt-2.5 text-left">
                       {stats.corredores.filter((c) => c.finished).slice(0, 3).map((c, i) => (
                         <li key={c.username} className="flex items-center gap-1.5 text-[11px]">
-                          <span className="w-4 text-center">{['🥇', '🥈', '🥉'][i]}</span>
+                          <span className="w-4 text-center">{MEDALLAS[(c.puesto ?? i + 1) - 1] ?? '·'}</span>
                           <MarkBadge emoji={c.emoji} color={c.color} size={18} />
                           <span className="min-w-0 flex-1 truncate text-slate-100">{c.username}</span>
                           <span className="shrink-0 font-bold tabular-nums text-emerald-300">
@@ -1206,10 +1213,9 @@ type Row = {
  * repartidos por un valle no se comparan de un vistazo— y de paso es la
  * clasificación oficiosa del grupo.
  */
-function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick, topPad }: {
+function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick }: {
   rows: Row[]
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo. */
-  topPad: number
   totalKm: number | null
   now: number
   isPublic: boolean
@@ -1229,7 +1235,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
   }, [rows, query])
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
+    <div className="h-full overflow-y-auto bg-slate-950 pb-6 pt-3 scrollbar-fantasma">
       <div className="mx-auto w-full max-w-2xl px-3">
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
@@ -1237,7 +1243,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
       {rows.length > 8 && (
         // Pegado arriba: con cien filas, un buscador que se va con el
         // desplazamiento obliga a subir del todo cada vez que se cambia de idea.
-        <div className="sticky z-[500] -mx-3 mb-2 bg-slate-950 px-3 pb-2" style={{ top: topPad }}>
+        <div className="sticky top-0 z-[500] -mx-3 mb-2 bg-slate-950 px-3 pb-2">
           <div className="relative">
           <input
             type="search"
@@ -1356,14 +1362,13 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
  * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
  * purgan y esto tiene que seguir contando quién ganó el sábado.
  */
-function ResultsView({ stats, endedAt, topPad, onBack }: {
+function ResultsView({ stats, endedAt, onBack }: {
   stats: EventStats
   endedAt: number | null
-  topPad: number
   onBack: () => void
 }) {
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-3 scrollbar-fantasma">
       <div className="mx-auto w-full max-w-2xl">
         <header className="mb-4">
           <h1 className="text-xl font-bold text-slate-100">🏆 Resultados</h1>

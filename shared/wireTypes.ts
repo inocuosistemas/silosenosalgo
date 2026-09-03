@@ -460,6 +460,11 @@ export interface EventInfo {
    *  de cada corredor. Solo se dice si lo tiene, no se manda: son cientos de
    *  puntos que la parrilla no pinta. */
   hasPolyline?: boolean
+  /** Cuántos vértices tiene ese trazado. Con los kilómetros dice cómo de fino
+   *  es, que es lo que decide si hay que rehacerlo: los eventos guardados con
+   *  la regla vieja llevan 800 puntos repartidos por toda la carrera, y en una
+   *  de cien kilómetros eso son ciento veinte metros entre vértices. */
+  polylinePts?: number | null
   /** El límite de tiempo de la carrera, en minutos. Con la salida publicada, la
    *  hora de cierre es una resta: así se dice como se anuncia una carrera
    *  —"sale a las 8:00, tienes 8 horas"— en vez de calculando la hora. */

@@ -28,10 +28,9 @@ export interface BetRunner {
   color: string | null
 }
 
-export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topPad, onBack }: {
+export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBack }: {
   eventId: string
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo de ella. */
-  topPad: number
   runners: BetRunner[]
   outcomes: RunnerOutcome[]
   startsAt: number | null
@@ -134,7 +133,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, topP
   return (
     // Acotada y centrada: es una pantalla de texto, y a 1400 px de ancho una
     // fila de "Ana · acaba · +15" se lee de esquina a esquina.
-    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
+    <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-3 scrollbar-fantasma">
       <div className="mx-auto w-full max-w-2xl">
       <header className="mb-4">
         <h1 className="text-xl font-bold text-slate-100">🔮 La Porra</h1>

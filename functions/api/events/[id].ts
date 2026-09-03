@@ -28,7 +28,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
             bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats, limit_min AS limitMin,
-            plan_polyline IS NOT NULL AS hasPolyline, activity,
+            plan_polyline IS NOT NULL AS hasPolyline, json_array_length(plan_polyline) AS polylinePts, activity,
             plan_total_km AS planTotalKm,
             ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
             tracking_url AS trackingUrl, website_url AS websiteUrl, notes AS notes,
@@ -39,7 +39,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     colorsLocked: number; betsEnabled: number
     endsAt: number | null; stats: string | null; planTotalKm: number | null; limitMin: number | null
-    hasPolyline: number; activity: string | null
+    hasPolyline: number; polylinePts: number | null; activity: string | null
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null; notes: string | null
     planUpdatedAt: number | null; planChange: string | null
@@ -126,6 +126,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     limitMin: ev.limitMin,
     planTotalKm: ev.planTotalKm,
     hasPolyline: ev.hasPolyline === 1,
+    polylinePts: ev.polylinePts,
     activity: isBeaconActivity(ev.activity) ? ev.activity : null,
     endedAt,
     // Los resultados solo tienen sentido en una carrera terminada, y solo si se

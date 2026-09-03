@@ -33,11 +33,10 @@ interface Props {
   source: { kind: 'member'; id: string } | { kind: 'public'; token: string }
   /** El trazado de la carrera, para pintarlo debajo. */
   route: [number, number][] | null
-  topPad: number
   onBack: () => void
 }
 
-export function EventReplay({ source, route, topPad, onBack }: Props) {
+export function EventReplay({ source, route, onBack }: Props) {
   /**
    * El trazado con su kilómetro acumulado, calculado una vez.
    *
@@ -114,7 +113,7 @@ export function EventReplay({ source, route, topPad, onBack }: Props) {
 
   if (error) {
     return (
-      <div className="h-full bg-slate-950 px-3" style={{ paddingTop: topPad + 12 }}>
+      <div className="h-full bg-slate-950 px-3 pt-3">
         <p className="text-sm text-red-400">{error}</p>
         <button onClick={onBack} className="mt-3 text-xs text-sky-400">← Volver al mapa</button>
       </div>
@@ -122,14 +121,14 @@ export function EventReplay({ source, route, topPad, onBack }: Props) {
   }
   if (!datos) {
     return (
-      <div className="h-full bg-slate-950 px-3" style={{ paddingTop: topPad + 12 }}>
+      <div className="h-full bg-slate-950 px-3 pt-3">
         <p className="text-sm text-slate-400">Cargando la carrera…</p>
       </div>
     )
   }
   if (datos.runners.length === 0) {
     return (
-      <div className="h-full bg-slate-950 px-3" style={{ paddingTop: topPad + 12 }}>
+      <div className="h-full bg-slate-950 px-3 pt-3">
         <p className="text-sm text-slate-400">No hay trazas que reproducir: nadie llegó a emitir en esta carrera.</p>
         <button onClick={onBack} className="mt-3 text-xs text-sky-400">← Volver al mapa</button>
       </div>

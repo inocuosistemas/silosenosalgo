@@ -104,6 +104,11 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   await env.DB.prepare(
     `UPDATE events SET plan_share_id = ?, plan_name = ?, starts_at = COALESCE(starts_at, ?),
             plan_total_km = COALESCE(?, plan_total_km), ends_at = COALESCE(?, ends_at),
+            -- El trazado simplificado SALE de la base, así que al cambiarla deja
+            -- de valer: se borra y la parrilla lo rehace en cuanto la abra quien
+            -- organiza. Sin esto, mover el recorrido dejaba midiendo el avance
+            -- de los corredores contra el recorrido viejo, en silencio.
+            plan_polyline = NULL,
             activity = COALESCE(activity, ?),
             limit_min = CASE
               WHEN ? IS NOT NULL AND starts_at IS NOT NULL AND ? > starts_at

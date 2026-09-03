@@ -228,3 +228,65 @@ export function parseBaseChange(raw: string | null | undefined): BaseChange | nu
     }
   } catch { return null }
 }
+
+/**
+ * ── El trazado que se queda en el servidor ──────────────────────────────
+ *
+ * El GPX del evento se guarda ENTERO, pero el servidor no lo abre nunca —los
+ * payloads son bytes opacos en KV, y esa decisión vale para todo el sistema—.
+ * Y sin embargo los resultados los calcula él: por qué kilómetro va cada uno,
+ * quién cruzó la meta y cuándo. Necesita geometría, así que se le manda un
+ * resumen del recorrido, que el cliente sí tiene abierto delante.
+ *
+ * Se muestrea POR DISTANCIA y no por número de puntos. Un tope fijo de puntos
+ * reparte mal: los mismos 800 son 11 metros entre vértices en un circuito de
+ * 7 km y 124 en una carrera de 100, y ahí el trazado empieza a cortar las
+ * curvas por la cuerda. Con un vértice cada 25 metros la precisión no depende
+ * de lo larga que sea la carrera.
+ *
+ * El tope de 6.000 puntos es por el hueco donde se guarda (400 KB de texto):
+ * a ~29 bytes por punto son 175 KB, con sitio de sobra. Una carrera de más de
+ * 150 km empieza a perder resolución, y es un compromiso honesto.
+ */
+const PASO_TRAZADO_M = 25
+const MAX_TRAZADO = 6000
+
+export function simplificaTrazado(base: SharePayloadV1): [number, number, number][] {
+  const pts = base.track.points
+  const cum = base.track.cumKm
+  if (!pts?.length || cum?.length !== pts.length) return []
+  const total = cum[cum.length - 1]
+  // Si ni con el paso fino caben, se ensancha: manda el tope.
+  const paso = Math.max(PASO_TRAZADO_M / 1000, total / MAX_TRAZADO)
+  const out: [number, number, number][] = []
+  let ultimo = -Infinity
+  const mete = (i: number) => out.push([
+    Number(pts[i].lat.toFixed(6)), Number(pts[i].lon.toFixed(6)), Number(cum[i].toFixed(3)),
+  ])
+  for (let i = 0; i < pts.length; i++) {
+    if (cum[i] - ultimo < paso) continue
+    mete(i)
+    ultimo = cum[i]
+  }
+  // El final SIEMPRE: es la meta, y perderla por un redondeo sería perder lo
+  // único que de verdad hay que medir.
+  const fin = pts.length - 1
+  if (out.length === 0 || out[out.length - 1][2] !== Number(cum[fin].toFixed(3))) mete(fin)
+  return out
+}
+
+/**
+ * ¿El trazado guardado en el evento es lo bastante fino?
+ *
+ * Sirve para regenerar el de los eventos que se guardaron con la regla vieja,
+ * sin tener que republicar el recorrido a mano. Se da por bueno con holgura:
+ * el GPX puede tener de por sí menos puntos que el paso que pedimos y no hay
+ * nada que mejorar.
+ */
+export function trazadoBastaFino(
+  puntos: number | null | undefined, totalKm: number | null | undefined,
+): boolean {
+  if (!puntos || !totalKm || totalKm <= 0) return false
+  if (puntos >= MAX_TRAZADO) return true
+  return (totalKm * 1000) / puntos <= PASO_TRAZADO_M * 2
+}
