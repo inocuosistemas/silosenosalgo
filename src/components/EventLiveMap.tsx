@@ -16,6 +16,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { ACTIVITY_MAX_SPEED_KMH } from '../lib/timing'
 import { MarkBadge } from './MarkPicker'
+import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
@@ -1017,7 +1018,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   )}
                   {stats.fastestKm && (
                     <p className="mt-2 text-[11px] text-amber-200/90">
-                      ⚡ Kilómetro más rápido: <b>{ritmoLabel(stats.fastestKm.minutos)}</b>{' '}
+                      ⚡ Kilómetro más rápido: <b>{fmtRitmo(stats.fastestKm.minutos)}</b>{' '}
                       — {stats.fastestKm.username}
                     </p>
                   )}
@@ -1361,11 +1362,6 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
   topPad: number
   onBack: () => void
 }) {
-  // ¿Hay algún puesto repartido? Los resultados viejos no traen `puesto`, así
-  // que se mira sobre lo que hay y no se anuncia un empate inventado.
-  const puestos = stats.corredores.filter((c) => c.puesto != null).map((c) => c.puesto)
-  const hayEmpate = new Set(puestos).size < puestos.length
-
   return (
     <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 scrollbar-fantasma" style={{ paddingTop: topPad + 12 }}>
       <div className="mx-auto w-full max-w-2xl">
@@ -1379,66 +1375,8 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
           </p>
         </header>
 
-        {/* El kilómetro más rápido de la carrera: el dato que se discute luego. */}
-        {stats.fastestKm && (
-          <p className="mb-3 rounded-xl border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
-            ⚡ Kilómetro más rápido: <b>{fmtRitmo(stats.fastestKm.minutos)}</b> — {stats.fastestKm.username},
-            desde el km {stats.fastestKm.desdeKm.toFixed(1)}
-          </p>
-        )}
-
-        {/* Empates: si dos llegadas caen dentro del margen de la otra no se
-            pueden ordenar, y decirlo aquí evita que alguien discuta un puesto
-            que el cronómetro no ha decidido. */}
-        {hayEmpate && (
-          <p className="mb-3 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
-            🤝 Hay puestos compartidos. El paso por meta se calcula entre dos
-            lecturas del GPS, así que cada tiempo lleva un margen: cuando dos
-            márgenes se tocan, cualquiera de los dos pudo llegar antes y se
-            reparte el puesto.
-          </p>
-        )}
-
-        <ul className="space-y-1.5">
-          {stats.corredores.map((c, i) => (
-            <li key={c.username} className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
-              <div className="flex items-center gap-2">
-                <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
-                  {c.finished ? (c.puesto ?? i + 1) : '·'}
-                </span>
-                <MarkBadge emoji={c.emoji} color={c.color} size={20} />
-                {c.bib && (
-                  <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                    {c.bib}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
-                {c.finished
-                  ? (
-                    <span className="shrink-0 text-right">
-                      <span className="text-sm font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
-                      {/* El margen, pegado al tiempo: un tiempo sin él invita a
-                          comparar segundos que no existen. Por debajo de cinco
-                          segundos no se enseña, que es ruido de maquetación. */}
-                      {c.margenMs != null && c.margenMs >= 5000 && (
-                        <span className="ml-1 text-[10px] tabular-nums text-slate-500">±{Math.round(c.margenMs / 1000)}s</span>
-                      )}
-                    </span>
-                  )
-                  : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
-              </div>
-              {c.tracked && (
-                <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">
-                  <span>{c.km?.toFixed(1)} km</span>
-                  {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
-                  {c.mejorKmMin != null && (
-                    <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>
-                  )}
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
+        <RecordDeKm stats={stats} />
+        <ListaResultados stats={stats} />
 
         <button
           onClick={onBack}
@@ -1449,21 +1387,6 @@ function ResultsView({ stats, endedAt, topPad, onBack }: {
       </div>
     </div>
   )
-}
-
-/** Un ritmo o un tiempo de kilómetro: "4:35". */
-function fmtRitmo(min: number): string {
-  const m = Math.floor(min)
-  const s = Math.round((min - m) * 60)
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
-/** Un tiempo de carrera: "5h 12m". */
-function fmtDuracion(min: number | null): string {
-  if (min == null) return '—'
-  const h = Math.floor(min / 60)
-  const m = Math.round(min % 60)
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`
 }
 
 /** La ficha del corredor elegido: lo justo para saber cómo va. */
@@ -2022,13 +1945,6 @@ function readHoverKm(clientX: number, el: HTMLElement, totalKm: number, emit: (k
   if (r.width <= 0) return
   const t = (clientX - r.left) / r.width
   emit(Math.max(0, Math.min(1, t)) * totalKm)
-}
-
-/** Un ritmo o un tiempo de kilómetro en minutos decimales: "5:44". */
-function ritmoLabel(min: number): string {
-  const m = Math.floor(min)
-  const s = Math.round((min - m) * 60)
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 /** Días, horas, minutos y segundos de un intervalo, ya con sus dos cifras. */

@@ -14,6 +14,7 @@ import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
+import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import { BaseChangeNotice } from './BaseChangeNotice'
@@ -955,62 +956,8 @@ export default function EventLobby({ id }: { id: string }) {
           defaultOpen
           summary={`${event.stats.finishers} de ${event.stats.runners}`}
         >
-          {event.stats.fastestKm && (
-            <p className="mb-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-2.5 py-1.5 text-[11px] text-amber-100">
-              ⚡ Kilómetro más rápido de la carrera: <b>{fmtRitmo(event.stats.fastestKm.minutos)}</b> —{' '}
-              {event.stats.fastestKm.username}, desde el km {event.stats.fastestKm.desdeKm.toFixed(1)}
-            </p>
-          )}
-          {(() => {
-            const p = event.stats!.corredores.filter((c) => c.puesto != null).map((c) => c.puesto)
-            return new Set(p).size < p.length
-          })() && (
-            <p className="mb-2 rounded-lg border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-400">
-              🤝 Hay puestos compartidos: el paso por meta se calcula entre dos lecturas
-              del GPS y cada tiempo lleva su margen. Cuando dos márgenes se tocan,
-              cualquiera de los dos pudo llegar antes.
-            </p>
-          )}
-          <ul className="space-y-1.5">
-            {event.stats.corredores.map((c, i) => (
-              <li key={c.username} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
-                <div className="flex items-center gap-2">
-                  {/* El puesto que dice el resultado, no la fila en la que
-                      cayó: los que llegan dentro del margen del otro comparten
-                      número, y el siguiente se salta los empatados. */}
-                  <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500">
-                    {c.finished ? (c.puesto ?? i + 1) : '·'}
-                  </span>
-                  <MarkBadge emoji={c.emoji} color={c.color} size={20} />
-                  {c.bib && (
-                    <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                      {c.bib}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
-                  {c.finished
-                    ? (
-                      <span className="shrink-0 text-right">
-                        <span className="text-xs font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
-                        {c.margenMs != null && c.margenMs >= 5000 && (
-                          <span className="ml-1 text-[10px] tabular-nums text-slate-500">±{Math.round(c.margenMs / 1000)}s</span>
-                        )}
-                      </span>
-                    )
-                    : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
-                </div>
-                {c.tracked && (
-                  <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">
-                    <span>{c.km?.toFixed(1)} km</span>
-                    {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
-                    {c.mejorKmMin != null && (
-                      <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>
-                    )}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+          <RecordDeKm stats={event.stats} />
+          <ListaResultados stats={event.stats} />
         </Plegable>
       )}
 
@@ -1371,20 +1318,6 @@ const ACTIVIDADES: Record<string, string> = {
 }
 
 /** Un ritmo o un tiempo de kilómetro: "4:35". */
-function fmtRitmo(min: number): string {
-  const m = Math.floor(min)
-  const s = Math.round((min - m) * 60)
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
-/** Un tiempo de carrera: "5h 12m". */
-function fmtDuracion(min: number | null): string {
-  if (min == null) return '—'
-  const h = Math.floor(min / 60)
-  const m = Math.round(min % 60)
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`
-}
-
 function fmtDate(ms: number): string {
   try {
     return new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
