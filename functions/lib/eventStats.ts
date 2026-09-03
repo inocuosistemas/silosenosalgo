@@ -38,6 +38,44 @@ function metros(a: TrailPoint, b: TrailPoint): number {
  * mundo mira después de una carrera y el único que no se puede sacar del ritmo
  * medio: dice de lo que fue capaz, no lo que le salió de media.
  */
+/**
+ * El kilómetro más rápido medido sobre el AVANCE en el recorrido.
+ *
+ * Es la versión buena: la traza cruda incluye el temblor del GPS —y sus saltos:
+ * en esta misma carrera hay tramos de 127 m en 7 segundos, 65 km/h andando— y
+ * medir sobre ella regala kilómetros imposibles a quien peor receptor lleva.
+ * Sobre el avance no puede pasar: un salto lateral de treinta metros no mueve
+ * el kilómetro del recorrido, que es lo que de verdad se ha progresado.
+ */
+function kmMasRapidoEnRuta(serie: [number, number][]): { minutos: number; desdeKm: number } | null {
+  if (serie.length < 2) return null
+  let mejor: { minutos: number; desdeKm: number } | null = null
+  for (let j = 1; j < serie.length; j++) {
+    const objetivo = serie[j][1] - 1
+    if (objetivo < 0) continue
+    // Hacia ATRÁS desde j hasta el último momento en que iba un kilómetro por
+    // detrás. Hacia atrás y no con un puntero que avanza porque la serie NO es
+    // monótona: quien llega a la salida andando por el último tramo del
+    // circuito empieza en el km 7 y baja hasta el 3, y un puntero que solo sabe
+    // avanzar se queda encallado en el primer punto y no encuentra nada.
+    let i = -1
+    for (let k = j - 1; k >= 0; k--) {
+      if (serie[k][1] <= objetivo) { i = k; break }
+    }
+    if (i < 0) continue
+    const tramo = serie[i + 1][1] - serie[i][1]
+    if (tramo <= 0) continue
+    const t = (objetivo - serie[i][1]) / tramo
+    const inicio = serie[i][0] + t * (serie[i + 1][0] - serie[i][0])
+    const minutos = (serie[j][0] - inicio) / 60_000
+    // Menos de dos minutos por kilómetro no lo hace nadie a pie: es un salto
+    // de GPS, y precisamente de eso va este cálculo.
+    if (minutos <= 2) continue
+    if (!mejor || minutos < mejor.minutos) mejor = { minutos, desdeKm: serie[i][1] }
+  }
+  return mejor
+}
+
 function kmMasRapido(pts: TrailPoint[], acumulado: number[]): { minutos: number; desdeKm: number } | null {
   if (pts.length < 2) return null
   let mejor: { minutos: number; desdeKm: number } | null = null
@@ -83,6 +121,8 @@ interface Avance {
   enMs: number
   /** Cuándo pisó el recorrido por primera vez: el crono empieza ahí. */
   desdeMs: number
+  /** El avance punto a punto: [hora, kilómetro del recorrido]. */
+  serie: [number, number][]
 }
 
 function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): Avance | null {
@@ -92,6 +132,7 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
   let enMs = pts[0].t
   let desdeMs: number | null = null
   let dentro = 0
+  const serie: [number, number][] = []
   for (const p of pts) {
     let desde = 0
     let hasta = linea.length - 1
@@ -111,11 +152,12 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250)
     previo = linea[mejor][2]
     dentro++
     if (desdeMs === null) desdeMs = p.t
+    serie.push([p.t, previo])
     if (previo > max) { max = previo; enMs = p.t }
   }
   // Sin ningún punto sobre el recorrido no se sabe nada: fue por otro sitio, o
   // el trazado guardado no es el de esta carrera.
-  return dentro > 0 ? { km: max, enMs, desdeMs: desdeMs ?? pts[0].t } : null
+  return dentro > 0 ? { km: max, enMs, desdeMs: desdeMs ?? pts[0].t, serie } : null
 }
 
 interface FilaSesion {
@@ -191,9 +233,17 @@ export function calculaEstadisticas(
     // Y termina al alcanzar el punto más lejano —cruzar meta— y no en la última
     // posición, que suele ser el aparcamiento.
     const desde = startsAt ?? avance?.desdeMs ?? f.startedAt ?? pts[0].t
-    const hasta = avance?.enMs ?? pts[pts.length - 1].t
+    // Cruzar meta es la PRIMERA vez que se llega al final habiendo hecho antes
+    // el recorrido. Las dos mitades importan: "la primera vez" porque el punto
+    // más lejano se puede volver a rozar después, andando de vuelta al coche, y
+    // eso alargaría el crono; y "habiendo hecho el recorrido" porque en un
+    // circuito la meta es el mismo sitio que la salida, así que quien llega
+    // andando por el último tramo ya está en el 97% antes de empezar —a JM le
+    // pasó, y su meta habría quedado fijada a las 05:31—.
+    const hasta = crucaMeta(avance?.serie ?? [], totalKm) ?? avance?.enMs ?? pts[pts.length - 1].t
     const minutos = Math.max(0, (hasta - desde) / 60_000)
-    const mejor = kmMasRapido(pts, acumulado)
+    // Sobre el avance si lo hay; si no, sobre la traza, que es lo que queda.
+    const mejor = (avance ? kmMasRapidoEnRuta(avance.serie) : null) ?? kmMasRapido(pts, acumulado)
     const finished = totalKm != null && km >= totalKm * 0.97
 
     corredores.push({
@@ -292,6 +342,22 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
   }
   if (!raw) return null
   try { return JSON.parse(raw) as EventStats } catch { return null }
+}
+
+/**
+ * El instante de cruzar meta: la primera llegada al final DESPUÉS de haber
+ * pasado por la mitad del recorrido.
+ */
+function crucaMeta(serie: [number, number][], totalKm: number | null): number | null {
+  if (totalKm === null || serie.length === 0) return null
+  const meta = totalKm * 0.97
+  const mitad = totalKm * 0.5
+  let hecho = false
+  for (const [t, km] of serie) {
+    if (km <= mitad) hecho = true
+    else if (hecho && km >= meta) return t
+  }
+  return null
 }
 
 /** El trazado simplificado del evento, si lo tiene. */
