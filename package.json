@@ -36,6 +36,7 @@
     "leaflet": "^1.9.4",
     "leaflet-gesture-handling": "^1.2.2",
     "leaflet-velocity": "^2.1.4",
+    "lucide-react": "^1.40.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-is": "^19.2.5",

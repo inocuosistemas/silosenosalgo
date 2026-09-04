@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+// Iconos de trazo en vez de emojis. Un emoji lo dibuja cada sistema a su
+// manera —y en algunos sale a todo color, con su cara y sus ojos— así que en
+// una pantalla de cuenta y contraseña, donde lo que hace falta es seriedad y
+// que un icono signifique UNA cosa, no valen. Se importan de uno en uno: el
+// paquete se sacude en la compilación y solo viaja lo que se usa.
+import { User, Lock, Eye, EyeOff, X, Check } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
 import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../lib/authClient'
@@ -80,7 +86,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
             }}
             className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
           >
-            👤 <span className="hidden sm:inline max-w-[8rem] truncate">{user.username}</span>
+            <User size={15} /> <span className="hidden sm:inline max-w-[8rem] truncate">{user.username}</span>
             {user.isAdmin && <span className="hidden sm:inline text-[10px] text-amber-400">admin</span>}
           </button>
           {menuOpen && (
@@ -155,7 +161,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           aria-label="Iniciar sesión"
           className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
         >
-          👤 <span>Entrar</span>
+          <User size={15} /> <span>Entrar</span>
         </button>
       )}
 
@@ -225,7 +231,9 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
         >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold">{title}</h2>
-            <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+            <button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200">
+              <X size={18} />
+            </button>
           </div>
           {children}
         </div>
@@ -242,20 +250,38 @@ function Field(props: {
   onChange: (v: string) => void
   autoComplete?: string
   placeholder?: string
+  /** Icono a la izquierda, dentro del campo: es lo que lo distingue de un
+   *  vistazo de los otros dos, que si no son tres cajas oscuras iguales. */
+  icon?: ReactNode
+  /** La letra pequeña de debajo: para qué sirve esto y a quién se le enseña. */
+  hint?: ReactNode
+  error?: string | null
 }) {
   return (
     <div>
       <label className="block text-xs text-slate-400 mb-1">{props.label}</label>
-      <input
-        type={props.type}
-        autoCapitalize="none"
-        autoCorrect="off"
-        autoComplete={props.autoComplete}
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        placeholder={props.placeholder}
-        className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600"
-      />
+      <div className="relative">
+        {props.icon && (
+          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-9 place-items-center text-slate-500">
+            {props.icon}
+          </span>
+        )}
+        <input
+          type={props.type}
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete={props.autoComplete}
+          value={props.value}
+          onChange={(e) => props.onChange(e.target.value)}
+          placeholder={props.placeholder}
+          className={`w-full rounded-lg bg-slate-950 border py-2 text-sm focus:outline-none ${
+            props.icon ? 'pl-9 pr-3' : 'px-3'
+          } ${props.error ? 'border-red-800 focus:border-red-600' : 'border-slate-700 focus:border-sky-600'}`}
+        />
+      </div>
+      {props.error
+        ? <p className="mt-1 text-[11px] text-red-400">{props.error}</p>
+        : props.hint && <p className="mt-1 text-[11px] leading-snug text-slate-500">{props.hint}</p>}
     </div>
   )
 }
@@ -277,12 +303,19 @@ function PasswordField(props: {
   placeholder?: string
   /** Aviso propio del campo (p. ej. "no coinciden"), en rojo bajo el borde. */
   error?: string | null
+  hint?: ReactNode
 }) {
   const [visible, setVisible] = useState(false)
   return (
     <div>
       <label className="block text-xs text-slate-400 mb-1">{props.label}</label>
       <div className="relative">
+        {/* Candado a la izquierda en las dos contraseñas y muñeco en el
+            usuario: es lo primero que se mira y dice de qué va el campo antes
+            de leer nada. */}
+        <span className="pointer-events-none absolute inset-y-0 left-0 grid w-9 place-items-center text-slate-500">
+          <Lock size={15} />
+        </span>
         <input
           type={visible ? 'text' : 'password'}
           autoCapitalize="none"
@@ -291,7 +324,7 @@ function PasswordField(props: {
           value={props.value}
           onChange={(e) => props.onChange(e.target.value)}
           placeholder={props.placeholder}
-          className={`w-full rounded-lg bg-slate-950 border px-3 py-2 pr-10 text-sm focus:outline-none ${
+          className={`w-full rounded-lg bg-slate-950 border py-2 pl-9 pr-10 text-sm focus:outline-none ${
             props.error ? 'border-red-800 focus:border-red-600' : 'border-slate-700 focus:border-sky-600'
           }`}
         />
@@ -302,10 +335,12 @@ function PasswordField(props: {
           title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
           className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-sky-400"
         >
-          {visible ? '🙈' : '👁️'}
+          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
       </div>
-      {props.error && <p className="mt-1 text-[11px] text-red-400">{props.error}</p>}
+      {props.error
+        ? <p className="mt-1 text-[11px] text-red-400">{props.error}</p>
+        : props.hint && <p className="mt-1 text-[11px] leading-snug text-slate-500">{props.hint}</p>}
     </div>
   )
 }
@@ -367,11 +402,28 @@ function RegisterForm({
   // Solo cuando ya se ha escrito algo en la repetición: avisar de que "no
   // coinciden" en cuanto se teclea la primera letra es regañar por adelantado.
   const mismatch = password2.length > 0 && password !== password2
+  // Y lo mismo con el usuario: no se le dice que está mal hasta que hay tres
+  // letras, que es lo mínimo que puede llegar a valer.
+  const usuarioMal = username.length >= 3 && !usernameOk(username)
+  /**
+   * El usuario y la contraseña, iguales.
+   *
+   * No es una hipótesis: pasó. Los tres campos eran tres cajas oscuras
+   * idénticas y alguien escribió su contraseña también arriba, con lo que su
+   * contraseña queda a la vista de todos los participantes —el usuario se
+   * enseña en la parrilla, en el mapa y en los resultados—. Se comprueba sin
+   * distinguir mayúsculas, que "Perro" y "perro" son el mismo despiste.
+   */
+  const mismoQueUsuario = password.length > 0 && password.toLowerCase() === username.toLowerCase()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (!usernameOk(username)) { setError(authErrorMessage('invalid_username')); return }
     if (!passwordOk(password)) { setError(authErrorMessage('invalid_password')); return }
+    if (mismoQueUsuario) {
+      setError('La contraseña no puede ser tu propio usuario: el usuario lo ve todo el mundo.')
+      return
+    }
     if (password !== password2) { setError('Las dos contraseñas no coinciden.'); return }
     setBusy(true)
     setError(null)
@@ -387,24 +439,64 @@ function RegisterForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className="text-xs text-slate-400">Te han invitado a SiLoSeNoSalgo. Elige tu usuario y contraseña.</p>
-      <Field label="Usuario" type="text" value={username} onChange={setUsername} autoComplete="username" placeholder="3–32 car.: a–z, 0–9, . _ -" />
-      <PasswordField label="Contraseña" value={password} onChange={setPassword} autoComplete="new-password" placeholder="mínimo 8 caracteres" />
-      {/* Se pide dos veces porque una contraseña mal tecleada aquí no tiene
-          arreglo desde la propia aplicación: no hay recuperación por correo, y
-          quien se equivoca se queda fuera de su cuenta recién creada. */}
-      <PasswordField
-        label="Repite la contraseña"
-        value={password2}
-        onChange={setPassword2}
-        autoComplete="new-password"
-        placeholder="la misma, para comprobar"
-        error={mismatch ? 'No coinciden.' : null}
-      />
+      <p className="text-xs text-slate-400">Te han invitado a SiLoSeNoSalgo. Son dos cosas distintas:</p>
+
+      {/* DOS BLOQUES separados y etiquetados, y no tres campos seguidos. Un
+          nombre público y una contraseña secreta no se parecen en nada, pero
+          apilados y con el mismo borde parecen lo mismo — y alguien acabó
+          poniendo su contraseña de nombre. Lo que separa aquí no es adorno: es
+          la explicación de para qué es cada uno. */}
+      <fieldset className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+        <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-sky-400">
+          Cómo te van a ver
+        </legend>
+        <Field
+          label="Tu nombre en la aplicación"
+          type="text"
+          value={username}
+          onChange={setUsername}
+          autoComplete="username"
+          placeholder="p. ej. anaruiz"
+          icon={<User size={15} />}
+          error={usuarioMal ? 'Solo minúsculas, números y . _ - (de 3 a 32).' : null}
+          hint={<>Es <b className="text-slate-400">público</b>: sale en la parrilla, en el mapa y en los
+            resultados. Tu nombre o tu apodo — nunca algo secreto.</>}
+        />
+      </fieldset>
+
+      <fieldset className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-3">
+        <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-sky-400">
+          Cómo vas a entrar
+        </legend>
+        <PasswordField
+          label="Contraseña"
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          placeholder="mínimo 8 caracteres"
+          error={mismoQueUsuario ? 'Esa es tu nombre público: elige otra distinta.' : null}
+          hint={<>Secreta, no la ve nadie. Con el ojo de la derecha puedes comprobar lo que escribes.</>}
+        />
+        {/* Se pide dos veces porque una contraseña mal tecleada aquí no tiene
+            arreglo desde la propia aplicación: no hay recuperación por correo, y
+            quien se equivoca se queda fuera de su cuenta recién creada. */}
+        <PasswordField
+          label="Repite la contraseña"
+          value={password2}
+          onChange={setPassword2}
+          autoComplete="new-password"
+          placeholder="la misma, para comprobar"
+          error={mismatch ? 'No coinciden.' : null}
+          hint={password2.length > 0 && !mismatch
+            ? <span className="inline-flex items-center gap-1 text-emerald-400"><Check size={12} /> Coinciden</span>
+            : 'Para asegurar que no hay una errata: aquí no hay "he olvidado mi contraseña".'}
+        />
+      </fieldset>
+
       {error && <p className="text-red-400 text-xs">{error}</p>}
       <button
         type="submit"
-        disabled={busy || !username || !password || !password2 || mismatch}
+        disabled={busy || !username || !password || !password2 || mismatch || usuarioMal || mismoQueUsuario}
         className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 transition-colors"
       >
         {busy ? 'Creando…' : 'Crear cuenta'}
