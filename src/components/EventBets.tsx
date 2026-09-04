@@ -558,6 +558,17 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
           // —otra ventana delante, el móvil bloqueado— no se ejecuta nunca y
           // dejaría el botón en "Preparando…" para siempre.
           await new Promise((r) => setTimeout(r, 60))
+          // Y por si acaso, la de la tarjeta: la de arriba estaba decodificada,
+          // pero esta es otra etiqueta y el navegador decide cuándo la termina.
+          const img = tarjetaRef.current?.querySelector('img')
+          if (img && !(img.complete && img.naturalWidth > 0)) {
+            await new Promise<void>((r) => {
+              const ya = () => r()
+              img.addEventListener('load', ya, { once: true })
+              img.addEventListener('error', ya, { once: true })
+              setTimeout(ya, 3_000)
+            })
+          }
         }
       }
       const { toPng } = await import('html-to-image')
@@ -821,18 +832,37 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   )
 }
 
-/** Una imagen de la web convertida en datos, o null si no se pudo traer. */
+/**
+ * Una imagen de la web convertida en datos y YA DECODIFICADA, o null.
+ *
+ * Lo de decodificarla antes no es un adorno: la captura dibuja la tarjeta tal
+ * como está en ese instante, y una imagen recién puesta que el navegador aún no
+ * ha terminado de abrir se dibuja como un hueco vacío. Es lo que salía: la
+ * tarjeta con su franja negra arriba y la foto en ninguna parte. Esperar aquí a
+ * que esté lista es la única forma de que al pintarla ya se vea.
+ */
 async function aDatos(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { credentials: 'same-origin' })
     if (!res.ok) return null
     const blob = await res.blob()
-    return await new Promise<string | null>((resolve) => {
+    const datos = await new Promise<string | null>((resolve) => {
       const lector = new FileReader()
       lector.onload = () => resolve(typeof lector.result === 'string' ? lector.result : null)
       lector.onerror = () => resolve(null)
       lector.readAsDataURL(blob)
     })
+    if (!datos) return null
+    const lista = await new Promise<boolean>((resolve) => {
+      const img = new Image()
+      img.onload = () => resolve(true)
+      img.onerror = () => resolve(false)
+      // Con tope: una imagen que no termina de abrirse no puede dejar el botón
+      // esperándola.
+      setTimeout(() => resolve(false), 5_000)
+      img.src = datos
+    })
+    return lista ? datos : null
   } catch {
     return null
   }
