@@ -6,10 +6,18 @@ import type { TrailPoint, EventStats, EventRunnerStats } from '../../shared/wire
  * lib/eventStats.ts — los resultados de una carrera, congelados al cerrarla.
  *
  * Se calculan UNA vez, al cerrar el evento, y se guardan como JSON. No es una
- * optimización: las trazas se purgan a las 48 h de la última posición, así que
- * si no se congelan, el lunes ya no se puede decir quién ganó el sábado. La
- * porra depende de lo mismo —se puntúa contra quién llegó a meta y cuándo—, y
- * un ranking que se vacía solo a los dos días no es un ranking.
+ * optimización: las trazas SE BORRAN, y no en un plazo que decidamos nosotros
+ * sino el que eligió cada corredor en su baliza al terminar —el selector
+ * ofrece de 6 horas a una semana, y viene en 48 h—. O sea que la traza del que
+ * puso 6 horas desaparece esa misma tarde. Si los resultados no se congelan, el
+ * lunes no se puede decir quién ganó el sábado. La porra depende de lo mismo
+ * —se puntúa contra quién llegó a meta y cuándo—, y un ranking que se vacía
+ * solo no es un ranking.
+ *
+ * Consecuencia práctica que conviene no olvidar: el evento se cierra en el
+ * primer vistazo posterior a su hora de cierre, así que ese vistazo tiene que
+ * pasar mientras las trazas siguen ahí. Nadie mira la parrilla el lunes para
+ * enterarse de que se cerró sola con las manos vacías.
  *
  * Todo sale de lo que ya hay guardado: la traza (hasta 2000 puntos con su hora
  * de GPS) y el kilómetro sobre el recorrido que reporta cada baliza. No hace

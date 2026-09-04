@@ -72,7 +72,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ? body.startAt
       : now
   // One active session per user: end any prior active ones (stop accumulation).
-  // Keep their data so they stay viewable for 48 h, then they're lazy-purged.
+  // Se les conserva el rastro para que sigan viéndose (KEEP_AFTER_END_MS: 30
+  // días, que a esta no la terminó nadie, la desplazó otra) y luego se purga
+  // sola. Lo que SÍ elige cada uno es el plazo al terminar la baliza a mano.
   await env.DB.prepare(
     "UPDATE tracking_sessions SET status='ended', ended_at=?, expires_at=? WHERE owner_user_id=? AND status='active'",
   ).bind(now, now + KEEP_AFTER_END_MS, user.id).run()
