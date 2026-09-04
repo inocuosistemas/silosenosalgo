@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { X, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { X, ChevronRight, Share2 } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import { scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
@@ -46,8 +46,11 @@ function cuando(ms: number): string {
   return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
 }
 
-export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBack }: {
+export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, onBack }: {
   eventId: string
+  /** Para la tarjeta que se comparte: la carrera tiene que decir cuál es. */
+  eventName: string | null
+  photoUrl: string | null
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo de ella. */
   runners: BetRunner[]
   outcomes: RunnerOutcome[]
@@ -376,7 +379,8 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
 
       {/* ── Cómo está la porra ───────────────────────────────────────────── */}
       {data && data.bets.length > 0 && (
-        <BetsPulse bets={data.bets} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin} />
+        <BetsPulse bets={data.bets} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin}
+                   eventName={eventName} photoUrl={photoUrl} />
       )}
 
       {/* ── El ranking, solo para quien juega ────────────────────────────── */}
@@ -503,15 +507,57 @@ const C_NO = '#ea580c'
 const C_VOTO = '#7c3aed'
 const C_TIEMPO = '#a78bfa'
 
-function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
+function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, photoUrl }: {
   bets: EventBetsResponse['bets']
   players: number
   runners: BetRunner[]
   startsAt: number | null
   limitMin: number | null
+  eventName: string | null
+  photoUrl: string | null
 }) {
   const jugadores = players
   const dame = (n: string) => runners.find((r) => r.username === n)
+  const tarjetaRef = useRef<HTMLDivElement | null>(null)
+  const [compartiendo, setCompartiendo] = useState(false)
+
+  /**
+   * Convierte la tarjeta en una imagen y la manda por donde el móvil ofrezca.
+   *
+   * Se pinta una tarjeta APARTE, fuera de la pantalla, y no se fotografía lo
+   * que se ve: lo de arriba está hecho para caber en una columna estrecha, y de
+   * lo que se trata es de que en el grupo se lea el marcador sin ampliar. La
+   * tarjeta va a 540 px y se captura al doble, o sea 1080 de ancho.
+   *
+   * En el móvil sale el menú de compartir de siempre —WhatsApp, Telegram— y en
+   * un ordenador, que no tiene ese menú, se descarga el PNG.
+   */
+  async function compartir() {
+    if (!tarjetaRef.current || compartiendo) return
+    setCompartiendo(true)
+    try {
+      const { toPng } = await import('html-to-image')
+      const url = await toPng(tarjetaRef.current, {
+        pixelRatio: 2, cacheBust: true, backgroundColor: '#0b1120',
+      })
+      const blob = await (await fetch(url)).blob()
+      const fichero = new File([blob], 'porra.png', { type: 'image/png' })
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+      if (nav.canShare?.({ files: [fichero] })) {
+        await nav.share({ files: [fichero], title: eventName ?? 'La porra' })
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'porra.png'
+        a.click()
+      }
+    } catch {
+      // Cancelar el menú de compartir también llega aquí: no es un error que
+      // haya que contarle a nadie.
+    } finally {
+      setCompartiendo(false)
+    }
+  }
 
   // Quién gana, según la porra: cuántos ponen a cada uno en el primer puesto.
   const votos = runners.map((r) => ({
@@ -553,13 +599,22 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
 
   return (
     <section className="mb-4 overflow-hidden rounded-xl border border-violet-900/50 bg-gradient-to-b from-violet-950/30 to-slate-900/60">
-      <header className="flex items-baseline justify-between gap-2 border-b border-violet-900/40 px-3.5 py-2.5">
+      <header className="flex items-center justify-between gap-2 border-b border-violet-900/40 px-3.5 py-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-violet-300">
           Cómo está la porra
         </h2>
-        <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
-          {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] tabular-nums text-slate-400">
+            {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
+          </span>
+          <button
+            onClick={() => void compartir()}
+            disabled={compartiendo}
+            className="flex items-center gap-1 rounded-lg border border-violet-800 bg-violet-950/50 px-2 py-1 text-[11px] font-semibold text-violet-200 transition-colors hover:border-violet-600 disabled:opacity-50"
+          >
+            <Share2 size={13} /> {compartiendo ? 'Preparando…' : 'Compartir'}
+          </button>
+        </div>
       </header>
 
       {/* ── El titular ──────────────────────────────────────────────────── */}
@@ -600,35 +655,38 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
         {/* ── ¿Acaba? ───────────────────────────────────────────────────── */}
         {acabar.length > 0 && (
           <div>
-            <div className="flex items-baseline justify-between gap-2">
-              <Titulo color={C_SI}>¿Acaba?</Titulo>
-              <p className="flex shrink-0 items-center gap-2 text-[10px] text-slate-500">
-                <Leyenda color={C_SI}>sí</Leyenda>
-                <Leyenda color={C_NO}>no</Leyenda>
-              </p>
-            </div>
+            <Titulo color={C_SI}>¿Acaba?</Titulo>
+            {/* Como un marcador de fútbol: dos casillas y dos números grandes.
+                Es el dato que se comenta en el grupo —"tres a cero a que no
+                acabas"— y en una barra fina con un 3/0 al lado no se leía sin
+                acercar el móvil a la cara. Los dígitos van en tinta clara y el
+                color lo pone la casilla: un número pintado de azul oscuro sobre
+                fondo oscuro se lee peor, y aquí lo que hay que leer es el
+                número. */}
             <ul className="mt-2 space-y-1.5">
               {acabar.map((a) => {
                 const total = a.si + a.no
                 const unanime = total > 1 && (a.si === 0 || a.no === 0)
                 return (
-                  <li key={a.name} className="flex items-center gap-2" title={`${a.name}: ${a.si} sí · ${a.no} no`}>
-                    <Corredor r={dame(a.name)} name={a.name} />
-                    {/* Los dos tramos separados por 2px de fondo: pegados, el
-                        borde entre colores se lee como un tercer color. */}
-                    <span className="flex h-2.5 flex-1 gap-[2px]">
+                  <li key={a.name} className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <MarkBadge emoji={dame(a.name)?.emoji ?? null} color={dame(a.name)?.color ?? null} size={22} />
+                        <span className="min-w-0 truncate text-sm font-semibold text-slate-100">{a.name}</span>
+                        {unanime && (
+                          <span className="shrink-0 rounded bg-violet-950/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-300">
+                            unanimidad
+                          </span>
+                        )}
+                      </span>
+                      <Marcador si={a.si} no={a.no} />
+                    </div>
+                    {/* La proporción, debajo y fina: con tres jugadores sobra,
+                        pero con treinta el marcador solo no dice si 18-12 está
+                        reñido o no. */}
+                    <span className="mt-1.5 flex h-1.5 gap-[2px]">
                       {a.si > 0 && <span className="block h-full rounded-full" style={{ width: `${(a.si / total) * 100}%`, background: C_SI }} />}
                       {a.no > 0 && <span className="block h-full rounded-full" style={{ width: `${(a.no / total) * 100}%`, background: C_NO }} />}
-                    </span>
-                    {/* El número en tinta y el color en la pastilla: un dígito
-                        pintado del color de la serie se lee peor y no hace
-                        falta, que la barra ya lo dice. */}
-                    <span className="w-11 shrink-0 text-right text-xs tabular-nums text-slate-300">
-                      {a.si}<span className="text-slate-600">/</span>{a.no}
-                      {/* Cuando nadie discrepa, un punto de exclamación: es el
-                          dato gracioso de la porra —"todos dicen que abandona"—
-                          y sin él la fila es igual que cualquier otra. */}
-                      {unanime && <span className="ml-0.5 text-violet-400">!</span>}
                     </span>
                   </li>
                 )
@@ -693,7 +751,151 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
           </div>
         )}
       </div>
+
+      {/* La tarjeta que se comparte: existe en el documento pero fuera de la
+          pantalla, porque `html-to-image` necesita que esté pintada de verdad
+          para poder fotografiarla. `left: -9999px` y no `display: none`, que lo
+          escondido del todo no se pinta y sale en blanco. */}
+      <div style={{ position: 'fixed', left: -9999, top: 0, pointerEvents: 'none' }} aria-hidden>
+        <TarjetaPorra
+          ref={tarjetaRef}
+          eventName={eventName}
+          photoUrl={photoUrl}
+          jugadores={jugadores}
+          favorito={favorito}
+          mediana={mediana}
+          acabar={acabar}
+          dame={dame}
+        />
+      </div>
     </section>
+  )
+}
+
+/**
+ * La porra hecha una foto, para mandarla al grupo.
+ *
+ * Va aparte de lo que se ve en pantalla y no es lo mismo redimensionado: en el
+ * móvil de otro, dentro de una conversación y sin ampliar, solo se lee lo muy
+ * grande. Así que aquí entra el cartel de la carrera, el favorito con su cara y
+ * los marcadores a tamaño de titular; lo demás —quién gana por votos, la
+ * dispersión de tiempos— se queda en la aplicación, que es donde se puede mirar
+ * con calma.
+ *
+ * 540 px de ancho, que capturados al doble son 1080: lo que espera cualquier
+ * chat sin recomprimir.
+ */
+function TarjetaPorra({ ref, eventName, photoUrl, jugadores, favorito, mediana, acabar, dame }: {
+  ref: React.Ref<HTMLDivElement>
+  eventName: string | null
+  photoUrl: string | null
+  jugadores: number
+  favorito: { name: string; n: number } | null
+  mediana: number | null
+  acabar: { name: string; si: number; no: number }[]
+  dame: (n: string) => BetRunner | undefined
+}) {
+  return (
+    <div ref={ref} style={{ width: 540, background: '#0b1120', fontFamily: 'system-ui, sans-serif' }}>
+      {photoUrl && (
+        <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
+          <img src={photoUrl} alt="" crossOrigin="anonymous"
+               style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, #0b1120, transparent 70%)' }} />
+        </div>
+      )}
+      <div style={{ padding: '18px 22px 22px' }}>
+        <p style={{ margin: 0, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: '#a78bfa', fontWeight: 700 }}>
+          La porra · {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 26, fontWeight: 800, color: '#f8fafc', lineHeight: 1.15 }}>
+          {eventName ?? 'La carrera'}
+        </p>
+
+        {favorito && (
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <MarkBadge emoji={dame(favorito.name)?.emoji ?? null} color={dame(favorito.name)?.color ?? null} size={52} />
+            <div>
+              <p style={{ margin: 0, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#64748b' }}>El favorito</p>
+              <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#f8fafc', lineHeight: 1.2 }}>{favorito.name}</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+                {favorito.n} de {jugadores} lo ponen primero
+                {mediana !== null && ` · le dan ${durationLabel(mediana * 60_000)}`}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {acabar.length > 0 && (
+          <>
+            <p style={{ margin: '20px 0 8px', fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>¿Acaba?</p>
+            {acabar.map((a) => (
+              <div key={a.name} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 8,
+                borderRadius: 12, background: '#111c33', border: '1px solid #1e293b',
+              }}>
+                <MarkBadge emoji={dame(a.name)?.emoji ?? null} color={dame(a.name)?.color ?? null} size={34} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.name}
+                </span>
+                <CasillaGrande n={a.si} etiqueta="sí" color={C_SI} apagada={a.si === 0} />
+                <span style={{ fontSize: 20, fontWeight: 800, color: '#334155' }}>–</span>
+                <CasillaGrande n={a.no} etiqueta="no" color={C_NO} apagada={a.no === 0} />
+              </div>
+            ))}
+          </>
+        )}
+
+        <p style={{ margin: '14px 0 0', fontSize: 11, color: '#475569' }}>
+          Ni un euro: se juega el orgullo · silosenosalgo
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** La casilla del marcador, a tamaño de foto compartida. */
+function CasillaGrande({ n, etiqueta, color, apagada }: {
+  n: number; etiqueta: string; color: string; apagada: boolean
+}) {
+  return (
+    <span style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, padding: '4px 0',
+      borderRadius: 10, border: `1px solid ${color}`, background: `${color}22`, opacity: apagada ? 0.4 : 1,
+    }}>
+      <span style={{ fontSize: 30, fontWeight: 900, lineHeight: 1, color: '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+      <span style={{ fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', color: '#94a3b8' }}>{etiqueta}</span>
+    </span>
+  )
+}
+
+/**
+ * El marcador de "¿acaba?": dos casillas, dos números grandes y un guion.
+ *
+ * La casilla del bando que va a cero se apaga: un cero encendido al lado de un
+ * tres compite con él, y en un marcador lo que se mira es quién gana.
+ */
+function Marcador({ si, no }: { si: number; no: number }) {
+  return (
+    <span className="flex shrink-0 items-stretch gap-1" role="img" aria-label={`${si} dicen que sí, ${no} que no`}>
+      <Casilla n={si} etiqueta="sí" color={C_SI} apagada={si === 0} />
+      <span className="self-center text-sm font-bold text-slate-700">–</span>
+      <Casilla n={no} etiqueta="no" color={C_NO} apagada={no === 0} />
+    </span>
+  )
+}
+
+function Casilla({ n, etiqueta, color, apagada }: {
+  n: number; etiqueta: string; color: string; apagada: boolean
+}) {
+  return (
+    <span
+      className={`flex w-10 flex-col items-center rounded-md border py-0.5 ${apagada ? 'opacity-40' : ''}`}
+      style={{ borderColor: color, background: `${color}22` }}
+    >
+      <span className="text-xl font-black leading-none tabular-nums text-slate-50">{n}</span>
+      <span className="text-[9px] uppercase tracking-wider text-slate-400">{etiqueta}</span>
+    </span>
   )
 }
 
@@ -704,14 +906,6 @@ function Titulo({ color, children }: { color: string; children: ReactNode }) {
       <span className="h-2.5 w-1 rounded-full" style={{ background: color }} />
       {children}
     </h3>
-  )
-}
-
-function Leyenda({ color, children }: { color: string; children: ReactNode }) {
-  return (
-    <span className="flex items-center gap-1">
-      <span className="h-2 w-2 rounded-full" style={{ background: color }} />{children}
-    </span>
   )
 }
 

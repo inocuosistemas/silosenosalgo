@@ -501,6 +501,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   ) : view === 'porra' && eventId ? (
     <EventBets
       eventId={eventId}
+      eventName={eventName}
+      photoUrl={photoUrl}
       runners={betRunners}
       outcomes={outcomes}
       startsAt={startsAt}
