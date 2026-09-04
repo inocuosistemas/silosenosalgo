@@ -520,6 +520,16 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   const dame = (n: string) => runners.find((r) => r.username === n)
   const tarjetaRef = useRef<HTMLDivElement | null>(null)
   const [compartiendo, setCompartiendo] = useState(false)
+  /**
+   * La foto del evento ya convertida en datos, para meterla en la tarjeta.
+   *
+   * La librería que hace la captura dibuja la tarjeta dentro de un SVG, y ahí
+   * DENTRO una imagen con dirección de internet no se carga nunca: hay que
+   * traérsela antes y pegarla como datos. Ella lo intenta por su cuenta, pero
+   * si ese intento falla no avisa: simplemente sale el hueco en blanco, que es
+   * lo que pasaba. Trayéndola nosotros se sabe si ha ido bien.
+   */
+  const [fotoDatos, setFotoDatos] = useState<string | null>(null)
 
   /**
    * Convierte la tarjeta en una imagen y la manda por donde el móvil ofrezca.
@@ -536,24 +546,62 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
     if (!tarjetaRef.current || compartiendo) return
     setCompartiendo(true)
     try {
+      // Primero la foto, que es lo que tarda; si no se puede, la tarjeta sale
+      // sin ella antes que no salir.
+      if (photoUrl && !fotoDatos) {
+        const datos = await aDatos(photoUrl)
+        if (datos) {
+          setFotoDatos(datos)
+          // Un respiro para que React la pinte: se fotografía lo que hay en la
+          // pantalla, no lo que va a haber. Con un temporizador y NO con
+          // `requestAnimationFrame`, que en una pestaña que no se está viendo
+          // —otra ventana delante, el móvil bloqueado— no se ejecuta nunca y
+          // dejaría el botón en "Preparando…" para siempre.
+          await new Promise((r) => setTimeout(r, 60))
+        }
+      }
       const { toPng } = await import('html-to-image')
-      const url = await toPng(tarjetaRef.current, {
-        pixelRatio: 2, cacheBust: true, backgroundColor: '#0b1120',
-      })
+      // SIN `cacheBust`. Esa opción le añade un parámetro a cada dirección que
+      // encuentra para saltarse la caché del navegador, y aquí la única imagen
+      // que hay ya viene incrustada en datos: añadirle un parámetro a una
+      // dirección `data:` la rompe, y la librería se quedaba esperándola para
+      // siempre —el botón en "Preparando…" y nunca pasaba nada—. Con la foto ya
+      // traída por nosotros no hay ninguna caché que saltarse.
+      // Con tope de tiempo. La librería termina de dibujar cuando el navegador
+      // le decodifica una imagen, y un navegador que tiene la pestaña detrás
+      // puede no decodificar nada: sin tope, el botón se queda en "Preparando…"
+      // hasta que se recargue la página. Comprobado: en una pestaña de fondo no
+      // termina ni con un `<div>hola</div>`.
+      const url = await Promise.race([
+        toPng(tarjetaRef.current, { pixelRatio: 2, backgroundColor: '#0b1120' }),
+        new Promise<null>((r) => setTimeout(() => r(null), 15_000)),
+      ])
+      if (!url) return
       const blob = await (await fetch(url)).blob()
       const fichero = new File([blob], 'porra.png', { type: 'image/png' })
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
-      if (nav.canShare?.({ files: [fichero] })) {
-        await nav.share({ files: [fichero], title: eventName ?? 'La porra' })
-      } else {
+      const descarga = () => {
         const a = document.createElement('a')
         a.href = url
         a.download = 'porra.png'
         a.click()
       }
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+      if (nav.canShare?.({ files: [fichero] })) {
+        try {
+          await nav.share({ files: [fichero], title: eventName ?? 'La porra' })
+        } catch (e) {
+          // Cancelar el menú NO es un fallo: quien cierra el compartir no
+          // quiere que le caiga un fichero en Descargas por haberlo cerrado.
+          // Cualquier otro error sí lo es, y entonces la imagen ya está hecha
+          // y sería una lástima tirarla.
+          if ((e as { name?: string })?.name !== 'AbortError') descarga()
+        }
+      } else {
+        descarga()
+      }
     } catch {
-      // Cancelar el menú de compartir también llega aquí: no es un error que
-      // haya que contarle a nadie.
+      // La tarjeta no se pudo pintar. No hay nada que ofrecer y tampoco un
+      // remedio que sugerir: se queda como estaba.
     } finally {
       setCompartiendo(false)
     }
@@ -760,16 +808,34 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         <TarjetaPorra
           ref={tarjetaRef}
           eventName={eventName}
-          photoUrl={photoUrl}
+          photoUrl={fotoDatos}
           jugadores={jugadores}
           favorito={favorito}
           mediana={mediana}
           acabar={acabar}
+          tiempos={tiempos}
           dame={dame}
         />
       </div>
     </section>
   )
+}
+
+/** Una imagen de la web convertida en datos, o null si no se pudo traer. */
+async function aDatos(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await new Promise<string | null>((resolve) => {
+      const lector = new FileReader()
+      lector.onload = () => resolve(typeof lector.result === 'string' ? lector.result : null)
+      lector.onerror = () => resolve(null)
+      lector.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -785,22 +851,26 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
  * 540 px de ancho, que capturados al doble son 1080: lo que espera cualquier
  * chat sin recomprimir.
  */
-function TarjetaPorra({ ref, eventName, photoUrl, jugadores, favorito, mediana, acabar, dame }: {
+function TarjetaPorra({ ref, eventName, photoUrl, jugadores, favorito, mediana, acabar, tiempos, dame }: {
   ref: React.Ref<HTMLDivElement>
   eventName: string | null
+  /** Ya en datos, no una dirección: ver `fotoDatos`. */
   photoUrl: string | null
   jugadores: number
   favorito: { name: string; n: number } | null
   mediana: number | null
   acabar: { name: string; si: number; no: number }[]
+  tiempos: { name: string; mins: number[] }[]
   dame: (n: string) => BetRunner | undefined
 }) {
+  // Todos los que tienen algo pronosticado, aunque solo sea una de las dos
+  // cosas: quien tiene tiempo pero nadie ha dicho si acaba también sale.
+  const nombres = [...new Set([...acabar.map((a) => a.name), ...tiempos.map((t) => t.name)])]
   return (
     <div ref={ref} style={{ width: 540, background: '#0b1120', fontFamily: 'system-ui, sans-serif' }}>
       {photoUrl && (
         <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
-          <img src={photoUrl} alt="" crossOrigin="anonymous"
-               style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, #0b1120, transparent 70%)' }} />
         </div>
       )}
@@ -826,23 +896,49 @@ function TarjetaPorra({ ref, eventName, photoUrl, jugadores, favorito, mediana, 
           </div>
         )}
 
-        {acabar.length > 0 && (
+        {nombres.length > 0 && (
           <>
-            <p style={{ margin: '20px 0 8px', fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>¿Acaba?</p>
-            {acabar.map((a) => (
-              <div key={a.name} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 8,
-                borderRadius: 12, background: '#111c33', border: '1px solid #1e293b',
-              }}>
-                <MarkBadge emoji={dame(a.name)?.emoji ?? null} color={dame(a.name)?.color ?? null} size={34} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {a.name}
-                </span>
-                <CasillaGrande n={a.si} etiqueta="sí" color={C_SI} apagada={a.si === 0} />
-                <span style={{ fontSize: 20, fontWeight: 800, color: '#334155' }}>–</span>
-                <CasillaGrande n={a.no} etiqueta="no" color={C_NO} apagada={a.no === 0} />
-              </div>
-            ))}
+            <p style={{ margin: '20px 0 8px', fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>
+              ¿Acaba? · ¿en cuánto?
+            </p>
+            {nombres.map((nombre) => {
+              const a = acabar.find((x) => x.name === nombre)
+              const t = tiempos.find((x) => x.name === nombre)
+              return (
+                <div key={nombre} style={{
+                  padding: '10px 12px', marginBottom: 8,
+                  borderRadius: 12, background: '#111c33', border: '1px solid #1e293b',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <MarkBadge emoji={dame(nombre)?.emoji ?? null} color={dame(nombre)?.color ?? null} size={34} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {nombre}
+                    </span>
+                    {a && (
+                      <>
+                        <CasillaGrande n={a.si} etiqueta="sí" color={C_SI} apagada={a.si === 0} />
+                        <span style={{ fontSize: 20, fontWeight: 800, color: '#334155' }}>–</span>
+                        <CasillaGrande n={a.no} etiqueta="no" color={C_NO} apagada={a.no === 0} />
+                      </>
+                    )}
+                  </div>
+                  {/* El tiempo que le dan, debajo del marcador y en la misma
+                      pastilla: son las dos apuestas sobre la misma persona y
+                      separarlas obligaba a buscar dos veces el mismo nombre. */}
+                  {t && t.mins.length > 0 && (
+                    <p style={{ margin: '6px 0 0', paddingLeft: 46, fontSize: 14, color: '#cbd5e1', fontVariantNumeric: 'tabular-nums' }}>
+                      <span style={{ color: '#64748b' }}>tarda </span>
+                      {t.mins.length > 1
+                        ? <>{durationLabel(t.mins[0] * 60_000)} <span style={{ color: '#475569' }}>–</span> {durationLabel(t.mins[t.mins.length - 1] * 60_000)}</>
+                        : durationLabel(t.mins[0] * 60_000)}
+                      {t.mins.length > 2 && (
+                        <span style={{ color: '#64748b' }}> · {t.mins.length} pronósticos</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
           </>
         )}
 
