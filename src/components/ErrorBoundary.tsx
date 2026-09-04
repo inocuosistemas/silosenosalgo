@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { isChunkLoadError, reloadOnceForChunkError } from '../lib/chunkReload'
+import { isChunkLoadError, reloadForChunkError } from '../lib/chunkReload'
 
 interface Props {
   children: ReactNode
@@ -29,9 +29,10 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     if (isChunkLoadError(error)) {
       // A chunk failed to load — almost always a tab left open across a deploy.
-      // Reload once to fetch the new build; if that's on cooldown (we already
-      // retried and it's still failing), reveal the recovery card instead.
-      if (!reloadOnceForChunkError()) this.setState({ reloading: false })
+      // Se recarga para traerse el build nuevo (la segunda vez, tras un par de
+      // segundos: justo después de desplegar el borde todavía sirve el
+      // documento viejo). Gastados los intentos, sale el cartel.
+      if (!reloadForChunkError()) this.setState({ reloading: false })
       return
     }
     // Keep the stack in the console for debugging; the UI stays friendly.
