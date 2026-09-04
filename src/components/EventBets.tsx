@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { X, ChevronRight } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import { scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
@@ -70,6 +70,15 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
   /** Lo que se pronostica: cuánto TARDA, en horas y minutos sueltos. */
   const [durH, setDurH] = useState<Record<string, string>>({})
   const [durM, setDurM] = useState<Record<string, string>>({})
+  /**
+   * Si el formulario está abierto.
+   *
+   * Cerrado cuando ya has jugado: entonces esta pantalla se viene a MIRAR —cómo
+   * va la porra, qué dicen los demás—, y el formulario entero por delante son
+   * dos pantallazos de scroll antes de llegar a lo interesante. Lo tuyo se
+   * resume en una línea y se abre de un toque si lo quieres cambiar.
+   */
+  const [formAbierto, setFormAbierto] = useState(false)
 
   const cargar = async () => {
     try {
@@ -99,6 +108,9 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
         puestos.sort((a, b) => a.pos - b.pos)
         setOrder(puestos.map((p) => p.name))
         setFinish(f); setDurH(hh); setDurM(mm)
+        // Quien todavía no ha jugado se encuentra el formulario abierto: es a
+        // lo que viene. Quien ya jugó, cerrado.
+        if (mias.length === 0) setFormAbierto(true)
       }
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -209,8 +221,25 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
 
       {/* ── El formulario, solo antes de la salida ───────────────────────── */}
       {puedeJugar && (
-        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
-          <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Tu porra</h2>
+        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60">
+          <button
+            onClick={() => setFormAbierto((v) => !v)}
+            aria-expanded={formAbierto}
+            className="flex w-full items-center gap-2 px-3.5 py-3 text-left"
+          >
+            <span className="shrink-0 text-[11px] uppercase tracking-wider text-slate-500">Tu porra</span>
+            {!formAbierto && (
+              <span className="ml-auto min-w-0 truncate text-xs text-slate-300">
+                {mios > 0 ? resumenPorra(order, finish, durH, durM) : 'sin echar'}
+              </span>
+            )}
+            <ChevronRight
+              size={16}
+              className={`shrink-0 text-slate-500 transition-transform ${formAbierto ? 'rotate-90' : ''} ${formAbierto ? 'ml-auto' : ''}`}
+            />
+          </button>
+          {formAbierto && (
+          <div className="px-3.5 pb-3.5">
 
           {/* El orden de llegada se monta TOCANDO en orden, que es como se
               cuenta en voz alta —"primero Ana, luego Bea"— y lo único que
@@ -340,6 +369,8 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
             {startsAt ? ` (${new Date(startsAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})` : ''}.
             Se guarda entera: lo que quites, se quita.
           </p>
+          </div>
+          )}
         </section>
       )}
 
@@ -457,9 +488,19 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
  * de sobra (26,6) y, por si acaso, cada tramo lleva su número encima: el color
  * no es lo único que dice qué es cada cosa.
  */
-const C_SI = '#38bdf8'
-const C_NO = '#f97316'
-const C_VOTO = '#fbbf24'
+/**
+ * Los tres colores de las gráficas de la porra.
+ *
+ * Elegidos con el validador de paletas, no a ojo: sobre este fondo oscuro los
+ * tres caen dentro de la banda de luminosidad que se lee bien, tienen color
+ * suficiente para no parecer grises, y se distinguen entre sí incluso con
+ * daltonismo —la peor pareja saca 23 de separación donde el mínimo es 8—. La
+ * versión anterior mezclaba ámbar y naranja: para un ojo normal ya estaban al
+ * borde de confundirse, y para uno con deuteranopia eran el mismo color.
+ */
+const C_SI = '#0284c7'
+const C_NO = '#ea580c'
+const C_VOTO = '#7c3aed'
 const C_TIEMPO = '#a78bfa'
 
 function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
@@ -469,9 +510,8 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
   startsAt: number | null
   limitMin: number | null
 }) {
-  // Del servidor: sin sesión los pronósticos llegan sin firma, así que aquí no
-  // hay nombres que contar.
   const jugadores = players
+  const dame = (n: string) => runners.find((r) => r.username === n)
 
   // Quién gana, según la porra: cuántos ponen a cada uno en el primer puesto.
   const votos = runners.map((r) => ({
@@ -496,126 +536,238 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin }: {
       .filter((m) => Number.isFinite(m) && m > 0)
       .sort((a, b) => a - b),
   })).filter((t) => t.mins.length > 0)
-  const techo = Math.max(
-    limitMin ?? 0,
-    ...tiempos.flatMap((t) => t.mins),
-  ) || 1
+  const techo = Math.max(limitMin ?? 0, ...tiempos.flatMap((t) => t.mins)) || 1
+
+  /**
+   * El TITULAR: la porra en una frase.
+   *
+   * Esta pantalla se hace una foto y se manda al grupo, y una foto llena de
+   * barras pequeñas no se lee en el móvil de nadie. La frase de arriba es lo
+   * que se entiende sin ampliar: quién es el favorito y en cuánto le ven.
+   */
+  const favorito = votos[0] && (votos.length === 1 || votos[0].n > votos[1].n) ? votos[0] : null
+  const suTiempo = favorito ? tiempos.find((t) => t.name === favorito.name) : null
+  const mediana = suTiempo ? suTiempo.mins[Math.floor(suTiempo.mins.length / 2)] : null
+
+  if (votos.length === 0 && acabar.length === 0 && tiempos.length === 0) return null
 
   return (
-    <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
-      <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
-        Cómo está la porra · {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
-      </h2>
+    <section className="mb-4 overflow-hidden rounded-xl border border-violet-900/50 bg-gradient-to-b from-violet-950/30 to-slate-900/60">
+      <header className="flex items-baseline justify-between gap-2 border-b border-violet-900/40 px-3.5 py-2.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-violet-300">
+          Cómo está la porra
+        </h2>
+        <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+          {jugadores} {jugadores === 1 ? 'jugador' : 'jugadores'}
+        </span>
+      </header>
 
-      {/* ── El favorito ─────────────────────────────────────────────────── */}
-      {votos.length > 0 && (
-        <div className="mt-2.5">
-          <h3 className="text-[11px] font-semibold text-slate-300">Quién gana, según la porra</h3>
-          <ul className="mt-1.5 space-y-1">
-            {votos.map((v) => (
-              <li key={v.name} className="flex items-center gap-2" title={`${v.name}: ${v.n} de ${jugadores}`}>
-                <span className="w-20 shrink-0 truncate text-[11px] text-slate-400">{v.name}</span>
-                <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-                  <span
-                    className="block h-full rounded-full"
-                    style={{ width: `${(v.n / maxVotos) * 100}%`, background: C_VOTO }}
-                  />
-                </span>
-                <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-slate-300">{v.n}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── ¿Acaba? ─────────────────────────────────────────────────────── */}
-      {acabar.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-[11px] font-semibold text-slate-300">¿Acaba?</h3>
-            <p className="flex items-center gap-2 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-sm" style={{ background: C_SI }} />sí
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-sm" style={{ background: C_NO }} />no
-              </span>
+      {/* ── El titular ──────────────────────────────────────────────────── */}
+      {favorito && (
+        <div className="flex items-center gap-3 border-b border-slate-800/80 px-3.5 py-3">
+          <MarkBadge emoji={dame(favorito.name)?.emoji ?? null} color={dame(favorito.name)?.color ?? null} size={40} />
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">El favorito</p>
+            <p className="truncate text-lg font-bold leading-tight text-slate-100">{favorito.name}</p>
+            <p className="text-[11px] text-slate-400">
+              <span className="tabular-nums text-slate-200">{favorito.n}</span> de {jugadores} lo ponen primero
+              {mediana !== null && <> · le dan <span className="tabular-nums text-slate-200">{durationLabel(mediana * 60_000)}</span></>}
             </p>
           </div>
-          <ul className="mt-1.5 space-y-1">
-            {acabar.map((a) => {
-              const total = a.si + a.no
-              return (
-                <li key={a.name} className="flex items-center gap-2" title={`${a.name}: ${a.si} sí · ${a.no} no`}>
-                  <span className="w-20 shrink-0 truncate text-[11px] text-slate-400">{a.name}</span>
-                  {/* Los dos tramos separados por 2px de fondo: pegados, el
-                      borde entre colores se lee como un tercer color. */}
-                  <span className="flex h-2 flex-1 gap-[2px] overflow-hidden">
-                    {a.si > 0 && (
-                      <span className="block h-full rounded-full" style={{ width: `${(a.si / total) * 100}%`, background: C_SI }} />
-                    )}
-                    {a.no > 0 && (
-                      <span className="block h-full rounded-full" style={{ width: `${(a.no / total) * 100}%`, background: C_NO }} />
-                    )}
-                  </span>
-                  <span className="w-10 shrink-0 text-right text-[11px] tabular-nums">
-                    <span style={{ color: C_SI }}>{a.si}</span>
-                    <span className="text-slate-600">/</span>
-                    <span style={{ color: C_NO }}>{a.no}</span>
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
         </div>
       )}
 
-      {/* ── Cuánto tardan ───────────────────────────────────────────────── */}
-      {tiempos.length > 0 && (
-        <div className="mt-3">
-          <h3 className="text-[11px] font-semibold text-slate-300">Cuánto tardan, según la porra</h3>
-          <ul className="mt-1.5 space-y-1.5">
-            {tiempos.map((t) => {
-              const min = t.mins[0], max = t.mins[t.mins.length - 1]
-              return (
-                <li key={t.name} className="flex items-center gap-2">
-                  <span className="w-20 shrink-0 truncate text-[11px] text-slate-400">{t.name}</span>
-                  <span className="relative h-4 flex-1 rounded bg-slate-800/60">
-                    {/* El recorrido entre el pronóstico más rápido y el más
-                        lento, para que se vea de un golpe si hay consenso. */}
-                    {t.mins.length > 1 && (
-                      <span
-                        className="absolute top-1/2 h-px -translate-y-1/2"
-                        style={{ left: `${(min / techo) * 100}%`, width: `${((max - min) / techo) * 100}%`, background: C_TIEMPO, opacity: 0.5 }}
-                      />
-                    )}
-                    {t.mins.map((m, i) => (
-                      <span
-                        key={i}
-                        title={`${durationLabel(m * 60_000)}`}
-                        className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-slate-900"
-                        style={{ left: `${Math.min(100, (m / techo) * 100)}%`, background: C_TIEMPO }}
-                      />
-                    ))}
+      <div className="space-y-3.5 px-3.5 py-3">
+        {/* ── Quién gana ────────────────────────────────────────────────── */}
+        {votos.length > 1 && (
+          <div>
+            <Titulo color={C_VOTO}>Quién gana</Titulo>
+            <ul className="mt-2 space-y-1.5">
+              {votos.map((v) => (
+                <li key={v.name} className="flex items-center gap-2" title={`${v.name}: ${v.n} de ${jugadores}`}>
+                  <Corredor r={dame(v.name)} name={v.name} />
+                  <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-800/80">
+                    <span className="block h-full rounded-full transition-all"
+                          style={{ width: `${(v.n / maxVotos) * 100}%`, background: C_VOTO }} />
                   </span>
-                  <span className="w-16 shrink-0 text-right text-[10px] tabular-nums text-slate-400">
-                    {t.mins.length > 1
-                      ? `${durationLabel(min * 60_000)}–${durationLabel(max * 60_000)}`
-                      : durationLabel(min * 60_000)}
-                  </span>
+                  <span className="w-5 shrink-0 text-right text-xs font-bold tabular-nums text-slate-200">{v.n}</span>
                 </li>
-              )
-            })}
-          </ul>
-          {/* La escala: sin el 0 y el límite, una fila de puntos no dice nada. */}
-          <div className="mt-1 flex items-center justify-between pl-[5.5rem] pr-[4.5rem] text-[10px] tabular-nums text-slate-600">
-            <span>0</span>
-            <span>{limitMin !== null && techo === limitMin ? `límite ${durationLabel(techo * 60_000)}` : durationLabel(techo * 60_000)}</span>
+              ))}
+            </ul>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── ¿Acaba? ───────────────────────────────────────────────────── */}
+        {acabar.length > 0 && (
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <Titulo color={C_SI}>¿Acaba?</Titulo>
+              <p className="flex shrink-0 items-center gap-2 text-[10px] text-slate-500">
+                <Leyenda color={C_SI}>sí</Leyenda>
+                <Leyenda color={C_NO}>no</Leyenda>
+              </p>
+            </div>
+            <ul className="mt-2 space-y-1.5">
+              {acabar.map((a) => {
+                const total = a.si + a.no
+                const unanime = total > 1 && (a.si === 0 || a.no === 0)
+                return (
+                  <li key={a.name} className="flex items-center gap-2" title={`${a.name}: ${a.si} sí · ${a.no} no`}>
+                    <Corredor r={dame(a.name)} name={a.name} />
+                    {/* Los dos tramos separados por 2px de fondo: pegados, el
+                        borde entre colores se lee como un tercer color. */}
+                    <span className="flex h-2.5 flex-1 gap-[2px]">
+                      {a.si > 0 && <span className="block h-full rounded-full" style={{ width: `${(a.si / total) * 100}%`, background: C_SI }} />}
+                      {a.no > 0 && <span className="block h-full rounded-full" style={{ width: `${(a.no / total) * 100}%`, background: C_NO }} />}
+                    </span>
+                    {/* El número en tinta y el color en la pastilla: un dígito
+                        pintado del color de la serie se lee peor y no hace
+                        falta, que la barra ya lo dice. */}
+                    <span className="w-11 shrink-0 text-right text-xs tabular-nums text-slate-300">
+                      {a.si}<span className="text-slate-600">/</span>{a.no}
+                      {/* Cuando nadie discrepa, un punto de exclamación: es el
+                          dato gracioso de la porra —"todos dicen que abandona"—
+                          y sin él la fila es igual que cualquier otra. */}
+                      {unanime && <span className="ml-0.5 text-violet-400">!</span>}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* ── Cuánto tardan ─────────────────────────────────────────────── */}
+        {tiempos.length > 0 && (
+          <div>
+            <Titulo color={C_TIEMPO}>Cuánto tardan</Titulo>
+            <ul className="mt-2 space-y-2">
+              {tiempos.map((t) => {
+                const min = t.mins[0], max = t.mins[t.mins.length - 1]
+                return (
+                  <li key={t.name}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Corredor r={dame(t.name)} name={t.name} ancho="auto" />
+                      <span className="shrink-0 text-[11px] tabular-nums text-slate-300">
+                        {t.mins.length > 1
+                          ? <>{durationLabel(min * 60_000)} <span className="text-slate-600">–</span> {durationLabel(max * 60_000)}</>
+                          : durationLabel(min * 60_000)}
+                      </span>
+                    </div>
+                    <div className="relative mt-1 h-5 rounded bg-slate-800/50">
+                      {/* Las horas en punto, muy flojas: sin ellas la fila de
+                          puntos flota y no se sabe si 6h30 está cerca o lejos
+                          del límite. */}
+                      {horasEn(techo).map((h) => (
+                        <span key={h} className="absolute inset-y-1 w-px bg-slate-700/50" style={{ left: `${(h / techo) * 100}%` }} />
+                      ))}
+                      {/* De dónde a dónde va la porra con este corredor: si la
+                          banda es corta hay consenso, y si cruza media pantalla
+                          es que nadie tiene ni idea. */}
+                      {t.mins.length > 1 && (
+                        <span className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full"
+                              style={{ left: enCarril(min, techo), right: `calc(100% - ${enCarril(max, techo)})`, background: C_TIEMPO, opacity: 0.35 }} />
+                      )}
+                      {t.mins.map((m, i) => (
+                        <span
+                          key={i}
+                          title={durationLabel(m * 60_000)}
+                          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-slate-900"
+                          style={{ left: enCarril(m, techo), background: C_TIEMPO }}
+                        />
+                      ))}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+            {/* La escala: sin el 0 y el límite, una fila de puntos no dice nada. */}
+            <div className="mt-1.5 flex items-center justify-between text-[10px] tabular-nums text-slate-600">
+              <span>0</span>
+              <span>
+                {limitMin !== null && techo === limitMin
+                  ? <>límite <span className="text-slate-500">{durationLabel(techo * 60_000)}</span></>
+                  : durationLabel(techo * 60_000)}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   )
+}
+
+/** El título de cada gráfica, con la pastilla de su color delante. */
+function Titulo({ color, children }: { color: string; children: ReactNode }) {
+  return (
+    <h3 className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200">
+      <span className="h-2.5 w-1 rounded-full" style={{ background: color }} />
+      {children}
+    </h3>
+  )
+}
+
+function Leyenda({ color, children }: { color: string; children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="h-2 w-2 rounded-full" style={{ background: color }} />{children}
+    </span>
+  )
+}
+
+/** Quién es, con su marca: un nombre suelto en gris no se reconoce de un vistazo. */
+function Corredor({ r, name, ancho = 'fijo' }: { r?: BetRunner; name: string; ancho?: 'fijo' | 'auto' }) {
+  return (
+    <span className={`flex shrink-0 items-center gap-1.5 ${ancho === 'fijo' ? 'w-24' : 'min-w-0'}`}>
+      <MarkBadge emoji={r?.emoji ?? null} color={r?.color ?? null} size={18} />
+      <span className="min-w-0 truncate text-[11px] text-slate-300">{name}</span>
+    </span>
+  )
+}
+
+/**
+ * Dónde cae un tiempo dentro del carril, sin que el punto se salga.
+ *
+ * Un punto colocado al 0% o al 100% se dibuja centrado en el borde, o sea medio
+ * fuera y cortado por la esquina redondeada. Se deja el radio del punto de
+ * margen a cada lado y se reparte el resto: el extremo sigue siendo el extremo,
+ * pero se ve entero.
+ */
+function enCarril(min: number, techo: number): string {
+  const f = Math.max(0, Math.min(1, min / techo))
+  return `calc(7px + (100% - 14px) * ${f})`
+}
+
+/** Las horas en punto que caben en una escala de `techo` minutos. */
+function horasEn(techo: number): number[] {
+  const fuera: number[] = []
+  for (let h = 60; h < techo; h += 60) fuera.push(h)
+  return fuera
+}
+
+/**
+ * La porra de uno, en una línea: "Soriano 1º · acaba · 7h30".
+ *
+ * Es lo que se ve con el formulario cerrado, así que tiene que bastar para
+ * reconocer lo que uno dijo sin abrirlo. Se corta a tres nombres: más no cabe
+ * en un móvil y quien quiera el detalle lo despliega.
+ */
+function resumenPorra(
+  order: string[],
+  finish: Record<string, boolean>,
+  durH: Record<string, string>,
+  durM: Record<string, string>,
+): string {
+  const trozos: string[] = []
+  order.slice(0, 3).forEach((n, i) => trozos.push(`${n} ${i + 1}º`))
+  const conTiempo = Object.keys(durH).filter((n) => durH[n] || durM[n])
+  for (const n of conTiempo.slice(0, 2)) {
+    const h = Number(durH[n] || 0), m = Number(durM[n] || 0)
+    if (!Number.isFinite(h) || !Number.isFinite(m)) continue
+    const dice = finish[n] === false ? 'no acaba' : `${h}h${String(m).padStart(2, '0')}`
+    trozos.push(order.includes(n) ? dice : `${n} ${dice}`)
+  }
+  return trozos.length > 0 ? trozos.join(' · ') : 'echada'
 }
 
 /** Los minutos que suman unas horas y unos minutos escritos a mano. */
