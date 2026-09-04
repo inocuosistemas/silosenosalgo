@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Pencil } from 'lucide-react'
 import type { GpxNamedWaypoint, GpxTrack } from '../lib/gpx'
 import {
   parsePoiPaste,
@@ -763,7 +764,7 @@ export function PoisPanel({
                                     className="text-sky-400 hover:text-sky-300 transition-colors text-xs px-1.5 py-0.5 rounded"
                                     title="Editar POI"
                                   >
-                                    ✎
+                                    <Pencil size={12} />
                                   </button>
                                   <button
                                     type="button"

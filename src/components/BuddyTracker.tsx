@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { User } from 'lucide-react'
 import type { GpxTrack } from '../lib/gpx'
 import { remainingElevFromKm, segmentElevBetweenKm } from '../lib/gpx'
 import type { PaceConfig } from '../lib/timing'
@@ -464,7 +465,7 @@ export function BuddyTracker({
       >
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-purple-300 uppercase tracking-widest font-semibold flex items-center gap-1.5">
-            🧑 Seguimiento de&nbsp;
+            <User size={14} /> Seguimiento de&nbsp;
             {editingName ? (
               <input
                 ref={nameInputRef}

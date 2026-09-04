@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import type { CutoffStrategyResult, CutoffStrategyTimeMode, SegmentStrategy, SegmentSeverity } from '../lib/cutoffStrategy'
 import type { ActivityType, PaceConfig, SegmentPace } from '../lib/timing'
 import { formatPace, formatPaceDelta, splitHoursMinutes } from '../lib/timing'
@@ -217,7 +218,7 @@ function SegmentRow({
                 className="text-slate-500 hover:text-slate-300"
                 title="Quitar objetivo"
               >
-                ✕
+                <X size={16} />
               </button>
             )}
           </div>

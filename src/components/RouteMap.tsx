@@ -1,6 +1,7 @@
 import 'leaflet/dist/leaflet.css'
 import '../lib/gestureHandling'
 import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
+import { Pause, Play, RotateCcw, Search } from 'lucide-react'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
@@ -1108,7 +1109,7 @@ export function RouteMap({
   const legend = mapMode === 'wind' ? WIND_LEGEND : RAIN_LEGEND
   const legendTitle = mapMode === 'wind' ? 'Viento:' : 'Prob. lluvia:'
   const sliderAtFull = progress >= 1
-  const playIcon = isPlaying ? '⏸' : sliderAtFull ? '↺' : '▶'
+  const playIcon = isPlaying ? <Pause size={16} /> : sliderAtFull ? <RotateCcw size={16} /> : <Play size={16} />
   const POLLEN_LEGEND_LEVELS: PollenLevel[] = [1, 2, 3, 4]
 
   // Terrain: available once the async Overpass fetch + per-point matching completes
@@ -2008,7 +2009,7 @@ export function RouteMap({
                 onClick={enterAnalyze}
                 className="px-3 py-1.5 transition-colors bg-sky-600 text-white"
               >
-                🔍 Analizar tramo
+                <Search size={13} /> Analizar tramo
               </button>
             </div>
             <div className="relative h-5 flex items-center mx-2 flex-1 min-w-[200px]">
@@ -2080,7 +2081,7 @@ export function RouteMap({
               onClick={resetRange}
               className="ml-auto text-slate-500 hover:text-slate-300 transition-colors"
             >
-              ↺ Reset
+              <RotateCcw size={13} /> Reset
             </button>
           </div>
         </div>
@@ -2098,7 +2099,7 @@ export function RouteMap({
               onClick={enterAnalyze}
               className="px-3 py-1.5 transition-colors bg-slate-800 text-slate-400 hover:text-slate-200"
             >
-              🔍 Analizar tramo
+              <Search size={13} /> Analizar tramo
             </button>
           </div>
           <button

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 // una pantalla de cuenta y contraseña, donde lo que hace falta es seriedad y
 // que un icono signifique UNA cosa, no valen. Se importan de uno en uno: el
 // paquete se sacude en la compilación y solo viaja lo que se usa.
-import { User, Lock, Eye, EyeOff, X, Check } from 'lucide-react'
+import { Check, Eye, EyeOff, Lock, User, Users, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
 import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../lib/authClient'
@@ -128,7 +128,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     onClick={() => { setMenuOpen(false); setShowUsers(true) }}
                     className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                   >
-                    🧑‍🤝‍🧑 Cuentas
+                    <Users size={14} /> Cuentas
                   </button>
                 )}
                 {user.isAdmin && (

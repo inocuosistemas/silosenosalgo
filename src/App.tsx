@@ -1,4 +1,5 @@
 import { createElement, lazy, memo, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { ClipboardList, Pencil, RotateCw, Search, User, X } from 'lucide-react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
 import { GpxTimesStats } from './components/GpxTimesStats'
@@ -2541,7 +2542,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             {track && (
               <div className="pt-5 mt-2 border-t border-slate-700">
                 <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-                  <span>📋</span> Planificación
+                  <ClipboardList size={15} /> Planificación
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">
                   Indica ritmo y hora de salida para obtener la previsión de clima, luz y cortes.
@@ -2580,7 +2581,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                     }}
                     className="text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-1.5 px-3 rounded-lg border border-slate-600 transition-colors shrink-0"
                   >
-                    ✎ Modificar
+                    <Pencil size={13} /> Modificar
                   </button>
                 </div>
               </section>
@@ -2733,7 +2734,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                   disabled={locationLoading}
                   className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-600/60 bg-amber-800/30 text-amber-200 hover:bg-amber-700/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {locationLoading ? 'Reintentando…' : '↻ Reintentar'}
+                  {locationLoading ? 'Reintentando…' : <><RotateCw size={13} /> Reintentar</>}
                 </button>
               </div>
             )}
@@ -2752,7 +2753,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             >
               {refreshingWeather
                 ? <><span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full inline-block" /> Actualizando…</>
-                : <>↻ Actualizar</>}
+                : <><RotateCw size={13} /> Actualizar</>}
             </button>
             <button
               onClick={() => setReturnBanner(false)}
@@ -2849,7 +2850,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                       title="Editar hora de salida real"
                     >
                       🕘 <span className="font-mono">{formatTime(startTime)}</span>
-                      <span className="text-slate-600 text-[10px]">✎</span>
+                      <Pencil size={11} className="text-slate-600" />
                     </button>
                   )}
                   {startTime.getTime() > Date.now() && (
@@ -2996,7 +2997,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                 <>
                   {appMode === 'plan' && buddyKmNow !== null && hiddenByBuddy > 0 && (
                     <p className="text-slate-500 text-xs text-center">
-                      🧑 Mostrando {tableWaypoints.length} de {totalPlan} waypoints
+                      <User size={13} /> Mostrando {tableWaypoints.length} de {totalPlan} waypoints
                       {' · '}
                       {hiddenByBuddy} ya pasados según la posición del compañero (km {buddyKmNow.toFixed(1)})
                       {' · '}
@@ -3149,7 +3150,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
               onClick={() => setShareLoadError(null)}
               className="shrink-0 text-rose-300 hover:text-rose-100 text-sm"
             >
-              ✕
+              <X size={18} />
             </button>
           </div>
         </div>
@@ -3213,7 +3214,7 @@ function WeatherFreshnessChip({
       >
         {refreshing
           ? <span className="animate-spin w-3 h-3 border border-slate-400 border-t-transparent rounded-full inline-block" />
-          : <span>↻</span>}
+          : <RotateCw size={15} />}
         <span>Actualizar</span>
       </button>
     </div>
@@ -3310,7 +3311,7 @@ const WeatherSummary = memo(function WeatherSummary({
       {range && (
         <div className="flex items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-2 bg-sky-900/30 border border-sky-700/50 text-sky-400 px-3 py-1 rounded-full">
-            🔍 Tramo {range.from.toFixed(1)}–{range.to.toFixed(1)} km
+            <Search size={13} /> Tramo {range.from.toFixed(1)}–{range.to.toFixed(1)} km
             {onClearRange && (
               <button
                 onClick={onClearRange}

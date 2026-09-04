@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Link2 } from 'lucide-react'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import { createShare, gzipBytes, isShareSupported, MAX_SHARE_BYTES, ShareTransportError, uploadShareImage, type ShareMeta } from '../lib/shareTransport'
 import { PUBLIC_BASE_URL } from '../../shared/config'
@@ -128,7 +129,7 @@ export function ShareLinkButton({ getPayload, capturePreview }: Props) {
         title={supported ? 'Crear enlace para compartir esta salida' : 'Tu navegador no permite esta función'}
         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs rounded-lg transition-colors font-medium"
       >
-        {state === 'working' ? 'Creando…' : '🔗 Compartir enlace'}
+        {state === 'working' ? 'Creando…' : <><Link2 size={14} /> Compartir enlace</>}
       </button>
       {state === 'error' && (
         <span className="text-rose-400 text-[11px] max-w-[40vw] sm:max-w-xs leading-tight">{error}</span>

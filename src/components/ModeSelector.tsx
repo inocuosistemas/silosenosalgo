@@ -1,3 +1,4 @@
+import { RotateCw } from 'lucide-react'
 import type { ViewMode } from '../lib/viewMode'
 import { MODE_META } from '../lib/viewMode'
 
@@ -101,7 +102,7 @@ export function ModeSelector({
             }
             className={`${BTN} bg-slate-800 text-red-400 hover:text-red-300 hover:bg-slate-700 flex items-center gap-1.5`}
           >
-            <span className="text-base leading-none">↻</span> 🏔️ Terreno
+            <RotateCw size={14} /> 🏔️ Terreno
           </button>
         ) : terrainStatus === 'done' ? (
           modeBtn('terrain', { activeCls: 'bg-amber-700 text-white' })

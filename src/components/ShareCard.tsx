@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Link2, X } from 'lucide-react'
 import type { GpxTrack } from '../lib/gpx'
 import type { EnrichedWaypoint } from '../lib/places'
 import type { PaceConfig } from '../lib/timing'
@@ -354,7 +355,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
           onClick={onClose}
           className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-colors"
         >
-          ✕ Cerrar
+          <X size={14} /> Cerrar
         </button>
       </div>
 
@@ -378,7 +379,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
             className="shrink-0 text-slate-500 hover:text-slate-300 text-sm"
             title="Borrar"
           >
-            ✕
+            <X size={16} />
           </button>
         )}
       </div>
@@ -387,7 +388,7 @@ export function ShareCard({ track, waypoints, startTime, paceConfig, daylight, f
           Genera un link que reconstruye la salida completa (copia editable). */}
       {getSharePayload && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700">
-          <span className="text-emerald-400 text-sm shrink-0">🔗</span>
+          <Link2 size={15} className="shrink-0 text-emerald-400" />
           <span className="text-slate-400 text-xs shrink-0 hidden sm:inline">Enlace editable:</span>
           <ShareLinkButton getPayload={getSharePayload} capturePreview={capturePreview} />
         </div>

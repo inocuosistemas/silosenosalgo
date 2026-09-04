@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { listUsers, deleteUser, createReset, authErrorMessage, AuthError } from '../lib/authClient'
 import { PUBLIC_BASE_URL } from '../../shared/config'
@@ -87,7 +88,7 @@ export function UserManager() {
             aria-label="Buscar cuenta"
             className="w-full rounded-lg bg-slate-950 border border-slate-700 pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-sky-600"
           />
-          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-slate-600 text-xs">🔍</span>
+          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-slate-600"><Search size={13} /></span>
         </div>
       )}
 

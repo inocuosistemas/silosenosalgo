@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -858,7 +859,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             title="Opciones del mapa"
             className="grid h-10 w-10 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-base backdrop-blur active:scale-95"
           >
-            ⚙️
+            <Settings size={14} />
           </button>
         </div>
       )}
@@ -983,7 +984,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               aria-label="Ocultar el resumen de la carrera"
               className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full border border-slate-700 bg-slate-950/80 text-xs text-slate-300 backdrop-blur hover:text-white"
             >
-              ✕
+              <X size={16} />
             </button>
             {photoUrl && (
               <img src={photoUrl} alt="" style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }} className="w-full object-cover" />
@@ -1253,7 +1254,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
             aria-label="Buscar participante"
             className="w-full rounded-lg border border-slate-700 bg-slate-900 pl-8 pr-3 py-2 text-sm focus:border-sky-600 focus:outline-none"
           />
-          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-xs text-slate-600">🔍</span>
+          <span className="pointer-events-none absolute inset-y-0 left-0 grid w-8 place-items-center text-slate-600"><Search size={13} /></span>
           </div>
         </div>
       )}

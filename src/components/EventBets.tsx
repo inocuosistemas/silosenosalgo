@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import { scoreBets, betMedal, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
@@ -215,7 +216,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
                       className="shrink-0 text-slate-500 hover:text-red-400"
                       aria-label={`Quitar a ${nombre} del orden`}
                     >
-                      ✕
+                      <X size={16} />
                     </button>
                   </li>
                 )

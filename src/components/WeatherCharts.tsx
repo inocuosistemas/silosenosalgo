@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { Search } from 'lucide-react'
 import {
   ComposedChart,
   Line,
@@ -99,7 +100,7 @@ export const WeatherCharts = memo(function WeatherCharts({ waypoints, range, onC
       {isFiltered && (
         <div className="flex items-center gap-2 px-1">
           <span className="inline-flex items-center gap-2 bg-sky-900/30 border border-sky-700/50 text-sky-400 text-xs px-3 py-1 rounded-full">
-            🔍 Tramo {range!.from.toFixed(1)}–{range!.to.toFixed(1)} km
+            <Search size={13} /> Tramo {range!.from.toFixed(1)}–{range!.to.toFixed(1)} km
             {onClearRange && (
               <button
                 onClick={onClearRange}

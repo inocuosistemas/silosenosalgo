@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { ClipboardList, Trash2 } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -2072,7 +2073,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                                       aria-label="Borrar este ánimo"
                                       className="-mt-0.5 -mr-1 inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] text-amber-400"
                                     >
-                                      <span aria-hidden="true">🗑️</span>
+                                      <Trash2 size={13} aria-hidden="true" />
                                       <span className="tabular-nums">{graceLeft}</span>
                                     </button>
                                   ) : canCheer && (
@@ -2670,7 +2671,7 @@ function ViewToggle({ mode, setMode }: { mode: ViewMode; setMode: (m: ViewMode) 
   return (
     <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs shrink-0">
       <button onClick={() => setMode('map')} className={cls(mode === 'map')}>🗺️</button>
-      <button onClick={() => setMode('cards')} className={cls(mode === 'cards')}>📋</button>
+      <button onClick={() => setMode('cards')} aria-label="Fichas" className={cls(mode === 'cards')}><ClipboardList size={14} /></button>
     </div>
   )
 }
