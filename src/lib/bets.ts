@@ -227,9 +227,34 @@ function scoreOne(
   }
 }
 
-/** El adorno del podio. Sin premios para el último: aquí se viene a pasarlo bien. */
-export function betMedal(i: number): string {
-  return i === 0 ? '🔮' : i === 1 ? '🥈' : i === 2 ? '🥉' : '·'
+/**
+ * El adorno del podio: bola de cristal para quien más acierta —que de eso va
+ * esto— y plata y bronce detrás. Sin premios para el último: aquí se viene a
+ * pasarlo bien.
+ *
+ * Con CERO puntos no hay medalla. Antes se repartían por el orden de la lista,
+ * y con todo por decidir esa lista está ordenada POR NOMBRE: la porra de una
+ * carrera que no ha empezado enseñaba un podio alfabético, con su oro, su plata
+ * y su bronce, como si alguien fuera ganando. No iba ganando nadie.
+ */
+export function betMedal(puesto: number, puntos: number): string {
+  if (puntos <= 0) return '·'
+  return puesto === 0 ? '🔮' : puesto === 1 ? '🥈' : puesto === 2 ? '🥉' : '·'
+}
+
+/**
+ * El puesto de cada uno en la porra, compartido en los empates.
+ *
+ * Con los mismos puntos se va igual de bien, y no hay ningún desempate honesto:
+ * la lista viene ordenada por nombre cuando los puntos coinciden, así que
+ * repartir plata y bronce ahí sería premiar la primera letra del apodo.
+ */
+export function puestosDePorra(ranking: { points: number }[]): number[] {
+  const puestos: number[] = []
+  for (let i = 0; i < ranking.length; i++) {
+    puestos.push(i > 0 && ranking[i].points === ranking[i - 1].points ? puestos[i - 1] : i)
+  }
+  return puestos
 }
 
 /** Cómo se llama a quien va primero, que un ranking sin título no es nada. */

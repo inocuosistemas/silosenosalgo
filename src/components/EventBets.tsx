@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import type { EventBetsResponse } from '../../shared/wireTypes'
-import { scoreBets, betMedal, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
+import { scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
 import { MarkBadge } from './MarkPicker'
 import { useAuth } from '../lib/AuthContext'
 import { Modal, LoginForm } from './AuthMenu'
@@ -104,6 +104,8 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
     () => (data ? scoreBets(data.bets, outcomes, data.startsAt) : []),
     [data, outcomes],
   )
+  /** El puesto de cada uno, compartido con quien lleve sus mismos puntos. */
+  const puestos = useMemo(() => puestosDePorra(ranking), [ranking])
 
   const guardar = async () => {
     if (!startsAt) return
@@ -354,7 +356,7 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
                 i === 0 && s.points > 0 ? 'border-amber-700/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/50'
               }`}>
                 <div className="flex items-center gap-2">
-                  <span className="w-5 shrink-0 text-center text-sm">{betMedal(i)}</span>
+                  <span className="w-5 shrink-0 text-center text-sm">{betMedal(puestos[i], s.points)}</span>
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
                     {s.author}
                     {s.author === data?.me && <span className="ml-1 text-[10px] text-sky-400">tú</span>}

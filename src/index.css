@@ -28,6 +28,18 @@
   img, svg, video, canvas {
     max-width: 100%;
   }
+  /* Los iconos, EN LÍNEA con el texto que acompañan.
+     Tailwind pone `svg { display: block }` de serie, que va bien dentro de una
+     caja flexible pero rompe cuando el icono va pegado a una palabra: se
+     convierte en un bloque y se lleva el texto a la línea de abajo. Pasaba en
+     "Cuentas" del menú de usuario, con el icono arriba y la palabra debajo.
+     Dentro de un flex esta regla no estorba: ahí el navegador ignora `inline`
+     igualmente. El medio pelo de descenso es para que el icono quede a la
+     altura de la equis de la tipografía y no colgando de la línea base. */
+  svg.lucide {
+    display: inline;
+    vertical-align: -0.125em;
+  }
   /* Una palabra sin espacios más larga que la línea —un enlace, un nombre de
      fichero— se parte en vez de desbordar. `break-word` y no `anywhere`: este
      solo rompe cuando de verdad no cabe, mientras que `anywhere` además cambia
