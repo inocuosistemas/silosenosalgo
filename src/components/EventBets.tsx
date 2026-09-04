@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { X, ChevronRight, Share2 } from 'lucide-react'
+import { X, ChevronRight, Share2, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { dibujaPorra, cargaImagen } from '../lib/porraCard'
 import type { EventBetsResponse } from '../../shared/wireTypes'
@@ -221,10 +221,16 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       {/* Quién juega, lo primero. La porra es de una cuenta, y sin ver cuál está
           abierta —o que no hay ninguna— no se entiende ni por qué no sale el
           formulario ni a nombre de quién va lo que se echa. */}
-      <section className={`mb-4 flex items-center gap-3 rounded-xl border p-3 ${
+      {/* Quién juega y qué ha echado, en UNA sola tarjeta: son la misma cosa
+          —lo tuyo— y separarlas en dos cajas idénticas pegadas una encima de
+          otra era una raya de más sin nada que separar. */}
+      <section className={`mb-4 overflow-hidden rounded-xl border ${
         user ? 'border-slate-800 bg-slate-900/60' : 'border-amber-800/60 bg-amber-950/20'
       }`}>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-800 text-lg">👤</span>
+      <div className="flex items-center gap-3 p-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-800 text-slate-400">
+          <User size={20} />
+        </span>
         {user ? (
           <div className="min-w-0 flex-1">
             <p className="text-[11px] uppercase tracking-wider text-slate-500">Juegas como</p>
@@ -244,28 +250,11 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
             Entrar
           </button>
         )}
-      </section>
+      </div>
 
-      {showLogin && !user && (
-        <Modal title="Iniciar sesión" onClose={() => setShowLogin(false)}>
-          <LoginForm onSubmit={login} onDone={() => setShowLogin(false)} />
-        </Modal>
-      )}
-
-      {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
-
-      {/* Por qué no puedes jugar, cuando no es por la cuenta: eso ya lo dice
-          la tarjeta de arriba, con su botón. */}
-      {data && !puedeJugar && data.whyNot && data.whyNot !== 'anon' && (
-        <p className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
-          {data.whyNot === 'cerrada' && <>La porra se cerró en la salida. A las dos horas de carrera, acertar quién acaba ya no tiene mérito.</>}
-          {data.whyNot === 'desactivada' && <>Esta carrera no tiene porra.</>}
-        </p>
-      )}
-
-      {/* ── El formulario, solo antes de la salida ───────────────────────── */}
+      {/* Y debajo, en la misma tarjeta, lo que has echado. */}
       {puedeJugar && (
-        <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60">
+        <div className="border-t border-slate-800">
           <button
             onClick={() => setFormAbierto((v) => !v)}
             aria-expanded={formAbierto}
@@ -415,7 +404,25 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           </p>
           </div>
           )}
-        </section>
+        </div>
+      )}
+      </section>
+
+      {showLogin && !user && (
+        <Modal title="Iniciar sesión" onClose={() => setShowLogin(false)}>
+          <LoginForm onSubmit={login} onDone={() => setShowLogin(false)} />
+        </Modal>
+      )}
+
+      {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
+
+      {/* Por qué no puedes jugar, cuando no es por la cuenta: eso ya lo dice
+          la tarjeta de arriba, con su botón. */}
+      {data && !puedeJugar && data.whyNot && data.whyNot !== 'anon' && (
+        <p className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
+          {data.whyNot === 'cerrada' && <>La porra se cerró en la salida. A las dos horas de carrera, acertar quién acaba ya no tiene mérito.</>}
+          {data.whyNot === 'desactivada' && <>Esta carrera no tiene porra.</>}
+        </p>
       )}
 
       {/* ── Cómo está la porra ───────────────────────────────────────────── */}
