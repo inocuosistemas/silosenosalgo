@@ -2,7 +2,7 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
-import { cierraSiTocaEvento, leeStats } from '../../lib/eventStats'
+import { cierraSiTocaEvento, fotoDeResultadosSiToca, leeStats } from '../../lib/eventStats'
 import { isBeaconActivity } from '../../../shared/validate'
 import type { EventStats } from '../../../shared/wireTypes'
 import { TOKEN_RE } from '../../../shared/validate'
@@ -27,7 +27,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
-            bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats, limit_min AS limitMin,
+            bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats, stats_at AS statsAt, limit_min AS limitMin,
             plan_polyline IS NOT NULL AS hasPolyline, json_array_length(plan_polyline) AS polylinePts, activity,
             plan_total_km AS planTotalKm,
             ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
@@ -38,7 +38,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     id: string; name: string; planShareId: string | null; planName: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     colorsLocked: number; betsEnabled: number
-    endsAt: number | null; stats: string | null; planTotalKm: number | null; limitMin: number | null
+    endsAt: number | null; stats: string | null; statsAt: number | null; planTotalKm: number | null; limitMin: number | null
     hasPolyline: number; polylinePts: number | null; activity: string | null
     endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null; notes: string | null
@@ -52,6 +52,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
     id: ev.id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
   })
+  if (endedAt === null) {
+    await fotoDeResultadosSiToca(env, {
+      id: ev.id, startsAt: ev.startsAt, endedAt, statsAt: ev.statsAt, planTotalKm: ev.planTotalKm,
+    })
+  }
 
   // Pertenecer es la condición para ver: un evento del que no formas parte
   // responde 404 y no 403, para no confirmar que ese id existe. Con una

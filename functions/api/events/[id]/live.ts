@@ -4,7 +4,7 @@ import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
-import { cierraSiTocaEvento, leeStats } from '../../../lib/eventStats'
+import { cierraSiTocaEvento, fotoDeResultadosSiToca, leeStats } from '../../../lib/eventStats'
 import type {
   EventLiveResponse, EventLiveRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
@@ -38,13 +38,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
 
   const ev = await env.DB.prepare(
     `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, activity,
-            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, created_by AS createdBy,
+            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats_at AS statsAt, created_by AS createdBy,
             name, photo_key AS photoKey, photo_at AS photoAt, stats,
             tracking_url AS trackingUrl, website_url AS websiteUrl
        FROM events WHERE id = ?`)
     .bind(id).first<{
       planShareId: string | null; startsAt: number | null; betsEnabled: number
-      endsAt: number | null; endedAt: number | null; planTotalKm: number | null; createdBy: string
+      endsAt: number | null; endedAt: number | null; planTotalKm: number | null; statsAt: number | null; createdBy: string
       name: string; photoKey: string | null; photoAt: number | null; stats: string | null
       activity: string | null
       trackingUrl: string | null; websiteUrl: string | null
@@ -56,6 +56,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
     id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
   })
+  // Y si sigue en marcha, una foto de cómo va de vez en cuando: es lo que
+  // salva los resultados si nadie mira la carrera hasta días después y para
+  // entonces las trazas ya se han borrado.
+  if (endedAt === null) {
+    await fotoDeResultadosSiToca(env, {
+      id, startsAt: ev.startsAt, endedAt, statsAt: ev.statsAt, planTotalKm: ev.planTotalKm,
+    })
+  }
 
   // Pertenecer es la condición para ver. 404 y no 403: quien no está dentro
   // tampoco tiene por qué saber que ese evento existe. Salvo quien lo organiza,

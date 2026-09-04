@@ -619,19 +619,82 @@ export async function leePolilinea(env: Env, eventId: string): Promise<Polilinea
 }
 
 /** Cierra el evento a la hora dada y guarda los resultados. */
+/** Los resultados tal como están AHORA, sin guardarlos ni cerrar nada. */
+async function calculaAhora(env: Env, eventId: string, totalKm: number | null): Promise<EventStats> {
+  const linea = await leePolilinea(env, eventId)
+  const ev = await env.DB.prepare('SELECT starts_at AS startsAt, activity FROM events WHERE id = ?')
+    .bind(eventId).first<{ startsAt: number | null; activity: string | null }>()
+  return calculaEstadisticas(
+    await sesionesDelEvento(env, eventId), totalKm, linea, ev?.startsAt ?? null, ev?.activity ?? null,
+  )
+}
+
 export async function cierraEvento(
   env: Env,
   eventId: string,
   endedAt: number,
   totalKm: number | null,
 ): Promise<EventStats> {
-  const linea = await leePolilinea(env, eventId)
-  const ev = await env.DB.prepare('SELECT starts_at AS startsAt, activity FROM events WHERE id = ?')
-    .bind(eventId).first<{ startsAt: number | null; activity: string | null }>()
-  const stats = calculaEstadisticas(
-    await sesionesDelEvento(env, eventId), totalKm, linea, ev?.startsAt ?? null, ev?.activity ?? null,
-  )
-  await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ? WHERE id = ?')
-    .bind(endedAt, JSON.stringify(stats), eventId).run()
+  const stats = await calculaAhora(env, eventId, totalKm)
+
+  // Un cierre NO puede vaciar unos resultados que ya estaban bien.
+  //
+  // El cierre ocurre en el primer vistazo posterior a la hora de cierre, y ese
+  // vistazo puede ser el lunes. Para entonces las trazas pueden haberse borrado
+  // —cada corredor elige su plazo al terminar la baliza, y hay quien deja seis
+  // horas—, y recalcular sobre nada devuelve una tabla en la que no corrió
+  // nadie. Si ya había resultados con datos, mandan ellos: unos resultados
+  // viejos y buenos valen infinitamente más que unos recién hechos y vacíos.
+  const previos = await leeStats(env, eventId, null)
+  const vacios = stats.corredores.every((c) => !c.tracked)
+  const habia = previos?.corredores.some((c) => c.tracked) ?? false
+  if (vacios && habia) {
+    await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+      .bind(endedAt, eventId).run()
+    return previos!
+  }
+
+  await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ?, stats_at = ? WHERE id = ?')
+    .bind(endedAt, JSON.stringify(stats), Date.now(), eventId).run()
   return stats
+}
+
+/** Cada cuánto se refresca la foto provisional de una carrera en marcha. */
+const FOTO_CADA_MS = 10 * 60 * 1000
+
+/**
+ * La foto de cómo va la carrera, guardada por si acaso.
+ *
+ * No cierra nada ni se enseña: los resultados solo se leen cuando el evento
+ * está terminado. Es un SEGURO contra el único caso en que se pierde todo —que
+ * nadie mire la carrera hasta días después de su hora de cierre y para entonces
+ * las trazas ya no estén—, y contra el organizador que se olvida de cerrarla.
+ *
+ * Cerrar sola en cuanto llega el último a meta sería peor remedio: "el último"
+ * no se puede saber —quien abandona y apaga la baliza se ve igual que quien
+ * sigue en el monte sin cobertura—, y cerrar quita la carrera de la lista de
+ * las balizas de quienes aún corren.
+ *
+ * Cada diez minutos como mucho, y solo con la carrera empezada: leer las trazas
+ * de todos en cada refresco de la parrilla sería tirar trabajo para no cambiar
+ * nada.
+ */
+export async function fotoDeResultadosSiToca(
+  env: Env,
+  ev: { id: string; startsAt: number | null; endedAt: number | null; statsAt: number | null; planTotalKm: number | null },
+): Promise<void> {
+  if (ev.endedAt !== null) return
+  const now = Date.now()
+  if (ev.startsAt === null || now < ev.startsAt) return
+  if (ev.statsAt !== null && now - ev.statsAt < FOTO_CADA_MS) return
+  const stats = await calculaAhora(env, ev.id, ev.planTotalKm)
+  // Una foto sin nadie no sustituye a una con gente: al principio de la carrera
+  // todavía no hay trazas, y sería empezar borrando lo del intento anterior.
+  const previos = await leeStats(env, ev.id, null)
+  if (stats.corredores.every((c) => !c.tracked) && (previos?.corredores.some((c) => c.tracked) ?? false)) {
+    await env.DB.prepare('UPDATE events SET stats_at = ? WHERE id = ?').bind(now, ev.id).run()
+    return
+  }
+  await env.DB.prepare('UPDATE events SET stats = ?, stats_at = ? WHERE id = ?')
+    .bind(JSON.stringify(stats), now, ev.id).run()
 }

@@ -3,7 +3,7 @@ import type { Env } from '../../../lib/db'
 import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
-import { cierraSiTocaEvento, leeStats } from '../../../lib/eventStats'
+import { cierraSiTocaEvento, fotoDeResultadosSiToca, leeStats } from '../../../lib/eventStats'
 import type {
   EventPublicResponse, EventPublicRunner, TrackFix, TrailPoint, EventRunnerStatus,
 } from '../../../../shared/wireTypes'
@@ -29,13 +29,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
             starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled, activity,
-            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats
+            ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats_at AS statsAt, stats
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
     id: string; name: string; planShareId: string | null
     trackingUrl: string | null; websiteUrl: string | null
     startsAt: number | null; photoKey: string | null; photoAt: number | null; betsEnabled: number
-    endsAt: number | null; endedAt: number | null; planTotalKm: number | null; stats: string | null
+    endsAt: number | null; endedAt: number | null; planTotalKm: number | null; statsAt: number | null; stats: string | null
     activity: string | null
   }>()
   // Mismo 404 para "no existe" y "ya no se comparte": un enlace revocado es un
@@ -45,6 +45,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   const endedAt = ev.endedAt ?? await cierraSiTocaEvento(env, {
     id: ev.id, endsAt: ev.endsAt, endedAt: ev.endedAt, planTotalKm: ev.planTotalKm,
   })
+  if (endedAt === null) {
+    await fotoDeResultadosSiToca(env, {
+      id: ev.id, startsAt: ev.startsAt, endedAt, statsAt: ev.statsAt, planTotalKm: ev.planTotalKm,
+    })
+  }
 
   // Desde la PARRILLA, igual que en `/live`: quien espera en meta también
   // quiere ver al suyo antes de que empiece a emitir, y "no aparece" no puede
