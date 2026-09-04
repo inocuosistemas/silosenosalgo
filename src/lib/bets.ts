@@ -55,6 +55,21 @@ export interface RunnerOutcome {
   settled: boolean
 }
 
+/**
+ * Cómo acabaría alguien si mantuviera el ritmo que lleva.
+ *
+ * No es un resultado: es lo que permite enseñar la porra EN MARCHA sin tocar el
+ * cálculo bueno, que a propósito no reparte nada hasta que la carrera está
+ * decidida. Lo pinta quien lo use avisando de que es provisional.
+ */
+export interface Proyeccion {
+  username: string
+  /** A qué hora cruzaría meta a ese ritmo (epoch ms). */
+  acabaEn: number
+  /** Si le daría tiempo dentro del límite de la carrera. */
+  llega: boolean
+}
+
 export interface ScoredBet {
   kind: EventBet['kind']
   /** A quién apuntaba. */

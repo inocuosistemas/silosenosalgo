@@ -3,7 +3,10 @@ import { X, ChevronRight, Share2 } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { dibujaPorra, cargaImagen } from '../lib/porraCard'
 import type { EventBetsResponse } from '../../shared/wireTypes'
-import { scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO, type RunnerOutcome } from '../lib/bets'
+import {
+  scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO,
+  type RunnerOutcome, type Proyeccion,
+} from '../lib/bets'
 import { MarkBadge } from './MarkPicker'
 import { useAuth } from '../lib/AuthContext'
 import { Modal, LoginForm } from './AuthMenu'
@@ -47,7 +50,7 @@ function cuando(ms: number): string {
   return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
 }
 
-export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, onBack }: {
+export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, proyecciones, onBack }: {
   eventId: string
   /** Para la tarjeta que se comparte: la carrera tiene que decir cuál es. */
   eventName: string | null
@@ -58,6 +61,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   startsAt: number | null
   /** El tiempo límite de la carrera (minutos): el último cierre menos la salida. */
   limitMin: number | null
+  /** Cómo acabaría cada uno al ritmo que lleva. Vacío fuera de carrera. */
+  proyecciones: Proyeccion[]
   onBack: () => void
 }) {
   const { user, login } = useAuth()
@@ -137,6 +142,41 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
     () => (data ? scoreBets(data.bets, outcomes, data.startsAt) : []),
     [data, outcomes],
   )
+
+  /**
+   * La misma porra, contada COMO SI la carrera acabara al ritmo de ahora.
+   *
+   * El cálculo de verdad se niega a repartir puntos mientras quede alguien en
+   * carrera, y hace bien: un ganador anunciado en el kilómetro 20 sería mentira
+   * y encima se la creería alguien. Pero entonces, durante las cinco horas que
+   * dura la prueba —que es justo cuando la gente está mirando el móvil— la
+   * pantalla no se mueve.
+   *
+   * La solución no es relajar el cálculo bueno, es hacer OTRO con datos
+   * proyectados y decir bien claro que es provisional. Se le da de comer una
+   * carrera imaginaria en la que todos siguen a su ritmo, y como esa carrera sí
+   * está "decidida", la misma función reparte puntos y saca un orden.
+   */
+  const provisional = useMemo(() => {
+    if (!data || proyecciones.length === 0) return null
+    const porNombre = new Map(proyecciones.map((p) => [p.username, p]))
+    const comoAcabaria: RunnerOutcome[] = outcomes.map((o) => {
+      if (o.settled) return o
+      const p = porNombre.get(o.username)
+      if (!p) return { ...o, settled: true }
+      return { ...o, finished: p.llega, finishedAt: p.llega ? p.acabaEn : null, settled: true }
+    })
+    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt)
+    return new Map(tabla.map((s) => [s.author, s]))
+  }, [data, outcomes, proyecciones])
+
+  /** Quién va ganando la porra ahora mismo, de más a menos puntos. */
+  const vanGanando = useMemo(() => {
+    if (!provisional) return []
+    return [...provisional.values()]
+      .filter((s) => s.points > 0)
+      .sort((a, b) => b.points - a.points || a.author.localeCompare(b.author))
+  }, [provisional])
   /** El puesto de cada uno, compartido con quien lleve sus mismos puntos. */
   const puestos = useMemo(() => puestosDePorra(ranking), [ranking])
 
@@ -381,7 +421,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       {/* ── Cómo está la porra ───────────────────────────────────────────── */}
       {data && data.bets.length > 0 && (
         <BetsPulse bets={data.bets} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin}
-                   eventName={eventName} photoUrl={photoUrl} />
+                   eventName={eventName} photoUrl={photoUrl} proyecciones={proyecciones} />
       )}
 
       {/* ── El ranking, solo para quien juega ────────────────────────────── */}
@@ -393,6 +433,42 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           </p>
         </section>
       )}
+      {/* ── Cómo va la porra AHORA MISMO ─────────────────────────────────
+          Solo mientras se corre, y diciendo bien claro que es provisional: el
+          ranking de abajo sigue sin repartir un punto hasta que la carrera
+          esté decidida, y así tiene que ser. Esto es lo que hace que valga la
+          pena mirar el móvil durante las cinco horas. */}
+      {vanGanando.length > 0 && (
+        <section className="mb-4 overflow-hidden rounded-xl border border-emerald-900/50 bg-gradient-to-b from-emerald-950/30 to-slate-900/60">
+          <header className="flex items-center justify-between gap-2 border-b border-emerald-900/40 px-3.5 py-2.5">
+            <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
+              Si acabaran así…
+            </h2>
+            <span className="shrink-0 text-[10px] uppercase tracking-wide text-emerald-500/80">provisional</span>
+          </header>
+          <ul className="divide-y divide-slate-800/70">
+            {vanGanando.slice(0, 5).map((s, i) => (
+              <li key={s.author} className="flex items-center gap-2 px-3.5 py-2">
+                <span className="w-5 shrink-0 text-center text-sm">{betMedal(i, s.points)}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
+                  {s.author}
+                  {s.author === data?.me && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
+                </span>
+                <span className="shrink-0 text-sm font-bold tabular-nums text-emerald-300">{s.points}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="border-t border-slate-800/70 px-3.5 py-2 text-[10px] leading-snug text-slate-500">
+            Contado con el ritmo que lleva cada uno ahora mismo: cambia con cada
+            posición que llega, y no vale nada hasta que crucen la meta de verdad.
+          </p>
+        </section>
+      )}
+
       {user && (
       <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
         <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
@@ -429,7 +505,14 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                 </p>
                 {/* El detalle: sin esto, un número suelto no se discute en el bar. */}
                 <ul className="mt-1 space-y-0.5 pl-7">
-                  {s.bets.map((b, k) => (
+                  {s.bets.map((b, k) => {
+                    // Cómo va ESTE pronóstico según la proyección, para los que
+                    // todavía están por decidir: un punto gris repetido veinte
+                    // veces no cuenta nada, y "va acertando" sí.
+                    const yendo = b.state === 'pending'
+                      ? provisional?.get(s.author)?.bets.find((x) => x.kind === b.kind && x.target === b.target)
+                      : undefined
+                    return (
                     <li key={k} className="flex items-center gap-1.5 text-[11px]">
                       <span className={
                         b.state === 'ok' ? 'text-emerald-400' : b.state === 'ko' ? 'text-slate-600' : 'text-slate-500'
@@ -441,8 +524,14 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                       </span>
                       {b.note && <span className="shrink-0 text-slate-600">{b.note}</span>}
                       {b.points > 0 && <span className="ml-auto shrink-0 tabular-nums text-emerald-400">+{b.points}</span>}
+                      {yendo && (
+                        <span className={`ml-auto shrink-0 ${yendo.points > 0 ? 'text-emerald-500/80' : 'text-slate-600'}`}>
+                          {yendo.points > 0 ? `va bien · +${yendo.points}` : 'no va'}
+                        </span>
+                      )}
                     </li>
-                  ))}
+                    )
+                  })}
                 </ul>
               </li>
             ))}
@@ -508,7 +597,7 @@ const C_NO = '#ea580c'
 const C_VOTO = '#7c3aed'
 const C_TIEMPO = '#a78bfa'
 
-function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, photoUrl }: {
+function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, photoUrl, proyecciones }: {
   bets: EventBetsResponse['bets']
   players: number
   runners: BetRunner[]
@@ -516,6 +605,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   limitMin: number | null
   eventName: string | null
   photoUrl: string | null
+  proyecciones: Proyeccion[]
 }) {
   const jugadores = players
   const dame = (n: string) => runners.find((r) => r.username === n)
@@ -616,7 +706,15 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
       .filter((m) => Number.isFinite(m) && m > 0)
       .sort((a, b) => a - b),
   })).filter((t) => t.mins.length > 0)
-  const techo = Math.max(limitMin ?? 0, ...tiempos.flatMap((t) => t.mins)) || 1
+  /** A qué minuto de carrera acabaría cada uno al ritmo de ahora. */
+  const yendoA = new Map(
+    startsAt === null ? [] : proyecciones.map((p) => [p.username, (p.acabaEn - startsAt) / 60_000]),
+  )
+  const techo = Math.max(
+    limitMin ?? 0,
+    ...tiempos.flatMap((t) => t.mins),
+    ...[...yendoA.values()].filter((m) => Number.isFinite(m) && m > 0),
+  ) || 1
 
   /**
    * El TITULAR: la porra en una frase.
@@ -735,7 +833,14 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         {/* ── Cuánto tardan ─────────────────────────────────────────────── */}
         {tiempos.length > 0 && (
           <div>
-            <Titulo color={C_TIEMPO}>Cuánto tardan</Titulo>
+            <div className="flex items-baseline justify-between gap-2">
+              <Titulo color={C_TIEMPO}>Cuánto tardan</Titulo>
+              {yendoA.size > 0 && (
+                <span className="flex shrink-0 items-center gap-1 text-[10px] text-slate-500">
+                  <span className="h-2.5 w-0.5 rounded-full bg-emerald-400" /> va camino de
+                </span>
+              )}
+            </div>
             <ul className="mt-2 space-y-2">
               {tiempos.map((t) => {
                 const min = t.mins[0], max = t.mins[t.mins.length - 1]
@@ -771,6 +876,17 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                           style={{ left: enCarril(m, techo), background: C_TIEMPO }}
                         />
                       ))}
+                      {/* Dónde va a acabar DE VERDAD si mantiene el ritmo: es
+                          lo que dice de un vistazo si esos pronósticos van a
+                          entrar o se han quedado cortos. En verde y como línea,
+                          para que no se confunda con los puntos de la porra. */}
+                      {yendoA.get(t.name) !== undefined && (
+                        <span
+                          title={`va camino de ${durationLabel(yendoA.get(t.name)! * 60_000)}`}
+                          className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-emerald-400"
+                          style={{ left: enCarril(yendoA.get(t.name)!, techo) }}
+                        />
+                      )}
                     </div>
                   </li>
                 )

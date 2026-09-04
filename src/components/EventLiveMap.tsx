@@ -457,6 +457,43 @@ export default function EventLiveMap({ source }: { source: Source }) {
     })
   }, [rows, route])
 
+  /**
+   * Cómo va a acabar esto, si nadie cambia el ritmo.
+   *
+   * Es la única forma de que la porra se pueda seguir MIENTRAS se corre: sin
+   * proyectar, todos los pronósticos están "por decidir" hasta que cruza el
+   * último y la pantalla no se mueve en cinco horas. Con ella se puede decir
+   * quién va ganando la porra ahora mismo, avisando de que es provisional.
+   *
+   * La cuenta es la de toda la vida: lo que lleva recorrido en el tiempo que
+   * lleva corriendo, estirado hasta el final. No se afina más a propósito —ni
+   * desnivel, ni fatiga, ni el ritmo de los últimos kilómetros—: esto es para
+   * echar unas risas mirando el móvil, no para cronometrar a nadie, y una
+   * cuenta que se entiende sin explicarla vale más aquí que una buena.
+   *
+   * Solo con medio kilómetro hecho y cinco minutos de carrera: antes de eso,
+   * estirar lo poco que se sabe da tiempos absurdos.
+   */
+  const proyecciones = useMemo(() => {
+    const total = route?.totalKm ?? null
+    if (startMs === null || total === null || endedAt !== null) return []
+    const limiteMs = raceStats?.limitMin != null ? raceStats.limitMin * 60_000 : null
+    return rows.flatMap(({ r, km, lost }) => {
+      if (km === null || km < 0.5 || r.fix === null) return []
+      const transcurrido = (r.updatedAt ?? now) - startMs
+      if (transcurrido < 5 * 60_000) return []
+      const tardaria = transcurrido * (total / km)
+      return [{
+        username: r.username,
+        /** A qué hora cruzaría meta a este ritmo. */
+        acabaEn: startMs + tardaria,
+        /** Si le da tiempo dentro del límite. Quien lleva mucho callado no
+         *  cuenta como que va a llegar: puede estar parado en una cuneta. */
+        llega: !lost && (limiteMs === null || tardaria <= limiteMs),
+      }]
+    })
+  }, [rows, route, startMs, endedAt, raceStats, now])
+
   /** La parrilla tal como la necesita la porra: sin posiciones, solo identidad. */
   const betRunners = useMemo<BetRunner[]>(
     () => rows.map(({ r }) => ({ username: r.username, bib: r.bib, emoji: r.emoji, color: r.color })),
@@ -507,6 +544,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       outcomes={outcomes}
       startsAt={startsAt}
       limitMin={raceStats?.limitMin ?? null}
+      proyecciones={proyecciones}
       onBack={() => setView('mapa')}
     />
   ) : (
