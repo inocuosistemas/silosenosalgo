@@ -72,6 +72,8 @@ export interface BetScore {
   points: number
   hits: number
   pending: number
+  /** Cuándo se mojó por última vez: es lo que ordena la lista. */
+  lastAt: number
   bets: ScoredBet[]
 }
 
@@ -129,12 +131,14 @@ export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?
   const porJugador = new Map<string, BetScore>()
   const dame = (author: string): BetScore => {
     let s = porJugador.get(author)
-    if (!s) { s = { author, points: 0, hits: 0, pending: 0, bets: [] }; porJugador.set(author, s) }
+    if (!s) { s = { author, points: 0, hits: 0, pending: 0, lastAt: 0, bets: [] }; porJugador.set(author, s) }
     return s
   }
 
   for (const b of bets) {
     const s = dame(b.author)
+    // La hora del más reciente de sus pronósticos: es la que ordena la lista.
+    if (b.createdAt > s.lastAt) s.lastAt = b.createdAt
     const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme, startsAt ?? null)
     s.bets.push(scored)
     s.points += scored.points
@@ -142,8 +146,13 @@ export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?
     if (scored.state === 'pending') s.pending++
   }
 
+  // Por la hora del último pronóstico, el más reciente arriba. Y NO por puntos:
+  // mientras la carrera no decide nada todo el mundo va a cero, y una lista
+  // ordenada por puntos empatados acaba ordenada por nombre —que es lo que
+  // había, y lo que hacía que el podio pareciera decidido por el apodo—. Quién
+  // acaba de mojarse sí es información: es lo que se mueve mientras se espera.
   return [...porJugador.values()].sort((a, b) =>
-    b.points - a.points || b.hits - a.hits || a.author.localeCompare(b.author))
+    b.lastAt - a.lastAt || a.author.localeCompare(b.author))
 }
 
 function scoreOne(

@@ -29,6 +29,23 @@ export interface BetRunner {
   color: string | null
 }
 
+/**
+ * Cuándo se hizo un pronóstico: "hoy 09:14" o "4 sept, 09:14".
+ *
+ * El día se calla cuando es hoy —que es cuando más se mira esta pantalla, y
+ * repetir la fecha de hoy en cada línea es ruido— y aparece en cuanto la cosa
+ * viene de otro día.
+ */
+function cuando(ms: number): string {
+  const d = new Date(ms)
+  const hora = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  const hoy = new Date()
+  const mismoDia = d.getFullYear() === hoy.getFullYear()
+    && d.getMonth() === hoy.getMonth() && d.getDate() === hoy.getDate()
+  if (mismoDia) return `hoy ${hora}`
+  return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
+}
+
 export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBack }: {
   eventId: string
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo de ella. */
@@ -369,6 +386,10 @@ export function EventBets({ eventId, runners, outcomes, startsAt, limitMin, onBa
                 <p className="mt-0.5 pl-7 text-[11px] text-slate-500">
                   {s.hits} {s.hits === 1 ? 'acierto' : 'aciertos'}
                   {s.pending > 0 && ` · ${s.pending} por decidir`}
+                  {/* Cuándo se mojó. Es lo que ordena la lista, así que tiene
+                      que verse: una lista ordenada por algo que no se enseña
+                      parece desordenada. */}
+                  {s.lastAt > 0 && <> · {cuando(s.lastAt)}</>}
                 </p>
                 {/* El detalle: sin esto, un número suelto no se discute en el bar. */}
                 <ul className="mt-1 space-y-0.5 pl-7">

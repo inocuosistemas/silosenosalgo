@@ -57,13 +57,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
 
   // Los pronósticos con los dos nombres resueltos: quien lo dice y a quién.
   const rows = await env.DB.prepare(
-    `SELECT ua.username AS author, COALESCE(ut.username, '') AS target, b.kind, b.value
+    `SELECT ua.username AS author, COALESCE(ut.username, '') AS target, b.kind, b.value,
+            b.created_at AS createdAt
        FROM event_bets b
        JOIN users ua ON ua.id = b.user_id
        LEFT JOIN users ut ON ut.id = b.target_id
       WHERE b.event_id = ?
-      ORDER BY ua.username`,
-  ).bind(id).all<{ author: string; target: string; kind: string; value: string }>()
+      ORDER BY b.created_at DESC`,
+  ).bind(id).all<{ author: string; target: string; kind: string; value: string; createdAt: number }>()
 
   // Sin sesión, la porra se enseña en conjunto y sin firmas: cuántos dicen que
   // acaba, cuánto le dan de tiempo. Quién dijo qué —y el ranking, que es una
@@ -72,6 +73,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const anonimo = !user
   const bets: EventBet[] = (rows.results ?? []).map((r) => ({
     author: anonimo ? '' : r.author, target: r.target, kind: r.kind as BetKind, value: r.value,
+    createdAt: r.createdAt,
   }))
   const players = new Set((rows.results ?? []).map((r) => r.author)).size
 

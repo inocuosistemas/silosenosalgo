@@ -571,6 +571,9 @@ export interface EventBet {
   target: string
   kind: BetKind
   value: string
+  /** Cuándo se mojó (epoch ms). Es lo que ordena la lista de oráculos: el
+   *  último que ha hablado, arriba. */
+  createdAt: number
 }
 
 /** GET /api/events/:id/bets — la porra del evento, para pintarla y puntuarla. */
