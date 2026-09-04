@@ -84,7 +84,11 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
               if (r) setALaIzquierda(r.left < window.innerWidth / 2)
               setMenuOpen((v) => !v)
             }}
-            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-sky-400 hover:border-sky-700 transition-colors text-xs flex items-center gap-1.5"
+            /* Altura FIJA y no vertical: en la cabecera del evento este botón
+               convive con el de volver y con la barra de pestañas, y tres
+               pastillas de alturas parecidas pero distintas se ven torcidas.
+               36 px es además un objetivo cómodo para el dedo. */
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs text-slate-300 transition-colors hover:border-sky-700 hover:text-sky-400"
           >
             <User size={15} /> <span className="hidden sm:inline max-w-[8rem] truncate">{user.username}</span>
             {user.isAdmin && <span className="hidden sm:inline text-[10px] text-amber-400">admin</span>}
@@ -159,7 +163,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           onClick={() => setShowLogin(true)}
           title="Iniciar sesión"
           aria-label="Iniciar sesión"
-          className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
         >
           <User size={15} /> <span>Entrar</span>
         </button>

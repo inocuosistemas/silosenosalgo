@@ -791,7 +791,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
         <div className="pointer-events-auto flex shrink-0 flex-wrap items-start justify-end gap-1.5">
         <AuthMenu />
-        <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
+        {/* `items-stretch` y altura fija: las pestañas se estiran solas hasta
+            llenar la barra, así que quedan a la altura exacta del botón de
+            sesión y del de volver sin tener que ir cuadrando rellenos a mano
+            —que es lo que las dejaba cuatro píxeles más bajas—. */}
+        <div className="flex h-9 items-stretch gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
           {([
             'mapa', 'lista',
             ...(betsEnabled ? ['porra' as const] : []),
@@ -804,7 +808,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`rounded px-2 py-1 text-xs capitalize transition-colors ${
+              className={`flex items-center rounded px-2 text-xs capitalize transition-colors ${
                 view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
