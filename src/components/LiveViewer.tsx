@@ -1988,7 +1988,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         reqPace = availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null
       }
       const wx = projectedETA && weather ? weatherAt(weather[i], projectedETA) : null
-      return { w: r.w, seg: r.seg, cumGainM: r.cumGainM, profile: r.profile, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
+      /**
+       * Lo que QUEDA de este tramo, para el tramo en el que se está ahora.
+       *
+       * El tramo entero —"7,4 km, ↑409, ~75 min"— es la ficha del recorrido y
+       * está bien que salga, pero a mitad de él ya no es la pregunta: quien va
+       * por dentro quiere saber lo que le falta PARA SALIR de él, y estaba
+       * teniendo que restarlo de cabeza mirando el puntito del perfil.
+       *
+       * Solo en el tramo actual: en los de más adelante lo que queda y el tramo
+       * entero son lo mismo, y repetirlo sería ruido.
+       */
+      const anterior = i > 0 ? (planRows ?? [])[i - 1].w.distanceKm : 0
+      const dentro = progressKm != null && !passed && progressKm > anterior + 0.05
+      const queda = dentro
+        ? elevationStatsForSegment(plan.track, progressKm!, r.w.distanceKm, plan.paceConfig)
+        : null
+      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
 
@@ -2043,7 +2059,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 )}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                <span>↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min</span>
+                {/* Lo que queda, DELANTE y destacado: es lo que se viene a
+                    mirar cuando ya se está dentro del tramo. El tramo entero
+                    baja a segunda línea, en gris, que sigue valiendo para
+                    hacerse una idea de lo que es. */}
+                {c.queda && (
+                  <span className="font-medium text-sky-300">
+                    quedan {c.queda.distanceKm.toFixed(1)} km · ↑{Math.round(c.queda.elevGainM)} ↓{Math.round(c.queda.elevLossM)} m · ~{Math.round(c.queda.estimatedMinutes)} min
+                  </span>
+                )}
+                <span className={c.queda ? 'text-slate-500' : undefined}>
+                  {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min
+                </span>
                 {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
                 {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
               </div>
