@@ -1,4 +1,6 @@
 import type { SharePayloadV1 } from './sharePayload'
+import { estimateArrivalTimeAtKm, type PaceConfig } from './timing'
+import type { GpxTrack } from './gpx'
 import { cutoffWptKey, inferCutoffDatesFromWaypoints, type CutoffWallClock } from './cutoffInference'
 
 /**
@@ -85,6 +87,48 @@ const MINIMO_MS = 3 * 60_000
  * están llenos de arranques, colas de salida y GPS enganchando), o con tan poco
  * tiempo que un par de lecturas mandan sobre el resultado.
  */
+/**
+ * El margen al siguiente cierre, contando con el DESNIVEL que queda.
+ *
+ * La otra versión estira en plano el ritmo medio, y eso engaña en cuanto el
+ * recorrido no es llano: en el Desafío Urbión, con la subida a Laguna Negra por
+ * delante, el ritmo de los dos primeros kilómetros daba media hora de sobra
+ * donde de verdad quedaban veinte minutos. La ficha del mapa decía +34 y el
+ * visor individual, que sí mira el perfil, +21.
+ *
+ * Esta cuenta es la del visor, con la misma función y sin copiarla: se mira
+ * cuánto adelanto o retraso lleva respecto a lo que el recorrido publicado
+ * preveía para su kilómetro, y ese mismo desfase se le aplica a la hora
+ * prevista para el corte. O sea, "si sigue rindiendo como hasta ahora respecto
+ * a lo planeado". Da igual cuál sea el ritmo de referencia del plan —rápido o
+ * lento—, porque lo que se conserva es la DIFERENCIA, no el ritmo.
+ *
+ * Sin plan utilizable se cae a la cuenta plana, que para un recorrido llano da
+ * lo mismo y es mejor que no decir nada.
+ */
+export function marginToNextCutoffConPerfil(
+  cutoffs: EventCutoff[],
+  km: number,
+  desde: number,
+  now: number,
+  track: GpxTrack,
+  paceConfig: PaceConfig,
+): CutoffMargin | null {
+  const next = nextCutoff(cutoffs, km)
+  if (!next) return null
+  if (now - desde < MINIMO_MS || km < 0.3) return null
+  const salida = new Date(desde)
+  const previstoAqui = estimateArrivalTimeAtKm(track, km, salida, paceConfig)
+  const previstoCorte = estimateArrivalTimeAtKm(track, next.km, salida, paceConfig)
+  if (!previstoAqui || !previstoCorte) {
+    return marginToNextCutoff(cutoffs, km, desde, now)
+  }
+  // Lo que lleva de más (o de menos) respecto a lo previsto para su kilómetro.
+  const desfase = now - previstoAqui.getTime()
+  const eta = previstoCorte.getTime() + desfase
+  return { cutoff: next, minutes: Math.round((next.at - eta) / 60_000) }
+}
+
 export function marginToNextCutoff(
   cutoffs: EventCutoff[],
   km: number,

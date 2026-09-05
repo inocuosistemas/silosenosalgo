@@ -11,7 +11,7 @@ import {
 } from '../lib/eventsTransport'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import {
-  eventCutoffs, marginToNextCutoff, formatMargin, marginTone, type EventCutoff,
+  eventCutoffs, marginToNextCutoff, marginToNextCutoffConPerfil, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
 import { isHttpUrl } from '../../shared/validate'
 import { sanitizeTrail } from '../lib/trailSmoothing'
@@ -283,6 +283,24 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [stats])
 
   /**
+   * El recorrido en el formato que quiere la estimación de tiempos.
+   *
+   * El plan llega con las horas de cada punto como texto —así viaja por la
+   * red— y la función que calcula "a qué hora se pasa por el km X" las quiere
+   * como fechas. Se convierte UNA vez por recorrido y no en cada cuenta: son
+   * miles de puntos y la cuenta se rehace por corredor y cada pocos segundos.
+   */
+  const pista = useMemo(() => {
+    if (!plan) return null
+    return {
+      ...plan.track,
+      points: plan.track.points.map((p) => ({
+        lat: p.lat, lon: p.lon, ele: p.ele, time: p.time ? new Date(p.time) : null,
+      })),
+    }
+  }, [plan])
+
+  /**
    * La salida con la que se cuenta: la OFICIAL del evento y, si no la hay, la
    * del recorrido publicado. Son casi siempre la misma —al poner la base se
    * copia—, pero manda la del evento: es la que el organizador puede corregir
@@ -336,8 +354,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // quien llega pronto y la deja preparada acumula una hora de "carrera"
       // parado en la línea, y con eso el margen al corte sale delirante.
       const referencia = startMs ?? r.startedAt
+      // Y contando con el desnivel que queda, que es la misma cuenta que hace
+      // la baliza individual: las dos pantallas contestan a la misma pregunta y
+      // no pueden dar números distintos. Sin plan con ritmos, la cuenta plana.
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && referencia !== null
-        ? marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now)
+        ? (pista && plan?.paceConfig
+          ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig)
+          : marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now))
         : null
       const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
       // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
@@ -398,7 +421,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       }
       return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial, startMs])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
 
   /**
