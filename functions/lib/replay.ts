@@ -99,8 +99,8 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
   // mapa media hora después de llegar no cuenta nada y confunde a quien mira.
   // Sin resultados congelados (una carrera cerrada antes de que existieran) se
   // enseña todo, que es mejor que nada.
-  const ev = await env.DB.prepare('SELECT ended_at AS endedAt, stats FROM events WHERE id = ?')
-    .bind(eventId).first<{ endedAt: number | null; stats: string | null }>()
+  const ev = await env.DB.prepare('SELECT starts_at AS startsAt, ended_at AS endedAt, stats FROM events WHERE id = ?')
+    .bind(eventId).first<{ startsAt: number | null; endedAt: number | null; stats: string | null }>()
   const stats = ev?.endedAt ? await leeStats(env, eventId, ev.stats) : null
   // El trazado, para poder cerrar el último tramo de quien llegó.
   const linea = stats ? await leePolilinea(env, eventId) : null
@@ -130,6 +130,22 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
     // mapa y los números cuentan lo mismo.
     const limpios = sinSaltos(pts, r.actividad)
     if (limpios.length >= 2) pts = limpios
+    // Desde la salida OFICIAL, no desde que encendió el móvil. Quien llega con
+    // tiempo enciende la baliza en el coche, en la cola del guardarropa o
+    // calentando, y todo eso queda grabado: en el replay se veía a la gente
+    // llegar por la carretera y dar vueltas por el pueblo antes de que la
+    // carrera existiera —una hora de vídeo en la que no pasa nada y en la que
+    // el reloj ya está corriendo—. Es la misma regla que ya usan los tiempos y
+    // el margen a los cortes: la carrera empieza cuando la dan, no cuando cada
+    // uno se prepara.
+    //
+    // Y si al cortar no queda carrera —la hora de salida está mal puesta, o es
+    // de otro día— se enseña todo: es mejor un replay con el paseo de más que
+    // un mapa vacío.
+    if (ev?.startsAt != null) {
+      const desdeLaSalida = pts.filter((p) => p.t >= ev.startsAt!)
+      if (desdeLaSalida.length >= 2) pts = desdeLaSalida
+    }
     // Hasta la meta y ni un punto más, para quien la cruzó.
     const meta = metaDe.get(r.username)
     if (meta != null) {
@@ -152,8 +168,16 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
     })
   }
 
+  // El cronómetro del replay es el de la carrera: arranca en la salida oficial,
+  // así que el tiempo que marca es el que llevaba cada uno de verdad. Sin ella
+  // —o si alguien quedó con puntos anteriores— manda la primera lectura, que es
+  // lo único que hay.
+  const arranque = ev?.startsAt != null && Number.isFinite(desde)
+    ? Math.min(ev.startsAt, desde)
+    : desde
+
   return {
-    from: Number.isFinite(desde) ? desde : 0,
+    from: Number.isFinite(arranque) ? arranque : 0,
     to: Number.isFinite(hasta) ? hasta : 0,
     runners,
   }
