@@ -16,7 +16,7 @@ import {
 import { isHttpUrl } from '../../shared/validate'
 import { paradoDesde } from '../lib/parado'
 import { sanitizeTrail } from '../lib/trailSmoothing'
-import { ACTIVITY_MAX_SPEED_KMH } from '../lib/timing'
+import { ACTIVITY_MAX_SPEED_KMH, haversineKm } from '../lib/timing'
 import { MarkBadge } from './MarkPicker'
 import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
@@ -25,6 +25,8 @@ import { AuthMenu } from './AuthMenu'
 import { Confeti } from './Confeti'
 import type { RunnerOutcome } from '../lib/bets'
 import { resultadosDeCarrera } from '../lib/eventOutcomes'
+import { buildPlannedCurve } from '../lib/ghostPacer'
+import { proyeccionFantasma, SILENCIO_MIN_MS, type Fantasma } from '../lib/proyeccionFantasma'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -319,6 +321,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [startsAt, plan])
 
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
+  /**
+   * La curva km ↔ minutos del recorrido, muestreada una vez.
+   *
+   * Es la que mueve al corredor virtual del visor individual, y aquí sirve para
+   * proyectar a quien se queda sin cobertura por el terreno que tiene delante y
+   * no en línea recta: en una subida el fantasma avanza poco y en una bajada
+   * mucho, como haría él.
+   */
+  const curvaPlan = useMemo(
+    // Con `pista` y no con `plan.track`: es el mismo recorrido con las horas ya
+    // convertidas a fechas, que es lo que quiere el modelo de ritmos.
+    () => (pista && plan ? buildPlannedCurve(pista, plan.paceConfig) : null),
+    [pista, plan],
+  )
+
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
       // El km que manda la baliza manda sobre el proyectado: lo calcula quien
@@ -441,13 +458,53 @@ export default function EventLiveMap({ source }: { source: Source }) {
           }
         }
       }
+      /**
+       * Por dónde DEBERÍA ir, cuando lleva un rato sin dar señal.
+       *
+       * Solo un dibujo: no toca ni un número de esta pantalla —ni el kilómetro,
+       * ni el margen al corte, ni los resultados, ni la porra—. Lo que decide
+       * dónde está sigue siendo su GPS; esto solo evita que un punto clavado
+       * durante siete minutos se lea como una aplicación estropeada.
+       *
+       * Se apaga sola en los casos en que mentiría, y uno de ellos lo enseñó la
+       * carrera: si sus últimas lecturas ya decían que no se movía, no se
+       * proyecta. Lo dice `paradoMs`, que es la misma cuenta que pinta el "⏸
+       * parado" de la lista.
+       */
+      const velocidadKmH = (() => {
+        if (tail.length < 2) return null
+        const ult = tail[tail.length - 1]
+        const desde = tail.find((q) => ult.t - q.t <= 15 * 60_000) ?? tail[0]
+        const horas = (ult.t - desde.t) / 3_600_000
+        if (horas <= 0) return null
+        let km = 0
+        for (let i = tail.indexOf(desde) + 1; i < tail.length; i++) {
+          km += haversineKm(tail[i - 1], tail[i])
+        }
+        return km / horas
+      })()
+      const fantasma = proyeccionFantasma({
+        kmUltimo: km,
+        silencioMs: r.updatedAt !== null ? now - r.updatedAt : 0,
+        totalKm: route?.totalKm ?? null,
+        estabaParado: paradoMs > 0,
+        resuelto: acabo || r.status !== 'active',
+        curva: curvaPlan,
+        transcurridoMs: referencia !== null && r.updatedAt !== null ? r.updatedAt - referencia : null,
+        velocidadKmH,
+      })
+      // Callado más de lo normal. No es todavía "sin cobertura" —eso son veinte
+      // minutos— pero ya no es el pulso de la baliza, y decirlo es la mitad de
+      // quitarle a quien mira la impresión de que esto no funciona.
+      const callado = r.status === 'active' && r.fix !== null && r.updatedAt !== null
+        && now - r.updatedAt >= SILENCIO_MIN_MS
       // RETIRADO: apagó la baliza sin cruzar la meta. Es lo que hace alguien
       // que se baja, y es una noticia distinta de un teléfono que se queda sin
       // batería o sin cobertura —ahí la baliza sigue abierta y callada—. Las
       // dos se veían igual, "terminado", y no lo son: una dice que ya está en
       // el coche y la otra que no se sabe nada de él.
       const retirado = !idle && !acabo && r.status === 'ended'
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado }
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, fantasma, callado }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
@@ -724,7 +781,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key, km, desviadoM, tail, acabo }) => {
+          {withFix.map(({ r, stale, key, km, desviadoM, tail, acabo, fantasma }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
             // Quien terminó va EN la meta, se esté imantando o no: su última
@@ -752,6 +809,51 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       positions={tail.map((p) => [p.lat, p.lon] as [number, number])}
                       pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
                     />
+                  </>
+                )}
+                {/* La proyección: la banda de recorrido donde tiene que
+                    estar, y el aro hueco en su extremo optimista. El punto de
+                    verdad se queda donde está, sin moverse, porque es lo único
+                    que se sabe; entre los dos está él. Discontinuo y a media
+                    tinta a propósito: esto no es una posición. */}
+                {fantasma && route && (
+                  <>
+                    {/* Migas de pan, no una línea: puntos redondos sueltos y
+                        muy separados. Es el color del corredor —hay que saber
+                        de quién es la banda cuando hay treinta— pero su cola va
+                        de ese mismo color, y una línea discontinua fina se leía
+                        como la continuación de por dónde ha ido. Un rastro de
+                        puntos gordos y sueltos no se confunde con nada, y a la
+                        vez se ve sobre el verde del mapa, que bajarle la tinta
+                        hasta que "no pareciera real" simplemente la borraba. */}
+                    <Polyline
+                      positions={tramoEntreKm(route, fantasma.desdeKm, fantasma.hastaKm)}
+                      pathOptions={{
+                        color, weight: isSel ? 10 : 9, opacity: 0.7,
+                        dashArray: '0.1 16', lineCap: 'round',
+                      }}
+                      interactive={false}
+                    />
+                    {coordsAtKm(route, fantasma.hastaKm) && (
+                      <Marker
+                        position={coordsAtKm(route, fantasma.hastaKm)!}
+                        icon={fantasmaIcon(color)}
+                        interactive={false}
+                      >
+                        {/* La etiqueta, solo del que se está mirando. Fija
+                            para todos serían treinta carteles tapando el mapa
+                            en una carrera con gente, que es justo cuando esto
+                            hace falta. El aro discontinuo ya dice por sí solo
+                            que ahí no hay nadie confirmado. */}
+                        {(isSel || key === hoverKey) && (
+                          <Tooltip direction="bottom" offset={[0, 12]} permanent className="poi-tip">
+                            {fantasma.enMeta
+                              ? `debería estar llegando · sin señal hace ${agoLabel(fantasma.silencioMs)}`
+                              : `debería ir por aquí · sin señal hace ${agoLabel(fantasma.silencioMs)}`}
+                          </Tooltip>
+                        )}
+                      </Marker>
+                    )}
                   </>
                 )}
                 <Marker
@@ -1384,6 +1486,10 @@ type Row = {
   acabo: boolean
   /** A qué hora cruzó (epoch ms): la congelada si la hay, si no la del primer aviso en meta. */
   metaEn: number | null
+  /** Por dónde debería ir mientras no da señal. Un dibujo, nunca un dato. */
+  fantasma: Fantasma | null
+  /** Lleva más de tres minutos sin mandar nada: ya no es el pulso normal. */
+  callado: boolean
   key: string
 }
 
@@ -1445,7 +1551,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado, callado, fantasma }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -1507,9 +1613,14 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                       {formatMargin(margin.minutes)} · {margin.cutoff.name}
                     </span>
                   )}
-                  <span className={`ml-auto ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
+                  <span className={`ml-auto ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
                     {r.updatedAt === null ? 'sin señal'
                       : lost ? `📡 sin cobertura · hace ${agoLabel(now - r.updatedAt)}`
+                      // Entre el pulso normal y la avería hay un rato largo que
+                      // antes no se decía: el número envejecía en gris claro y
+                      // quien miraba solo veía un punto que no se movía. Decirlo
+                      // es la mitad de quitarle la sensación de que esto falla.
+                      : callado ? `📡 sin señal · hace ${agoLabel(now - r.updatedAt)}`
                       : desviadoM > DESVIADO_M ? `↯ fuera del recorrido · ${Math.round(desviadoM)} m`
                       : `hace ${agoLabel(now - r.updatedAt)}`}
                   </span>
@@ -1528,6 +1639,20 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                     >
                       ver
                     </a>
+                  )}
+                  {/* Y se explica, que un aro raro en el mapa sin explicación
+                      preocupa más que tranquiliza. Lo importante es la última
+                      frase: los puntos que faltan NO se han perdido —la baliza
+                      los guarda sin cobertura y los sube en bloque al
+                      recuperarla—, así que el hueco se cierra solo con datos de
+                      verdad al cabo de un rato. */}
+                  {callado && (
+                    <span className="w-full text-[10px] leading-snug text-slate-500">
+                      {fantasma
+                        ? 'El aro hueco del mapa es una proyección por su ritmo y el terreno, no su posición. '
+                        : ''}
+                      Los puntos que falten se rellenan solos cuando recupere cobertura.
+                    </span>
                   )}
                   </>
                 )}
@@ -1744,6 +1869,30 @@ function runnerIcon(color: string, emoji: string | null, selected: boolean, stal
 }
 
 /**
+ * El icono de la proyección: un aro hueco y discontinuo.
+ *
+ * Tiene que parecerse al corredor lo justo para saber de quién es —su color— y
+ * diferenciarse lo bastante para que nadie lo confunda con una posición: hueco
+ * en vez de relleno, borde de trazos en vez de continuo y a media tinta. La
+ * diferencia no se fía solo del color, que sobre un mapa lleno de verdes y
+ * naranjas el color es lo primero que se pierde: la forma ya lo dice.
+ */
+const fantasmaCache = new Map<string, L.DivIcon>()
+function fantasmaIcon(color: string): L.DivIcon {
+  const hit = fantasmaCache.get(color)
+  if (hit) return hit
+  const size = 22
+  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;
+      border:2px dashed ${color};background:rgba(2,6,23,0.6);
+      box-shadow:0 0 0 1px rgba(2,6,23,0.5);
+      display:grid;place-items:center;font-size:12px;font-weight:700;line-height:1;
+      color:${color}">?</div>`
+  const icon = L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+  fantasmaCache.set(color, icon)
+  return icon
+}
+
+/**
  * A partir de qué zoom se dibujan los emojis.
  *
  * Cien emojis a nivel de provincia son una sopa ilegible que además ocupa el
@@ -1861,6 +2010,25 @@ function coordsAtKm(route: { pts: [number, number][]; cumKm: number[] }, km: num
   const span = cumKm[hi] - cumKm[lo]
   const t = span > 0 ? (km - cumKm[lo]) / span : 0
   return [pts[lo][0] + t * (pts[hi][0] - pts[lo][0]), pts[lo][1] + t * (pts[hi][1] - pts[lo][1])]
+}
+
+/**
+ * El trozo de recorrido entre dos kilómetros, con los extremos exactos.
+ *
+ * Los vértices del trazado caen donde caen, así que quedarse con los que hay
+ * entre medias deja la banda empezando y acabando hasta cien metros más allá de
+ * lo que se quería decir. Se interpolan las dos puntas.
+ */
+function tramoEntreKm(
+  route: { pts: [number, number][]; cumKm: number[] },
+  desde: number,
+  hasta: number,
+): [number, number][] {
+  const a = coordsAtKm(route, desde)
+  const b = coordsAtKm(route, hasta)
+  if (!a || !b) return []
+  const medio = route.pts.filter((_, i) => route.cumKm[i] > desde && route.cumKm[i] < hasta)
+  return [a, ...medio, b]
 }
 
 function isFoot(a?: string | null): boolean { return a === 'walk' || a === 'run' || a == null }

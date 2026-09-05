@@ -1,4 +1,5 @@
 import type { GpxTrack } from './gpx'
+import { estimateArrivalTimeAtKm, type PaceConfig, type PausePoint } from './timing'
 
 /**
  * "Corredor virtual": donde iria alguien que fuese exactamente en hora.
@@ -13,6 +14,57 @@ export interface PlannedCurve {
   kms: number[]
   /** Minutos previstos para llegar a ese km, crecientes. */
   mins: number[]
+}
+
+/**
+ * Muestrea la curva UNA vez: 256 tramos bastan para que la interpolación no se
+ * note ni en una ultra. Incluye las pausas previstas, para que el fantasma no
+ * se adelante justo mientras el plan dice que estás parado.
+ *
+ * Vive aquí y no dentro de una pantalla porque la usan dos —el corredor virtual
+ * del visor y la proyección de quien se queda sin cobertura en el mapa del
+ * evento— y las dos tienen que contestar lo mismo sobre el mismo recorrido.
+ */
+export function buildPlannedCurve(
+  track: GpxTrack,
+  paceConfig: PaceConfig,
+  pauses?: PausePoint[],
+  steps = 256,
+): PlannedCurve | null {
+  const total = track.totalDistanceKm
+  if (!(total > 0)) return null
+  const anchor = new Date(0)
+  const kms: number[] = [], mins: number[] = []
+  for (let i = 0; i <= steps; i++) {
+    const km = (total * i) / steps
+    const at = estimateArrivalTimeAtKm(track, km, anchor, paceConfig, undefined, pauses)
+    if (!at) return null
+    kms.push(km)
+    mins.push(at.getTime() / 60_000)
+  }
+  return { kms, mins }
+}
+
+/**
+ * Lo contrario: cuántos minutos preveía el plan hasta ese km. Es la misma
+ * curva leída del otro lado, y hace falta para saber a qué ritmo del plan va
+ * alguien de verdad —lo que lleva hecho contra lo que decía el papel—.
+ */
+export function plannedMinAtKm(curve: PlannedCurve, km: number): number {
+  const { kms, mins } = curve
+  if (kms.length === 0) return 0
+  if (km <= kms[0]) return mins[0]
+  const last = kms.length - 1
+  if (km >= kms[last]) return mins[last]
+  let lo = 0, hi = last
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (kms[mid] <= km) lo = mid
+    else hi = mid - 1
+  }
+  const span = kms[lo + 1] - kms[lo]
+  const f = span > 0 ? (km - kms[lo]) / span : 0
+  return mins[lo] + (mins[lo + 1] - mins[lo]) * f
 }
 
 /**

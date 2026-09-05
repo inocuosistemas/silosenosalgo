@@ -31,7 +31,7 @@ import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
 import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColors'
 import { detectForm } from '../lib/formCalibration'
 import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
-import { kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
+import { buildPlannedCurve, kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
@@ -1089,22 +1089,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // cada render solo interpola sobre ella. Incluye las pausas previstas, para
   // que el fantasma no se adelante justo mientras el plan dice que estas parado
   // y para que concuerde con el "vs plan" que ya se muestra.
-  const plannedCurve = useMemo(() => {
-    if (!plan) return null
-    const total = plan.track.totalDistanceKm
-    if (!(total > 0)) return null
-    const anchor = new Date(0)
-    const STEPS = 256
-    const kms: number[] = [], mins: number[] = []
-    for (let i = 0; i <= STEPS; i++) {
-      const km = (total * i) / STEPS
-      const at = estimateArrivalTimeAtKm(plan.track, km, anchor, plan.paceConfig, undefined, pauses)
-      if (!at) return null
-      kms.push(km)
-      mins.push(at.getTime() / 60_000)
-    }
-    return { kms, mins }
-  }, [plan, pauses])
+  const plannedCurve = useMemo(
+    () => (plan ? buildPlannedCurve(plan.track, plan.paceConfig, pauses) : null),
+    [plan, pauses],
+  )
 
   // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
   // projected ETA at render time.
