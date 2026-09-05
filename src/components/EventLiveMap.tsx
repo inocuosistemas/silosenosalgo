@@ -24,6 +24,7 @@ import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
 import { Confeti } from './Confeti'
 import type { RunnerOutcome } from '../lib/bets'
+import { resultadosDeCarrera } from '../lib/eventOutcomes'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -446,7 +447,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // dos se veían igual, "terminado", y no lo son: una dice que ya está en
       // el coche y la otra que no se sabe nada de él.
       const retirado = !idle && !acabo && r.status === 'ended'
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, paradoMs, retirado }
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
@@ -488,28 +489,23 @@ export default function EventLiveMap({ source }: { source: Source }) {
   /**
    * Cómo va acabando la carrera de cada uno, que es lo que puntúa la porra.
    *
-   * Meta = su último punto pasó del 97% del recorrido: el GPS no clava el
-   * último metro y un umbral exacto dejaría "sin acabar" a quien cruzó el arco.
-   * La hora que vale es la de ese último aviso; y quien cierra la baliza sin
-   * llegar queda decidido igual, como no-acabado.
+   * La cuenta ya está hecha más arriba, en las filas: `acabo` sabe quién ha
+   * cruzado —con memoria, que haber llegado no se deshace— y `metaEn` a qué
+   * hora, prefiriendo la de los resultados congelados. Aquí solo se traduce.
+   * Antes se rehacía: otro umbral de meta y, sobre todo, la hora del ÚLTIMO
+   * aviso en vez de la de la llegada. Lo que eso rompía está contado en
+   * `lib/eventOutcomes.ts`.
    */
-  const outcomes = useMemo<RunnerOutcome[]>(() => {
-    const total = route?.totalKm ?? null
-    return rows.map(({ r, km }) => {
-      const finished = total !== null && km !== null && km >= total * 0.97
-      return {
-        username: r.username,
-        tracked: r.fix !== null,
-        finished,
-        finishedAt: finished ? r.updatedAt : null,
-        // Cerrar una baliza que NUNCA mandó nada no decide nada: quien la armó
-        // para probar y la apagó puede estar corriendo igual con el móvil en el
-        // bolsillo. Sin una sola posición su carrera queda sin resolver, que es
-        // la verdad, en vez de contarse como abandono.
-        settled: finished || (r.status === 'ended' && r.fix !== null),
-      }
-    })
-  }, [rows, route])
+  const outcomes = useMemo<RunnerOutcome[]>(
+    () => resultadosDeCarrera(rows.map(({ r, acabo, metaEn, retirado }) => ({
+      username: r.username,
+      emitiendo: r.fix !== null,
+      acabo,
+      metaEn,
+      retirado,
+    }))),
+    [rows],
+  )
 
   /**
    * Cómo va a acabar esto, si nadie cambia el ritmo.
@@ -1384,6 +1380,10 @@ type Row = {
   paradoMs: number
   /** Cerró la baliza sin llegar a meta: se bajó. No es lo mismo que quedarse sin señal. */
   retirado: boolean
+  /** Ha llegado a meta. */
+  acabo: boolean
+  /** A qué hora cruzó (epoch ms): la congelada si la hay, si no la del primer aviso en meta. */
+  metaEn: number | null
   key: string
 }
 
