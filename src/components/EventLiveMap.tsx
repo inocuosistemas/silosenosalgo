@@ -22,6 +22,7 @@ import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
+import { Confeti } from './Confeti'
 import type { RunnerOutcome } from '../lib/bets'
 
 /**
@@ -547,6 +548,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
     [rows],
   )
 
+  /**
+   * Alguien acaba de cruzar la meta MIENTRAS mirábamos.
+   *
+   * Se compara con quién había llegado en el refresco anterior: si aparece uno
+   * nuevo, confeti. No al abrir la pantalla con la carrera ya terminada —eso no
+   * es una llegada, es un resultado— sino en el momento en que pasa, que es lo
+   * que se celebra.
+   */
+  const llegadosAntes = useRef<Set<string> | null>(null)
+  const [festejar, setFestejar] = useState(false)
+
   /** El corredor señalado, si hay alguno. */
   const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
 
@@ -578,6 +590,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
     if (corte < 0) corte = route.pts.length - 1
     return { hecho: route.pts.slice(0, corte + 1), queda: route.pts.slice(corte) }
   }, [route, kmHecho])
+
+  // Quién ha cruzado ya, para saber cuándo aparece uno nuevo. La primera vuelta
+  // solo toma nota: al abrir con la carrera terminada no se celebra nada, que
+  // eso no es una llegada sino un resultado.
+  useEffect(() => {
+    const ahora = new Set(rows.filter((x) => x.acabo).map((x) => x.key))
+    const antes = llegadosAntes.current
+    llegadosAntes.current = ahora
+    if (antes === null) return
+    for (const k of ahora) {
+      if (!antes.has(k)) { setFestejar(true); window.setTimeout(() => setFestejar(false), 5_000); break }
+    }
+  }, [rows])
 
   /** La pantalla de espera: nadie ha mandado posición todavía. */
   const waiting = runners !== null && withFix.length === 0
@@ -639,6 +664,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   return (
     <div className={`relative h-[100dvh] w-full bg-slate-950 ${view === 'mapa' ? '' : 'flex flex-col'}`}>
+      <Confeti activo={festejar} />
       {view === 'mapa' ? (
         <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />

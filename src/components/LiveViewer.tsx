@@ -34,6 +34,7 @@ import { kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import type { BrowserGuide } from '../lib/guidePackage'
+import { Confeti } from './Confeti'
 
 const POLL_MS = 10_000
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
@@ -1554,7 +1555,36 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // kilómetro y medio.
   const goalTolKm = Math.min(1, Math.max(0.25, totalKm * 0.015))
   const remainingKm = progressKm != null ? Math.max(0, totalKm - progressKm) : null
-  const reachedGoal = ended && hasPlan && remainingKm != null && remainingKm <= goalTolKm
+  /**
+   * Cruzar la meta NO es parar la baliza.
+   *
+   * Se exigía que la baliza estuviera parada para dar a alguien por llegado, y
+   * eso pasa mucho después —o no pasa—: se cruza el arco, se abraza a la
+   * familia, se bebe algo, y el móvil sigue emitiendo en el bolsillo. Pasó hoy
+   * en el Desafío Urbión: cruzó a las 15:45:46 —su posición estaba a catorce
+   * metros del final del recorrido, con ocho de precisión— y veinte minutos
+   * después la pantalla seguía diciendo que estaba corriendo.
+   *
+   * Lo que sí demuestra la llegada es el AVANCE: pisar el final del recorrido
+   * habiendo pasado antes por la mitad. Lo segundo hace falta porque en un
+   * circuito la meta y la salida son el mismo sitio, y quien llega andando a la
+   * salida por el último tramo pisaría el final sin haber corrido nada.
+   *
+   * Parar la baliza sigue valiendo como prueba: quien se detuvo a doscientos
+   * metros del final es que había llegado, aunque su GPS no lo rematara.
+   */
+  const pasoPorLaMitad = (() => {
+    if (!trailSnaps || totalKm <= 0) return false
+    const mitad = totalKm * 0.5
+    let visto = false
+    for (const s of trailSnaps) {
+      if (s.km <= mitad) visto = true
+      else if (visto && s.km >= totalKm - goalTolKm) return true
+    }
+    return false
+  })()
+  const reachedGoal = hasPlan && remainingKm != null && remainingKm <= goalTolKm
+    && (ended || pasoPorLaMitad)
   // Hora de llegada: el instante en que se dejó de AVANZAR, no el de la última
   // posición ni el de parar la baliza.
   //
@@ -2015,6 +2045,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <p className="mt-1 text-xs text-slate-400">{statusLine}</p>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <Confeti activo={reachedGoal} />
           {topHero}
           {panelComparar}
           {recalibrationCard}
@@ -2238,6 +2269,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             {header}
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-2">
+            <Confeti activo={reachedGoal} />
             {topHero && <div>{topHero}</div>}
             {panelComparar && <div className="mt-2">{panelComparar}</div>}
             {fix && (
