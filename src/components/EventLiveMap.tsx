@@ -14,6 +14,7 @@ import {
   eventCutoffs, marginToNextCutoff, marginToNextCutoffConPerfil, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
 import { isHttpUrl } from '../../shared/validate'
+import { paradoDesde } from '../lib/parado'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { ACTIVITY_MAX_SPEED_KMH } from '../lib/timing'
 import { MarkBadge } from './MarkPicker'
@@ -63,6 +64,9 @@ const LOST_MS = 20 * 60_000
 const DESVIADO_M = 100
 /** A cuántos metros del final se da la meta por cruzada. Ver eventStats. */
 const META_M = 50
+/** A partir de cuánto tiempo quieto se dice que alguien está parado. Menos que
+ *  esto es esperar a que cambie un semáforo, y avisarlo sería ruido. */
+const PARADO_MIN_MS = 3 * 60_000
 /** Las medallas del podio, por PUESTO (que se comparte en los empates). */
 const MEDALLAS = ['🥇', '🥈', '🥉']
 
@@ -382,6 +386,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // llegar a mandar. Para quien mira las tres son lo mismo, y no es "sin
       // señal" —que suena a avería— sino que aún no ha empezado.
       const idle = !armed && r.fix === null
+      /**
+       * Cuánto lleva sin moverse, si es que lleva.
+       *
+       * Es lo que explica el resto de la pantalla: quien lleva diez minutos en
+       * el mismo sitio no es que vaya lento, es que está parado —en un
+       * avituallamiento, atándose una zapatilla o esperando a alguien—, y sin
+       * decirlo su ritmo medio se desploma sin motivo aparente.
+       *
+       * Solo con señal fresca: quien lleva un rato sin mandar nada no está
+       * "parado", está sin cobertura, y eso ya se dice de otra manera.
+       */
+      const paradoMs = (() => {
+        if (!r.fix || lost || stale || r.updatedAt === null) return 0
+        const desde = paradoDesde(r.tail)
+        return desde === null ? 0 : Math.max(0, r.updatedAt - desde)
+      })()
       // La cola, sin los picotazos. Un móvil con mala señal manda saltos de
       // decenas de metros que en el mapa se ven como rayos que salen del
       // corredor y vuelven: no ha estado ahí, y dibujarlo es contar una carrera
@@ -419,7 +439,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           }
         }
       }
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo }
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, paradoMs }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
@@ -993,7 +1013,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed, lost, desviadoM }) => {
+            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs }) => {
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -1035,6 +1055,18 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     <span className="text-[10px] text-amber-400/80" title={`Fuera del recorrido: a unos ${Math.round(desviadoM)} m`}>↯</span>
                   )}
                   {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
+                  {/* Parado, y desde cuándo. Discreto —un símbolo y los minutos—
+                      porque pararse es normal: en un avituallamiento se para
+                      todo el mundo. Solo a partir de tres minutos, que menos que
+                      eso es esperar a que cambie un semáforo. */}
+                  {paradoMs >= PARADO_MIN_MS && (
+                    <span
+                      className="text-[10px] tabular-nums text-amber-400/80"
+                      title={`Sin moverse desde hace ${Math.round(paradoMs / 60_000)} min`}
+                    >
+                      ⏸{Math.round(paradoMs / 60_000)}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -1314,6 +1346,8 @@ type Row = {
   lost: boolean
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
+  /** Cuánto lleva sin moverse (ms). Cero si se mueve o si no hay señal fresca. */
+  paradoMs: number
   key: string
 }
 
@@ -1545,7 +1579,12 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Dato valor={km !== null ? km.toFixed(1) : '—'} unidad={totalKm ? `de ${totalKm.toFixed(0)} km` : 'km'} />
-        <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />
+        {/* Parado, en el sitio del ritmo: un ritmo instantáneo de cero no
+            explica nada y "lleva 6 min parado" lo explica todo. Vuelve el ritmo
+            en cuanto se mueva. */}
+        {row.paradoMs >= PARADO_MIN_MS
+          ? <Dato valor={`⏸ ${Math.round(row.paradoMs / 60_000)}`} unidad="min parado" tono="text-amber-300" />
+          : <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />}
         <Dato
           valor={ago ?? '—'}
           unidad={row.lost ? 'sin cobertura' : 'última señal'}
