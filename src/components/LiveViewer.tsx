@@ -13,7 +13,7 @@ import 'leaflet/dist/leaflet.css'
 import {
   CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
   type TrackStateResponse, type BeaconActivity, type TrackCheer,
-  type EventLiveResponse, type EventLiveRunner,
+  type EventLiveResponse, type EventLiveRunner, type EventRunnerStats,
 } from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
@@ -21,7 +21,7 @@ import { downloadGpx } from '../lib/gpxSerialize'
 import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, viewerId, LiveTrackError } from '../lib/liveTrack'
 import { paradoDesde } from '../lib/parado'
-import { cruceEnTraza } from '../lib/cruceMeta'
+import { cruceEnTraza, esCircuito } from '../lib/cruceMeta'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
@@ -596,6 +596,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    */
   const [otros, setOtros] = useState<EventLiveRunner[]>([])
   const [salidaEvento, setSalidaEvento] = useState<number | null>(null)
+  /**
+   * Su resultado en los papeles, cuando la carrera ya está cerrada.
+   *
+   * Mientras se corre, esta pantalla calcula su llegada por su cuenta y hace
+   * bien: es la única que tiene los datos al instante. Pero en cuanto hay
+   * resultado oficial, calcular es competir con él —y competía: la parrilla
+   * decía 7h 15m y aquí ponía 7:16 h de la misma carrera, veintisiete segundos
+   * que no son de nadie—. Dos cuentas honestas sobre datos parecidos no dan lo
+   * mismo nunca; la única forma de que dos pantallas coincidan es que una de
+   * las dos deje de contar.
+   */
+  const [resultadoDelEvento, setResultadoDelEvento] = useState<EventRunnerStats | null>(null)
   useEffect(() => {
     if (!eventId) return
     let vivo = true
@@ -608,6 +620,14 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         const data = (await res.json()) as EventLiveResponse
         setOtros(data.runners.filter((r) => r.fix !== null && r.sessionId !== token))
         setSalidaEvento(data.startsAt)
+        // Y su resultado OFICIAL, si la carrera ya cerró. Lo calculó el
+        // servidor con la traza entera y es el que se enseña en la parrilla, en
+        // la porra y en la meta; esta pantalla no puede decir otro. Aquí se
+        // sabe cuál es el suyo por la baliza que se está mirando.
+        const yo = data.runners.find((r) => r.sessionId === token)?.username ?? null
+        setResultadoDelEvento(
+          (yo && data.stats?.corredores.find((c) => c.username === yo && c.finishedAt != null)) || null,
+        )
       } catch { /* al mejor esfuerzo: sin esto la pantalla es la de siempre */ }
     }
     void trae()
@@ -780,7 +800,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    */
   const cruceMeta = useMemo(() => {
     if (!plan || !trailSnaps) return null
-    return cruceEnTraza(trailSnaps.map((s2, i) => ({ km: s2.km, t: trail[i].t })), plan.track.totalDistanceKm)
+    const lecturas = trailSnaps.map((s2, i) => ({
+      km: s2.km, t: trail[i].t, lat: trail[i].lat, lon: trail[i].lon,
+    }))
+    const c = cruceEnTraza(lecturas, plan.track.totalDistanceKm, esCircuito(plan.track.points))
+    if (!c) return null
+    // Y hasta qué lectura llega la carrera, para poder cortar ahí lo que se
+    // mide: el cruce cae ENTRE dos lecturas, así que la última que cuenta es la
+    // anterior a la primera que ya está pasada.
+    let i = lecturas.length - 1
+    while (i > 0 && lecturas[i].t > c.t) i--
+    return { t: c.t, i }
   }, [plan, trailSnaps, trail])
 
   // Split the trail into runs of constant colour so GPS precision shows on the
@@ -1541,6 +1571,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // tiene lo suyo. Un 1,5% de la ruta, con suelo y techo para que ni en una
   // ruta corta se quede en nada ni en una de 400 km dé por llegado a un
   // kilómetro y medio.
+  /**
+   * El resultado que manda: el de la propia baliza si lo trae, y si no el que
+   * se pueda sacar del evento.
+   *
+   * La baliza lo sirve a TODO el mundo —su enlace es público y se manda al
+   * grupo, donde nadie tiene cuenta— mientras que la puerta del evento pide ser
+   * de la carrera. Sin el primero, el tiempo coincidía solo para quien había
+   * iniciado sesión, que es justo quien menos lo mira.
+   */
+  const resultadoOficial: { finished: boolean; finishedAt: number | null; minutos: number | null } | null =
+    state.official ?? resultadoDelEvento ?? null
+
   const goalTolKm = Math.min(1, Math.max(0.25, totalKm * 0.015))
   const remainingKm = progressKm != null ? Math.max(0, totalKm - progressKm) : null
   /**
@@ -1571,8 +1613,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // deshace. Parar la baliza sigue valiendo como prueba de reserva: quien se
   // detuvo a doscientos metros del final es que había llegado, aunque su GPS no
   // lo rematara.
-  const reachedGoal = hasPlan
-    && (cruceMeta !== null || (ended && remainingKm != null && remainingKm <= goalTolKm))
+  const reachedGoal = resultadoOficial?.finished === true || (hasPlan
+    && (cruceMeta !== null || (ended && remainingKm != null && remainingKm <= goalTolKm)))
   // Hora de llegada: el instante en que se dejó de AVANZAR, no el de la última
   // posición ni el de parar la baliza.
   //
@@ -1586,16 +1628,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // a ese máximo, con 30 m de margen para que el temblor del GPS parado no
   // desplace la marca.
   const arrivalAt = (() => {
+    // Si hay resultado oficial, ese es. Punto: la parrilla, la porra y esta
+    // pantalla cuentan la misma carrera y no pueden dar dos horas distintas.
+    if (resultadoOficial?.finishedAt != null) return new Date(resultadoOficial.finishedAt)
     if (!reachedGoal) return null
-    if (formSamples.length) {
-      const maxKm = formSamples.reduce((m, s) => Math.max(m, s.km), 0)
-      const cruce = formSamples.find((s) => s.km >= maxKm - 0.03)
-      if (cruce) return new Date(cruce.t)
-    }
+    // La hora la da el cronómetro compartido: interpola el cruce entre las dos
+    // lecturas que lo rodean, igual que los resultados del evento. Tomar la
+    // primera lectura ya pasada de la línea —que es lo que se hacía— regala
+    // hasta un minuto entero cuando la baliza va ahorrando batería, y esa era
+    // toda la diferencia entre el 7h 15m de la parrilla y el 7:16 h de aquí.
     if (cruceMeta) return new Date(cruceMeta.t)
+    // Y si no hay cruce en la traza es que se dio por llegado por la otra vía:
+    // paró la baliza a un paso del final. Entonces la hora es la de esa parada.
     return fix ? new Date(fix.updatedAt) : null
   })()
-  const totalMin = arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000 : null
+  // El tiempo de carrera. Del resultado oficial cuando lo hay —se cuenta desde
+  // la SALIDA OFICIAL y no desde que cada uno encendió la baliza, que es lo que
+  // hace comparables los tiempos— y si no, de lo que sabe esta pantalla.
+  const totalMin = resultadoOficial?.minutos != null ? resultadoOficial.minutos
+    : arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000
+    : null
 
   // Km de cada nota. NO viene guardado: la app sube coordenadas y hora, pero no
   // el punto kilométrico (`track_km` está vacío en las 44 notas existentes). Se

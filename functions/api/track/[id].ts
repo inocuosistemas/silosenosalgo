@@ -3,6 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
+import { leeStats } from '../../lib/eventStats'
 import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
 import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote, TrackCheer } from '../../../shared/wireTypes'
 
@@ -31,7 +32,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.heading AS heading, ts.accuracy AS accuracy, ts.altitude AS altitude,
             ts.fix_at AS fixAt, ts.updated_at AS updatedAt, ts.trail AS trail,
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
-            ts.activity AS activity, u.username AS username
+            ts.activity AS activity, u.username AS username,
+            ts.event_id AS eventId
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
@@ -41,7 +43,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     heading: number | null; accuracy: number | null; altitude: number | null
     fixAt: number | null; updatedAt: number | null; trail: string | null
     pinned: number | null; formFactor: number | null; formLog: string | null
-    activity: string | null; username: string | null
+    activity: string | null; username: string | null; eventId: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -165,11 +167,41 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     } catch { /* presence is non-critical */ }
   }
 
+  /**
+   * Su resultado OFICIAL, si esta baliza corría un evento que ya cerró.
+   *
+   * Viaja por aquí y no por la puerta del evento porque el enlace de una baliza
+   * es PÚBLICO —se manda a la familia, que no tiene cuenta ni participa— y esa
+   * gente también tiene que ver el mismo tiempo que la parrilla. Sin esto, la
+   * misma carrera salía en 7h 15m en el evento y en 7:14 h en el enlace que se
+   * repartió por el grupo, y la única diferencia era quién había hecho la
+   * cuenta. Con la carrera cerrada, la cuenta ya está hecha una vez.
+   *
+   * Solo el suyo, y solo lo imprescindible: quien abre una baliza no tiene por
+   * qué ver la clasificación entera de una carrera en la que no está.
+   */
+  let oficial: TrackStateResponse['official'] = null
+  if (row.eventId && row.username) {
+    const ev = await env.DB.prepare('SELECT ended_at AS endedAt, stats FROM events WHERE id = ?')
+      .bind(row.eventId).first<{ endedAt: number | null; stats: string | null }>()
+    if (ev?.endedAt) {
+      const stats = await leeStats(env, row.eventId, ev.stats)
+      const mio = stats?.corredores.find((c) => c.username === row.username)
+      if (mio) {
+        oficial = {
+          finished: mio.finished, finishedAt: mio.finishedAt,
+          minutos: mio.minutos, puesto: mio.puesto ?? null,
+        }
+      }
+    }
+  }
+
   const body: TrackStateResponse = {
     status, username: row.username, title: row.title, startedAt: row.startedAt, expiresAt: row.expiresAt,
     endedAt: row.endedAt, planShareId: row.planShareId,
     activity: isBeaconActivity(row.activity) ? row.activity : null,
     fix, trail, formFactor: row.formFactor ?? 1, formLog, viewers, notes, cheers,
+    official: oficial,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

@@ -292,6 +292,29 @@ export type TrackStatus = 'active' | 'ended'
 export type EventRunnerStatus = TrackStatus | 'idle'
 
 export interface TrackStateResponse {
+  /**
+   * Su resultado OFICIAL, cuando esta baliza corría un evento ya cerrado.
+   *
+   * Lo calculó el servidor una vez, con la traza entera, y es el que enseñan la
+   * parrilla, la porra y la pestaña de meta. Viaja hasta aquí para que el
+   * enlace público de la baliza —el que se manda al grupo, que lo abre gente
+   * sin cuenta— no tenga que rehacer la cuenta y dar otro número: dos cálculos
+   * honestos sobre datos parecidos no coinciden nunca, y la misma carrera salía
+   * en 7h 15m en un sitio y en 7:14 h en el otro.
+   *
+   * null mientras la carrera sigue viva, o si la baliza no es de un evento: ahí
+   * manda lo que calcula la propia pantalla, que es la única que lo sabe al
+   * instante.
+   */
+  official: {
+    finished: boolean
+    /** Epoch ms del cruce, interpolado entre dos lecturas. */
+    finishedAt: number | null
+    /** Su tiempo de carrera en minutos, desde la SALIDA OFICIAL. */
+    minutos: number | null
+    puesto: number | null
+  } | null
+
   status: TrackStatus
   /** Display username of the broadcaster (shown to followers). */
   username: string | null

@@ -171,6 +171,9 @@ export async function openGuidePackage(file: File): Promise<BrowserGuide> {
   const state: TrackStateResponse = {
     status: 'ended',
     username: null,
+    // Un paquete descargado no lleva resultado oficial: se guarda una traza,
+    // no una clasificación, y la carrera pudo cerrarse después.
+    official: null,
     title: manifest.title,
     startedAt: manifest.startedAt,
     expiresAt: endedAt,
