@@ -231,7 +231,26 @@ function toleranciaMeta(linea: Polilinea): number {
   return Math.max(0.05, (seps[Math.floor(seps.length / 2)] ?? 0) / 2)
 }
 
-function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = 250): Avance | null {
+/**
+ * A cuánto del trazado deja de contar una lectura.
+ *
+ * Cuatrocientos metros, y no doscientos cincuenta como antes. Lo dice la
+ * carrera de hoy: once lecturas cayeron entre 80 y 250 metros del recorrido
+ * publicado CON UNA PRECISIÓN DE GPS DE CINCO METROS —o sea, el corredor estaba
+ * de verdad ahí— y una tocó justo el umbral. No era un fallo del receptor: era
+ * el recorrido, que la organización cambió a última hora por unos trabajos
+ * forestales y avisó de que el track publicado no lo recogía.
+ *
+ * Eso va a volver a pasar: un desvío señalizado, un tramo cortado, una
+ * variante por mal tiempo. Y descartar esas lecturas es lo peor que se puede
+ * hacer, porque congela el kilómetro de quien está corriendo perfectamente.
+ * Cuatrocientos metros siguen dejando fuera lo que hay que dejar fuera —quien
+ * se ha ido a otro valle, o el coche que pasa por la carretera de al lado— y ya
+ * no castigan a quien sigue las cintas.
+ */
+const FUERA_DE_RUTA_M = 400
+
+function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = FUERA_DE_RUTA_M): Avance | null {
   if (linea.length < 2 || pts.length === 0) return null
   let previo: number | null = null
   let max = 0

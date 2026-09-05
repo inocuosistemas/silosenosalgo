@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+// Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
+// quedan donde son contenido —el tiempo, el terreno, la marca de cada
+// corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
+import {
+  Pause, Square, RadioTower, MessageSquare, StickyNote, PenLine,
+  Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users,
+} from 'lucide-react'
 import { ClipboardList, Trash2 } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji, type TrackStateResponse, type BeaconActivity, type TrackCheer } from '../../shared/wireTypes'
+import {
+  CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
+  type TrackStateResponse, type BeaconActivity, type TrackCheer,
+  type EventLiveResponse, type EventLiveRunner,
+} from '../../shared/wireTypes'
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -571,6 +582,38 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       } catch { /* al mejor esfuerzo: el enlace de vuelta no depende de esto */ }
     })()
   }, [eventId])
+  /**
+   * Los demás de la carrera, para poder compararse con uno.
+   *
+   * "¿Cuánto le saco?" es LA pregunta de quien corre acompañado, y hasta ahora
+   * había que salir al mapa del evento, buscar al otro y hacer la resta de
+   * cabeza. Se piden a la misma puerta que usa ese mapa; si no se tiene acceso
+   * —quien mira sin ser de la carrera— simplemente no aparece la opción, sin
+   * ruido ni explicaciones.
+   */
+  const [otros, setOtros] = useState<EventLiveRunner[]>([])
+  const [salidaEvento, setSalidaEvento] = useState<number | null>(null)
+  useEffect(() => {
+    if (!eventId) return
+    let vivo = true
+    const trae = async () => {
+      try {
+        const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/live`, {
+          credentials: 'same-origin', cache: 'no-store',
+        })
+        if (!res.ok || !vivo) return
+        const data = (await res.json()) as EventLiveResponse
+        setOtros(data.runners.filter((r) => r.fix !== null && r.sessionId !== token))
+        setSalidaEvento(data.startsAt)
+      } catch { /* al mejor esfuerzo: sin esto la pantalla es la de siempre */ }
+    }
+    void trae()
+    const t = window.setInterval(() => void trae(), 20_000)
+    return () => { vivo = false; window.clearInterval(t) }
+  }, [eventId, token])
+  /** Con quién se compara ahora mismo (su nombre), o null. */
+  const [compararCon, setCompararCon] = useState<string | null>(null)
+
   const storageToken = token ?? `guide-${guide?.state.startedAt ?? 'local'}`
   const [state, setState] = useState<TrackStateResponse | null>(guide?.state ?? null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
@@ -1148,6 +1191,67 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const progressKm = nearest && !offRoute ? nearest.km : null
 
   /**
+   * La diferencia con otro corredor: cuánto le saco o cuánto me saca.
+   *
+   * Tres números, que son los que se preguntan de verdad cuando se corre
+   * acompañado: cuánta DISTANCIA hay entre los dos, cuánto DESNIVEL queda por
+   * ese tramo —no es lo mismo tener a alguien a dos kilómetros de llano que a
+   * dos de subida— y cuánto TIEMPO es eso.
+   *
+   * El tiempo se cuenta al ritmo DEL MÁS LENTO de los dos a propósito. Es la
+   * pregunta honesta: "cuánto tardaría en llegar hasta donde está el otro", y
+   * ponerle el ritmo del rápido daría un número que nadie va a cumplir. Los dos
+   * ritmos salen del avance real sobre el recorrido desde la salida oficial, no
+   * de la velocidad instantánea del GPS, que sube y baja con cada lectura.
+   *
+   * Sin plan no hay nada de esto: sin recorrido no se sabe por qué kilómetro va
+   * nadie, y comparar dos posiciones en línea recta sería mentir.
+   *
+   * No es un `useMemo` porque depende de datos que nacen DESPUÉS de las salidas
+   * tempranas del componente, y un hook ahí abajo rompería el orden. Cuesta un
+   * recorrido de la lista de puntos por pintada, y solo cuando hay alguien
+   * elegido: a esta escala no se nota.
+   */
+  const comparativa = (() => {
+    if (!plan || progressKm == null || compararCon == null) return null
+    const otro = otros.find((o) => o.username === compararCon)
+    if (!otro?.fix) return null
+    const cumKm = plan.track.cumKm
+    const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
+    const { globalNearest } = makeRouteMatcher(plan.track.points, cumKm, maxSpeedKmh)
+    const suyo = globalNearest(otro.fix.lat, otro.fix.lon)
+    // Lejísimos del recorrido no se compara: sería restar dos kilómetros que no
+    // significan lo mismo.
+    if (!suyo || suyo.dist > 0.4) return null
+    const suKm = cumKm[suyo.idx]
+    const salida = salidaEvento ?? sessionStart.getTime()
+    /** El ritmo de cada uno sobre el RECORRIDO, en minutos por kilómetro. */
+    const ritmo = (km: number, hasta: number | null) => {
+      const min = ((hasta ?? Date.now()) - salida) / 60_000
+      return km > 0.3 && min > 1 ? min / km : null
+    }
+    const miRitmo = ritmo(progressKm, fix?.updatedAt ?? null)
+    const suRitmo = ritmo(suKm, otro.updatedAt)
+    const delante = suKm > progressKm
+    const desde = Math.min(progressKm, suKm)
+    const hasta = Math.max(progressKm, suKm)
+    const tramo = elevationStatsForSegment(plan.track, desde, hasta, plan.paceConfig)
+    const lento = miRitmo != null && suRitmo != null ? Math.max(miRitmo, suRitmo) : (miRitmo ?? suRitmo)
+    return {
+      otro,
+      delante,
+      km: hasta - desde,
+      subida: tramo.elevGainM,
+      bajada: tramo.elevLossM,
+      minutos: lento != null ? (hasta - desde) * lento : null,
+      ritmoLento: lento,
+      /** Su última posición es vieja: la diferencia es de entonces, no de ahora. */
+      viejo: otro.updatedAt != null && Date.now() - otro.updatedAt > SIN_COBERTURA_MS,
+      visto: otro.updatedAt,
+    }
+  })()
+
+  /**
    * Sin señal, el reloj de las previsiones SE PARA.
    *
    * Todo lo que se proyecta —el adelanto o retraso respecto al plan, el margen
@@ -1502,8 +1606,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     ? <><span className="text-emerald-400">🏁 llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
     : ended
     ? (fix && fr
-        ? <><span className="font-semibold text-slate-200">⏹️ finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
-        : <span className="font-semibold text-slate-200">⏹️ finalizado</span>)
+        ? <><span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Square size={12} /> finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
+        : <span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Square size={12} /> finalizado</span>)
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
@@ -1630,7 +1734,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     }`}>
       {sinCobertura && fr && (
         <p className="mb-1 flex items-center justify-center gap-1.5 text-sm font-extrabold uppercase tracking-wide text-amber-300">
-          📡 Sin cobertura
+          <RadioTower size={15} /> Sin cobertura
           <span className="text-[11px] font-medium normal-case tracking-normal text-amber-200/80">
             · visto {fr.label}
           </span>
@@ -1639,7 +1743,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <p className="text-[11px] uppercase tracking-wide opacity-80 truncate">Próximo corte · {nextCutoff.name}</p>
       <p className="text-3xl font-extrabold leading-tight">
         {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}
-        {!sinCobertura && nextCutoff.marginMin < 15 && <span className="text-sm font-bold"> · ⚠️ APRIETA</span>}
+        {!sinCobertura && nextCutoff.marginMin < 15 && <span className="inline-flex items-center gap-1 text-sm font-bold"> · <AlertTriangle size={14} /> APRIETA</span>}
       </p>
       <p className="text-xs opacity-90">
         {sinCobertura
@@ -1686,7 +1790,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const endedAtMs = state.endedAt ?? fix?.updatedAt ?? null
   const endedHero = ended && (
     <div className="rounded-xl border border-slate-600 bg-slate-800/70 p-3 text-center text-slate-100">
-      <p className="text-[11px] uppercase tracking-wide opacity-80">⏹️ Seguimiento finalizado</p>
+      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide opacity-80"><Square size={12} /> Seguimiento finalizado</p>
       <p className="text-3xl font-extrabold leading-tight">
         {endedAtMs != null ? hhmm((endedAtMs - sessionStart.getTime()) / 60_000) : '—'}
       </p>
@@ -1701,6 +1805,60 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // el próximo corte: una vez parada la baliza, "te faltan 20 min para el corte"
   // ya no es una cuenta atrás, es ruido de una carrera que ya no está pasando);
   // si no → el próximo corte.
+  /**
+   * "¿Cuánto le saco?" — el panel de comparar con otro de la carrera.
+   *
+   * Se ofrece solo cuando hay con quién: si la carrera tiene un participante
+   * emitiendo, un selector; si no, no existe. Cerrado ocupa una línea.
+   */
+  const panelComparar = otros.length > 0 && plan != null && progressKm != null && (
+    <div className="rounded-xl border border-slate-700 bg-slate-900 p-2.5">
+      <div className="flex items-center gap-2">
+        <Users size={14} className="shrink-0 text-slate-400" />
+        <select
+          value={compararCon ?? ''}
+          onChange={(e) => setCompararCon(e.target.value || null)}
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 focus:border-sky-600 focus:outline-none"
+        >
+          <option value="">Comparar con…</option>
+          {otros.map((o) => (
+            <option key={o.username} value={o.username}>
+              {o.emoji ? `${o.emoji} ` : ''}{o.bib ? `${o.bib} · ` : ''}{o.username}
+            </option>
+          ))}
+        </select>
+      </div>
+      {comparativa && (
+        <>
+          <p className="mt-2 text-center text-sm font-semibold text-slate-100">
+            {comparativa.km < 0.05
+              ? 'Estáis juntos'
+              : <>{comparativa.delante ? 'Te saca' : 'Le sacas'}{' '}
+                  <span className="text-lg font-extrabold text-sky-300">{comparativa.km.toFixed(1)} km</span></>}
+          </p>
+          {comparativa.km >= 0.05 && (
+            <div className="mt-1.5 grid grid-cols-2 gap-2 text-center">
+              <Stat
+                label="desnivel del tramo"
+                value={`↑${Math.round(comparativa.subida)} ↓${Math.round(comparativa.bajada)} m`}
+              />
+              <Stat
+                label={comparativa.ritmoLento != null ? `al ritmo del más lento (${formatPace(comparativa.ritmoLento)})` : 'sin ritmo aún'}
+                value={comparativa.minutos != null ? hhmm(comparativa.minutos) : '—'}
+              />
+            </div>
+          )}
+          {comparativa.viejo && comparativa.visto != null && (
+            <p className="mt-1.5 text-center text-[11px] text-amber-400/90">
+              Su última posición es de hace {Math.round((Date.now() - comparativa.visto) / 60_000)} min:
+              la diferencia es de entonces.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+
   const topHero = preStart ? countdownHero : reachedGoal ? goalHero : ended ? endedHero : cutoffHero
 
   // Runner-only: surface the detected form change and let the runner CONFIRM the
@@ -1749,7 +1907,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const fat = detected?.fatigue ?? null
     return (
       <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
-        <p className="text-xs font-semibold text-slate-200">📊 Estado de forma</p>
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200"><Activity size={13} /> Estado de forma</p>
         {detPct != null && (
           <div className="mt-1 flex items-center justify-between gap-2">
             <span className="text-[11px] text-slate-400">Detectado en vivo{!confSlower && confPct === 0 ? '' : ''} · sin confirmar</span>
@@ -1842,6 +2000,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {topHero}
+          {panelComparar}
           {recalibrationCard}
           {formStatusPanel}
           {/* Summary */}
@@ -1851,7 +2010,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
               <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
             </div>
-            {isStopped && <p className="mt-2 text-xs text-amber-400 font-medium text-center">⏸️ Parado hace {hhmm(stoppedMs / 60_000)}</p>}
+            {isStopped && <p className="mt-2 flex items-center justify-center gap-1 text-xs text-amber-400 font-medium"><Pause size={13} /> Parado hace {hhmm(stoppedMs / 60_000)}</p>}
           </div>
           {offRoute && (
             <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-2.5 text-xs text-amber-300">
@@ -1867,7 +2026,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="font-semibold truncate">
-                  {i === nextIdx && <span className="text-sky-400">▶ </span>}
+                  {i === nextIdx && <ChevronRight size={12} className="mr-0.5 inline text-sky-400" />}
                   {poiIcon(c.w)}{c.band ? ` ${bandIcon(c.band)}` : ''} {c.w.name}
                 </p>
                 <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
@@ -2053,6 +2212,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-2">
             {topHero && <div>{topHero}</div>}
+            {panelComparar && <div className="mt-2">{panelComparar}</div>}
             {fix && (
               <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
@@ -2086,7 +2246,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       onClick={() => setShowAdvanced(true)}
                       className="flex items-center gap-1 rounded-full bg-fuchsia-500/15 px-2 py-0.5 text-xs font-medium text-fuchsia-300"
                     >
-                      💬 {unreadCheers} {unreadCheers === 1 ? 'ánimo nuevo' : 'ánimos nuevos'}
+                      <MessageSquare size={13} className="mr-1 inline" />{unreadCheers} {unreadCheers === 1 ? 'ánimo nuevo' : 'ánimos nuevos'}
                     </button>
                   )}
                 </div>
@@ -2100,7 +2260,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {(canCheer || cheers.length > 0) && (
                     <div>
                       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
-                        <span className="text-xs">💬</span>Ánimos{cheers.length > 0 && ` · ${cheers.length}`}
+                        <MessageSquare size={13} />Ánimos{cheers.length > 0 && ` · ${cheers.length}`}
                       </p>
                       {canCheer && (
                         <button
@@ -2108,7 +2268,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           onClick={() => { setCheerError(null); setComposing(true) }}
                           className="mb-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white"
                         >
-                          ✍️ Enviar un ánimo
+                          <PenLine size={13} className="mr-1 inline" />Enviar un ánimo
                         </button>
                       )}
                       {cheers.length > 0 ? (
@@ -2241,7 +2401,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           son iguales por definicion (asi se detecta el circuito),
                           repetirlos gastaria el ancho que necesita el tiempo. */}
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
-                        <span className="text-xs">🔁</span>Vueltas · {lapInfo.lapKm.toFixed(1)} km cada una
+                        <Repeat size={13} />Vueltas · {lapInfo.lapKm.toFixed(1)} km cada una
                       </p>
                       {/* Reloj y movimiento por separado: una vuelta puede salir
                           larga por una parada sin que el ritmo haya bajado, y sin
@@ -2434,7 +2594,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {notes.length > 0 && (
                     <div className="border-t border-slate-800 pt-2">
                       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
-                        <span className="text-xs">📝</span>Notas · {notes.length}
+                        <StickyNote size={13} />Notas · {notes.length}
                       </p>
                       <div className="space-y-1.5">
                         {[...notes].reverse().map((n) => {
@@ -2581,7 +2741,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               : 'Posición del GPS; toca para pegarlo al recorrido'}
           className="absolute bottom-36 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
         >
-          {offRoute ? '↯' : anclado ? '🧲' : '📍'}
+          {offRoute ? '↯' : anclado ? <Magnet size={16} /> : <MapPin size={16} />}
         </button>
       )}
 
@@ -2671,7 +2831,7 @@ function CheerComposer({
         className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm font-semibold text-slate-100">💬 Enviar un ánimo</p>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-100"><MessageSquare size={15} /> Enviar un ánimo</p>
         <input
           value={nick}
           onChange={(e) => setNick(e.target.value.slice(0, CHEER_NICK_MAX))}
@@ -2747,7 +2907,7 @@ function ViewToggle({ mode, setMode }: { mode: ViewMode; setMode: (m: ViewMode) 
   const cls = (active: boolean) => `px-2.5 py-1 transition-colors ${active ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'}`
   return (
     <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs shrink-0">
-      <button onClick={() => setMode('map')} className={cls(mode === 'map')}>🗺️</button>
+      <button onClick={() => setMode('map')} aria-label="Mapa" className={cls(mode === 'map')}><MapIcon size={15} /></button>
       <button onClick={() => setMode('cards')} aria-label="Fichas" className={cls(mode === 'cards')}><ClipboardList size={14} /></button>
     </div>
   )
