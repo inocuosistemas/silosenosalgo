@@ -21,6 +21,7 @@ import { downloadGpx } from '../lib/gpxSerialize'
 import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, viewerId, LiveTrackError } from '../lib/liveTrack'
 import { paradoDesde } from '../lib/parado'
+import { cruceEnTraza } from '../lib/cruceMeta'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
@@ -771,6 +772,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return snaps
   }, [plan, planPts, trail])
 
+  /**
+   * Cuándo cruzó la meta, buscado en TODA su traza. La regla y el porqué están
+   * en `lib/cruceMeta.ts`: la comparten la parrilla, los resultados y el
+   * replay, y las cuatro pantallas tienen que decir lo mismo del mismo
+   * corredor.
+   */
+  const cruceMeta = useMemo(() => {
+    if (!plan || !trailSnaps) return null
+    return cruceEnTraza(trailSnaps.map((s2, i) => ({ km: s2.km, t: trail[i].t })), plan.track.totalDistanceKm)
+  }, [plan, trailSnaps, trail])
+
   // Split the trail into runs of constant colour so GPS precision shows on the
   // line itself (this is what explains a track that "wanders": red = poor fix).
   // A segment takes the worse of its two endpoints' accuracy; consecutive
@@ -882,15 +894,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // llegada, que es justo lo que mira quien espera.
   //
   // Una lectura sin precision declarada se cree: no hay base para desconfiar.
+  // Y se para EN LA META para quien la cruzó: lo que hizo después --volver al
+  // coche, ir a por el que venía detrás, bajar al pueblo-- no es su carrera, y
+  // sumarlo convertia 37,7 km en 40,3 y su tiempo en tres horas mas. Es lo
+  // mismo que ya hacen los resultados y el replay.
   const distanceKm = useMemo(() => {
     let d = 0
-    for (let i = 1; i < trail.length; i++) {
+    const hasta = cruceMeta ? cruceMeta.i : trail.length - 1
+    for (let i = 1; i <= hasta; i++) {
       const seg = haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
       const uncertaintyKm = ((trail[i - 1].a ?? 0) + (trail[i].a ?? 0)) / 1000
       if (seg >= uncertaintyKm) d += seg
     }
     return d
-  }, [trail])
+  }, [trail, cruceMeta])
 
   // On-route (km, time) samples for the live form detection.
   const formSamples = useMemo(() => {
@@ -1544,18 +1561,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    * Parar la baliza sigue valiendo como prueba: quien se detuvo a doscientos
    * metros del final es que había llegado, aunque su GPS no lo rematara.
    */
-  const pasoPorLaMitad = (() => {
-    if (!trailSnaps || totalKm <= 0) return false
-    const mitad = totalKm * 0.5
-    let visto = false
-    for (const s of trailSnaps) {
-      if (s.km <= mitad) visto = true
-      else if (visto && s.km >= totalKm - goalTolKm) return true
-    }
-    return false
-  })()
-  const reachedGoal = hasPlan && remainingKm != null && remainingKm <= goalTolKm
-    && (ended || pasoPorLaMitad)
+  // Cruzar la meta NO es parar la baliza —se cruza el arco, se abraza a la
+  // familia, se bebe algo, y el móvil sigue emitiendo en el bolsillo— y tampoco
+  // es estar cerca del final AHORA MISMO, que es lo que se miraba: eso deja de
+  // ser cierto en cuanto se aleja, y entonces la llegada desaparecía de la
+  // pantalla horas después de haberse producido.
+  //
+  // Lo dice `cruceMeta`, que lo busca en toda la traza y por tanto no se
+  // deshace. Parar la baliza sigue valiendo como prueba de reserva: quien se
+  // detuvo a doscientos metros del final es que había llegado, aunque su GPS no
+  // lo rematara.
+  const reachedGoal = hasPlan
+    && (cruceMeta !== null || (ended && remainingKm != null && remainingKm <= goalTolKm))
   // Hora de llegada: el instante en que se dejó de AVANZAR, no el de la última
   // posición ni el de parar la baliza.
   //
@@ -1575,6 +1592,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const cruce = formSamples.find((s) => s.km >= maxKm - 0.03)
       if (cruce) return new Date(cruce.t)
     }
+    if (cruceMeta) return new Date(cruceMeta.t)
     return fix ? new Date(fix.updatedAt) : null
   })()
   const totalMin = arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000 : null
@@ -2030,7 +2048,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </div>
             {isStopped && <p className="mt-2 flex items-center justify-center gap-1 text-xs text-amber-400 font-medium"><Pause size={13} /> Parado hace {hhmm(stoppedMs / 60_000)}</p>}
           </div>
-          {offRoute && (
+          {offRoute && !reachedGoal && (
             <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-2.5 text-xs text-amber-300">
               ⚠️ Fuera de ruta · a {nearest ? formatDist(nearest.distKm) : ''} de la traza. Los tiempos mostrados son los del plan, no proyecciones en vivo.
             </div>
@@ -2281,7 +2299,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   )}
                 </div>
               )}
-              {hasPlan && offRoute && nearest && (
+              {/* Quien ya ha cruzado no está "fuera de ruta": está en el bar.
+                  El aviso es para quien se ha perdido, y ponérselo a un
+                  finisher es cambiarle la mejor noticia del día por una
+                  alarma. */}
+              {hasPlan && offRoute && nearest && !reachedGoal && (
                 <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
               )}
               {showAdvanced && (
