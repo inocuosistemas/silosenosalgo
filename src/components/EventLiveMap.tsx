@@ -282,6 +282,18 @@ export default function EventLiveMap({ source }: { source: Source }) {
     return m
   }, [stats])
 
+  /**
+   * La salida con la que se cuenta: la OFICIAL del evento y, si no la hay, la
+   * del recorrido publicado. Son casi siempre la misma —al poner la base se
+   * copia—, pero manda la del evento: es la que el organizador puede corregir
+   * sin volver a publicar el recorrido.
+   */
+  const startMs = useMemo(() => {
+    if (startsAt) return startsAt
+    const t = plan ? Date.parse(plan.startTimeISO) : NaN
+    return Number.isNaN(t) ? null : t
+  }, [startsAt, plan])
+
   /** Cada corredor con lo derivado: km sobre el recorrido y margen al corte. */
   const rows = useMemo(() => {
     return (runners ?? []).map((r) => {
@@ -320,8 +332,12 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // avisa. Anclar a alguien que va por otro valle es dibujar una carrera
       // que no está corriendo.
       const desviadoM = r.fix && route ? medida.m : 0
-      const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && r.startedAt !== null
-        ? marginToNextCutoff(cutoffs, km, r.startedAt, r.updatedAt ?? now)
+      // El ritmo se mide desde la SALIDA OFICIAL, no desde que abrió la baliza:
+      // quien llega pronto y la deja preparada acumula una hora de "carrera"
+      // parado en la línea, y con eso el margen al corte sale delirante.
+      const referencia = startMs ?? r.startedAt
+      const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && referencia !== null
+        ? marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now)
         : null
       const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
       // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
@@ -382,20 +398,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
       }
       return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, startMs])
 
-
-  /**
-   * La salida con la que se cuenta: la OFICIAL del evento y, si no la hay, la
-   * del recorrido publicado. Son casi siempre la misma —al poner la base se
-   * copia—, pero manda la del evento: es la que el organizador puede corregir
-   * sin volver a publicar el recorrido.
-   */
-  const startMs = useMemo(() => {
-    if (startsAt) return startsAt
-    const t = plan ? Date.parse(plan.startTimeISO) : NaN
-    return Number.isNaN(t) ? null : t
-  }, [startsAt, plan])
 
   /**
    * El perfil del recorrido, calculado UNA vez: la silueta en coordenadas de

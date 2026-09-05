@@ -65,23 +65,36 @@ export interface CutoffMargin {
   minutes: number
 }
 
+/** Antes de esto, el ritmo medio es ruido: cuatro lecturas y una cola de salida. */
+const MINIMO_MS = 3 * 60_000
+
 /**
  * Cuánto margen le queda a quien va por el km `km` para el siguiente cierre.
  *
- * `null` cuando no hay con qué proyectar: sin cierres por delante, o con tan
- * poco recorrido que el ritmo medio todavía no significa nada (los primeros
- * metros están llenos de arranques, colas de salida y GPS enganchando).
+ * `desde` es el instante contra el que se mide el ritmo, y NO da igual cuál se
+ * pase: en una carrera es la SALIDA OFICIAL, no el momento en que cada uno
+ * abrió su baliza. Medido en la de referencia: alguien la abrió una hora y diez
+ * minutos antes del pistoletazo —lo normal, se llega pronto y se deja
+ * preparada—, y contando desde ahí llevaba medio kilómetro en hora y cuarto,
+ * o sea dos horas y media por kilómetro. Con ese ritmo, el corte del kilómetro
+ * 13 le salía a treinta horas de distancia. En una baliza suelta, sin carrera
+ * detrás, el instante bueno sí es el de abrirla: por eso lo decide quien llama.
+ *
+ * `null` cuando no hay con qué proyectar: sin cierres por delante, con tan poco
+ * recorrido que el ritmo medio todavía no significa nada (los primeros metros
+ * están llenos de arranques, colas de salida y GPS enganchando), o con tan poco
+ * tiempo que un par de lecturas mandan sobre el resultado.
  */
 export function marginToNextCutoff(
   cutoffs: EventCutoff[],
   km: number,
-  startedAt: number,
+  desde: number,
   now: number,
 ): CutoffMargin | null {
   const next = nextCutoff(cutoffs, km)
   if (!next) return null
-  const elapsed = now - startedAt
-  if (elapsed <= 0 || km < 0.3) return null
+  const elapsed = now - desde
+  if (elapsed < MINIMO_MS || km < 0.3) return null
   const msPerKm = elapsed / km
   const eta = now + (next.km - km) * msPerKm
   return { cutoff: next, minutes: Math.round((next.at - eta) / 60_000) }
