@@ -246,16 +246,36 @@ function noteDivIcon(poiType: string): L.DivIcon {
  *  Cacheado por color: si no, cada render crearia un icono nuevo y la animacion
  *  se reiniciaria desde cero en cada posicion recibida. */
 const pulseIconCache = new Map<string, L.DivIcon>()
-function pulseDivIcon(color: string): L.DivIcon {
-  let icon = pulseIconCache.get(color)
+
+/**
+ * El corredor: su punto y, si sigue emitiendo, el anillo que late debajo.
+ *
+ * Los dos en el MISMO icono y no en dos capas. Antes el punto era un círculo de
+ * SVG y el latido un icono, y en una carrera de verdad se separaron: el latido
+ * en su sitio y el punto casi trescientos píxeles más allá, o sea el anillo
+ * latiendo solo en mitad del monte. Un icono se coloca por transformación y
+ * siempre cae donde toca; el dibujo de SVG lo recoloca la librería del mapa por
+ * su cuenta, y ahí es donde se perdió. Juntos ya no se pueden separar, que es
+ * la única garantía que vale.
+ *
+ * Cacheado por color y estado: si no, cada posición recibida crearía un icono
+ * nuevo y el latido volvería a empezar desde cero en cada refresco.
+ */
+function pulseDivIcon(color: string, late: boolean): L.DivIcon {
+  const clave = `${color}|${late}`
+  let icon = pulseIconCache.get(clave)
   if (!icon) {
+    const anillo = late ? `<div class="runner-pulse" style="color:${color}"></div>` : ''
     icon = L.divIcon({
       className: '',
-      html: `<div class="runner-pulse" style="color:${color}"></div>`,
+      html: `<div style="position:relative;width:34px;height:34px">${anillo}`
+        + `<div style="position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;`
+        + `border-radius:9999px;background:${color};border:2px solid #fff;box-sizing:border-box;`
+        + `box-shadow:0 1px 3px rgba(0,0,0,.5)"></div></div>`,
       iconSize: [34, 34],
       iconAnchor: [17, 17],
     })
-    pulseIconCache.set(color, icon)
+    pulseIconCache.set(clave, icon)
   }
   return icon
 }
@@ -1936,12 +1956,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </Tooltip>
             </CircleMarker>
           )}
-          {/* El latido solo mientras hay senal viva: es lo que significa. Parado
-              o acabado, el punto se queda quieto y eso ya informa. */}
-          {fix && !ended && !fr?.stale && (
-            <Marker position={posicionPintada!} icon={pulseDivIcon(fixColor)} interactive={false} />
+          {/* El punto siempre; el latido solo mientras hay señal viva, que es lo
+              que significa. Parado o acabado, el punto se queda quieto y eso ya
+              informa. */}
+          {fix && (
+            <Marker
+              position={posicionPintada!}
+              icon={pulseDivIcon(fixColor, !ended && !fr?.stale)}
+              interactive={false}
+            />
           )}
-          {fix && <CircleMarker center={posicionPintada!} radius={9} pathOptions={{ color: '#fff', weight: 2, fillColor: fixColor, fillOpacity: 1 }} />}
           {/* Destello de la nota recién tocada. La `key` cambia en cada toque a
               propósito: sin ella React reutilizaría el mismo elemento, la
               animación no volvería a empezar y saltar a una segunda nota no

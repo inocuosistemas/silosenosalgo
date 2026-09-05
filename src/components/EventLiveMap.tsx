@@ -637,10 +637,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   El color fuerte se reserva para lo que todavía importa —por
                   dónde hay que ir— y el gris cuenta lo que ya pasó sin competir
                   con él. Se dibuja lo hecho DESPUÉS para que el corte quede
-                  limpio justo donde va el corredor. */}
+                  limpio justo donde va el corredor.
+
+                  El gris es CLARO y no medio: medido con el validador de
+                  paletas sobre el verde del mapa, este se separa del violeta en
+                  30,7 donde el gris medio anterior se quedaba en 21,9 — y con
+                  tritanopía la diferencia era de 23,7 contra 9,3, o sea que los
+                  dos tramos casi se confundían. Que salga "sin color" es a
+                  propósito: lo andado ya no es una opción, es historia. */}
               <Polyline positions={trazado.queda} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
               {trazado.hecho.length > 1 && (
-                <Polyline positions={trazado.hecho} pathOptions={{ color: '#64748b', weight: 4, opacity: 0.95 }} />
+                <Polyline positions={trazado.hecho} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.95 }} />
               )}
             </>
           )}
@@ -896,18 +903,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
               </button>
             ))}
           </div>
+          {/* A quién sigue el mapa, y cómo soltarlo. DENTRO de la tarjeta y no
+              flotando debajo: flotando iba a una altura fija y la cabecera
+              creció al meterle las pestañas, así que le caía encima. Y además
+              es un modo del mapa —como las pestañas—, no un aviso suelto. */}
+          {view === 'mapa' && followed && (
+            <button
+              onClick={() => setFollowing(null)}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-slate-800 px-2.5 py-1.5 text-[11px] text-sky-300 hover:bg-sky-950/30"
+            >
+              ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
+            </button>
+          )}
         </div>
-        {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
-            ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
-            un modo activo que no se ve es un modo que desconcierta. */}
-        {view === 'mapa' && followed && (
-          <button
-            onClick={() => setFollowing(null)}
-            className="pointer-events-auto absolute inset-x-0 top-14 mx-auto flex w-fit items-center gap-1.5 rounded-full border border-sky-800 bg-slate-900/90 px-3 py-1 text-[11px] text-sky-300 backdrop-blur hover:border-sky-600"
-          >
-            ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
-          </button>
-        )}
         {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
             hay porra: se pronostica con una cuenta, y sin saber cuál está
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
