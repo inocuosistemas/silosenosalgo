@@ -34,6 +34,9 @@ const STALE_MAX_MS = 360_000    // ceiling (beyond ~6 min it's clearly lost)
 const STALE_DEFAULT_MS = 180_000 // used until we've measured ≥1 interval
 const STOP_RADIUS_KM = 0.05   // 50 m — within GPS jitter, treat the point as not moving
 const STOP_MIN_MS = 180_000   // 3 min stationary (while still reporting) before flagging "parado"
+/** Pasado esto sin una posición nueva, se deja de proyectar: no se sabe nada
+ *  nuevo de él y seguir contando solo cambia el resultado, no la realidad. */
+const SIN_COBERTURA_MS = 5 * 60_000
 const STOP_REPORTING_MS = 360_000  // still "reporting" if updated within ~6 min (heartbeat ~150 s; tolerates one missed beat) — beyond this it's lost signal, not "parado"
 const MOVING_MIN_KMH = 1.5    // trail segments slower than this count as stopped (for the moving-average speed)
 const ELE_MIN_SPAN_M = 400    // minimum vertical span (m) for the route profile, so a near-flat route doesn't look exaggerated (same trick as the main web chart)
@@ -1133,8 +1136,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Only treat the snapped km as real progress when actually on the route.
   const progressKm = nearest && !offRoute ? nearest.km : null
 
-  // For ended sessions the delta vs plan is frozen at the last known fix.
-  const refNow = ended && fix ? fix.updatedAt : Date.now()
+  /**
+   * Sin señal, el reloj de las previsiones SE PARA.
+   *
+   * Todo lo que se proyecta —el adelanto o retraso respecto al plan, el margen
+   * al siguiente corte— se calcula comparando dónde está con la hora que es. Si
+   * hace veinte minutos que no llega una posición, esa cuenta sigue corriendo
+   * contra una posición vieja: el margen se derrite solo y la pantalla acaba
+   * gritando que aprieta cuando lo más probable es que vaya bien y sea el móvil
+   * el que no tiene cobertura. Pasó en el Desafío Urbión: de +17 a +2 minutos
+   * sin que el corredor hiciera nada.
+   *
+   * Con la señal parada, las cuentas se congelan en el último punto conocido y
+   * se dice bien claro que son de hace un rato. Es la misma regla que ya valía
+   * para una sesión terminada; solo que la falta de cobertura también es un
+   * final, aunque sea provisional.
+   */
+  const sinCobertura = !!fix && !ended && Date.now() - fix.updatedAt > SIN_COBERTURA_MS
+  const refNow = fix && (ended || sinCobertura) ? fix.updatedAt : Date.now()
   // Activated before the planned start → show a countdown, not projections.
   const preStart = !ended && sessionStart.getTime() > refNow
   const fr = fix ? freshness(fix.updatedAt, staleMsRef.current) : null
@@ -1585,16 +1604,39 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     </div>
   )
 
+  /**
+   * SIN COBERTURA manda sobre todo lo demás.
+   *
+   * Cuando hace un rato que no llega nada, lo único cierto es eso. El margen al
+   * corte se enseña igual —es el dato que se viene a mirar— pero congelado en
+   * el último punto y diciendo de cuándo es, y sin la alarma de APRIETA: gritar
+   * que aprieta por una posición de hace veinte minutos es asustar a la familia
+   * por un móvil sin cobertura.
+   */
   const cutoffHero = nextCutoff && (
-    <div className={`rounded-xl border p-3 text-center ${heroTone(nextCutoff.marginMin)}`}>
+    <div className={`rounded-xl border p-3 text-center ${
+      sinCobertura ? 'border-slate-600 bg-slate-800/60 text-slate-300' : heroTone(nextCutoff.marginMin)
+    }`}>
+      {sinCobertura && fr && (
+        <p className="mb-1 flex items-center justify-center gap-1.5 text-sm font-extrabold uppercase tracking-wide text-amber-300">
+          📡 Sin cobertura
+          <span className="text-[11px] font-medium normal-case tracking-normal text-amber-200/80">
+            · visto {fr.label}
+          </span>
+        </p>
+      )}
       <p className="text-[11px] uppercase tracking-wide opacity-80 truncate">Próximo corte · {nextCutoff.name}</p>
       <p className="text-3xl font-extrabold leading-tight">
         {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}
-        {nextCutoff.marginMin < 15 && <span className="text-sm font-bold"> · ⚠️ APRIETA</span>}
+        {!sinCobertura && nextCutoff.marginMin < 15 && <span className="text-sm font-bold"> · ⚠️ APRIETA</span>}
       </p>
       <p className="text-xs opacity-90">
-        Corte {clockDay(nextCutoff.cutoff, sessionStart)} · a {nextCutoff.remDist.toFixed(1)} km
-        {nextCutoff.reqPace != null && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
+        {sinCobertura
+          ? <>como iba en su último punto · a {nextCutoff.remDist.toFixed(1)} km del corte de las {clockDay(nextCutoff.cutoff, sessionStart)}</>
+          : <>
+              Corte {clockDay(nextCutoff.cutoff, sessionStart)} · a {nextCutoff.remDist.toFixed(1)} km
+              {nextCutoff.reqPace != null && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
+            </>}
       </p>
     </div>
   )
