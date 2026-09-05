@@ -161,13 +161,23 @@ export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?
     if (scored.state === 'pending') s.pending++
   }
 
-  // Por la hora del último pronóstico, el más reciente arriba. Y NO por puntos:
-  // mientras la carrera no decide nada todo el mundo va a cero, y una lista
-  // ordenada por puntos empatados acaba ordenada por nombre —que es lo que
-  // había, y lo que hacía que el podio pareciera decidido por el apodo—. Quién
-  // acaba de mojarse sí es información: es lo que se mueve mientras se espera.
-  return [...porJugador.values()].sort((a, b) =>
-    b.lastAt - a.lastAt || a.author.localeCompare(b.author))
+  // El orden cambia según haya algo que ordenar, y esto no es un capricho: son
+  // dos listas distintas con el mismo aspecto.
+  //
+  // MIENTRAS NO HAY PUNTOS todo el mundo va a cero, y ordenar por puntos deja
+  // el desempate al nombre: un podio con su oro, su plata y su bronce decidido
+  // por la primera letra del apodo, con la carrera sin empezar. Así que manda
+  // la hora del último pronóstico, el que acaba de mojarse arriba, que es lo
+  // único que se mueve durante la espera.
+  //
+  // EN CUANTO HAY PUNTOS eso deja de valer y pasa a estorbar: la lista lleva
+  // medallas y corona al primero, y con el orden por fecha la corona se la
+  // llevaba el último en apostar mientras el que más puntos tenía salía tercero
+  // —los puestos se reparten recorriendo la lista, así que un orden que no sea
+  // por puntos los inventa—. Terminada la carrera esto ya es una clasificación.
+  const hayPuntos = [...porJugador.values()].some((s) => s.points > 0)
+  return [...porJugador.values()].sort((a, b) => (hayPuntos ? b.points - a.points : 0)
+    || b.lastAt - a.lastAt || a.author.localeCompare(b.author))
 }
 
 function scoreOne(
@@ -270,8 +280,12 @@ export function betMedal(puesto: number, puntos: number): string {
  * El puesto de cada uno en la porra, compartido en los empates.
  *
  * Con los mismos puntos se va igual de bien, y no hay ningún desempate honesto:
- * la lista viene ordenada por nombre cuando los puntos coinciden, así que
- * repartir plata y bronce ahí sería premiar la primera letra del apodo.
+ * lo que separa a dos empatados es la hora de su apuesta y el apodo, así que
+ * repartir plata y bronce ahí sería premiar al que apostó más tarde.
+ *
+ * Cuenta con que la lista LLEGUE ordenada de más a menos puntos: recorre y va
+ * repartiendo. Con cualquier otro orden no se equivoca en los empates, se
+ * inventa la clasificación entera.
  */
 export function puestosDePorra(ranking: { points: number }[]): number[] {
   const puestos: number[] = []

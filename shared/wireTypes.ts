@@ -654,6 +654,16 @@ export interface EventRunnerStats {
   puesto: number | null
   /** Llegó a mandar alguna posición. */
   tracked: boolean
+  /**
+   * Abandonó: PARÓ su baliza sin haber cruzado la meta.
+   *
+   * Es distinto de "no llegó a meta", que hasta ahora los mezclaba. Quien apaga
+   * la baliza está diciendo que ha terminado —para él— y si no cruzó, es que se
+   * ha retirado; quien lleva horas sin señal puede estar caminando por una zona
+   * sin cobertura, y eso no es un abandono, es que no sabemos. Confundirlos
+   * significa dar por retirado a alguien que sigue en el monte.
+   */
+  abandono: boolean
 }
 
 export interface EventStats {

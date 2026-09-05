@@ -208,6 +208,45 @@ describe('la clasificación', () => {
   })
 })
 
+// ── Los que no llegan ───────────────────────────────────────────────────
+
+/**
+ * Dejarlo y quedarse sin señal son dos finales distintos.
+ *
+ * Quien APAGA la baliza en el kilómetro 20 se ha bajado: lo ha dicho él, con el
+ * gesto, y la carrera puede darlo por retirado. Quien se queda sin batería o
+ * sin cobertura no ha dicho nada, y la última posición conocida es lo único que
+ * hay de él. Contar a los dos igual es, en un caso, dar por retirado a alguien
+ * que sigue en el monte —y en el otro, tener la carrera abierta esperando a
+ * quien hace rato que está en el coche.
+ */
+describe('quien no llega a meta', () => {
+  const linea = recorridoRecto(10)
+
+  it('apagar la baliza a mitad es abandonar', () => {
+    const c = calculaEstadisticas(
+      [corredor('A', corriendo(0, 4, 10, 30))], 10, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.finished).toBe(false)
+    expect(c.abandono).toBe(true)
+  })
+
+  it('la baliza abierta y callada no es un abandono', () => {
+    const fila = { ...corredor('A', corriendo(0, 4, 10, 30)), status: 'active' }
+    const c = calculaEstadisticas([fila], 10, linea, 0, 'run').corredores[0]
+    expect(c.finished).toBe(false)
+    expect(c.abandono).toBe(false)
+  })
+
+  it('cerrar la baliza EN META no es abandonar, es haber acabado', () => {
+    const c = calculaEstadisticas(
+      [corredor('A', corriendo(0, 10.05, 10, 30))], 10, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.finished).toBe(true)
+    expect(c.abandono).toBe(false)
+  })
+})
+
 // ── La carrera de verdad ────────────────────────────────────────────────
 
 describe('una carrera real, de punta a punta', () => {

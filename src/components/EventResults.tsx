@@ -88,7 +88,16 @@ export function ListaResultados({ stats }: { stats: EventStats }) {
                     )}
                   </span>
                 )
-                : <span className="shrink-0 text-[10px] text-slate-500">{c.tracked ? 'no llegó a meta' : 'no emitió'}</span>}
+                : (
+                  /* Tres finales distintos y hasta ahora dos se contaban igual:
+                     quien se RETIRÓ —paró la baliza sin cruzar— y quien
+                     simplemente dejó de dar señal. El primero terminó su
+                     carrera; del segundo no se sabe nada, y ponerle "no llegó"
+                     es dar por hecho lo que no consta. */
+                  <span className="shrink-0 text-[10px] text-slate-500">
+                    {!c.tracked ? 'no emitió' : c.abandono ? 'abandonó' : 'sin noticias'}
+                  </span>
+                )}
             </div>
             {c.tracked && (
               <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">

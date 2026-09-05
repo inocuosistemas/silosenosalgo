@@ -440,7 +440,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
           }
         }
       }
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, paradoMs }
+      // RETIRADO: apagó la baliza sin cruzar la meta. Es lo que hace alguien
+      // que se baja, y es una noticia distinta de un teléfono que se queda sin
+      // batería o sin cobertura —ahí la baliza sigue abierta y callada—. Las
+      // dos se veían igual, "terminado", y no lo son: una dice que ya está en
+      // el coche y la otra que no se sabe nada de él.
+      const retirado = !idle && !acabo && r.status === 'ended'
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, paradoMs, retirado }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
@@ -1292,7 +1298,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
                 <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
-                  {rows.map(({ r, key, idle, armed, lost }) => (
+                  {rows.map(({ r, key, idle, armed, lost, retirado }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
                       {r.bib && (
@@ -1305,12 +1311,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       </span>
                       <span className={`shrink-0 ${
                         armed ? 'text-amber-400/90' : idle ? 'text-slate-500'
+                          : retirado ? 'text-rose-400/80'
                           : r.status === 'ended' ? 'text-slate-400'
                           : lost ? 'text-amber-400/90' : 'text-emerald-400'
                       }`}>
                         {armed ? `preparado · ${hhmm(r.startedAt!)}`
                           : idle ? 'sin emitir'
-                          : r.status === 'ended' ? 'terminado'
+                          : retirado ? 'se retiró'
+                          : r.status === 'ended' ? 'en meta'
                           : lost ? 'sin cobertura' : 'emitiendo'}
                       </span>
                     </li>
@@ -1374,6 +1382,8 @@ type Row = {
   desviadoM: number
   /** Cuánto lleva sin moverse (ms). Cero si se mueve o si no hay señal fresca. */
   paradoMs: number
+  /** Cerró la baliza sin llegar a meta: se bajó. No es lo mismo que quedarse sin señal. */
+  retirado: boolean
   key: string
 }
 
@@ -1435,7 +1445,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -1460,10 +1470,15 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                     {r.username}
                   </button>
                 )}
-                {/* "Terminado" es haber acabado de emitir algo. Una baliza
-                    cerrada sin una sola posición no terminó nada: no ha
-                    empezado, y ponerle las dos etiquetas se contradice. */}
-                {!idle && r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+                {/* Apagar la baliza dice dos cosas muy distintas según dónde
+                    se apague, y hasta ahora las dos ponían "terminado": el que
+                    cruzó la meta y el que se bajó en el kilómetro 20. Al
+                    segundo hay que llamarle por su nombre —se retiró— porque es
+                    lo que la carrera necesita saber de él. Y una baliza cerrada
+                    sin una sola posición no terminó ni abandonó nada: no
+                    empezó. */}
+                {retirado && <span className="shrink-0 rounded bg-rose-950/50 px-1.5 py-0.5 text-[10px] text-rose-300">se retiró</span>}
+                {!idle && !retirado && r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">en meta</span>}
                 {armed && <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">preparado</span>}
                 {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
                 <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">

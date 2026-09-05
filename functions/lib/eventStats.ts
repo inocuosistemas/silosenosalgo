@@ -362,6 +362,7 @@ export function calculaEstadisticas(
         username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
         km: null, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
         finished: false, finishedAt: null, margenMs: null, puesto: null, tracked: false,
+        abandono: false,
       })
       continue
     }
@@ -429,6 +430,9 @@ export function calculaEstadisticas(
       margenMs: cruce ? Math.round(cruce.margenMs) : null,
       puesto: null,
       tracked: true,
+      // Paró la baliza sin cruzar: se retiró. Apagarla es decir "para mí se ha
+      // acabado", y si no pasó por meta, la única lectura posible es esa.
+      abandono: cruce === null && f.status === 'ended',
     })
   }
 
@@ -716,19 +720,23 @@ export async function fotoDeResultadosSiToca(
    * después de que el último cruzara el arco —con la meta ya recogida—.
    *
    * "Todos" son los que EMITIERON: quien se apuntó y no se presentó no puede
-   * dejar una carrera abierta para siempre. Y se exige que hayan CRUZADO, no
-   * que hayan apagado la baliza: apagarla no dice si llegó o abandonó, y cerrar
-   * por ahí daría por terminada una carrera con gente todavía en el monte. Por
-   * eso, con un abandono la carrera no se cierra sola: la cierra quien organiza,
-   * que es quien sabe lo que ha pasado, o su hora de cierre.
+   * dejar una carrera abierta para siempre. Y "resuelto" es haber CRUZADO o
+   * haber ABANDONADO —parar la baliza sin cruzar—, que son las dos formas de
+   * que la carrera de alguien haya terminado. Quien lleva horas sin señal no
+   * cuenta como ninguna de las dos: puede estar andando por una zona sin
+   * cobertura, y cerrar por ahí sería dar la prueba por acabada con gente
+   * todavía en el monte.
    *
    * Y termina cuando cruzó el último, no ahora: la carrera se acabó en ese
    * instante, no cuando alguien abrió la pantalla y se dio cuenta.
    */
   const enCarrera = stats.corredores.filter((c) => c.tracked)
-  if (enCarrera.length > 0 && enCarrera.every((c) => c.finished && c.finishedAt !== null)) {
-    const ultimo = Math.max(...enCarrera.map((c) => c.finishedAt!))
-    await cierraEvento(env, ev.id, ultimo, ev.planTotalKm)
+  const resueltos = enCarrera.filter((c) => c.finished || c.abandono)
+  if (enCarrera.length > 0 && resueltos.length === enCarrera.length) {
+    // La hora de la última llegada; si no llegó nadie —todos se retiraron— la
+    // de ahora, que es lo único que se sabe.
+    const llegadas = enCarrera.map((c) => c.finishedAt).filter((t): t is number => t !== null)
+    await cierraEvento(env, ev.id, llegadas.length > 0 ? Math.max(...llegadas) : now, ev.planTotalKm)
     return
   }
   // Una foto sin nadie no sustituye a una con gente: al principio de la carrera

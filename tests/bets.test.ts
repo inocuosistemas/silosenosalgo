@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { betMedal, puestosDePorra } from '../src/lib/bets'
+import { betMedal, puestosDePorra, scoreBets } from '../src/lib/bets'
+import type { RunnerOutcome } from '../src/lib/bets'
+import type { EventBet } from '../shared/wireTypes'
 
 /**
  * El podio de la porra.
@@ -34,5 +36,56 @@ describe('las medallas de la porra', () => {
     const ranking = [{ points: 0 }, { points: 0 }, { points: 0 }]
     const medallas = puestosDePorra(ranking).map((p, i) => betMedal(p, ranking[i].points))
     expect(medallas).toEqual(['·', '·', '·'])
+  })
+})
+
+/**
+ * El orden de la lista de oráculos.
+ *
+ * Es una lista con dos vidas: durante la espera ordena por quién acaba de
+ * mojarse, y cuando la carrera reparte puntos pasa a ser una clasificación. La
+ * segunda no es cosmética —los puestos se reparten RECORRIENDO la lista—, así
+ * que un orden por fecha con puntos ya repartidos no desordena un poco: corona
+ * al que apostó el último y manda al que más puntos tiene al tercer puesto.
+ * Pasó en una carrera de verdad y se veía en pantalla.
+ */
+describe('el orden de los oráculos', () => {
+  const apuesta = (author: string, value: string, createdAt: number): EventBet =>
+    ({ author, target: 'Soriano', kind: 'finish', value, createdAt })
+
+  const acabo: RunnerOutcome[] = [
+    { username: 'Soriano', tracked: true, finished: true, finishedAt: 5_000, settled: true },
+  ]
+  const enCarrera: RunnerOutcome[] = [
+    { username: 'Soriano', tracked: true, finished: false, finishedAt: null, settled: false },
+  ]
+
+  it('sin puntos manda la hora: el último en apostar, arriba', () => {
+    const orden = scoreBets([
+      apuesta('primero', 'si', 1_000),
+      apuesta('ultimo', 'si', 3_000),
+      apuesta('enmedio', 'si', 2_000),
+    ], enCarrera).map((s) => s.author)
+    expect(orden).toEqual(['ultimo', 'enmedio', 'primero'])
+  })
+
+  it('con puntos manda el marcador, aunque haya apostado el primero', () => {
+    const tabla = scoreBets([
+      apuesta('tarde', 'no', 3_000),      // falla: dijo que no acababa
+      apuesta('pronto', 'si', 1_000),     // acierta
+    ], acabo)
+    expect(tabla.map((s) => s.author)).toEqual(['pronto', 'tarde'])
+    expect(tabla[0].points).toBeGreaterThan(tabla[1].points)
+  })
+
+  it('y entonces las medallas caen donde deben', () => {
+    const tabla = scoreBets([
+      apuesta('falla', 'no', 3_000),
+      apuesta('acierta', 'si', 1_000),
+    ], acabo)
+    const medallas = puestosDePorra(tabla).map((p, i) => betMedal(p, tabla[i].points))
+    expect(medallas[0]).toBe('🔮')
+    // Quien no sumó no lleva medalla: el bronce no es un premio de asistencia.
+    expect(medallas[1]).toBe('·')
   })
 })
