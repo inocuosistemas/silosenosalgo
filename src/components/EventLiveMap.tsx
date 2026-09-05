@@ -504,9 +504,40 @@ export default function EventLiveMap({ source }: { source: Source }) {
     [rows],
   )
 
+  /** El corredor señalado, si hay alguno. */
+  const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
+
+  /**
+   * Hasta qué kilómetro está el recorrido YA HECHO.
+   *
+   * El del corredor señalado, si hay uno; si no, el del que va más lejos. Un
+   * trazado entero del mismo color no dice si la carrera va por el principio o
+   * por el final, y esa es la primera pregunta de quien abre el mapa: por
+   * dónde van. Pintado, se ve de un vistazo y sin leer un número.
+   */
+  const kmHecho = useMemo(() => {
+    if (!route) return null
+    if (sel?.km != null) return sel.km
+    const kms = rows.map((r) => r.km).filter((k): k is number => k != null)
+    return kms.length > 0 ? Math.max(...kms) : null
+  }, [rows, route, sel])
+
+  /**
+   * El recorrido partido en dos: lo andado y lo que queda.
+   *
+   * Los dos trozos comparten el punto del corte, que si no queda un hueco
+   * blanco justo donde está el corredor —el sitio al que todo el mundo mira—.
+   */
+  const trazado = useMemo(() => {
+    if (!route) return null
+    if (kmHecho === null || kmHecho <= 0) return { hecho: [], queda: route.pts }
+    let corte = route.cumKm.findIndex((k) => k >= kmHecho)
+    if (corte < 0) corte = route.pts.length - 1
+    return { hecho: route.pts.slice(0, corte + 1), queda: route.pts.slice(corte) }
+  }, [route, kmHecho])
+
   /** La pantalla de espera: nadie ha mandado posición todavía. */
   const waiting = runners !== null && withFix.length === 0
-  const sel = useMemo(() => withFix.find((x) => x.key === selected) ?? null, [withFix, selected])
   const followed = useMemo(() => withFix.find((x) => x.key === following) ?? null, [withFix, following])
 
   if (!isPublic && status !== 'ready') return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
@@ -576,10 +607,18 @@ export default function EventLiveMap({ source }: { source: Source }) {
               y la línea de color encima. Sin el halo se pierde — OSM pinta los
               senderos en violeta discontinuo, exactamente lo que parecía el
               recorrido. Sólida, además, que la discontinua es la de ellos. */}
-          {route && (
+          {route && trazado && (
             <>
               <Polyline positions={route.pts} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
-              <Polyline positions={route.pts} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
+              {/* Lo que QUEDA, en el violeta de siempre; lo ya hecho, apagado.
+                  El color fuerte se reserva para lo que todavía importa —por
+                  dónde hay que ir— y el gris cuenta lo que ya pasó sin competir
+                  con él. Se dibuja lo hecho DESPUÉS para que el corte quede
+                  limpio justo donde va el corredor. */}
+              <Polyline positions={trazado.queda} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
+              {trazado.hecho.length > 1 && (
+                <Polyline positions={trazado.hecho} pathOptions={{ color: '#64748b', weight: 4, opacity: 0.95 }} />
+              )}
             </>
           )}
 
