@@ -76,7 +76,13 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   return (
     <>
       {user ? (
-        <div className="relative shrink-0">
+        /* `pointer-events-auto` en el propio componente y no en quien lo
+           coloca: este menú vive en cabeceras que apagan los eventos del ratón
+           para poder arrastrar el mapa por debajo, y ya se quedó sin responder
+           dos veces por confiar en que el sitio se acordara de encenderlos.
+           Un control que se puede pulsar tiene que poder pulsarse esté donde
+           esté; donde no molesta, no molesta. */
+        <div className="pointer-events-auto relative shrink-0">
           <button
             ref={botonRef}
             onClick={() => {
@@ -163,7 +169,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
           onClick={() => setShowLogin(true)}
           title="Iniciar sesión"
           aria-label="Iniciar sesión"
-          className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
+          className="pointer-events-auto flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 transition-colors hover:border-sky-700 hover:text-sky-400"
         >
           <User size={15} /> <span>Entrar</span>
         </button>
