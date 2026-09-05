@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 /**
  * Confeti al cruzar la meta.
@@ -22,11 +22,19 @@ const DURACION_MS = 4200
 
 export function Confeti({ activo }: { activo: boolean }) {
   const [vivo, setVivo] = useState(false)
+  /** Cómo estaba la cosa al abrir la pantalla. */
+  const alAbrir = useRef<boolean | null>(null)
 
   useEffect(() => {
+    // Solo se celebra el MOMENTO en que ocurre. Si al abrir la pantalla ya
+    // había llegado, no hay nada que celebrar: eso no es una llegada, es una
+    // consulta —entrar el lunes a ver cómo quedó la carrera— y unos papelitos
+    // cayendo cada vez que se abre el enlace acaban molestando.
+    if (alAbrir.current === null) {
+      alAbrir.current = activo
+      if (activo) return
+    }
     if (!activo) return
-    // Que no se repita mientras siga siendo verdad: se celebra la llegada, no
-    // el estado de haber llegado.
     setVivo(true)
     const t = window.setTimeout(() => setVivo(false), DURACION_MS)
     return () => window.clearTimeout(t)

@@ -679,7 +679,7 @@ export async function cierraEvento(
 }
 
 /** Cada cuánto se refresca la foto provisional de una carrera en marcha. */
-const FOTO_CADA_MS = 10 * 60 * 1000
+const FOTO_CADA_MS = 3 * 60 * 1000
 
 /**
  * La foto de cómo va la carrera, guardada por si acaso.
@@ -707,6 +707,30 @@ export async function fotoDeResultadosSiToca(
   if (ev.startsAt === null || now < ev.startsAt) return
   if (ev.statsAt !== null && now - ev.statsAt < FOTO_CADA_MS) return
   const stats = await calculaAhora(env, ev.id, ev.planTotalKm)
+
+  /**
+   * Si han llegado TODOS, la carrera se ha terminado sola.
+   *
+   * Hasta ahora una prueba solo acababa a su hora de cierre o cuando el
+   * organizador le daba, y eso deja la pantalla diciendo "en marcha" horas
+   * después de que el último cruzara el arco —con la meta ya recogida—.
+   *
+   * "Todos" son los que EMITIERON: quien se apuntó y no se presentó no puede
+   * dejar una carrera abierta para siempre. Y se exige que hayan CRUZADO, no
+   * que hayan apagado la baliza: apagarla no dice si llegó o abandonó, y cerrar
+   * por ahí daría por terminada una carrera con gente todavía en el monte. Por
+   * eso, con un abandono la carrera no se cierra sola: la cierra quien organiza,
+   * que es quien sabe lo que ha pasado, o su hora de cierre.
+   *
+   * Y termina cuando cruzó el último, no ahora: la carrera se acabó en ese
+   * instante, no cuando alguien abrió la pantalla y se dio cuenta.
+   */
+  const enCarrera = stats.corredores.filter((c) => c.tracked)
+  if (enCarrera.length > 0 && enCarrera.every((c) => c.finished && c.finishedAt !== null)) {
+    const ultimo = Math.max(...enCarrera.map((c) => c.finishedAt!))
+    await cierraEvento(env, ev.id, ultimo, ev.planTotalKm)
+    return
+  }
   // Una foto sin nadie no sustituye a una con gente: al principio de la carrera
   // todavía no hay trazas, y sería empezar borrando lo del intento anterior.
   const previos = await leeStats(env, ev.id, null)
