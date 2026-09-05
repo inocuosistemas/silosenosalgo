@@ -753,7 +753,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
              de la organización se quedan en el mapa, que es donde hay sitio —en
              un móvil estrecho, con ellos la barra crecía a tres filas y tapaba
              el título de lo que venía debajo. */
-          <div className="pointer-events-auto flex min-w-0 max-w-[min(19rem,62vw)] flex-col items-start gap-1">
+          <div className="pointer-events-auto flex min-w-0 flex-1 flex-col items-start gap-1 sm:max-w-[19rem] sm:flex-none">
             {/* La carrera en la esquina: el nombre y los tres números que la
                 describen. Quien abre este enlace puede no saber ni qué prueba
                 es —le ha llegado por un grupo—, así que un nombre suelto no
@@ -791,26 +791,28 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       <span className="text-slate-400">límite {durLabel(raceStats.limitMin)}</span>
                     </>
                   )}
+                  {/* Los enlaces de la organización, en esta misma línea y no en
+                      una pastilla aparte: quien espera en meta los quiere —el
+                      seguimiento por dorsal es lo que dan las webs oficiales—
+                      pero dos palabras no valen una fila entera de la cabecera,
+                      que en un móvil es pantalla que le quitas al mapa. Se
+                      validan al pintar: en la base puede haber enlaces
+                      anteriores a la comprobación. */}
+                  {isHttpUrl(links.trackingUrl) && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
+                         className="text-sky-400 hover:text-sky-300">Oficial ↗</a>
+                    </>
+                  )}
+                  {isHttpUrl(links.websiteUrl) && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
+                         className="text-sky-400 hover:text-sky-300">Web ↗</a>
+                    </>
+                  )}
                 </p>
-              )}
-            </div>
-            {/* Los enlaces de la organización: quien espera en meta los quiere
-                tanto o más que los participantes —el seguimiento por dorsal es
-                lo que dan las webs oficiales—, y aquí no tiene parrilla donde
-                buscarlos. Se validan al pintar: en la base puede haber enlaces
-                anteriores a la comprobación. */}
-            <div className={`flex flex-wrap gap-1 ${view === 'mapa' ? '' : 'hidden'}`}>
-              {isHttpUrl(links.trackingUrl) && (
-                <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
-                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
-                  ⏱️ Oficial ↗
-                </a>
-              )}
-              {isHttpUrl(links.websiteUrl) && (
-                <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
-                   className="rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1 text-[11px] text-sky-400 backdrop-blur hover:border-sky-700">
-                  🌐 Web ↗
-                </a>
               )}
             </div>
           </div>
@@ -829,8 +831,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
         {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
             hay porra: se pronostica con una cuenta, y sin saber cuál está
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
-        <div className="pointer-events-auto flex shrink-0 flex-wrap items-start justify-end gap-1.5">
+        {/* El usuario, en la PRIMERA fila con el volver y el nombre; las
+            pestañas, en la suya. En un móvil los tres no caben en una línea y
+            el navegador los repartía como podía: salían tres cajas escalonadas
+            sin orden. Repartidos a mano son dos filas limpias —quién eres
+            arriba, dónde vas debajo— y a partir de una pantalla mediana vuelve
+            todo a la misma línea, que ahí sobra sitio. */}
         <AuthMenu />
+        <div className="pointer-events-auto flex w-full shrink-0 items-stretch gap-1.5 sm:w-auto">
         {/* `items-stretch` y altura fija: las pestañas se estiran solas hasta
             llenar la barra, así que quedan a la altura exacta del botón de
             sesión y del de volver sin tener que ir cuadrando rellenos a mano
