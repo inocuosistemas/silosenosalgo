@@ -871,10 +871,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     if (trail.length === 0) return null
     const last = trail[trail.length - 1]
     let sinceT = last.t
+    let quietas = 0
     for (let i = trail.length - 2; i >= 0; i--) {
       if (haversineKm(last.lat, last.lon, trail[i].lat, trail[i].lon) > STOP_RADIUS_KM) break
+      quietas++
       sinceT = trail[i].t
     }
+    // Sin una SEGUNDA lectura en el mismo sitio no hay prueba de que esté
+    // parado: puede estar corriendo y ser el móvil el que no manda nada. Con
+    // solo la última, "lleva parado X" y "no se sabe nada desde hace X" son el
+    // mismo número, y se estaba enseñando el segundo como si fuera el primero.
+    // Pasó en el Desafío Urbión: "⏸ 6 min PARADO" mientras corría a diez
+    // minutos el kilómetro —lo dicen sus propias lecturas, una cada cuarenta
+    // segundos avanzando cien metros—. Estar quieto lo demuestran dos lecturas
+    // juntas, no el silencio.
+    if (quietas === 0) return null
     return sinceT
   }, [trail])
 

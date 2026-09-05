@@ -14,8 +14,11 @@ import { haversineKm } from './timing'
  * bien que lo sean: lo que se cuenta es que lleva un rato sin avanzar, no la
  * razón.
  *
- * Devuelve null sin traza. Que "lleve parado 4 segundos" no significa nada:
- * quien lo enseñe decide a partir de cuánto tiempo lo dice.
+ * Devuelve null sin traza y también cuando la ÚNICA lectura en el pañuelo es la
+ * última: sin una segunda que la acompañe no hay prueba de que esté parado, y
+ * "lleva parado X" pasaría a significar "no se sabe nada desde hace X", que es
+ * una cosa muy distinta y da mucho más miedo. Estar quieto lo demuestran dos
+ * lecturas juntas, no el silencio.
  */
 export function paradoDesde(
   traza: { lat: number; lon: number; t: number }[],
@@ -24,9 +27,11 @@ export function paradoDesde(
   if (traza.length === 0) return null
   const ultima = traza[traza.length - 1]
   let desde = ultima.t
+  let quietas = 0
   for (let i = traza.length - 2; i >= 0; i--) {
     if (haversineKm(ultima, traza[i]) > radioKm) break
+    quietas++
     desde = traza[i].t
   }
-  return desde
+  return quietas === 0 ? null : desde
 }
