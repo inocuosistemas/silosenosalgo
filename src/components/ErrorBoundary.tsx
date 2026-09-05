@@ -44,11 +44,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
     // Reload imminent — match the Suspense fallback so there's no scary flash.
     if (this.state.reloading) {
-      return <div style={{ minHeight: '100vh', background: '#020617' }} />
+      return <div style={{ minHeight: '100dvh', background: '#020617' }} />
     }
 
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="min-h-dvh flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 space-y-4 text-center">
           <div className="text-4xl">⚠️</div>
           <h1 className="text-lg font-semibold text-slate-100">Algo ha fallado</h1>

@@ -394,7 +394,7 @@ export default function App() {
 
   if (guide) {
     return (
-      <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+      <Suspense fallback={<div className="min-h-dvh bg-slate-950" />}>
         <GuideViewer guide={guide} onClose={closeGuide} />
       </Suspense>
     )
@@ -2031,7 +2031,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   }, [appMode, effectiveNow, livePos.coords, livePos.trackKm, startTime, track, paceConfig])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-dvh bg-slate-950 text-slate-100">
       {/* ── Header ── */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-[1100]">
         {/* En un móvil no caben la marca y los seis mandos en la misma línea.

@@ -20,6 +20,7 @@ import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
 import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, viewerId, LiveTrackError } from '../lib/liveTrack'
+import { paradoDesde } from '../lib/parado'
 import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
@@ -907,31 +908,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     [plan, formSamples],
   )
 
-  // When did the current stop begin? Walk the trail backwards from the newest
-  // point while it stays within STOP_RADIUS_KM; the earliest such point's time
-  // is when the runner went stationary. null when there's no trail. Combined
-  // with a fresh fix (still reporting) this tells "parado" apart from "offline".
-  const stoppedSince = useMemo(() => {
-    if (trail.length === 0) return null
-    const last = trail[trail.length - 1]
-    let sinceT = last.t
-    let quietas = 0
-    for (let i = trail.length - 2; i >= 0; i--) {
-      if (haversineKm(last.lat, last.lon, trail[i].lat, trail[i].lon) > STOP_RADIUS_KM) break
-      quietas++
-      sinceT = trail[i].t
-    }
-    // Sin una SEGUNDA lectura en el mismo sitio no hay prueba de que esté
-    // parado: puede estar corriendo y ser el móvil el que no manda nada. Con
-    // solo la última, "lleva parado X" y "no se sabe nada desde hace X" son el
-    // mismo número, y se estaba enseñando el segundo como si fuera el primero.
-    // Pasó en el Desafío Urbión: "⏸ 6 min PARADO" mientras corría a diez
-    // minutos el kilómetro —lo dicen sus propias lecturas, una cada cuarenta
-    // segundos avanzando cien metros—. Estar quieto lo demuestran dos lecturas
-    // juntas, no el silencio.
-    if (quietas === 0) return null
-    return sinceT
-  }, [trail])
+  // Desde cuándo lleva parado. La cuenta está en `lib/parado.ts` porque el mapa
+  // del evento hace exactamente la misma, y esta pantalla y aquella tienen que
+  // decir lo mismo del mismo corredor: dos copias del mismo cálculo acaban
+  // contestando distinto en cuanto una de las dos se toca. Aquí solo hay que
+  // juntarlo con una señal fresca, que es lo que separa "parado" de "sin
+  // cobertura".
+  const stoppedSince = useMemo(() => paradoDesde(trail, STOP_RADIUS_KM), [trail])
 
   // Split the recorded time into moving vs stopped, classifying each trail interval
   // by its straight-line speed (heartbeat duplicates dt=0 and stationary jitter fall

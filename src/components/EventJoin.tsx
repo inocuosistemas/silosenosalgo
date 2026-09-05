@@ -35,7 +35,7 @@ export default function EventJoin({ code }: { code: string }) {
   }, [code, status, user])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-dvh bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-lg px-4 py-10">
         <h1 className="text-lg font-bold">Unirse al evento</h1>
         {status !== 'ready' ? (

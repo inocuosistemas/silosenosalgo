@@ -10,8 +10,24 @@
   * {
     box-sizing: border-box;
   }
+  /* La altura del cuerpo es la del viewport DINÁMICO, no `100vh`.
+     En iOS `100vh` no mide lo que se ve: mide la pantalla con las barras de
+     Safari escondidas, que es lo más alto que puede llegar a estar. Así que
+     CUALQUIER pantalla, aunque su contenido quepa de sobra, salía unos ciento
+     veinte píxeles más alta que el hueco visible y tenía un scroll fantasma.
+     Y ese scroll no es inofensivo: basta con rozarlo para que Safari pliegue
+     la barra de arriba, y entonces la página se sube por debajo del reloj —la
+     cabecera del mapa detrás de la hora y la batería— y deja una franja negra
+     abajo. Se veía como si la página se hubiera quedado enganchada arriba.
+     `dvh` mide el hueco de verdad y va cambiando con las barras, que es justo
+     lo que hace falta. */
   body {
-    @apply bg-slate-950 text-slate-100 min-h-screen;
+    @apply bg-slate-950 text-slate-100 min-h-dvh;
+  }
+  /* Y sin rebote de goma: en una pantalla que ya cabe entera, el tirón del
+     dedo solo sirve para despegarla y dejarla a medio sitio. */
+  html, body {
+    overscroll-behavior-y: none;
   }
 
   /* NADA se sale del ancho de la pantalla.

@@ -54,7 +54,7 @@ initGhostScrollbars()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <Suspense fallback={<div style={{ minHeight: '100vh', background: '#020617' }} />}>
+      <Suspense fallback={<div style={{ minHeight: '100dvh', background: '#020617' }} />}>
         {isViewer ? (
           <LiveViewer token={trackToken!} />
         ) : isEvent ? (

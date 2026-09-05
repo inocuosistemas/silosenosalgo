@@ -19,6 +19,11 @@ import { haversineKm } from './timing'
  * "lleva parado X" pasaría a significar "no se sabe nada desde hace X", que es
  * una cosa muy distinta y da mucho más miedo. Estar quieto lo demuestran dos
  * lecturas juntas, no el silencio.
+ *
+ * Pasó en el Desafío Urbión: "⏸ 6 min PARADO" mientras corría a diez minutos el
+ * kilómetro, y lo desmentían sus propias lecturas —una cada cuarenta segundos,
+ * avanzando cien metros—. Lo que llevaba seis minutos no era él: era el móvil
+ * sin mandar nada.
  */
 export function paradoDesde(
   traza: { lat: number; lon: number; t: number }[],
