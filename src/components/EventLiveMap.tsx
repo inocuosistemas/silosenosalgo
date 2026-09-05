@@ -745,29 +745,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ←
           </a>
         )}
-        {view !== 'mapa' || (waiting && panelOpen) || (endedAt !== null && finPanelOpen) ? (
-          // Fuera del mapa el nombre de la carrera sobra —la lista, la porra y
-          // los resultados llevan su propio título— y con cuatro pestañas ya no
-          // cabía: el nombre se comía al selector y al usuario. Y con el cuadro
-          // de la salida abierto tampoco, que ese ya lo dice.
-          <div />
-        ) : (
-          /* Fuera del mapa, la presentación sobra: ahí lo que hace falta es
-             saber qué carrera es y poder volver. Los tres números y los enlaces
-             de la organización se quedan en el mapa, que es donde hay sitio —en
-             un móvil estrecho, con ellos la barra crecía a tres filas y tapaba
-             el título de lo que venía debajo. */
-          <div className="pointer-events-auto flex min-w-0 flex-1 flex-col items-start gap-1 sm:max-w-[19rem] sm:flex-none">
-            {/* La carrera en la esquina: el nombre y los tres números que la
-                describen. Quien abre este enlace puede no saber ni qué prueba
-                es —le ha llegado por un grupo—, así que un nombre suelto no
-                basta. El cartel va en el cuadro del centro: aquí arriba tiene
-                que caber también sobre la lista, y una foto ahí le come las
-                primeras filas. */}
-            <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur">
-              <p className={`truncate px-2.5 text-sm font-bold text-slate-100 ${
-                view === 'mapa' ? 'pt-1.5' : 'py-1.5'
-              }`}>{eventName ?? 'Evento'}</p>
+        {/* UN SOLO PANEL: el nombre de la carrera, sus números y las pestañas,
+            todo en la misma caja.
+            Antes eran dos cajas sueltas, la de la carrera arriba y el selector
+            de vistas flotando debajo a su aire, y en un móvil quedaban
+            escalonadas y desordenadas —cada una con su borde, empezando en
+            sitios distintos—. Metidas en una, el bloque tiene un solo borde, un
+            solo margen y una sola alineación, que es lo que hace que se lea
+            como una cabecera y no como piezas caídas sobre el mapa.
+            El nombre y los números solo en el mapa: la lista, la porra y los
+            resultados llevan su propio título, y con el cuadro de la salida
+            abierto ese ya lo dice. Las pestañas van SIEMPRE, que son la
+            navegación. */}
+        <div className="pointer-events-auto min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur sm:max-w-[22rem]">
+          {view === 'mapa' && !(waiting && panelOpen) && !(endedAt !== null && finPanelOpen) && (
+            <>
+              <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
               {/* Que la carrera TERMINÓ, aquí dentro: es un dato de la carrera
                   como los kilómetros, y flotando aparte se le cruzaba a todo lo
                   demás. Lleva a los resultados, que es lo que se busca al
@@ -818,9 +811,30 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   )}
                 </p>
               )}
-            </div>
+            </>
+          )}
+          <div className="flex items-stretch gap-1 p-1">
+            {([
+              'mapa', 'lista',
+              ...(betsEnabled ? ['porra' as const] : []),
+              // Una carrera terminada estrena pestañas: los resultados y el
+              // replay son lo que se viene a ver cuando ya no hay nada
+              // moviéndose por el mapa.
+              ...(endedAt !== null && stats ? ['meta' as const] : []),
+              ...(endedAt !== null ? ['replay' as const] : []),
+            ] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`flex flex-1 items-center justify-center rounded-lg px-2 py-1.5 text-xs capitalize transition-colors ${
+                  view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                }`}
+              >
+                {v === 'porra' ? '🔮 porra' : v === 'meta' ? '🏆 meta' : v === 'replay' ? '⏱️ replay' : v}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
         {/* A quién sigue el mapa, y cómo soltarlo. Va arriba y no dentro de la
             ficha porque el seguimiento sigue puesto aunque se cierre la ficha:
             un modo activo que no se ve es un modo que desconcierta. */}
@@ -835,40 +849,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
         {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
             hay porra: se pronostica con una cuenta, y sin saber cuál está
             abierta —o si hay alguna— no se entiende por qué no se puede. */}
-        {/* El usuario, en la PRIMERA fila con el volver y el nombre; las
-            pestañas, en la suya. En un móvil los tres no caben en una línea y
-            el navegador los repartía como podía: salían tres cajas escalonadas
-            sin orden. Repartidos a mano son dos filas limpias —quién eres
-            arriba, dónde vas debajo— y a partir de una pantalla mediana vuelve
-            todo a la misma línea, que ahí sobra sitio. */}
+        {/* El usuario, al final de la fila. Las pestañas ya no van aquí: viven
+            dentro de la tarjeta de la carrera, que es lo que convierte tres
+            cajas sueltas en una cabecera. */}
         <AuthMenu />
-        <div className="pointer-events-auto flex w-full shrink-0 items-stretch gap-1.5 sm:w-auto">
-        {/* `items-stretch` y altura fija: las pestañas se estiran solas hasta
-            llenar la barra, así que quedan a la altura exacta del botón de
-            sesión y del de volver sin tener que ir cuadrando rellenos a mano
-            —que es lo que las dejaba cuatro píxeles más bajas—. */}
-        <div className="flex h-9 items-stretch gap-1 rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 backdrop-blur">
-          {([
-            'mapa', 'lista',
-            ...(betsEnabled ? ['porra' as const] : []),
-            // Una carrera terminada estrena pestañas: los resultados y el
-            // replay son lo que se viene a ver cuando ya no hay nada
-            // moviéndose por el mapa.
-            ...(endedAt !== null && stats ? ['meta' as const] : []),
-            ...(endedAt !== null ? ['replay' as const] : []),
-          ] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`flex items-center rounded px-2 text-xs capitalize transition-colors ${
-                view === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {v === 'porra' ? '🔮 porra' : v === 'meta' ? '🏆 meta' : v === 'replay' ? '⏱️ replay' : v}
-            </button>
-          ))}
-        </div>
-        </div>
       </div>
       </div>
 

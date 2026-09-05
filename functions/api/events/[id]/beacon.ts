@@ -2,7 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
-import { TOKEN_RE } from '../../../../shared/validate'
+import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 
 /**
  * POST /api/events/:id/beacon — "estoy corriendo esto".
@@ -51,8 +51,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!sess) return json({ error: 'no_session' }, 409)
 
   const ev = await env.DB.prepare(
-    'SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt FROM events WHERE id = ?',
-  ).bind(id).first<{ planShareId: string | null; planName: string | null; startsAt: number | null }>()
+    `SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
+       FROM events WHERE id = ?`,
+  ).bind(id).first<{
+    planShareId: string | null; planName: string | null; startsAt: number | null; activity: string | null
+  }>()
 
   // Al entrar en una carrera, su hora de salida pasa a ser la de la baliza. La
   // salida de una carrera no la elige cada uno: es una sola, la misma para
@@ -62,6 +65,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (ev?.startsAt) {
     await env.DB.prepare('UPDATE tracking_sessions SET started_at = ? WHERE id = ? AND owner_user_id = ?')
       .bind(ev.startsAt, sess.id, user.id).run()
+  }
+  // Y la actividad, si la baliza no traía una declarada: sin ella se deduce de
+  // las velocidades del GPS, y quien encendió de camino a la salida grabó el
+  // viaje en coche —de ahí sale "bici" en una carrera a pie—.
+  if (isBeaconActivity(ev?.activity)) {
+    await env.DB.prepare(
+      'UPDATE tracking_sessions SET activity = COALESCE(activity, ?) WHERE id = ? AND owner_user_id = ?',
+    ).bind(ev.activity, sess.id, user.id).run()
   }
 
   // Si la baliza salió sin ruta, hereda la del evento: quien te sigue por tu

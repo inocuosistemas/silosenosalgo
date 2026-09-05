@@ -28,7 +28,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
   // Movement type (nullable): store only a recognised value, else NULL = auto.
-  const activity: BeaconActivity | null = isBeaconActivity(body.activity) ? body.activity : null
+  let activity: BeaconActivity | null = isBeaconActivity(body.activity) ? body.activity : null
 
   // Resolve the plan to overlay on the public viewer (nullable):
   //  - planId: copy the owner's saved plan payload into SHARE_KV under a fresh,
@@ -109,13 +109,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // incluidas las que ya no se pueden actualizar.
   if (eventId) {
     const ev = await env.DB.prepare(
-      'SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt FROM events WHERE id = ?',
-    ).bind(eventId).first<{ planShareId: string | null; planName: string | null; startsAt: number | null }>()
+      `SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
+         FROM events WHERE id = ?`,
+    ).bind(eventId).first<{
+      planShareId: string | null; planName: string | null; startsAt: number | null; activity: string | null
+    }>()
     if (ev?.planShareId && !planShareId) {
       planShareId = ev.planShareId
       planName = planName ?? ev.planName
     }
     if (ev?.startsAt) startedAt = ev.startsAt
+    // Y de qué va la carrera, por lo mismo. Sin actividad declarada la app la
+    // DEDUCE de las velocidades del GPS, y eso se equivoca justo aquí: quien
+    // enciende la baliza de camino a la salida graba el viaje en coche, y con
+    // esas velocidades la deducción dice "bici". Pasó hoy en el Urbión. La
+    // carrera sabe de qué va; quien quiera otra cosa —ir en bici barriendo una
+    // prueba a pie— la declara a mano y entonces manda la suya.
+    if (!activity && isBeaconActivity(ev?.activity)) activity = ev.activity
   }
 
   // De qué aparato sale esta baliza. Sirve para una sola cosa: que el móvil al
