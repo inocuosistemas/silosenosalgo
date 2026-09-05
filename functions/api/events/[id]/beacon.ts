@@ -50,8 +50,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   ).bind(user.id, now).first<{ id: string; planShareId: string | null }>()
   if (!sess) return json({ error: 'no_session' }, 409)
 
-  const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId, plan_name AS planName FROM events WHERE id = ?')
-    .bind(id).first<{ planShareId: string | null; planName: string | null }>()
+  const ev = await env.DB.prepare(
+    'SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt FROM events WHERE id = ?',
+  ).bind(id).first<{ planShareId: string | null; planName: string | null; startsAt: number | null }>()
+
+  // Al entrar en una carrera, su hora de salida pasa a ser la de la baliza. La
+  // salida de una carrera no la elige cada uno: es una sola, la misma para
+  // todos, y es contra ella contra la que se miden los cortes y los tiempos.
+  // Quien enchufó la baliza una hora antes —lo normal, se llega pronto— traía
+  // "ahora" como salida, y con eso el ritmo medio sale absurdo.
+  if (ev?.startsAt) {
+    await env.DB.prepare('UPDATE tracking_sessions SET started_at = ? WHERE id = ? AND owner_user_id = ?')
+      .bind(ev.startsAt, sess.id, user.id).run()
+  }
 
   // Si la baliza salió sin ruta, hereda la del evento: quien te sigue por tu
   // enlace individual verá el recorrido de la carrera y tus cortes, no un

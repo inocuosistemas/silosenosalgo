@@ -67,7 +67,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // race is days away is honoured; bad/wild values fall back to now.
   const FUTURE_START_MAX = 14 * 24 * 60 * 60 * 1000
   const PAST_START_MAX = 24 * 60 * 60 * 1000
-  const startedAt =
+  let startedAt =
     typeof body.startAt === 'number' && body.startAt <= now + FUTURE_START_MAX && body.startAt >= now - PAST_START_MAX
       ? body.startAt
       : now
@@ -93,13 +93,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
   // Sin ruta propia, la del evento: quien te siga por tu enlace verá el
   // recorrido de la carrera y sus cortes. Con ruta elegida, manda la tuya.
-  if (eventId && !planShareId) {
-    const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId, plan_name AS planName FROM events WHERE id = ?')
-      .bind(eventId).first<{ planShareId: string | null; planName: string | null }>()
-    if (ev?.planShareId) {
+  //
+  // Y la HORA DE SALIDA de la carrera manda sobre la que traiga el móvil.
+  //
+  // En una carrera la salida no la elige cada uno: es una, la misma para todos,
+  // y es contra ella contra la que se miden los cortes, los tiempos y los
+  // resultados. La baliza intenta heredarla al elegir el evento, pero eso falla
+  // en cuanto alguien se olvida de tocarla, la corrige a mano sin querer o
+  // corre con una versión de la app anterior a que existiera esa herencia — y
+  // entonces la sesión nace con "ahora" como salida. Pasó hoy mismo: una baliza
+  // abierta a las 07:20 para una carrera de las 08:30, y el margen al primer
+  // corte salía a treinta horas porque el ritmo se contaba desde las 07:20.
+  //
+  // Arreglarlo AQUÍ y no en cada pantalla vale para las tres apps a la vez,
+  // incluidas las que ya no se pueden actualizar.
+  if (eventId) {
+    const ev = await env.DB.prepare(
+      'SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt FROM events WHERE id = ?',
+    ).bind(eventId).first<{ planShareId: string | null; planName: string | null; startsAt: number | null }>()
+    if (ev?.planShareId && !planShareId) {
       planShareId = ev.planShareId
       planName = planName ?? ev.planName
     }
+    if (ev?.startsAt) startedAt = ev.startsAt
   }
 
   // De qué aparato sale esta baliza. Sirve para una sola cosa: que el móvil al
