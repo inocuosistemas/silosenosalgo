@@ -1646,6 +1646,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // El tiempo de carrera. Del resultado oficial cuando lo hay —se cuenta desde
   // la SALIDA OFICIAL y no desde que cada uno encendió la baliza, que es lo que
   // hace comparables los tiempos— y si no, de lo que sabe esta pantalla.
+  /** Cuánto se desvió del plan AL FINAL. Lo dicen la cabecera y la casilla del
+   *  resumen, así que se calcula una vez y no dos. */
+  const deltaFinal = arrivalAt && plannedFinish
+    ? (arrivalAt.getTime() - plannedFinish.getTime()) / 60_000
+    : null
   const totalMin = resultadoOficial?.minutos != null ? resultadoOficial.minutos
     : arrivalAt ? (arrivalAt.getTime() - sessionStart.getTime()) / 60_000
     : null
@@ -1846,9 +1851,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       </p>
       <p className="text-xs opacity-90">
         Llegada {arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} · {totalKm.toFixed(1)} km
-        {plannedFinish && totalMin != null && (
-          <> · {deltaLabel((arrivalAt!.getTime() - plannedFinish.getTime()) / 60_000)}</>
-        )}
+        {deltaFinal != null && <> · {deltaLabel(deltaFinal)}</>}
       </p>
     </div>
   )
@@ -2095,9 +2098,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {/* Summary */}
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
             <div className="grid grid-cols-3 gap-2 text-center">
-              <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
-              <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
-              <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+              {/* Terminada la carrera, estas tres contestan a preguntas que ya
+                  no existen —cuánto lleva, cómo va, a qué hora llegará— y
+                  encima con la información equivocada: el progreso se calcula
+                  sobre su posición de ahora, que está en el bar, así que salía
+                  "0%" el día después de haber acabado la prueba entera. Lo que
+                  queda por saber entonces es cómo acabó, y eso sí se sabe. */}
+              {reachedGoal ? (
+                <>
+                  <Stat label="Progreso 100%" value={`${totalKm.toFixed(1)} km`} />
+                  <Stat label="vs plan" value={deltaFinal != null ? deltaLabel(deltaFinal) : '—'} />
+                  <Stat label="Meta" value={arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} />
+                </>
+              ) : (
+                <>
+                  <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
+                  <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
+                  <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                </>
+              )}
             </div>
             {isStopped && <p className="mt-2 flex items-center justify-center gap-1 text-xs text-amber-400 font-medium"><Pause size={13} /> Parado hace {hhmm(stoppedMs / 60_000)}</p>}
           </div>
