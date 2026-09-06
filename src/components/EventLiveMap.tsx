@@ -765,7 +765,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
       onBack={() => setView('mapa')}
     />
   ) : (
-    <ListView rows={rows} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
+    // La MISMA parrilla que la del cuadro de la salida: barajada mientras nadie
+    // ha empezado y por kilómetro en cuanto hay carrera. Dos listas de la misma
+    // pantalla, a un toque una de otra, no pueden estar en orden distinto —y lo
+    // estaban: aquí salía el orden de inscripción y allí el barajado.
+    <ListView rows={parrilla} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
               eventId={source.kind === 'member' ? source.id : null}
               following={following}
               onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
