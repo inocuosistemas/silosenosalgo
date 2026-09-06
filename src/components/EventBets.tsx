@@ -487,9 +487,13 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           </p>
         ) : (
           <ul className="mt-1.5 space-y-1.5">
+            {/* La corona la lleva quien VA PRIMERO, no quien cayó en la primera
+                fila. Con un empate arriba son dos, y hasta ahora se coronaba a
+                uno de los dos por el orden de la lista: la medalla ya decía que
+                compartían puesto y el cartel de al lado decía que no. */}
             {ranking.map((s, i) => (
               <li key={s.author} className={`rounded-lg border p-2.5 ${
-                i === 0 && s.points > 0 ? 'border-amber-700/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/50'
+                puestos[i] === 0 && s.points > 0 ? 'border-amber-700/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/50'
               }`}>
                 <div className="flex items-center gap-2">
                   <span className="w-5 shrink-0 text-center text-sm">{betMedal(puestos[i], s.points)}</span>
@@ -497,7 +501,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                     {s.author}
                     {s.author === data?.me && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
                   </span>
-                  {i === 0 && s.points > 0 && (
+                  {puestos[i] === 0 && s.points > 0 && (
                     <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">{ORACULO}</span>
                   )}
                   <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">{s.points}</span>
