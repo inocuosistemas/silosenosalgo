@@ -18,8 +18,9 @@ import { MyMark } from './MyMark'
 /**
  * Header auth control. Registration is INVITE-ONLY: there is no "create account"
  * option here — a new account can only be made by opening an invite link
- * (`?invite=<code>`), which auto-opens the registration form. Admins get an
- * "Invitaciones" panel to generate those links.
+ * (`?invite=<code>`), which auto-opens the registration form. Admins generate
+ * those links from the "Cuentas" panel, where the invitations live alongside
+ * the accounts they end up creating.
  */
 export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const { user, status, login, register, resetPassword, logout } = useAuth()
@@ -37,7 +38,6 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const [showLogin, setShowLogin] = useState(false)
   const [showUsers, setShowUsers] = useState(false)
   const [showMark, setShowMark] = useState(false)
-  const [showInvites, setShowInvites] = useState(false)
   const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   /**
@@ -141,14 +141,6 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     <Users size={14} /> Cuentas
                   </button>
                 )}
-                {user.isAdmin && (
-                  <button
-                    onClick={() => { setMenuOpen(false); setShowInvites(true) }}
-                    className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
-                  >
-                    🎟️ Invitaciones
-                  </button>
-                )}
                 <button
                   onClick={() => { setMenuOpen(false); void logout() }}
                   className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-red-400 transition-colors"
@@ -196,15 +188,21 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
         </Modal>
       )}
 
+      {/* Invitar y administrar cuentas son la misma tarea vista en dos
+          momentos: una invitación no es más que una cuenta que todavía no
+          existe, y quien abre esto viene a dar acceso a alguien o a
+          desatascarlo. Separadas en dos entradas del menú, había que acordarse
+          de cuál era cuál —y "Invitaciones" no dice, desde fuera, que sea la
+          única forma de crear una cuenta aquí—. Van juntas y en orden: primero
+          se invita, luego aparece abajo. */}
       {showUsers && user?.isAdmin && (
         <Modal title="Cuentas" onClose={() => setShowUsers(false)}>
-          <UserManager />
-        </Modal>
-      )}
-
-      {showInvites && user?.isAdmin && (
-        <Modal title="Invitaciones" onClose={() => setShowInvites(false)}>
-          <InviteManager />
+          <div className="space-y-4">
+            <InviteManager />
+            <div className="border-t border-slate-800 pt-4">
+              <UserManager />
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -596,6 +594,8 @@ function InviteManager() {
   // verla para saber cuál se está borrando.
   const [confirmando, setConfirmando] = useState<string | null>(null)
   const [borrando, setBorrando] = useState<string | null>(null)
+  /** Si la lista de invitaciones está desplegada. Se abre sola al generar. */
+  const [abierto, setAbierto] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -617,6 +617,9 @@ function InviteManager() {
     try {
       await createInvite({ grantsAdmin })
       await refresh()
+      // Recién generada hay que copiar su enlace: no tiene sentido dejarla
+      // escondida detrás de un desplegable.
+      setAbierto(true)
     } catch (err) {
       setError(authErrorMessage((err as { code?: string })?.code ?? 'network'))
     } finally {
@@ -660,8 +663,16 @@ function InviteManager() {
     return { label: 'Disponible', cls: 'text-emerald-400', sirve: true }
   }
 
+  /** Las que todavía sirven: es el único número que hace falta de un vistazo. */
+  const disponibles = invites.filter((i) => statusOf(i).sirve).length
+
   return (
     <div className="space-y-3">
+      <p className="text-[10px] uppercase tracking-wide text-slate-400">Invitar a alguien</p>
+      <p className="text-[11px] leading-snug text-slate-500">
+        Aquí no hay "crear cuenta": solo se entra con un enlace de invitación, y
+        quien lo use aparecerá en la lista de abajo.
+      </p>
       <label className="flex items-center gap-2 text-xs text-slate-400">
         <input type="checkbox" checked={grantsAdmin} onChange={(e) => setGrantsAdmin(e.target.checked)} />
         Conceder permisos de administrador
@@ -676,7 +687,18 @@ function InviteManager() {
 
       {error && <p className="text-red-400 text-xs">{error}</p>}
 
-      <div className="space-y-2 max-h-72 overflow-y-auto">
+      {/* Las invitaciones ya repartidas, plegadas: son un historial —usadas y
+          caducadas incluidas— y desplegado empuja la lista de cuentas fuera de
+          la pantalla en un móvil. Se abre solo al generar una, que es cuando
+          hay que copiar el enlace. */}
+      <details open={abierto} onToggle={(e) => setAbierto((e.target as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer list-none text-xs text-slate-400 hover:text-sky-400">
+          <span className="mr-1">▸</span>
+          {loading ? 'Invitaciones…'
+            : invites.length === 0 ? 'Aún no hay invitaciones'
+            : `${invites.length} ${invites.length === 1 ? 'invitación' : 'invitaciones'}${disponibles > 0 ? ` · ${disponibles} sin usar` : ''}`}
+        </summary>
+      <div className="mt-2 space-y-2 max-h-72 overflow-y-auto">
         {loading ? (
           <p className="text-xs text-slate-500">Cargando…</p>
         ) : invites.length === 0 ? (
@@ -741,6 +763,7 @@ function InviteManager() {
           })
         )}
       </div>
+      </details>
     </div>
   )
 }
