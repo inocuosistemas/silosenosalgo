@@ -133,13 +133,25 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                 >
                   🦊 Mi marca
                 </button>
+                {/* Lo de administrar, aparte y dicho.
+                    Mezclado con "mis previsiones" y "mi marca" parecía una
+                    opción más de la cuenta de uno, y no lo es: toca las cuentas
+                    de TODOS. Quien administra suele ser también quien corre, y
+                    entre pantalla y pantalla se pierde de vista con qué sombrero
+                    se está entrando. El ámbar es el mismo de la insignia "admin"
+                    del botón de arriba, para que se reconozcan como lo mismo. */}
                 {user.isAdmin && (
-                  <button
-                    onClick={() => { setMenuOpen(false); setShowUsers(true) }}
-                    className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
-                  >
-                    <Users size={14} /> Cuentas
-                  </button>
+                  <div className="mt-1 border-t border-slate-800 pt-1">
+                    <p className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wider text-amber-500/70">
+                      Administración
+                    </p>
+                    <button
+                      onClick={() => { setMenuOpen(false); setShowUsers(true) }}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-slate-300 transition-colors hover:bg-slate-800 hover:text-amber-300"
+                    >
+                      <Users size={14} /> Cuentas
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={() => { setMenuOpen(false); void logout() }}

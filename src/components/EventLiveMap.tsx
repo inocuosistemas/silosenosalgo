@@ -955,15 +955,27 @@ export default function EventLiveMap({ source }: { source: Source }) {
             apagados para poder arrastrar el mapa por debajo de ella, así que
             todo lo que sea PULSABLE tiene que volver a encenderlos. Sin esto el
             volver se veía perfectamente y no respondía al dedo. */}
-        {!isPublic && (
-          <a
-            href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
-            aria-label="Volver a la parrilla"
-            className="pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/90 text-base text-slate-200 backdrop-blur hover:border-sky-700 active:bg-slate-800"
-          >
-            ←
-          </a>
-        )}
+        {/* Volver y QUIÉN MIRA, juntos y a la izquierda.
+            En el mismo grupo y no sueltos porque la fila reparte a los lados
+            (`justify-between`): sueltos, en una pantalla ancha el perfil se
+            quedaba flotando en mitad del mapa, sin nada al lado y sin explicar
+            qué hacía ahí.
+            Y el perfil detrás del volver, no delante: volver es navegación y se
+            usa cien veces más. Quién mira importa desde que hay porra —se
+            pronostica con una cuenta, y sin saber cuál está abierta no se
+            entiende por qué no se puede— pero es una consulta, no un camino. */}
+        <div className="flex shrink-0 items-start gap-2">
+          {!isPublic && (
+            <a
+              href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
+              aria-label="Volver a la parrilla"
+              className="pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/90 text-base text-slate-200 backdrop-blur hover:border-sky-700 active:bg-slate-800"
+            >
+              ←
+            </a>
+          )}
+          <AuthMenu />
+        </div>
         {/* UN SOLO PANEL: el nombre de la carrera, sus números y las pestañas,
             todo en la misma caja.
             Antes eran dos cajas sueltas, la de la carrera arriba y el selector
@@ -1066,13 +1078,6 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </button>
           )}
         </div>
-        {/* A la derecha, las vistas y QUIÉN MIRA. Lo segundo importa desde que
-            hay porra: se pronostica con una cuenta, y sin saber cuál está
-            abierta —o si hay alguna— no se entiende por qué no se puede. */}
-        {/* El usuario, al final de la fila. Las pestañas ya no van aquí: viven
-            dentro de la tarjeta de la carrera, que es lo que convierte tres
-            cajas sueltas en una cabecera. */}
-        <AuthMenu />
       </div>
       </div>
 

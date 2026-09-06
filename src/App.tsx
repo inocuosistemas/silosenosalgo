@@ -2059,7 +2059,13 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
             <div className={`flex max-w-full shrink-0 items-center gap-2 ${
               cabeceraCompacta ? 'ml-auto' : 'w-full justify-end sm:w-auto sm:ml-auto'
             }`}>
-              <GuideLoader onLoad={onGuideLoaded} />
+              {/* QUIÉN ESTÁ DENTRO, primero. Es lo que contesta a "¿esto es
+                  mío?" antes de tocar nada, y el sitio no puede depender de
+                  cuántos botones acompañen: en el mapa del evento es el
+                  primero después del volver, y aquí, donde no hay volver, el
+                  primero a secas. Antes quedaba segundo, entre la guía y el
+                  compartir, y su posición cambiaba de pantalla a pantalla
+                  según lo que hubiera al lado. */}
               <AuthMenu onOpenPlans={() => setPlansOpen(true)} />
               <MyPlansPanel
                 open={plansOpen}
@@ -2069,6 +2075,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                 eventId={planEventId}
                 onLoad={applyRevivedShare}
               />
+              <GuideLoader onLoad={onGuideLoaded} />
               {isDone ? (
                 <button
                   onClick={() => setShowShareCard(true)}
