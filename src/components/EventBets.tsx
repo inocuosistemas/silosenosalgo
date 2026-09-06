@@ -665,6 +665,21 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
             tiempo: rango,
           }
         }),
+        // "Cuánto tardan" tal cual se ve en pantalla: es la otra mitad de la
+        // porra y la que más se discute. Se manda con sus barras, sus puntos y
+        // su escala, no solo el rango escrito.
+        tiempos: tiempos.map((t) => ({
+          nombre: t.name,
+          emoji: dame(t.name)?.emoji ?? null,
+          color: dame(t.name)?.color ?? null,
+          minutos: t.mins,
+          rango: t.mins.length > 1
+            ? `${durationLabel(t.mins[0] * 60_000)} – ${durationLabel(t.mins[t.mins.length - 1] * 60_000)}`
+            : durationLabel(t.mins[0] * 60_000),
+          yendoA: yendoA.get(t.name) ?? null,
+        })),
+        techo,
+        limiteMin: limitMin ?? null,
       }, C_SI, C_NO)
 
       const blob = await (await fetch(url)).blob()

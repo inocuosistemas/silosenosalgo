@@ -46,6 +46,19 @@ export interface FilaPorra {
   tiempo: string | null
 }
 
+/** Lo que se pronostica que tarda un corredor: sus tiempos, en minutos. */
+export interface FilaTiempo {
+  nombre: string
+  emoji: string | null
+  color: string | null
+  /** Cada pronóstico, en minutos de carrera y de menor a mayor. */
+  minutos: number[]
+  /** El rango ya escrito ("6h 33m – 7h 30m"), que es lo que se lee. */
+  rango: string
+  /** A qué minuto acabaría al ritmo de AHORA, si la carrera está en marcha. */
+  yendoA: number | null
+}
+
 export interface DatosPorra {
   evento: string
   jugadores: number
@@ -53,6 +66,11 @@ export interface DatosPorra {
   foto: HTMLImageElement | null
   favorito: { nombre: string; emoji: string | null; color: string | null; votos: number; tiempo: string | null } | null
   filas: FilaPorra[]
+  /** "Cuánto tardan", con sus barras. Vacío si nadie ha dicho un tiempo. */
+  tiempos: FilaTiempo[]
+  /** El tope de la escala en minutos, y el límite de la prueba si lo tiene. */
+  techo: number
+  limiteMin: number | null
 }
 
 const FUENTE = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
@@ -137,14 +155,20 @@ function casilla(
  * cuántos corredores tengan pronósticos.
  */
 export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string): string {
-  const { evento, jugadores, foto, favorito, filas } = datos
+  const { evento, jugadores, foto, favorito, filas, tiempos, techo, limiteMin } = datos
 
   // Primero se calcula el alto, que hay que saberlo antes de crear el lienzo.
   const ALTO_FOTO = foto ? 150 : 0
   const ALTO_FAVORITO = favorito ? 78 : 0
   const ALTO_FILA = 74
+  const ALTO_TIEMPO = 52
+  // La tarjeta crece hacia abajo lo que haga falta: se calcula el alto y luego
+  // se crea el lienzo. Nada se recorta ni se aprieta para caber en una medida
+  // fija —una porra de ocho corredores es más larga que una de dos, y ya está—.
+  const ALTO_TIEMPOS = tiempos.length > 0 ? 30 + tiempos.length * ALTO_TIEMPO + 22 : 0
   const alto = ALTO_FOTO + 22 + 62 + ALTO_FAVORITO
-    + (filas.length > 0 ? 30 + filas.length * ALTO_FILA : 0) + 34
+    + (filas.length > 0 ? 30 + filas.length * ALTO_FILA : 0)
+    + ALTO_TIEMPOS + 34
 
   const lienzo = document.createElement('canvas')
   lienzo.width = ANCHO * ESCALA
@@ -254,6 +278,81 @@ export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string)
     }
   }
 
+  // ── Cuánto tardan ──────────────────────────────────────────────────────
+  //
+  // La otra mitad de la porra, y la que más se discute: no solo si acaba, sino
+  // en cuánto. En la pantalla es una barra por corredor con un punto por
+  // pronóstico, y aquí igual — mandar al grupo el marcador de "¿acaba?" sin los
+  // tiempos era mandar media porra.
+  if (tiempos.length > 0) {
+    y += 26
+    ctx.textAlign = 'left'
+    ctx.font = fuente(13, 700)
+    ctx.fillStyle = '#e2e8f0'
+    ctx.fillText('Cuánto tardan', M, y)
+    y += 14
+
+    const X0 = M + 30
+    const ANCHO_BARRA = ANCHO - M - X0
+    const enCarril = (min: number) => X0 + Math.max(0, Math.min(1, min / techo)) * ANCHO_BARRA
+
+    for (const t of tiempos) {
+      marca(ctx, M + 11, y + 10, 22, t.emoji, t.color)
+      ctx.textAlign = 'left'
+      ctx.font = fuente(14, 700)
+      ctx.fillStyle = '#f1f5f9'
+      ctx.fillText(recorta(ctx, t.nombre, ANCHO_BARRA - 150), X0, y + 15)
+      ctx.textAlign = 'right'
+      ctx.font = fuente(13)
+      ctx.fillStyle = '#cbd5e1'
+      ctx.fillText(t.rango, ANCHO - M, y + 15)
+
+      // El carril, con las horas en punto muy flojas: sin ellas los puntos
+      // flotan y no se sabe si 6h30 está cerca o lejos del límite.
+      const yb = y + 30
+      pastilla(ctx, X0, yb - 8, ANCHO_BARRA, 16, 4, '#1e293b')
+      ctx.fillStyle = '#334155'
+      for (let h = 3600; h < techo * 60; h += 3600) {
+        const x = enCarril(h / 60)
+        ctx.fillRect(Math.round(x), yb - 5, 1, 10)
+      }
+      // De dónde a dónde va la porra con él: banda corta, consenso; banda
+      // larga, nadie tiene ni idea.
+      if (t.minutos.length > 1) {
+        const a = enCarril(t.minutos[0])
+        const b = enCarril(t.minutos[t.minutos.length - 1])
+        ctx.globalAlpha = 0.35
+        pastilla(ctx, a, yb - 2, Math.max(2, b - a), 4, 2, '#a78bfa')
+        ctx.globalAlpha = 1
+      }
+      for (const m of t.minutos) {
+        ctx.beginPath()
+        ctx.arc(enCarril(m), yb, 5, 0, Math.PI * 2)
+        ctx.fillStyle = '#a78bfa'
+        ctx.fill()
+        ctx.lineWidth = 2
+        ctx.strokeStyle = FONDO
+        ctx.stroke()
+      }
+      // Dónde va a acabar DE VERDAD si mantiene el ritmo. En verde y como
+      // línea, para que no se confunda con los puntos de la porra.
+      if (t.yendoA !== null) {
+        ctx.fillStyle = '#34d399'
+        ctx.fillRect(Math.round(enCarril(t.yendoA)) - 1, yb - 9, 2, 18)
+      }
+      y += ALTO_TIEMPO
+    }
+
+    // La escala: sin el 0 y el límite, una fila de puntos no dice nada.
+    ctx.font = fuente(10)
+    ctx.fillStyle = '#475569'
+    ctx.textAlign = 'left'
+    ctx.fillText('0', X0, y + 2)
+    ctx.textAlign = 'right'
+    ctx.fillText(limiteMin !== null ? `límite ${etiquetaDuracion(limiteMin)}` : etiquetaDuracion(techo), ANCHO - M, y + 2)
+    y += 8
+  }
+
   y += 18
   ctx.font = fuente(11)
   ctx.fillStyle = '#475569'
@@ -261,6 +360,13 @@ export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string)
   ctx.fillText('Ni un euro: se juega el orgullo · silosenosalgo', M, y)
 
   return lienzo.toDataURL('image/png')
+}
+
+/** "8h 00m" para la escala; la tarjeta no depende de nadie más para escribirla. */
+function etiquetaDuracion(min: number): string {
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`
 }
 
 /** Trae una imagen y espera a que esté lista; null si no se pudo. */
