@@ -68,11 +68,16 @@ const seg = (ms: number | null) => (ms == null ? null : Math.round(ms / 1000))
 
 describe('el paso por meta', () => {
   it('se interpola entre las dos lecturas, no se espera a la siguiente', () => {
-    // A 12 km/h con lecturas cada 60 s se avanzan 200 m entre una y otra: la
-    // meta cae justo en medio de la última pareja. Antes se devolvía la hora de
-    // la lectura de después, o sea hasta un minuto de regalo.
+    // A 12 km/h, 200 m entre lecturas: la meta cae justo en medio de la última
+    // pareja. Antes se devolvía la hora de la lectura de después, o sea hasta un
+    // minuto de regalo.
+    //
+    // Las lecturas van cada 45 s y no cada 60 porque 0,9 km a 12 km/h son 270 s
+    // justos: con 60 `corriendo` redondea a cinco pasos y el corredor acaba
+    // yendo a 10,8 km/h, o sea que la prueba decía una cosa y construía otra.
+    // No se notaba mientras el cronómetro no miraba el ritmo anterior.
     const linea = recorridoRecto(1)
-    const puntos = corriendo(0, 0.9, 12, 60)
+    const puntos = corriendo(0, 0.9, 12, 45)
     puntos.push(enKm(1.1, puntos[puntos.length - 1].t + 60_000))
     const r = calculaEstadisticas([corredor('A', puntos)], 1, linea, 0, 'run')
     const a = r.corredores[0]
@@ -86,7 +91,7 @@ describe('el paso por meta', () => {
     // Lo único que se sabe de verdad es que cruzó ENTRE las dos lecturas. Sin
     // margen, un puesto decidido por nueve segundos parece una foto de meta.
     const linea = recorridoRecto(1)
-    const puntos = corriendo(0, 0.9, 12, 60)
+    const puntos = corriendo(0, 0.9, 12, 45)
     puntos.push(enKm(1.1, puntos[puntos.length - 1].t + 60_000))
     const a = calculaEstadisticas([corredor('A', puntos)], 1, linea, 0, 'run').corredores[0]
     expect(seg(a.margenMs!)).toBe(30)
