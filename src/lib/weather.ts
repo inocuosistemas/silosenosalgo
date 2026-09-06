@@ -223,6 +223,25 @@ export async function fetchWeatherForWaypoints(
       weatherCode:       data.hourly.weather_code[idx],
       cloudCoverPct:     data.hourly.cloud_cover?.[idx] ?? 0,
     }
+    // Una hora SIN DATOS no es una previsión de cero grados: es que no la hay.
+    //
+    // Más allá de su horizonte —dos semanas largas— la API no falla: responde
+    // 200 y rellena las horas que no tiene con `null`. Y el tipo de aquí dice
+    // `number`, así que nada avisa: los nulos se colaban tal cual hasta la
+    // primera pantalla que escribiera un `.toFixed()`, y la aplicación entera
+    // se caía con un "Cannot read properties of null". Pasó al planificar la
+    // CanFranc de noviembre a dos meses vista: 736 de las 2328 horas que
+    // devolvió venían vacías.
+    //
+    // Sin previsión, `weather: null` — que es lo que ya sabe enseñar todo:
+    // "—" en las tablas y ni una línea de meteo en el globo del mapa. Los
+    // pasos, la luz y los cortes se calculan igual, que no dependen del tiempo.
+    const falta = (v: unknown) => v == null || (typeof v === 'number' && !Number.isFinite(v))
+    if (falta(weather.temperatureC) || falta(weather.precipMm)
+      || falta(weather.windSpeedKmh) || falta(weather.windDirection)
+      || falta(weather.weatherCode)) {
+      return { ...wp, weather: null }
+    }
     return { ...wp, weather }
   })
 }
