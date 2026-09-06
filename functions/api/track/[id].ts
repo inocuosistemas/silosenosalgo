@@ -190,7 +190,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
       if (mio) {
         oficial = {
           finished: mio.finished, finishedAt: mio.finishedAt,
-          minutos: mio.minutos, puesto: mio.puesto ?? null,
+          minutos: mio.minutos, ritmoMinKm: mio.ritmoMinKm ?? null,
+          puesto: mio.puesto ?? null,
         }
       }
     }

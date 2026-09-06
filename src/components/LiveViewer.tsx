@@ -1580,7 +1580,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    * de la carrera. Sin el primero, el tiempo coincidía solo para quien había
    * iniciado sesión, que es justo quien menos lo mira.
    */
-  const resultadoOficial: { finished: boolean; finishedAt: number | null; minutos: number | null } | null =
+  const resultadoOficial:
+    { finished: boolean; finishedAt: number | null; minutos: number | null; ritmoMinKm: number | null } | null =
     state.official ?? resultadoDelEvento ?? null
 
   const goalTolKm = Math.min(1, Math.max(0.25, totalKm * 0.015))
@@ -2324,11 +2325,29 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     ? <Stat tone="sky" value={`Vuelta ${lapNow}/${lapInfo.laps}`} label={`${progressKm.toFixed(1)} km · ${pct}%`} />
                     : <Stat value={`${progressKm.toFixed(1)} km`} label={`Progreso ${pct}%`} />
                   : <Stat label="Distancia" value={`${distanceKm.toFixed(distanceKm < 100 ? 1 : 0)} km`} />}
-                <Stat
-                  label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
-                  value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : fmtSpeed(speedKmh)}
-                  tone={isStopped ? 'amber' : undefined}
-                />
+                {/* El ritmo, y con la carrera cerrada el MEDIO.
+                    Esta casilla enseña la velocidad instantánea de la última
+                    lectura del GPS, que es el dato bueno mientras se corre.
+                    Terminada la carrera contesta a una pregunta que ya no
+                    existe: la última lectura es la de alguien sentado en su
+                    casa, y por debajo de medio km/h la casilla se rinde y
+                    escribe "—". Quedaba en blanco justo cuando más se mira,
+                    que es el día después.
+                    El ritmo medio ya viene calculado en el resultado oficial,
+                    así que no hay que rehacer nada: se enseña ese, y se dice
+                    que es medio para que nadie lo confunda con el de ahora. */}
+                {resultadoOficial?.ritmoMinKm != null ? (
+                  <Stat
+                    label={showPace ? 'Ritmo medio' : 'Velocidad media'}
+                    value={formatPace(resultadoOficial.ritmoMinKm, effectiveActivity ?? undefined)}
+                  />
+                ) : (
+                  <Stat
+                    label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
+                    value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : fmtSpeed(speedKmh)}
+                    tone={isStopped ? 'amber' : undefined}
+                  />
+                )}
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
               {(deltaMin != null || formChip) && (

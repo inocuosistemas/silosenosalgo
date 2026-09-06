@@ -312,6 +312,9 @@ export interface TrackStateResponse {
     finishedAt: number | null
     /** Su tiempo de carrera en minutos, desde la SALIDA OFICIAL. */
     minutos: number | null
+    /** Su ritmo MEDIO de carrera (min/km). Nada que ver con el de la última
+     *  lectura del GPS, que con la carrera acabada es el de alguien sentado. */
+    ritmoMinKm: number | null
     puesto: number | null
   } | null
 
