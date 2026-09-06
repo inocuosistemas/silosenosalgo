@@ -109,6 +109,30 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [view, setView] = useState<'mapa' | 'lista' | 'porra' | 'meta' | 'replay'>('mapa')
+  /**
+   * Cuánto ocupa la cabecera, medido.
+   *
+   * Los carteles que flotan sobre el mapa —la cuenta atrás de la salida, el
+   * resumen de la carrera terminada— se centraban en la pantalla ENTERA. Con
+   * pocos participantes cabían; con cuatro y foto, el cartel crecía hacia
+   * arriba y se metía debajo de la cabecera, tapando el volver, el perfil y las
+   * pestañas. Justo lo que no puede taparse: es por donde se sale.
+   *
+   * Se mide en vez de estimarse porque la cabecera cambia de alto sola —lleva
+   * el nombre de la carrera, sus números, los enlaces de la organización, las
+   * pestañas y, si sigues a alguien, una línea más— y cualquier número fijo
+   * habría estado mal en la mitad de los casos.
+   */
+  const cabecera = useRef<HTMLDivElement>(null)
+  const [altoCabecera, setAltoCabecera] = useState(0)
+  useEffect(() => {
+    const el = cabecera.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setAltoCabecera(el.offsetHeight))
+    ro.observe(el)
+    setAltoCabecera(el.offsetHeight)
+    return () => ro.disconnect()
+  })
   const [now, setNow] = useState(Date.now())
   /**
    * Si el cuadro de la salida está desplegado. Empieza abierto —antes de la
@@ -917,6 +941,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           px deja el nombre a un lado y el dato al otro, con medio metro de
           nada en medio. El mapa y la silueta siguen a lo ancho. */}
       <div
+        ref={cabecera}
         // Por encima del resto de lo que flota sobre el mapa: el menú de usuario
         // cuelga de aquí, y con el mismo z-index que el cartel de "carrera
         // terminada" ganaba el cartel por ser posterior en el DOM — el menú se
@@ -1248,13 +1273,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
           viene a mirar. Con lo que de verdad se pregunta —quién ganó, en qué
           tiempo, cuántos acabaron— y las dos puertas a lo que queda: los
           resultados y el replay. */}
+      {/* El cartel vive DEBAJO de la cabecera, no sobre toda la pantalla: se
+          centra en el hueco que queda, y cuando no cabe crece hacia abajo y se
+          desplaza por dentro. Antes se centraba en la pantalla entera y al
+          crecer se metía bajo la cabecera, tapando el volver y las pestañas.
+          El alto máximo es el del hueco (`max-h-full`), así que se ajusta solo:
+          ya no hay que adivinar cuánto ocupan cabecera y perfil. */}
       {endedAt !== null && view === 'mapa' && finPanelOpen && (
-        <div className={`pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4 ${
-          profile && profileOpen ? 'pb-36' : 'pb-12'
-        }`}>
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-[900] grid place-items-center p-4 ${
+            profile && profileOpen ? 'pb-36' : 'pb-12'
+          }`}
+          style={{ top: altoCabecera }}
+        >
           <div
-            className="pointer-events-auto relative w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-amber-800/60 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
-            style={{ maxHeight: profile && profileOpen ? 'calc(100dvh - 13rem)' : 'calc(100dvh - 6rem)' }}
+            className="pointer-events-auto relative max-h-full w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-amber-800/60 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
           >
             <button
               onClick={() => setFinPanelOpen(false)}
@@ -1337,15 +1370,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
           los puntos llegarán cuando cada uno comparta su posición sigue ahí,
           pero pequeño y debajo: explica, no es la noticia. */}
       {waiting && panelOpen && view === 'mapa' && (
-        <div className={`pointer-events-none absolute inset-0 z-[900] grid place-items-center p-4 ${
-          profile && profileOpen ? 'pb-36' : 'pb-12'
-        }`}>
-          {/* Alto acotado y con scroll dentro: en un movil bajo, el cartel más
-              el reloj más una parrilla larga se salían de la pantalla —y ahora
-              el perfil se lleva su trozo de abajo. */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-[900] grid place-items-center p-4 ${
+            profile && profileOpen ? 'pb-36' : 'pb-12'
+          }`}
+          style={{ top: altoCabecera }}
+        >
+          {/* Debajo de la cabecera y con scroll dentro: con cuatro corredores y
+              foto, el cartel crecía hacia arriba y se comía el volver, el
+              perfil y las pestañas —por donde se sale de aquí—. Ahora se centra
+              en el hueco que queda y, cuando no cabe, crece hacia abajo y se
+              desplaza por dentro. `max-h-full` es el alto de ese hueco, así que
+              se ajusta solo a lo que ocupen cabecera y perfil. */}
           <div
-            className="pointer-events-auto relative w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-slate-700 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
-            style={{ maxHeight: profile && profileOpen ? 'calc(100dvh - 13rem)' : 'calc(100dvh - 6rem)' }}
+            className="pointer-events-auto relative max-h-full w-[min(20rem,86vw)] overflow-y-auto scrollbar-fantasma rounded-xl border border-slate-700 bg-slate-900 text-center shadow-xl shadow-slate-950/60"
           >
             {/* Plegar: en el móvil este cuadro tapa el trazado, que es lo otro
                 que se viene a ver. Sale abierto porque antes de la salida el
