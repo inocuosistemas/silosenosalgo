@@ -576,6 +576,31 @@ async function calculaAhora(env: Env, eventId: string, totalKm: number | null): 
   )
 }
 
+/**
+ * A qué hora se da por terminada una carrera.
+ *
+ * Cuando llegó alguien, a la hora del ÚLTIMO en cruzar. Siempre, y da igual por
+ * qué camino se esté cerrando: la carrera se acabó cuando entró el último, no
+ * cuando el reloj llegó a la hora que ponía el cartel ni cuando alguien abrió
+ * la pantalla y se dio cuenta.
+ *
+ * Había dos caminos de cierre con dos criterios distintos —el automático usaba
+ * la última llegada y el de la hora límite usaba la hora límite— y eso se ve:
+ * al recalcular el Desafío Urbión, una carrera que acabó a las 15:44 pasó a
+ * decir que terminó a las 16:30, que es cuando cerraba el control. Con la meta
+ * recogida hora y media antes.
+ *
+ * `propuesta` es el respaldo para cuando no llegó nadie —todos retirados, o una
+ * prueba desierta—: ahí no hay última llegada y lo único que se sabe es la hora
+ * a la que se está cerrando.
+ */
+export function horaDeCierre(stats: EventStats, propuesta: number): number {
+  const llegadas = stats.corredores
+    .map((c) => c.finishedAt)
+    .filter((t): t is number => t !== null)
+  return llegadas.length > 0 ? Math.max(...llegadas) : propuesta
+}
+
 export async function cierraEvento(
   env: Env,
   eventId: string,
@@ -595,14 +620,17 @@ export async function cierraEvento(
   const previos = await leeStats(env, eventId, null)
   const vacios = stats.corredores.every((c) => !c.tracked)
   const habia = previos?.corredores.some((c) => c.tracked) ?? false
+  // La hora de cierre sale de los resultados que se van a guardar, sean los
+  // nuevos o los que ya había: si mandan los viejos, la última llegada también
+  // es la suya.
   if (vacios && habia) {
     await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?) WHERE id = ?')
-      .bind(endedAt, eventId).run()
+      .bind(horaDeCierre(previos!, endedAt), eventId).run()
     return previos!
   }
 
   await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ?, stats_at = ? WHERE id = ?')
-    .bind(endedAt, JSON.stringify(stats), Date.now(), eventId).run()
+    .bind(horaDeCierre(stats, endedAt), JSON.stringify(stats), Date.now(), eventId).run()
   return stats
 }
 
@@ -657,10 +685,9 @@ export async function fotoDeResultadosSiToca(
   const enCarrera = stats.corredores.filter((c) => c.tracked)
   const resueltos = enCarrera.filter((c) => c.finished || c.abandono)
   if (enCarrera.length > 0 && resueltos.length === enCarrera.length) {
-    // La hora de la última llegada; si no llegó nadie —todos se retiraron— la
-    // de ahora, que es lo único que se sabe.
-    const llegadas = enCarrera.map((c) => c.finishedAt).filter((t): t is number => t !== null)
-    await cierraEvento(env, ev.id, llegadas.length > 0 ? Math.max(...llegadas) : now, ev.planTotalKm)
+    // La hora la pone `horaDeCierre` dentro: la del último en cruzar, y `now`
+    // solo como respaldo si no llegó nadie —todos retirados—.
+    await cierraEvento(env, ev.id, now, ev.planTotalKm)
     return
   }
   // Una foto sin nadie no sustituye a una con gente: al principio de la carrera

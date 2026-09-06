@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculaEstadisticas, type Polilinea } from '../functions/lib/eventStats'
+import { calculaEstadisticas, horaDeCierre, type Polilinea } from '../functions/lib/eventStats'
 import real from './fixtures/carrera-real.json'
 
 /**
@@ -249,6 +249,48 @@ describe('quien no llega a meta', () => {
     ).corredores[0]
     expect(c.finished).toBe(true)
     expect(c.abandono).toBe(false)
+  })
+})
+
+// ── Cuándo se da por terminada ──────────────────────────────────────────
+
+/**
+ * Una carrera acaba cuando cruza el último, no a la hora del cartel.
+ *
+ * Había dos caminos de cierre con dos criterios: el automático usaba la última
+ * llegada y el de la hora límite usaba la hora límite. Se vio al recalcular el
+ * Desafío Urbión: una carrera terminada a las 15:44 pasó a decir que acabó a
+ * las 16:30, la hora a la que cerraba el control, con la meta recogida hora y
+ * media antes.
+ */
+describe('la hora a la que termina una carrera', () => {
+  const conMetas = (...horas: (number | null)[]) => ({
+    at: 0, totalKm: 10, finishers: 0, runners: horas.length, fastestKm: null,
+    corredores: horas.map((t, i) => ({
+      username: `c${i}`, bib: null, emoji: null, color: null,
+      km: 10, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
+      finished: t !== null, finishedAt: t, margenMs: null, puesto: null,
+      tracked: true, abandono: false,
+    })),
+  })
+
+  it('es la del último en cruzar, no la hora de corte que se propone', () => {
+    const corte = 16 * 60 * 60_000
+    expect(horaDeCierre(conMetas(15 * 60 * 60_000, 15.5 * 60 * 60_000), corte))
+      .toBe(15.5 * 60 * 60_000)
+  })
+
+  it('aunque el último llegue pasado de tiempo', () => {
+    // Llegar fuera de control sigue siendo llegar: la carrera acabó ahí.
+    const corte = 16 * 60 * 60_000
+    expect(horaDeCierre(conMetas(16.5 * 60 * 60_000), corte)).toBe(16.5 * 60 * 60_000)
+  })
+
+  it('sin nadie que llegue, la que se proponga', () => {
+    // Todos retirados, o una prueba desierta: no hay última llegada.
+    const corte = 16 * 60 * 60_000
+    expect(horaDeCierre(conMetas(null, null), corte)).toBe(corte)
+    expect(horaDeCierre(conMetas(), corte)).toBe(corte)
   })
 })
 
