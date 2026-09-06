@@ -4,7 +4,7 @@ import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../
 import { dibujaPorra, cargaImagen } from '../lib/porraCard'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
-  scoreBets, betMedal, puestosDePorra, durationLabel, ORACULO,
+  scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
   type RunnerOutcome, type Proyeccion,
 } from '../lib/bets'
 import { MarkBadge } from './MarkPicker'
@@ -139,8 +139,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   }, [eventId, user?.username])
 
   const ranking = useMemo(
-    () => (data ? scoreBets(data.bets, outcomes, data.startsAt) : []),
-    [data, outcomes],
+    () => (data ? scoreBets(data.bets, outcomes, data.startsAt, limitMin ?? null) : []),
+    [data, outcomes, limitMin],
   )
 
   /**
@@ -166,7 +166,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       if (!p) return { ...o, settled: true }
       return { ...o, finished: p.llega, finishedAt: p.llega ? p.acabaEn : null, settled: true }
     })
-    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt)
+    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt, limitMin ?? null)
     return new Map(tabla.map((s) => [s.author, s]))
   }, [data, outcomes, proyecciones])
 
@@ -177,6 +177,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       .filter((s) => s.points > 0)
       .sort((a, b) => b.points - a.points || a.author.localeCompare(b.author))
   }, [provisional])
+  /** El margen del tiempo en esta carrera, para poder contarlo en su sitio. */
+  const margenTiempo = useMemo(() => margenDeTiempo(limitMin ?? null), [limitMin])
   /** El puesto de cada uno, compartido con quien lleve sus mismos puntos. */
   const puestos = useMemo(() => puestosDePorra(ranking), [ranking])
 
@@ -559,8 +561,25 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           <li><b className="text-slate-200">+10</b> — si ese puesto clavado es el primero: acertar al ganador vale más.</li>
           <li><b className="text-slate-200">8</b> — fallar su puesto por uno: casi, y casi cuenta.</li>
           <li><b className="text-slate-200">15</b> — acertar si alguien acaba o no.</li>
-          <li><b className="text-slate-200">40</b> — el tiempo que tarda, menos 2 por cada minuto de error.</li>
-          <li><b className="text-amber-200">+15</b> — clavarlo: fallar por 2 minutos o menos.</li>
+          {/* El margen del TIEMPO se dice con los minutos de ESTA carrera, no
+              con una fórmula: "menos 2 por cada minuto" era mentira en una
+              ultra —a los 20 minutos ya no quedaba nada, y en 39 horas eso es
+              acertar por el 0,8%—. Ahora el margen es un porcentaje de lo que
+              dura la prueba, así que hay que decir en qué se traduce aquí. */}
+          <li>
+            <b className="text-slate-200">40</b> — el tiempo que tarda, si se clava.
+            Se va perdiendo con el error y llega a cero al fallar por{' '}
+            <b className="text-slate-200">{durationLabel(margenTiempo.tolerancia * 60_000)}</b>.
+          </li>
+          <li>
+            <b className="text-amber-200">+15</b> — clavarlo: fallar por{' '}
+            <b className="text-amber-200">{durationLabel(margenTiempo.clavada * 60_000)}</b> o menos.
+          </li>
+          <li className="text-slate-500">
+            Ese margen es proporcional a lo que dura la carrera —un veinteavo—, no un
+            número fijo: acertar por minutos es razonable en una de tres horas y
+            no lo es en una de treinta y nueve.
+          </li>
           <li className="text-slate-500">
             El orden no se reparte hasta que están todos decididos: mientras quede alguien en carrera,
             los puestos pueden cambiar enteros. Quien no llega a meta no tiene puesto ni tiempo, así que

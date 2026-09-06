@@ -31,12 +31,41 @@ const PTS_ORDER_NEAR = 8
 const PTS_ORDER_WINNER_BONUS = 10
 /** Acertar si acaba o no. Barato: es la apuesta con la que entra todo el mundo. */
 const PTS_FINISH = 15
-/** La hora de meta: 40 y se va perdiendo 2 por cada minuto de error. */
+/** La hora de meta: 40 puntos que se van perdiendo con el error. */
 const PTS_TIME_MAX = 40
-const PTS_TIME_PER_MIN = 2
-/** Clavarla (±2 min) tiene premio aparte: es la jugada de la tarde. */
+/** Clavarla tiene premio aparte: es la jugada de la tarde. */
 const PTS_BULLSEYE = 15
-const BULLSEYE_MIN = 2
+
+/**
+ * Cuánto error se perdona en el tiempo, y por qué es un PORCENTAJE.
+ *
+ * Se restaban 2 puntos por minuto, así que a los 20 minutos de error ya no
+ * quedaba nada — en todas las carreras por igual. Y eso no es la misma
+ * exigencia: 20 minutos son el 4,6% de una prueba de siete horas y el 0,85% de
+ * una de treinta y nueve. En una ultra larga, acertar "por minutos" no es
+ * difícil, es imposible: nadie sabe si va a dormir dos horas o cuatro.
+ *
+ * La escala es el TIEMPO y no la distancia, y no por comodidad: lo que se
+ * pronostica es un tiempo, y dos carreras de cien kilómetros no se parecen en
+ * nada si una es llana y la otra tiene nueve mil metros de desnivel. La
+ * CanFranc son 99,5 km con un límite de 39 horas.
+ *
+ * Con suelo, que un porcentaje pequeño de una carrera corta se queda en nada:
+ * en un 10K de una hora, el medio por ciento serían dieciocho segundos.
+ */
+const TOLERANCIA_PCT = 0.05
+const CLAVADA_PCT = 0.005
+const TOLERANCIA_MIN_MIN = 10
+const CLAVADA_MIN_MIN = 2
+
+/** El margen de esta carrera, en minutos, a partir de lo que dura. */
+export function margenDeTiempo(referenciaMin: number | null): { tolerancia: number; clavada: number } {
+  const ref = referenciaMin !== null && referenciaMin > 0 ? referenciaMin : 0
+  return {
+    tolerancia: Math.max(TOLERANCIA_MIN_MIN, ref * TOLERANCIA_PCT),
+    clavada: Math.max(CLAVADA_MIN_MIN, ref * CLAVADA_PCT),
+  }
+}
 
 /** Cómo acabó la carrera de un participante, hasta donde se sabe AHORA. */
 export interface RunnerOutcome {
@@ -123,7 +152,18 @@ export function durationLabel(ms: number): string {
  * y se cuentan aparte: a mitad de carrera un ranking que ya reparte los puntos
  * de quien todavía va por el km 12 sería mentira.
  */
-export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?: number | null): BetScore[] {
+export function scoreBets(
+  bets: EventBet[],
+  outcomes: RunnerOutcome[],
+  startsAt?: number | null,
+  /**
+   * Lo que dura esta carrera, en minutos: su límite si lo tiene. Es la escala
+   * con la que se mide el error de los tiempos —ver `margenDeTiempo`—. Sin
+   * ella se cae a los pronósticos de la gente, que es lo único que dice cómo
+   * de larga es la prueba cuando no hay límite puesto.
+   */
+  referenciaMin?: number | null,
+): BetScore[] {
   const porNombre = new Map(outcomes.map((o) => [o.username, o]))
 
   // El orden de llegada de verdad: los que han cruzado, por hora de llegada.
@@ -143,6 +183,17 @@ export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?
   const ordenFirme = outcomes.filter((o) => o.tracked).every((o) => o.settled)
   const winnerFirme = winner !== null && ordenFirme
 
+  // La escala de la carrera: su límite, y si no lo tiene, la mediana de lo que
+  // pronostica la gente —que sabe de sobra si esto dura seis horas o dos días—.
+  const dichos = startsAt != null
+    ? bets.filter((b) => b.kind === 'finish_time')
+      .map((b) => (Number(b.value) - startsAt) / 60_000)
+      .filter((m) => Number.isFinite(m) && m > 0)
+      .sort((a, b) => a - b)
+    : []
+  const mediana = dichos.length > 0 ? dichos[Math.floor(dichos.length / 2)] : null
+  const margen = margenDeTiempo(referenciaMin ?? mediana)
+
   const porJugador = new Map<string, BetScore>()
   const dame = (author: string): BetScore => {
     let s = porJugador.get(author)
@@ -154,7 +205,7 @@ export function scoreBets(bets: EventBet[], outcomes: RunnerOutcome[], startsAt?
     const s = dame(b.author)
     // La hora del más reciente de sus pronósticos: es la que ordena la lista.
     if (b.createdAt > s.lastAt) s.lastAt = b.createdAt
-    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme, startsAt ?? null)
+    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme, startsAt ?? null, margen)
     s.bets.push(scored)
     s.points += scored.points
     if (scored.state === 'ok') s.hits++
@@ -188,6 +239,7 @@ function scoreOne(
   puestoReal: Map<string, number>,
   ordenFirme: boolean,
   startsAt: number | null,
+  margen: { tolerancia: number; clavada: number },
 ): ScoredBet {
   if (b.kind === 'order') {
     const dicho = Number(b.value)
@@ -248,8 +300,12 @@ function scoreOne(
     return { kind: b.kind, target: b.target, said, points: 0, state: 'pending' }
   }
   const err = minutesApart(at, o.finishedAt)
-  const base = Math.max(0, PTS_TIME_MAX - err * PTS_TIME_PER_MIN)
-  const bull = err <= BULLSEYE_MIN ? PTS_BULLSEYE : 0
+  // Lo que se puntúa es lo CERCA que se quedó dentro del margen de esta
+  // carrera: pegado al tiempo real son los 40 puntos, en el borde del margen
+  // son cero. En una prueba de siete horas ese borde está a media hora; en una
+  // de treinta y nueve, a dos horas.
+  const base = Math.max(0, Math.round(PTS_TIME_MAX * (1 - err / margen.tolerancia)))
+  const bull = err <= margen.clavada ? PTS_BULLSEYE : 0
   const points = base + bull
   return {
     kind: b.kind,
