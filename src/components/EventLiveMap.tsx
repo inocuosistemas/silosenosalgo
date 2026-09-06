@@ -541,24 +541,24 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * lo parece cuando encabeza la parrilla—. Barajarlos lo dice claro: antes de
    * la salida nadie va primero.
    *
-   * La baraja es FIJA para cada carrera, no un sorteo por refresco. La pantalla
-   * se repinta cada pocos segundos, y una lista que se reordenara sola delante
-   * de quien la está leyendo sería un mareo, no una idea. Se siembra con el
-   * nombre del evento: sale igual en todos los móviles y no cambia mientras
-   * dure la espera.
+   * Se baraja UNA VEZ POR CARGA, no en cada refresco. Son dos cosas distintas y
+   * la diferencia importa: la pantalla se repinta cada pocos segundos, y una
+   * lista que se reordenara sola delante de quien la está leyendo sería un
+   * mareo, no una idea. Al recargar sale otro orden, que es lo que hace que no
+   * haya un primero de la lista permanente.
    *
    * En cuanto alguien emite, mandan los kilómetros: ahí sí hay carrera.
    */
+  const semilla = useRef(Math.random())
   const parrilla = useMemo(() => {
     if (rows.some((r) => r.km !== null)) return rows
-    const semilla = (eventName ?? 'evento').split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7)
     const peso = (clave: string) => {
-      let h = semilla
+      let h = Math.floor(semilla.current * 2 ** 31)
       for (const c of clave) h = (h * 31 + c.charCodeAt(0)) >>> 0
       return h
     }
     return [...rows].sort((a, b) => peso(a.key) - peso(b.key))
-  }, [rows, eventName])
+  }, [rows])
 
 
   /**

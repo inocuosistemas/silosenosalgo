@@ -78,6 +78,16 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   const [data, setData] = useState<EventBetsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  /** Qué oráculo tiene el detalle abierto (su nombre), o ninguno. */
+  const [detalle, setDetalle] = useState<string | null>(null)
+  /**
+   * Si la lista de oráculos está desplegada. Cerrada mientras no se ha salido:
+   * ahí nadie tiene puntos y lo único que se puede hacer es mojarse uno.
+   */
+  const [oraculosAbierto, setOraculosAbierto] = useState(false)
+  const empezada = startsAt !== null && Date.now() >= startsAt
+  useEffect(() => { if (empezada) setOraculosAbierto(true) }, [empezada])
+
   const [saved, setSaved] = useState(false)
 
   // Lo que está eligiendo quien juega, antes de mandarlo.
@@ -488,9 +498,25 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
 
       {user && (
       <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
-        <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
-          Los oráculos {ranking.length > 0 && `· ${ranking.length}`}
-        </h2>
+        {/* Antes de la salida, plegada.
+            Mientras no se corre nadie tiene puntos, así que esta lista no dice
+            quién va ganando: dice quién ha jugado, y ocupa media pantalla por
+            encima de lo único que se puede hacer todavía, que es mojarse uno.
+            Con la carrera en marcha se abre sola, que entonces sí es la
+            noticia. El número va en el título para que plegada siga contando
+            cuánta gente hay dentro. */}
+        <button
+          onClick={() => setOraculosAbierto((v) => !v)}
+          aria-expanded={oraculosAbierto}
+          className="flex w-full items-center gap-2 text-left"
+        >
+          <h2 className="text-[11px] uppercase tracking-wider text-slate-500">
+            Los oráculos {ranking.length > 0 && `· ${ranking.length}`}
+          </h2>
+          <span className="ml-auto text-[11px] text-slate-500">{oraculosAbierto ? '▾' : '▸'}</span>
+        </button>
+        {oraculosAbierto && (
+        <>
         {ranking.length === 0 ? (
           <p className="mt-2 text-xs text-slate-500">
             Todavía no se ha mojado nadie. {data?.open ? 'Sé el primero.' : ''}
@@ -524,7 +550,20 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                       parece desordenada. */}
                   {s.lastAt > 0 && <> · {cuando(s.lastAt)}</>}
                 </p>
-                {/* El detalle: sin esto, un número suelto no se discute en el bar. */}
+                {/* El detalle, SIEMPRE plegado.
+                    Sin esto, un número suelto no se discute en el bar; pero
+                    desplegado por defecto, cinco oráculos con cuatro
+                    pronósticos cada uno son veinte líneas de ✓ y ✗ entre las
+                    que hay que buscar los nombres y los puntos, que es lo que
+                    de verdad se viene a ver. Se abre el de quien interese. */}
+                <button
+                  onClick={() => setDetalle((d) => (d === s.author ? null : s.author))}
+                  aria-expanded={detalle === s.author}
+                  className="mt-0.5 pl-7 text-[11px] text-slate-500 hover:text-sky-400"
+                >
+                  {detalle === s.author ? '▾ ocultar' : `▸ ver sus ${s.bets.length} ${s.bets.length === 1 ? 'pronóstico' : 'pronósticos'}`}
+                </button>
+                {detalle === s.author && (
                 <ul className="mt-1 space-y-0.5 pl-7">
                   {s.bets.map((b, k) => {
                     // Cómo va ESTE pronóstico según la proyección, para los que
@@ -554,9 +593,12 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                     )
                   })}
                 </ul>
+                )}
               </li>
             ))}
           </ul>
+        )}
+        </>
         )}
       </section>
       )}
