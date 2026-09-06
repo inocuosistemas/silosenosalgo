@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resultadosDeCarrera } from '../src/lib/eventOutcomes'
-import { scoreBets } from '../src/lib/bets'
+import { scoreBets } from '../shared/bets'
 import type { EventBet } from '../shared/wireTypes'
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { betMedal, puestosDePorra, scoreBets } from '../src/lib/bets'
-import type { RunnerOutcome } from '../src/lib/bets'
+import { betMedal, puestosDePorra, scoreBets } from '../shared/bets'
+import type { RunnerOutcome } from '../shared/bets'
 import type { EventBet } from '../shared/wireTypes'
 
 /**

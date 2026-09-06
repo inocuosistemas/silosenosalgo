@@ -1,7 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from './db'
 import { crucaMeta } from '../../shared/cruceMeta'
-import type { TrailPoint, EventStats, EventRunnerStats } from '../../shared/wireTypes'
+import { scoreBets, type BetScore, type RunnerOutcome } from '../../shared/bets'
+import type { TrailPoint, EventStats, EventRunnerStats, EventBet } from '../../shared/wireTypes'
 
 /**
  * lib/eventStats.ts — los resultados de una carrera, congelados al cerrarla.
@@ -577,6 +578,50 @@ async function calculaAhora(env: Env, eventId: string, totalKm: number | null): 
 }
 
 /**
+ * La porra de un evento, congelada.
+ *
+ * Se calculaba al vuelo cada vez que alguien abría la pantalla, así que
+ * dependía de las reglas del día en que se mirara. Y las reglas cambian: el
+ * margen del tiempo acaba de pasar de "2 puntos por minuto" a un porcentaje de
+ * lo que dura la carrera, y con eso una porra jugada hace un mes cambiaba de
+ * ganador sin que nadie tocara nada. Un resultado publicado no se mueve.
+ *
+ * Se calcula UNA vez, al cerrar, con los resultados que se están congelando en
+ * ese mismo momento —que son los que la porra tenía que adivinar— y viaja
+ * dentro de ellos.
+ */
+async function congelaPorra(
+  env: Env, eventId: string, stats: EventStats,
+): Promise<BetScore[] | undefined> {
+  const ev = await env.DB.prepare(
+    'SELECT starts_at AS startsAt, limit_min AS limitMin, bets_enabled AS betsEnabled FROM events WHERE id = ?',
+  ).bind(eventId).first<{ startsAt: number | null; limitMin: number | null; betsEnabled: number }>()
+  if (!ev || ev.betsEnabled !== 1) return undefined
+
+  const filas = await env.DB.prepare(
+    `SELECT ua.username AS author, COALESCE(ut.username, '') AS target, b.kind, b.value,
+            b.created_at AS createdAt
+       FROM event_bets b
+       JOIN users ua ON ua.id = b.user_id
+       LEFT JOIN users ut ON ut.id = b.target_id
+      WHERE b.event_id = ?`,
+  ).bind(eventId).all<{ author: string; target: string; kind: string; value: string; createdAt: number }>()
+  const apuestas = (filas.results ?? []) as unknown as EventBet[]
+  if (apuestas.length === 0) return undefined
+
+  // Los desenlaces salen de los resultados que se están congelando: es lo que
+  // la porra tenía que adivinar, y así las dos mitades cuadran por definición.
+  const outcomes: RunnerOutcome[] = stats.corredores.map((c) => ({
+    username: c.username,
+    tracked: c.tracked,
+    finished: c.finished,
+    finishedAt: c.finishedAt,
+    settled: c.finished || c.abandono,
+  }))
+  return scoreBets(apuestas, outcomes, ev.startsAt, ev.limitMin)
+}
+
+/**
  * A qué hora se da por terminada una carrera.
  *
  * Cuando llegó alguien, a la hora del ÚLTIMO en cruzar. Siempre, y da igual por
@@ -629,9 +674,13 @@ export async function cierraEvento(
     return previos!
   }
 
+  // La porra se congela CON los resultados, no aparte: son la misma foto de la
+  // misma carrera, y guardarlas por separado abre la puerta a que una se
+  // actualice sin la otra.
+  const conPorra: EventStats = { ...stats, porra: await congelaPorra(env, eventId, stats) }
   await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ?, stats_at = ? WHERE id = ?')
-    .bind(horaDeCierre(stats, endedAt), JSON.stringify(stats), Date.now(), eventId).run()
-  return stats
+    .bind(horaDeCierre(stats, endedAt), JSON.stringify(conPorra), Date.now(), eventId).run()
+  return conPorra
 }
 
 /** Cada cuánto se refresca la foto provisional de una carrera en marcha. */

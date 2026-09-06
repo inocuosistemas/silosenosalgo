@@ -23,7 +23,7 @@ import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
 import { Confeti } from './Confeti'
-import type { RunnerOutcome } from '../lib/bets'
+import type { RunnerOutcome } from '../../shared/bets'
 import { resultadosDeCarrera } from '../lib/eventOutcomes'
 import { buildPlannedCurve } from '../lib/ghostPacer'
 import { proyeccionFantasma, SILENCIO_MIN_MS, type Fantasma } from '../lib/proyeccionFantasma'
@@ -730,6 +730,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
       outcomes={outcomes}
       startsAt={startsAt}
       limitMin={raceStats?.limitMin ?? null}
+      // La porra congelada al cerrar, si la hay: manda sobre cualquier cuenta
+      // que se pueda rehacer aquí.
+      porraCongelada={stats?.porra ?? null}
       proyecciones={proyecciones}
       onBack={() => setView('mapa')}
     />

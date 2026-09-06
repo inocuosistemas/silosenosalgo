@@ -59,6 +59,14 @@ export interface FilaTiempo {
   yendoA: number | null
 }
 
+/** Cuántos ponen a alguien el primero, para la sección "Quién gana". */
+export interface FilaVoto {
+  nombre: string
+  emoji: string | null
+  color: string | null
+  n: number
+}
+
 export interface DatosPorra {
   evento: string
   jugadores: number
@@ -66,6 +74,8 @@ export interface DatosPorra {
   foto: HTMLImageElement | null
   favorito: { nombre: string; emoji: string | null; color: string | null; votos: number; tiempo: string | null } | null
   filas: FilaPorra[]
+  /** "Quién gana": los votos al primer puesto, de más a menos. */
+  votos: FilaVoto[]
   /** "Cuánto tardan", con sus barras. Vacío si nadie ha dicho un tiempo. */
   tiempos: FilaTiempo[]
   /** El tope de la escala en minutos, y el límite de la prueba si lo tiene. */
@@ -155,7 +165,7 @@ function casilla(
  * cuántos corredores tengan pronósticos.
  */
 export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string): string {
-  const { evento, jugadores, foto, favorito, filas, tiempos, techo, limiteMin } = datos
+  const { evento, jugadores, foto, favorito, filas, votos, tiempos, techo, limiteMin } = datos
 
   // Primero se calcula el alto, que hay que saberlo antes de crear el lienzo.
   const ALTO_FOTO = foto ? 150 : 0
@@ -166,7 +176,9 @@ export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string)
   // se crea el lienzo. Nada se recorta ni se aprieta para caber en una medida
   // fija —una porra de ocho corredores es más larga que una de dos, y ya está—.
   const ALTO_TIEMPOS = tiempos.length > 0 ? 30 + tiempos.length * ALTO_TIEMPO + 22 : 0
-  const alto = ALTO_FOTO + 22 + 62 + ALTO_FAVORITO
+  const ALTO_VOTO = 30
+  const ALTO_VOTOS = votos.length > 1 ? 30 + votos.length * ALTO_VOTO : 0
+  const alto = ALTO_FOTO + 22 + 62 + ALTO_FAVORITO + ALTO_VOTOS
     + (filas.length > 0 ? 30 + filas.length * ALTO_FILA : 0)
     + ALTO_TIEMPOS + 34
 
@@ -232,6 +244,42 @@ export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string)
     const cola = favorito.tiempo ? ` · le dan ${favorito.tiempo}` : ''
     ctx.fillText(`${favorito.votos} de ${jugadores} lo ponen primero${cola}`, x, y + 52)
     y += ALTO_FAVORITO
+  }
+
+  // ── Quién gana ─────────────────────────────────────────────────────────
+  //
+  // La apuesta fuerte, la que más se moja, y faltaba: la tarjeta enseñaba al
+  // favorito de uno en uno y no a QUIÉN MÁS le ve la gente, que es lo que se
+  // discute. Con dos o más nombres votados; con uno solo ya lo dice el titular.
+  if (votos.length > 1) {
+    const maxVotos = Math.max(1, ...votos.map((v) => v.n))
+    y += 26
+    ctx.textAlign = 'left'
+    ctx.font = fuente(13, 700)
+    ctx.fillStyle = '#e2e8f0'
+    ctx.fillText('Quién gana', M, y)
+    y += 12
+
+    for (const v of votos) {
+      marca(ctx, M + 11, y + 11, 22, v.emoji, v.color)
+      const x = M + 30
+      ctx.textAlign = 'left'
+      ctx.font = fuente(14, 700)
+      ctx.fillStyle = '#f1f5f9'
+      const anchoNombre = 130
+      ctx.fillText(recorta(ctx, v.nombre, anchoNombre), x, y + 16)
+      // La barra, en proporción al más votado: lo que se lee de un vistazo es
+      // la diferencia entre ellos, no el número.
+      const bx = x + anchoNombre + 10
+      const ban = ANCHO - M - 26 - bx
+      pastilla(ctx, bx, y + 6, ban, 10, 5, '#1e293b')
+      pastilla(ctx, bx, y + 6, Math.max(6, (v.n / maxVotos) * ban), 10, 5, '#38bdf8')
+      ctx.textAlign = 'right'
+      ctx.font = fuente(13, 800)
+      ctx.fillStyle = '#e2e8f0'
+      ctx.fillText(String(v.n), ANCHO - M, y + 16)
+      y += ALTO_VOTO
+    }
   }
 
   // ── Los corredores ─────────────────────────────────────────────────────

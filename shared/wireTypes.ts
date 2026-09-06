@@ -1,3 +1,4 @@
+import type { BetScore } from './bets'
 /**
  * Wire types shared between the Pages Functions (server) and the web client.
  * Pure types, no runtime deps — safe to import from both `functions/` and
@@ -706,6 +707,19 @@ export interface EventStats {
   fastestKm: { username: string; minutos: number; desdeKm: number } | null
   /** Los participantes, en orden de llegada. */
   corredores: EventRunnerStats[]
+  /**
+   * La porra, CONGELADA al cerrar: quién ganó y con cuántos puntos.
+   *
+   * Se calculaba al vuelo cada vez que alguien abría la pantalla, así que
+   * dependía de las reglas del día en que se mirara. Cambiar cómo se puntúa
+   * —algo que va a pasar— reescribía hacia atrás una porra ya jugada, y el
+   * ganador de una carrera de hace un mes podía dejar de serlo sin que nadie
+   * tocara nada. Un resultado publicado no se mueve.
+   *
+   * Ausente en las carreras cerradas ANTES de esto y en las que no tienen
+   * porra: ahí se sigue calculando al vuelo, que es mejor que no enseñar nada.
+   */
+  porra?: BetScore[]
 }
 
 /**

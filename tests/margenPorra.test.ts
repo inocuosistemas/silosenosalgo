@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { margenDeTiempo, scoreBets } from '../src/lib/bets'
+import { margenDeTiempo, scoreBets } from '../shared/bets'
 import type { EventBet } from '../shared/wireTypes'
-import type { RunnerOutcome } from '../src/lib/bets'
+import type { RunnerOutcome } from '../shared/bets'
 
 /**
  * El margen del tiempo, proporcional a lo que dura la carrera.

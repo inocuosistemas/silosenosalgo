@@ -164,7 +164,29 @@ export default function EventLobby({ id }: { id: string }) {
   }
   if (!data) return <Shell><p className="text-sm text-slate-400">Cargando el evento…</p></Shell>
 
-  const { event, members, takenColors, takenEmojis, myPlanOverlay } = data
+  const { event, members: enParrilla, takenColors, takenEmojis, myPlanOverlay } = data
+  /**
+   * La parrilla, por DORSAL.
+   *
+   * Venían en el orden en que se apuntaron, que de puertas afuera se lee como
+   * un orden aleatorio: nadie recuerda quién entró antes al evento, y buscar a
+   * alguien en una lista de treinta obligaba a leerla entera. Una parrilla se
+   * ordena como se ordena una salida —por dorsal— y quien aún no lo tiene va
+   * detrás, por nombre.
+   *
+   * Los dorsales se comparan como NÚMEROS cuando lo son, que si no el 100 se
+   * cuela entre el 10 y el 11.
+   */
+  const members = [...enParrilla].sort((a, b) => {
+    const na = Number(a.bib), nb = Number(b.bib)
+    const numA = a.bib !== null && Number.isFinite(na)
+    const numB = b.bib !== null && Number.isFinite(nb)
+    if (numA && numB) return na - nb
+    if (a.bib !== null && b.bib !== null) return a.bib.localeCompare(b.bib)
+    if (a.bib !== null) return -1
+    if (b.bib !== null) return 1
+    return a.username.localeCompare(b.username)
+  })
   // Las marcas de todos, plegadas: `takenEmojis` viene sin la propia (para que
   // el selector de uno no salga en blanco), y para editar la de otro hace falta
   // la lista entera menos la suya.

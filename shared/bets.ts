@@ -1,4 +1,4 @@
-import type { EventBet } from '../../shared/wireTypes'
+import type { EventBet } from './wireTypes'
 
 /**
  * lib/bets.ts — La Porra: cómo se puntúa lo que dijo cada uno.

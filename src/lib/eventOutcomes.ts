@@ -1,4 +1,4 @@
-import type { RunnerOutcome } from './bets'
+import type { RunnerOutcome } from '../../shared/bets'
 
 /**
  * Cómo acabó la carrera de cada uno, que es lo que puntúa la porra.

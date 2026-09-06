@@ -5,8 +5,8 @@ import { dibujaPorra, cargaImagen } from '../lib/porraCard'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
   scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
-  type RunnerOutcome, type Proyeccion,
-} from '../lib/bets'
+  type RunnerOutcome, type Proyeccion, type BetScore,
+} from '../../shared/bets'
 import { MarkBadge } from './MarkPicker'
 import { useAuth } from '../lib/AuthContext'
 import { Modal, LoginForm } from './AuthMenu'
@@ -50,7 +50,7 @@ function cuando(ms: number): string {
   return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
 }
 
-export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, proyecciones, onBack }: {
+export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, porraCongelada, proyecciones, onBack }: {
   eventId: string
   /** Para la tarjeta que se comparte: la carrera tiene que decir cuál es. */
   eventName: string | null
@@ -58,6 +58,14 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo de ella. */
   runners: BetRunner[]
   outcomes: RunnerOutcome[]
+  /**
+   * La clasificación de la porra tal como quedó al cerrar la carrera.
+   *
+   * Cuando existe, manda: rehacer la cuenta con las reglas de hoy reescribiría
+   * hacia atrás una porra ya jugada, y el ganador de una carrera de hace un mes
+   * podría dejar de serlo sin que nadie tocara nada.
+   */
+  porraCongelada?: BetScore[] | null
   startsAt: number | null
   /** El tiempo límite de la carrera (minutos): el último cierre menos la salida. */
   limitMin: number | null
@@ -139,8 +147,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   }, [eventId, user?.username])
 
   const ranking = useMemo(
-    () => (data ? scoreBets(data.bets, outcomes, data.startsAt, limitMin ?? null) : []),
-    [data, outcomes, limitMin],
+    () => porraCongelada ?? (data ? scoreBets(data.bets, outcomes, data.startsAt, limitMin ?? null) : []),
+    [porraCongelada, data, outcomes, limitMin],
   )
 
   /**
@@ -684,10 +692,17 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
             tiempo: rango,
           }
         }),
+        // Quién gana: la apuesta fuerte, y la que más se discute en el grupo.
+        votos: votos.map((v) => ({
+          nombre: v.name,
+          emoji: dame(v.name)?.emoji ?? null,
+          color: dame(v.name)?.color ?? null,
+          n: v.n,
+        })),
         // "Cuánto tardan" tal cual se ve en pantalla: es la otra mitad de la
         // porra y la que más se discute. Se manda con sus barras, sus puntos y
         // su escala, no solo el rango escrito.
-        tiempos: tiempos.map((t) => ({
+        tiempos: tiemposOrdenado.map((t) => ({
           nombre: t.name,
           emoji: dame(t.name)?.emoji ?? null,
           color: dame(t.name)?.color ?? null,
@@ -772,8 +787,45 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   const suTiempo = favorito ? tiempos.find((t) => t.name === favorito.name) : null
   const mediana = suTiempo ? suTiempo.mins[Math.floor(suTiempo.mins.length / 2)] : null
 
+  /**
+   * El orden de TODAS las listas: por lo bien valorado que está cada uno.
+   *
+   * Iban en el orden en que se apuntaron, que no dice nada: el primero de la
+   * lista era el que llegó antes a la parrilla, no el que la porra ve mejor. Y
+   * en una foto que se manda al grupo, lo primero que se lee tiene que ser lo
+   * que la porra opina, no un accidente de inscripción.
+   *
+   * Se mira en este orden, y cada criterio solo desempata al anterior:
+   *   1. votos para ganar — es la apuesta fuerte, la que más se moja;
+   *   2. cuánta gente le da por acabar, en proporción a los que opinaron de él
+   *      —tres de tres es mejor que cinco de diez—;
+   *   3. cuántos opinaron, que un 3-0 pesa más que un 1-0;
+   *   4. el tiempo que le dan, más rápido primero;
+   *   5. el nombre, para que dos empatados no bailen entre recargas.
+   */
+  const valoracion = (nombre: string) => {
+    const v = votos.find((x) => x.name === nombre)?.n ?? 0
+    const a = acabar.find((x) => x.name === nombre)
+    const opinan = a ? a.si + a.no : 0
+    const t = tiempos.find((x) => x.name === nombre)
+    return {
+      votos: v,
+      ratio: opinan > 0 ? a!.si / opinan : 0,
+      opinan,
+      tiempo: t ? t.mins[Math.floor(t.mins.length / 2)] : Infinity,
+    }
+  }
+  const porValoracion = (a: string, b: string) => {
+    const x = valoracion(a), y = valoracion(b)
+    return y.votos - x.votos || y.ratio - x.ratio || y.opinan - x.opinan
+      || x.tiempo - y.tiempo || a.localeCompare(b)
+  }
+  const acabarOrdenado = [...acabar].sort((a, b) => porValoracion(a.name, b.name))
+  const tiemposOrdenado = [...tiempos].sort((a, b) => porValoracion(a.name, b.name))
+
   /** Todos los que tienen algo pronosticado: marcador, tiempo o las dos cosas. */
   const nombresConPorra = [...new Set([...acabar.map((a) => a.name), ...tiempos.map((t) => t.name)])]
+    .sort(porValoracion)
 
   if (votos.length === 0 && acabar.length === 0 && tiempos.length === 0) return null
 
@@ -833,7 +885,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         )}
 
         {/* ── ¿Acaba? ───────────────────────────────────────────────────── */}
-        {acabar.length > 0 && (
+        {acabarOrdenado.length > 0 && (
           <div>
             <Titulo color={C_SI}>¿Acaba?</Titulo>
             {/* Como un marcador de fútbol: dos casillas y dos números grandes.
@@ -844,7 +896,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                 fondo oscuro se lee peor, y aquí lo que hay que leer es el
                 número. */}
             <ul className="mt-2 space-y-1.5">
-              {acabar.map((a) => {
+              {acabarOrdenado.map((a) => {
                 const total = a.si + a.no
                 const unanime = total > 1 && (a.si === 0 || a.no === 0)
                 return (
@@ -876,7 +928,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         )}
 
         {/* ── Cuánto tardan ─────────────────────────────────────────────── */}
-        {tiempos.length > 0 && (
+        {tiemposOrdenado.length > 0 && (
           <div>
             <div className="flex items-baseline justify-between gap-2">
               <Titulo color={C_TIEMPO}>Cuánto tardan</Titulo>
@@ -887,7 +939,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
               )}
             </div>
             <ul className="mt-2 space-y-2">
-              {tiempos.map((t) => {
+              {tiemposOrdenado.map((t) => {
                 const min = t.mins[0], max = t.mins[t.mins.length - 1]
                 return (
                   <li key={t.name}>
