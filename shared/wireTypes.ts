@@ -407,6 +407,9 @@ export const EVENT_PRESENCE_MS = 60_000
 /** Un participante del evento, tal y como lo ve el lobby y el mapa. */
 export interface EventMember {
   userId: string
+  /** Si es quien ORGANIZA la carrera. El evento cuelga de él: no se le puede
+   *  sacar de la parrilla —si quiere dejar de correrla, se sale él—. */
+  isOwner: boolean
   username: string
   /** Dorsal de la carrera. Lo pone cada uno, y el organizador para cualquiera. */
   bib: string | null

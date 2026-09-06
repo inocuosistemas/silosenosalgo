@@ -267,6 +267,21 @@ export async function leaveEvent(id: string): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Sacar a alguien de la parrilla. Solo quien organiza o quien administra.
+ *
+ * Se lleva su sitio en el evento y sus pronósticos; su baliza NO, que es suya y
+ * sigue abierta por su enlace de siempre.
+ */
+export async function expulsaDelEvento(id: string, userId: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/expulsa`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 export async function deleteEvent(id: string): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}`, {
     method: 'DELETE', credentials: 'same-origin',
@@ -487,6 +502,9 @@ export function eventsErrorMessage(code: string): string {
     case 'bad_emoji': return 'Tiene que ser un solo emoji, y no una bandera de país.'
     case 'colors_locked': return 'En este evento los colores agrupan y los reparte quien organiza.'
     case 'invalid_invite': return 'El código no vale o el evento ya terminó.'
+    case 'use_leave': return 'Para salirte tú, usa "Salir del evento".'
+    case 'is_owner': return 'No se puede sacar a quien organiza la carrera: el evento es suyo.'
+    case 'bad_user': return 'No se ha dicho a quién sacar.'
     case 'too_large': return 'El texto es demasiado largo.'
     case 'rate_limited': return 'Demasiados intentos. Espera un poco.'
     default: return 'No se pudo completar la operación. Revisa tu conexión.'

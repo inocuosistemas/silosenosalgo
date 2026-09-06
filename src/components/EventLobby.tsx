@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
@@ -9,6 +10,7 @@ import {
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
+  expulsaDelEvento,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -41,6 +43,8 @@ export default function EventLobby({ id }: { id: string }) {
   const [data, setData] = useState<EventDetailResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** A quién se está a punto de sacar de la parrilla (su userId). */
+  const [expulsando, setExpulsando] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedPublic, setCopiedPublic] = useState(false)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
@@ -170,6 +174,25 @@ export default function EventLobby({ id }: { id: string }) {
   /** ¿Mi baliza está ya unida a este evento? (la lista lo dice: trae mi sesión) */
   const meLive = !!me?.sessionId
   const now = Date.now()
+
+  /**
+   * Sacar a alguien de la parrilla.
+   *
+   * Se confirma en su propia fila y no con un `confirm()` del navegador: el
+   * diálogo del sistema tapa la lista justo cuando hace falta verla para saber
+   * a quién se está sacando, y con treinta filas iguales eso importa.
+   */
+  async function expulsa(userId: string) {
+    setBusy(true); setError(null)
+    try {
+      await expulsaDelEvento(id, userId)
+      setExpulsando(null)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+      await refresh()
+    } finally { setBusy(false) }
+  }
 
   async function pickColor(slug: string, userId?: string) {
     setBusy(true); setError(null)
@@ -518,6 +541,13 @@ export default function EventLobby({ id }: { id: string }) {
               // dorsales se reparten juntos y quien los tiene delante es él.
               canEditBib={m.userId === user.id || event.isOwner}
               onBib={(userId, actual) => void pedirDorsal(userId, actual)}
+              // Sacar de la parrilla: quien organiza y quien administra, y
+              // nunca a uno mismo —para eso está "salir del evento", que dice
+              // lo que hace— ni a quien organiza, que es de quien cuelga todo.
+              canExpel={(event.isOwner || user.isAdmin) && m.userId !== user.id && !m.isOwner}
+              confirmingExpel={expulsando === m.userId}
+              onAskExpel={() => setExpulsando(expulsando === m.userId ? null : m.userId)}
+              onExpel={() => void expulsa(m.userId)}
             />
           ))}
         </ul>
@@ -1200,6 +1230,7 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
 function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
+  canExpel, confirmingExpel, onAskExpel, onExpel,
 }: {
   m: EventMember
   now: number
@@ -1216,6 +1247,11 @@ function MemberRow({
   busy: boolean
   onPickEmoji: (emoji: string) => void
   onPickColor: (slug: string) => void
+  /** Sacarle de la parrilla: quien organiza y quien administra. */
+  canExpel: boolean
+  confirmingExpel: boolean
+  onAskExpel: () => void
+  onExpel: () => void
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
@@ -1266,7 +1302,46 @@ function MemberRow({
         // Con el evento a cuestas, para poder volver desde la baliza.
         <a href={`/?t=${encodeURIComponent(m.sessionId!)}&e=${encodeURIComponent(eventId)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
       )}
+      {/* Sacar de la parrilla. Una equis discreta y en gris: es de las cosas
+          que menos se hacen y no puede competir por la mirada con el estado de
+          cada uno, que es a lo que se viene. */}
+      {canExpel && !confirmingExpel && (
+        <button
+          onClick={onAskExpel}
+          title={`Sacar a ${m.username} de la parrilla`}
+          aria-label={`Sacar a ${m.username} de la parrilla`}
+          className="shrink-0 px-1 text-slate-600 transition-colors hover:text-red-400"
+        >
+          <X size={13} />
+        </button>
+      )}
     </div>
+
+    {/* La confirmación, en su propia fila y contando lo que se lleva por
+        delante. Un `confirm()` del navegador taparía la lista justo cuando hace
+        falta ver a quién se está sacando, y "¿seguro?" a secas no dice que
+        también se van sus pronósticos. */}
+    {confirmingExpel && (
+      <div className="mt-2 border-t border-slate-800 pt-2 text-[11px]">
+        <p className="text-slate-400">
+          ¿Sacar a <b className="text-slate-200">{m.username}</b> de la parrilla? Se van
+          su sitio en la carrera y sus pronósticos de la porra.{' '}
+          <span className="text-slate-500">Su baliza no se toca: sigue siendo suya y abierta por su enlace.</span>
+        </p>
+        <div className="mt-1.5 flex gap-2">
+          <button
+            onClick={onExpel}
+            disabled={busy}
+            className="rounded border border-red-900/60 bg-red-950/40 px-2 py-1 text-red-300 hover:bg-red-950/70 disabled:opacity-50"
+          >
+            Sacar
+          </button>
+          <button onClick={onAskExpel} className="rounded border border-slate-700 px-2 py-1 text-slate-400 hover:text-slate-200">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    )}
 
     {/* La marca de otro, desplegada bajo su fila: se ve a quién se le está
         cambiando mientras se cambia, que con treinta filas iguales no es poca

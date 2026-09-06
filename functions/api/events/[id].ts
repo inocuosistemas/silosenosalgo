@@ -98,6 +98,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   }>()
 
   const members: EventMember[] = (rows.results ?? []).map((r) => ({
+    // Quién organiza, marcado en su fila: es el único al que no se puede sacar
+    // de la parrilla —el evento cuelga de él— y sin decirlo aquí la pantalla
+    // ofrecería un botón que el servidor va a rechazar.
+    isOwner: r.userId === ev.createdBy,
     userId: r.userId,
     username: r.username,
     color: r.color,
