@@ -532,6 +532,34 @@ export default function EventLiveMap({ source }: { source: Source }) {
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
+  /**
+   * La parrilla de la cuenta atrás, BARAJADA hasta que se sale.
+   *
+   * Con la carrera parada no hay posiciones, así que cualquier orden que se
+   * enseñe es mentira: por kilómetro están todos a cero, y por inscripción el
+   * primero de la lista es el que se apuntó antes —que no es un mérito, pero
+   * lo parece cuando encabeza la parrilla—. Barajarlos lo dice claro: antes de
+   * la salida nadie va primero.
+   *
+   * La baraja es FIJA para cada carrera, no un sorteo por refresco. La pantalla
+   * se repinta cada pocos segundos, y una lista que se reordenara sola delante
+   * de quien la está leyendo sería un mareo, no una idea. Se siembra con el
+   * nombre del evento: sale igual en todos los móviles y no cambia mientras
+   * dure la espera.
+   *
+   * En cuanto alguien emite, mandan los kilómetros: ahí sí hay carrera.
+   */
+  const parrilla = useMemo(() => {
+    if (rows.some((r) => r.km !== null)) return rows
+    const semilla = (eventName ?? 'evento').split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7)
+    const peso = (clave: string) => {
+      let h = semilla
+      for (const c of clave) h = (h * 31 + c.charCodeAt(0)) >>> 0
+      return h
+    }
+    return [...rows].sort((a, b) => peso(a.key) - peso(b.key))
+  }, [rows, eventName])
+
 
   /**
    * El perfil del recorrido, calculado UNA vez: la silueta en coordenadas de
@@ -1442,7 +1470,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
                 <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
-                  {rows.map(({ r, key, idle, armed, lost, retirado }) => (
+                  {parrilla.map(({ r, key, idle, armed, lost, retirado }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
                       {r.bib && (

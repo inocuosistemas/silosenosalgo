@@ -788,44 +788,40 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   const mediana = suTiempo ? suTiempo.mins[Math.floor(suTiempo.mins.length / 2)] : null
 
   /**
-   * El orden de TODAS las listas: por lo bien valorado que está cada uno.
+   * El orden de cada lista: por lo que ESA lista mide.
    *
-   * Iban en el orden en que se apuntaron, que no dice nada: el primero de la
-   * lista era el que llegó antes a la parrilla, no el que la porra ve mejor. Y
-   * en una foto que se manda al grupo, lo primero que se lee tiene que ser lo
-   * que la porra opina, no un accidente de inscripción.
+   * Iban en el orden en que se apuntaron, que no dice nada — el primero era el
+   * que llegó antes a la parrilla, no el que la porra ve mejor —. Y en una foto
+   * que se manda al grupo, lo primero que se lee tiene que ser lo que la porra
+   * opina, no un accidente de inscripción.
    *
-   * Se mira en este orden, y cada criterio solo desempata al anterior:
-   *   1. votos para ganar — es la apuesta fuerte, la que más se moja;
-   *   2. cuánta gente le da por acabar, en proporción a los que opinaron de él
-   *      —tres de tres es mejor que cinco de diez—;
-   *   3. cuántos opinaron, que un 3-0 pesa más que un 1-0;
-   *   4. el tiempo que le dan, más rápido primero;
-   *   5. el nombre, para que dos empatados no bailen entre recargas.
+   * Se probó con un único ranking para todas, mandando los votos a ganador, y
+   * salía al revés de lo que se lee: en "¿Acaba?", un 1-1 con un voto se ponía
+   * por encima de un 2-0 por unanimidad. Dentro de una lista, "el mejor
+   * valorado" es el mejor SEGÚN ESA LISTA: en "¿Acaba?" es a quien más gente da
+   * por finisher, y en "Cuánto tardan", a quien le dan el mejor tiempo. Los
+   * votos solo desempatan.
    */
-  const valoracion = (nombre: string) => {
-    const v = votos.find((x) => x.name === nombre)?.n ?? 0
-    const a = acabar.find((x) => x.name === nombre)
-    const opinan = a ? a.si + a.no : 0
-    const t = tiempos.find((x) => x.name === nombre)
-    return {
-      votos: v,
-      ratio: opinan > 0 ? a!.si / opinan : 0,
-      opinan,
-      tiempo: t ? t.mins[Math.floor(t.mins.length / 2)] : Infinity,
-    }
-  }
-  const porValoracion = (a: string, b: string) => {
-    const x = valoracion(a), y = valoracion(b)
-    return y.votos - x.votos || y.ratio - x.ratio || y.opinan - x.opinan
-      || x.tiempo - y.tiempo || a.localeCompare(b)
-  }
-  const acabarOrdenado = [...acabar].sort((a, b) => porValoracion(a.name, b.name))
-  const tiemposOrdenado = [...tiempos].sort((a, b) => porValoracion(a.name, b.name))
+  const votosDe = (nombre: string) => votos.find((x) => x.name === nombre)?.n ?? 0
 
-  /** Todos los que tienen algo pronosticado: marcador, tiempo o las dos cosas. */
-  const nombresConPorra = [...new Set([...acabar.map((a) => a.name), ...tiempos.map((t) => t.name)])]
-    .sort(porValoracion)
+  /** Quién acaba, según la porra: primero la proporción, luego cuántos opinaron
+   *  —tres de tres pesa más que uno de uno—. */
+  const acabarOrdenado = [...acabar].sort((a, b) => {
+    const ra = a.si / (a.si + a.no), rb = b.si / (b.si + b.no)
+    return rb - ra || (b.si + b.no) - (a.si + a.no) || b.si - a.si
+      || votosDe(b.name) - votosDe(a.name) || a.name.localeCompare(b.name)
+  })
+
+  /** Cuánto tardan: el mejor tiempo primero, que es el orden de una meta. */
+  const tiemposOrdenado = [...tiempos].sort((a, b) => {
+    const ma = a.mins[Math.floor(a.mins.length / 2)]
+    const mb = b.mins[Math.floor(b.mins.length / 2)]
+    return ma - mb || votosDe(b.name) - votosDe(a.name) || a.name.localeCompare(b.name)
+  })
+
+  /** Todos los que tienen algo pronosticado: marcador, tiempo o las dos cosas.
+   *  En la tarjeta van con el marcador delante, así que mandan sus números. */
+  const nombresConPorra = [...new Set([...acabarOrdenado.map((a) => a.name), ...tiemposOrdenado.map((t) => t.name)])]
 
   if (votos.length === 0 && acabar.length === 0 && tiempos.length === 0) return null
 
