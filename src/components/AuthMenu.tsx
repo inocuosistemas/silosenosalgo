@@ -118,20 +118,20 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     onClick={() => { setMenuOpen(false); onOpenPlans() }}
                     className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                   >
-                    📁 Mis previsiones
+                    📁 Previsiones
                   </button>
                 )}
                 <button
                   onClick={() => { setMenuOpen(false); setShowEvents(true) }}
                   className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                 >
-                  🏁 Mis eventos
+                  🏁 Eventos
                 </button>
                 <button
                   onClick={() => { setMenuOpen(false); setShowMark(true) }}
                   className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                 >
-                  🦊 Mi marca
+                  🦊 Marca
                 </button>
                 {/* Lo de administrar, aparte y dicho.
                     Mezclado con "mis previsiones" y "mi marca" parecía una
@@ -219,13 +219,13 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       )}
 
       {showMark && user && (
-        <Modal title="Mi marca en los eventos" onClose={() => setShowMark(false)}>
+        <Modal title="Marca en los eventos" onClose={() => setShowMark(false)}>
           <MyMark />
         </Modal>
       )}
 
       {showEvents && user && (
-        <Modal title="Mis eventos" onClose={() => setShowEvents(false)}>
+        <Modal title="Eventos" onClose={() => setShowEvents(false)}>
           <MyEvents isAdmin={user.isAdmin} />
         </Modal>
       )}

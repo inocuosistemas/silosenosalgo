@@ -5,13 +5,13 @@ import {
 import type { EventInfo } from '../../shared/wireTypes'
 
 /**
- * "Mis eventos": la lista de los eventos en los que participo, para volver a
- * su parrilla. Vive en el menú de usuario, al lado de "Mis previsiones".
+ * "Eventos": la lista de los eventos en los que participo, para volver a su
+ * parrilla. Vive en el menú de usuario, al lado de "Previsiones".
  *
  * Crear aquí un evento vacío (sin recorrido) es para el caso de "primero monto
  * el evento y reparto el enlace, y el recorrido lo publico cuando la
  * organización cuelgue el GPX definitivo". Lo normal es al revés: convertir una
- * previsión ya hecha, desde Mis previsiones.
+ * previsión ya hecha, desde Previsiones.
  */
 export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
   const [events, setEvents] = useState<EventInfo[] | null>(null)
@@ -98,7 +98,7 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
             </button>
           </div>
           <p className="mt-2 text-[11px] text-slate-500">
-            El recorrido se le pone después, o desde Mis previsiones → Evento.
+            El recorrido se le pone después, o desde Previsiones → Evento.
           </p>
         </div>
       )}

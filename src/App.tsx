@@ -528,7 +528,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   const computeTokenRef = useRef(0)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [showShareCard, setShowShareCard] = useState(false)
-  // "Mis previsiones" modal — opened from the user menu (AuthMenu dropdown).
+  // "Previsiones" modal — opened from the user menu (AuthMenu dropdown).
   const [plansOpen, setPlansOpen] = useState(false)
 
   // ── "Compartir salida" load state (when opened via /?s=<id>) ───────────────
@@ -1179,7 +1179,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   }, [track, startTime, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
 
   // Inject a revived share/plan into app state — shared by the ?s= open flow and
-  // "Cargar" in Mis previsiones, so both paths behave identically.
+  // "Cargar" in Previsiones, so both paths behave identically.
   function applyRevivedShare(revived: RevivedShare) {
     handleTrack(revived.track)
     setStartTime(revived.startTime)

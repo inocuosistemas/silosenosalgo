@@ -12,7 +12,7 @@ import { ConvertToEvent } from './ConvertToEvent'
 type Current = { id: string; name: string } | null
 
 /**
- * "Mis previsiones" modal. Opened from the user menu (AuthMenu → "📁 Mis
+ * "Previsiones" modal. Opened from the user menu (AuthMenu → "📁
  * previsiones"); this component owns the modal and the "currently loaded/saved
  * plan" state so it can offer "Actualizar «X»" (overwrite in place) vs "Guardar
  * como nueva". The parent renders it unconditionally and it self-hides (returns
@@ -35,7 +35,7 @@ export function MyPlansPanel({
   if (status !== 'ready' || !user || !open) return null
 
   return (
-    <Modal title="Mis previsiones" onClose={onClose}>
+    <Modal title="Previsiones" onClose={onClose}>
       <PlansBody
         getPayload={getPayload}
         hasTrack={hasTrack}

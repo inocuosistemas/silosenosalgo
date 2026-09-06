@@ -5,7 +5,7 @@ import { Plegable } from './Plegable'
 import { eventColorHex, EVENT_COLORS } from '../../shared/eventColors'
 
 /**
- * "Mi marca": el emoji y el color con los que se entra a CUALQUIER evento.
+ * "Marca": el emoji y el color con los que se entra a CUALQUIER evento.
  *
  * Quien es 🦊 en su club quiere ser 🦊 en todas las carreras. Sin esto, cada
  * evento empieza con el mismo trámite —elegir marca— que es justo el que se

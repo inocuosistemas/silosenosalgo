@@ -13,7 +13,7 @@ import { useAuth } from '../lib/AuthContext'
  * hasta ahora eso borraba el contexto: la misma pantalla de una salida
  * cualquiera, sin nada que dijera para qué carrera se estaba ajustando el ritmo
  * ni cómo volver. La procedencia se guardaba —la previsión quedaba anotada con
- * el evento—, pero solo si uno se acordaba de abrir "Mis previsiones" y
+ * el evento—, pero solo si uno se acordaba de abrir "Previsiones" y
  * guardarla a mano, que es justo lo que no se hace con prisa.
  *
  * Así que la barra hace las dos cosas: recuerda dónde estás y guarda de un
