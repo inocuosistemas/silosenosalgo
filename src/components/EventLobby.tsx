@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X, UserPlus, Shield } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
@@ -10,7 +10,7 @@ import {
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
-  expulsaDelEvento,
+  expulsaDelEvento, setEventOrganizer,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
@@ -256,6 +256,18 @@ export default function EventLobby({ id }: { id: string }) {
     try {
       await expulsaDelEvento(id, userId)
       setExpulsando(null)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+      await refresh()
+    } finally { setBusy(false) }
+  }
+
+  /** Nombrar o quitar organizador. Solo lo ofrece la pantalla al dueño. */
+  async function nombraOrganizador(userId: string, organizer: boolean) {
+    setBusy(true); setError(null)
+    try {
+      await setEventOrganizer(id, userId, organizer)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -554,11 +566,11 @@ export default function EventLobby({ id }: { id: string }) {
           Se ve tal cual se escribió (`whitespace-pre-wrap`), sin interpretar
           nada: quien escribe una lista con guiones quiere una lista con
           guiones, y lo que llega es texto de otra persona, no marcado. */}
-      {(event.notes || (event.isOwner && editandoNotas)) && (
+      {(event.notes || (event.canOrganize && editandoNotas)) && (
         <section className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
           <div className="mb-1.5 flex items-center gap-2">
             <h2 className="text-[11px] uppercase tracking-wider text-slate-500">Notas de la carrera</h2>
-            {event.isOwner && !editandoNotas && (
+            {event.canOrganize && !editandoNotas && (
               <button
                 onClick={() => setEditandoNotas(true)}
                 className="ml-auto text-[11px] text-slate-400 hover:text-sky-400"
@@ -580,7 +592,7 @@ export default function EventLobby({ id }: { id: string }) {
         </section>
       )}
 
-      {event.isOwner && !event.notes && !editandoNotas && (
+      {event.canOrganize && !event.notes && !editandoNotas && (
         <button
           onClick={() => setEditandoNotas(true)}
           className="mt-3 w-full rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 transition-colors hover:border-sky-700 hover:text-sky-400"
@@ -618,10 +630,38 @@ export default function EventLobby({ id }: { id: string }) {
               confirmingExpel={expulsando === m.userId}
               onAskExpel={() => setExpulsando(expulsando === m.userId ? null : m.userId)}
               onExpel={() => void expulsa(m.userId)}
+              // Nombrar organizadores es del DUEÑO y de quien administra, no de
+              // un organizador: un permiso que se propaga solo acaba en que
+              // nadie sabe quién dio qué a quién.
+              canName={(event.isOwner || user.isAdmin) && !m.isOwner}
+              onOrganizer={(v) => void nombraOrganizador(m.userId, v)}
             />
           ))}
         </ul>
       </section>
+
+      {/* Invitar, PEGADO a la lista de quién hay: es la respuesta a la pregunta
+          que se hace mirándola —falta fulano— y estaba al final de la pantalla,
+          después de la marca, los enlaces y los ajustes, donde nadie lo
+          buscaba. */}
+      {event.canOrganize && event.inviteCode && (
+        <Plegable title="Invitar participantes" icon={<UserPlus size={13} />} summary="enlace listo">
+          <p className="text-[11px] text-slate-500 mb-2">
+            Este enlace sirve para todo el que quieras: se pega una vez en el grupo. Hace falta tener cuenta para entrar.
+          </p>
+          <code className="block break-all rounded bg-slate-900 border border-slate-800 px-2 py-1.5 text-[11px] text-slate-300">
+            {eventJoinLink(event.inviteCode)}
+          </code>
+          <div className="mt-2 flex gap-2">
+            <button onClick={() => void copyInvite()} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50">
+              {copied ? 'Copiado ✓' : 'Copiar enlace'}
+            </button>
+            <button onClick={() => void regenerate()} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+              Generar código nuevo
+            </button>
+          </div>
+        </Plegable>
+      )}
 
       {/* Mi marca: el emoji identifica (es único) y el color agrupa (se repite).
           Plegada en cuanto está elegida —que es casi siempre, porque se entra
@@ -1190,24 +1230,6 @@ export default function EventLobby({ id }: { id: string }) {
         </Plegable>
       )}
 
-      {event.isOwner && event.inviteCode && (
-        <Plegable title="Invitar participantes" summary="enlace listo">
-          <p className="text-[11px] text-slate-500 mb-2">
-            Este enlace sirve para todo el que quieras: se pega una vez en el grupo. Hace falta tener cuenta para entrar.
-          </p>
-          <code className="block break-all rounded bg-slate-900 border border-slate-800 px-2 py-1.5 text-[11px] text-slate-300">
-            {eventJoinLink(event.inviteCode)}
-          </code>
-          <div className="mt-2 flex gap-2">
-            <button onClick={() => void copyInvite()} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50">
-              {copied ? 'Copiado ✓' : 'Copiar enlace'}
-            </button>
-            <button onClick={() => void regenerate()} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
-              Generar código nuevo
-            </button>
-          </div>
-        </Plegable>
-      )}
 
       <div className="mt-6 flex gap-2">
         <a href="/" className="px-3 py-1.5 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800">← Inicio</a>
@@ -1300,7 +1322,7 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
 function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
-  canExpel, confirmingExpel, onAskExpel, onExpel,
+  canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
 }: {
   m: EventMember
   now: number
@@ -1322,6 +1344,9 @@ function MemberRow({
   confirmingExpel: boolean
   onAskExpel: () => void
   onExpel: () => void
+  /** Nombrarle organizador: solo el dueño del evento y quien administra. */
+  canName: boolean
+  onOrganizer: (organizer: boolean) => void
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
@@ -1356,6 +1381,30 @@ function MemberRow({
       <span className="text-sm text-slate-200 truncate">
         {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
       </span>
+      {/* Quién manda aquí, dicho en su fila. Sin esto, "organizador" es un
+          permiso invisible: nadie sabe a quién preguntarle por el enlace. */}
+      {m.isOwner && (
+        <span className="shrink-0 rounded bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-300/90">organiza</span>
+      )}
+      {!m.isOwner && m.isOrganizer && (
+        <span className="flex shrink-0 items-center gap-1 rounded bg-sky-950/60 px-1.5 py-0.5 text-[10px] text-sky-300">
+          <Shield size={10} /> organizador
+        </span>
+      )}
+      {canName && (
+        <button
+          onClick={() => onOrganizer(!m.isOrganizer)}
+          disabled={busy}
+          title={m.isOrganizer
+            ? `Quitar a ${m.username} de organizador`
+            : `Nombrar a ${m.username} organizador: podrá invitar y escribir el tablón`}
+          className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
+            m.isOrganizer ? 'text-sky-400 hover:text-slate-500' : 'text-slate-600 hover:text-sky-400'
+          }`}
+        >
+          <Shield size={13} />
+        </button>
+      )}
       {m.hasPlan && <span className="text-[10px] text-slate-500 shrink-0">plan propio</span>}
       <span className="ml-auto shrink-0 text-[11px]">
         {live ? (

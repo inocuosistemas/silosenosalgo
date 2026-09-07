@@ -408,9 +408,18 @@ export const EVENT_PRESENCE_MS = 60_000
 /** Un participante del evento, tal y como lo ve el lobby y el mapa. */
 export interface EventMember {
   userId: string
-  /** Si es quien ORGANIZA la carrera. El evento cuelga de él: no se le puede
-   *  sacar de la parrilla —si quiere dejar de correrla, se sale él—. */
+  /** Si es quien CREÓ la carrera. El evento cuelga de él: no se le puede sacar
+   *  de la parrilla —si quiere dejar de correrla, se sale él—. */
   isOwner: boolean
+  /**
+   * Si el dueño le ha nombrado ORGANIZADOR de esta carrera.
+   *
+   * De esta carrera y no de la aplicación: alguien puede organizar la del club
+   * y ser un participante más en la del pueblo de al lado. Puede repartir el
+   * enlace de invitación y escribir en el tablón; nada que toque el recorrido,
+   * las horas o el cierre.
+   */
+  isOrganizer: boolean
   username: string
   /** Dorsal de la carrera. Lo pone cada uno, y el organizador para cualquiera. */
   bib: string | null
@@ -505,6 +514,9 @@ export interface EventInfo {
   stats?: EventStats | null
   /** El que lo creó puede editarlo: base, foto, código y borrado. */
   isOwner: boolean
+  /** Si QUIEN PREGUNTA puede organizar: el dueño, un organizador nombrado o
+   *  quien administra. Es lo que abre repartir invitaciones y el tablón. */
+  canOrganize?: boolean
   /** Código de unión MULTIUSO. Solo se envía al dueño del evento. */
   inviteCode?: string
   /** Token del enlace público (para quien no participa). Solo al dueño;

@@ -2,6 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { EVENT_NOTES_MAX as NOTES_MAX } from '../../../../shared/wireTypes'
 import { cierraEvento } from '../../../lib/eventStats'
@@ -101,7 +102,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
     .bind(id).first<{ createdBy: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
-  if (ev.createdBy !== user.id) return json({ error: 'forbidden' }, 403)
+  // El TABLÓN lo escribe también quien organiza: es lo que se va anunciando
+  // durante el día —un cambio de recorrido, dónde aparcar— y hacerlo depender
+  // de una sola persona que está corriendo es dejarlo sin escribir. Lo demás
+  // de esta puerta (colores, salida, porra) sigue siendo del dueño: son
+  // decisiones de la carrera, no recados.
+  const soloNotas = tocaNotas && !tocaColores && !tocaSalida && !tocaPorra
+    && !tocaCierre && !tocaLimite
+  const permitido = ev.createdBy === user.id
+    || (soloNotas && await puedeOrganizar(env, id, user))
+  if (!permitido) return json({ error: 'forbidden' }, 403)
 
   if (tocaColores) {
     await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ? AND created_by = ?')

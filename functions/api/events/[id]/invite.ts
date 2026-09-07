@@ -2,6 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { genId } from '../../../../shared/ids'
 import type { CreateInviteResponse } from '../../../../shared/wireTypes'
@@ -24,7 +25,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
     .bind(id).first<{ createdBy: string }>()
-  if (!ev || ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
+  if (!ev) return json({ error: 'not_found' }, 404)
+  // También los organizadores que haya nombrado: repartir el enlace es
+  // justamente lo que hace falta delegar cuando el dueño está corriendo.
+  if (!(await puedeOrganizar(env, id, user))) return json({ error: 'not_found' }, 404)
 
   const code = genId(12)
   await env.DB.prepare('UPDATE events SET invite_code = ? WHERE id = ? AND created_by = ?')

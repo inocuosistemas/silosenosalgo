@@ -11,8 +11,10 @@ import { useState, type ReactNode } from 'react'
  * Por eso el criterio de si nace abierta es siempre el mismo: abierta cuando
  * queda algo por decidir, cerrada cuando ya está decidido.
  */
-export function Plegable({ title, summary, defaultOpen = false, children }: {
+export function Plegable({ title, icon, summary, defaultOpen = false, children }: {
   title: string
+  /** Un icono delante del título, cuando la sección se busca de un vistazo. */
+  icon?: ReactNode
   /** Qué hay elegido ahora mismo. Se ve con la sección cerrada. */
   summary?: ReactNode
   defaultOpen?: boolean
@@ -26,6 +28,7 @@ export function Plegable({ title, summary, defaultOpen = false, children }: {
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
       >
+        {icon && <span className="shrink-0 text-slate-500">{icon}</span>}
         <span className="text-[11px] uppercase tracking-wider text-slate-500 shrink-0">{title}</span>
         {!open && summary !== undefined && (
           <span className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-slate-300">{summary}</span>

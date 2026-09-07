@@ -1,0 +1,16 @@
+-- Un participante puede ser ORGANIZADOR de su carrera.
+--
+-- Hasta ahora un evento tenía dos niveles y nada en medio: quien lo creó, que
+-- lo puede todo, y el resto, que no puede nada. En una carrera real hay más de
+-- una persona al cargo —quien reparte los enlaces, quien va escribiendo en el
+-- tablón lo que la organización va anunciando— y todas dependían de una sola,
+-- que además suele estar corriendo.
+--
+-- No es un rol global sino de ESTE evento: alguien puede organizar la carrera
+-- del club y ser un participante más en la del pueblo de al lado. Por eso vive
+-- en la membresía y no en la cuenta.
+--
+-- Quien creó el evento sigue siendo el dueño y no necesita esta marca: manda
+-- por `events.created_by`, y de él cuelga todo lo demás —borrar la carrera,
+-- cambiar el recorrido, nombrar a estos organizadores—.
+ALTER TABLE event_members ADD COLUMN organizer INTEGER NOT NULL DEFAULT 0;

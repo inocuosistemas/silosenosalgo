@@ -282,6 +282,22 @@ export async function expulsaDelEvento(id: string, userId: string): Promise<void
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Nombrar (o dejar de nombrar) organizador a un participante.
+ *
+ * Solo el dueño del evento y quien administra. Un organizador puede repartir el
+ * enlace de invitación y escribir en el tablón; nada que toque el recorrido,
+ * las horas ni el cierre.
+ */
+export async function setEventOrganizer(id: string, userId: string, organizer: boolean): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/organizador`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, organizer }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 export async function deleteEvent(id: string): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}`, {
     method: 'DELETE', credentials: 'same-origin',

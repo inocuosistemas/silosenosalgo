@@ -65,9 +65,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // repartir el código ni tocar la foto— sería absurdo.
   const isOwner = ev.createdBy === user.id
   const me = await env.DB.prepare(
-    'SELECT color, plan_overlay AS planOverlay FROM event_members WHERE event_id = ? AND user_id = ?',
-  ).bind(id, user.id).first<{ color: string | null; planOverlay: string | null }>()
+    'SELECT color, plan_overlay AS planOverlay, organizer FROM event_members WHERE event_id = ? AND user_id = ?',
+  ).bind(id, user.id).first<{ color: string | null; planOverlay: string | null; organizer: number }>()
   if (!me && !isOwner) return json({ error: 'not_found' }, 404)
+  /** Si QUIEN PREGUNTA puede organizar: reparte invitaciones y escribe el tablón. */
+  const organiza = isOwner || user.isAdmin || me?.organizer === 1
 
   const now = Date.now()
   // La presencia es de los que corren: quien solo organiza no aparece "en la
@@ -83,7 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const rows = await env.DB.prepare(
     `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
             m.emoji AS emoji, m.emoji_key AS emojiKey, m.joined_at AS joinedAt, m.last_seen AS lastSeen,
-            m.plan_overlay IS NOT NULL AS hasPlan,
+            m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer,
             (SELECT t.id FROM tracking_sessions t
               WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
                 AND t.status = 'active' AND t.expires_at > ?
@@ -95,6 +97,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     userId: string; username: string; color: string | null; bib: string | null
     emoji: string | null; emojiKey: string | null
     joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null
+    organizer: number
   }>()
 
   const members: EventMember[] = (rows.results ?? []).map((r) => ({
@@ -102,6 +105,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     // de la parrilla —el evento cuelga de él— y sin decirlo aquí la pantalla
     // ofrecería un botón que el servidor va a rechazar.
     isOwner: r.userId === ev.createdBy,
+    isOrganizer: r.organizer === 1,
     userId: r.userId,
     username: r.username,
     color: r.color,
@@ -143,10 +147,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     // tiene). Se releen de la base cuando el cierre acaba de pasar aquí mismo.
     stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     isOwner,
+    canOrganize: organiza,
   }
-  // El código de unión es del organizador: con él se ENTRA en la carrera, y
-  // repartirlo es decidir quién corre.
-  if (isOwner && ev.inviteCode) event.inviteCode = ev.inviteCode
+  // El código de unión es de quien ORGANIZA: con él se ENTRA en la carrera, y
+  // repartirlo es decidir quién corre. Va también a los organizadores
+  // nombrados, que es justo el recado que se delega —el dueño suele estar
+  // corriendo cuando alguien pregunta cómo se entra—.
+  if (organiza && ev.inviteCode) event.inviteCode = ev.inviteCode
   // El enlace de espectador, en cambio, lo ve CUALQUIER participante — una vez
   // publicado. PUBLICARLO sigue siendo del organizador, porque enseña a todos
   // los participantes de golpe; pero cuando ya está publicado, esconderle el
