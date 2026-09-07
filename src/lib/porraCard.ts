@@ -285,6 +285,10 @@ export function dibujaPorra(datos: DatosPorra, colorSi: string, colorNo: string)
   // ── Los corredores ─────────────────────────────────────────────────────
   if (filas.length > 0) {
     y += 22
+    // La alineación se fija aquí a propósito: viene en 'right' de los números
+    // de "Quién gana", y un título escrito hacia la izquierda desde el margen
+    // se sale del lienzo.
+    ctx.textAlign = 'left'
     ctx.font = fuente(13, 700)
     ctx.fillStyle = '#e2e8f0'
     ctx.fillText('¿Acaba? · ¿en cuánto?', M, y)
