@@ -97,8 +97,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     notes = raw || null
   }
 
-  // La propiedad se comprueba con un SELECT y se repite en el WHERE: nunca se
-  // ramifica sobre `meta.changes`, que en producción no es de fiar.
+  // El permiso se comprueba con un SELECT y NO se ramifica sobre
+  // `meta.changes`, que en producción no es de fiar. Lo que ya no se puede
+  // hacer es repetirlo en el WHERE como `created_by = ?`: desde que hay
+  // organizadores, quien actualiza no siempre es el dueño, y ese WHERE dejaría
+  // la actualización sin efecto y en silencio.
   const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
     .bind(id).first<{ createdBy: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
@@ -107,10 +110,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // de una sola persona que está corriendo es dejarlo sin escribir. Lo demás
   // de esta puerta (colores, salida, porra) sigue siendo del dueño: son
   // decisiones de la carrera, no recados.
-  const soloNotas = tocaNotas && !tocaColores && !tocaSalida && !tocaPorra
-    && !tocaCierre && !tocaLimite
+  // Lo que puede tocar QUIEN ORGANIZA: el tablón, la hora de salida, la de
+  // cierre y el límite. Son las cosas que cambian el mismo día —la
+  // organización retrasa la salida media hora, amplía el corte por el
+  // temporal— y esperar a que el dueño mire el móvil es tenerlas mal en
+  // pantalla mientras tanto.
+  //
+  // Lo que NO: los colores y la porra. No son recados sino decisiones sobre
+  // cómo funciona la carrera, y ninguna hace falta con prisa.
+  const soloDeOrganizacion = !tocaColores && !tocaPorra
   const permitido = ev.createdBy === user.id
-    || (soloNotas && await puedeOrganizar(env, id, user))
+    || (soloDeOrganizacion && await puedeOrganizar(env, id, user))
   if (!permitido) return json({ error: 'forbidden' }, 403)
 
   if (tocaColores) {
@@ -118,8 +128,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       .bind(body.colorsLocked ? 1 : 0, id, user.id).run()
   }
   if (tocaNotas) {
-    await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ? AND created_by = ?')
-      .bind(notes, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ?')
+      .bind(notes, id).run()
   }
   if (tocaPorra) {
     // Apagarla NO borra los pronósticos: quien organiza puede estar quitándola
@@ -129,8 +139,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       .bind(body.betsEnabled ? 1 : 0, id, user.id).run()
   }
   if (tocaCierre) {
-    await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
-      .bind(endsAt, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ?')
+      .bind(endsAt, id).run()
   }
   // La distancia del recorrido. La calcula quien tiene delante el payload —el
   // servidor no lo abre nunca— y normalmente llega al publicarlo; esto es para
@@ -145,7 +155,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       ? JSON.stringify(body.polyline).slice(0, 400_000)
       : null
     await env.DB.prepare(
-      'UPDATE events SET plan_total_km = ?, plan_polyline = COALESCE(?, plan_polyline) WHERE id = ? AND created_by = ?',
+      'UPDATE events SET plan_total_km = ?, plan_polyline = COALESCE(?, plan_polyline) WHERE id = ?',
     ).bind(body.totalKm as number, linea, id, user.id).run()
     // Si la carrera YA está cerrada, sus resultados se congelaron sin este dato
     // —y por eso decían que no llegó nadie—. Se recalculan con él.
@@ -157,19 +167,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     // Cambia los filtros de velocidad de los resultados, asi que si la carrera
     // ya esta cerrada hay que volver a pasarlos: con la actividad equivocada,
     // o se cuelan saltos de GPS o se recortan marcas buenas.
-    await env.DB.prepare('UPDATE events SET activity = ? WHERE id = ? AND created_by = ?')
-      .bind(body.activity as string, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET activity = ? WHERE id = ?')
+      .bind(body.activity as string, id).run()
     const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt, plan_total_km AS km FROM events WHERE id = ?')
       .bind(id).first<{ endedAt: number | null; km: number | null }>()
     if (cerrado?.endedAt) await cierraEvento(env, id, cerrado.endedAt, cerrado.km)
   }
   if (tocaLimite) {
-    await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')
-      .bind(limitMin, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ?')
+      .bind(limitMin, id).run()
   }
   if (tocaSalida) {
-    await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ? AND created_by = ?')
-      .bind(startsAt, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET starts_at = ? WHERE id = ?')
+      .bind(startsAt, id).run()
   }
   // La hora de cierre es la verdad —es contra lo que se cierra la carrera— pero
   // se puede llegar a ella por dos caminos. Si hay salida y límite, la resta
@@ -182,11 +192,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     ).bind(id).first<{ startsAt: number | null; endsAt: number | null; limitMin: number | null }>()
     if (ev2) {
       if (!tocaCierre && ev2.startsAt !== null && ev2.limitMin !== null) {
-        await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ? AND created_by = ?')
-          .bind(ev2.startsAt + ev2.limitMin * 60_000, id, user.id).run()
+        await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ?')
+          .bind(ev2.startsAt + ev2.limitMin * 60_000, id).run()
       } else if (tocaCierre && ev2.startsAt !== null && ev2.endsAt !== null && ev2.endsAt > ev2.startsAt) {
-        await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ? AND created_by = ?')
-          .bind(Math.round((ev2.endsAt - ev2.startsAt) / 60_000), id, user.id).run()
+        await env.DB.prepare('UPDATE events SET limit_min = ? WHERE id = ?')
+          .bind(Math.round((ev2.endsAt - ev2.startsAt) / 60_000), id).run()
       }
     }
   }

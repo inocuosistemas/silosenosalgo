@@ -2,6 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 
 /**
@@ -28,9 +29,17 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
-    .bind(id).first<{ createdBy: string }>()
-  if (!ev || ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
+  const ev = await env.DB.prepare('SELECT created_by AS createdBy, photo_key AS photoKey FROM events WHERE id = ?')
+    .bind(id).first<{ createdBy: string; photoKey: string | null }>()
+  if (!ev) return json({ error: 'not_found' }, 404)
+  // El cartel lo puede PONER quien organiza, pero solo si no había: es el
+  // recado típico —"súbelo tú, que yo estoy en el coche"— y cambiarlo cuando ya
+  // está es otra cosa, una decisión sobre la cara de la carrera que se queda
+  // con quien la montó. Así nadie descubre que su cartel ha cambiado sin más.
+  const suyo = ev.createdBy === user.id || user.isAdmin
+  if (!suyo && !(ev.photoKey === null && await puedeOrganizar(env, id, user))) {
+    return json({ error: 'not_found' }, 404)
+  }
 
   const buf = await request.arrayBuffer()
   if (buf.byteLength === 0) return json({ error: 'invalid_request' }, 400)
@@ -40,8 +49,8 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   await env.SHARE_KV.put(key, buf, { expirationTtl: TTL_SECONDS })
   // `photo_at` es la versión de la URL: sin ella, reencuadrar no cambia nada
   // que las cachés puedan notar y cada uno ve la foto que le tocó.
-  await env.DB.prepare('UPDATE events SET photo_key = ?, photo_at = ? WHERE id = ? AND created_by = ?')
-    .bind(key, Date.now(), id, user.id).run()
+  await env.DB.prepare('UPDATE events SET photo_key = ?, photo_at = ? WHERE id = ?')
+    .bind(key, Date.now(), id).run()
   return new Response(null, { status: 204 })
 }
 

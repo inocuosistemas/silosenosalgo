@@ -645,7 +645,7 @@ export default function EventLobby({ id }: { id: string }) {
           después de la marca, los enlaces y los ajustes, donde nadie lo
           buscaba. */}
       {event.canOrganize && event.inviteCode && (
-        <Plegable title="Invitar participantes" icon={<UserPlus size={13} />} summary="enlace listo">
+        <Plegable orga title="Invitar participantes" icon={<UserPlus size={13} />} summary="enlace listo">
           <p className="text-[11px] text-slate-500 mb-2">
             Este enlace sirve para todo el que quieras: se pega una vez en el grupo. Hace falta tener cuenta para entrar.
           </p>
@@ -910,6 +910,19 @@ export default function EventLobby({ id }: { id: string }) {
       </section>
       )}
 
+      {/* La frontera, dicha. Todo lo de abajo lo ve TODO EL MUNDO cuando se
+          toca: la hora que se cambia aquí es la hora de la carrera, no una
+          preferencia de uno. Con la banda ámbar de cada sección, esta línea es
+          lo que convierte diez plegables sueltos en un bloque. */}
+      {event.canOrganize && (
+        <div className="mt-5 flex items-center gap-2 border-t border-slate-800 pt-4">
+          <Shield size={13} className="shrink-0 text-amber-600" />
+          <h2 className="text-[11px] uppercase tracking-wider text-amber-600/90">Organización</h2>
+          <span className="text-[10px] text-slate-600">
+            {event.isOwner ? 'lo que tocas aquí lo ven todos' : 'te han nombrado organizador'}
+          </span>
+        </div>
+      )}
       {/* ORGANIZACIÓN. Todo lo de aquí abajo se toca una vez, al montar la
           carrera, y luego se mira cero veces: plegado por defecto, con el
           estado en el encabezado para no tener que abrir para comprobar. Quien
@@ -920,8 +933,9 @@ export default function EventLobby({ id }: { id: string }) {
           edición más normal de todas —la organización mueve el avituallamiento
           tres días antes—. El editor sigue siendo el planificador de siempre;
           lo que faltaba era la puerta. */}
-      {event.isOwner && (
+      {event.canOrganize && (
         <Plegable
+          orga
           title="Recorrido del evento"
           summary={event.planName ?? (event.planShareId ? 'puesto' : 'sin recorrido')}
         >
@@ -949,8 +963,9 @@ export default function EventLobby({ id }: { id: string }) {
         </Plegable>
       )}
 
-      {event.isOwner && (
+      {event.canOrganize && (
         <Plegable
+          orga
           title="Salida oficial"
           summary={event.startsAt ? fmtDate(event.startsAt) : 'sin fijar'}
         >
@@ -980,8 +995,9 @@ export default function EventLobby({ id }: { id: string }) {
           descarta un salto de GPS no puede ser el mismo andando que en bici,
           donde 12 km/h es ir de paseo. Sale sola del recorrido publicado; esto
           es para corregirla. */}
-      {event.isOwner && (
+      {event.canOrganize && (
         <Plegable
+          orga
           title="Tipo de actividad"
           summary={event.activity ? ACTIVIDADES[event.activity] ?? event.activity : 'sin definir'}
         >
@@ -1014,6 +1030,7 @@ export default function EventLobby({ id }: { id: string }) {
           deja de admitir gente— y hasta ahora sencillamente no existía. */}
       {event.isOwner && (
         <Plegable
+          orga
           title="🏁 Terminar la carrera"
           summary={event.endedAt ? `terminada ${fmtDate(event.endedAt)}` : event.endsAt ? `cierra ${fmtDate(event.endsAt)}` : 'en marcha'}
         >
@@ -1119,6 +1136,7 @@ export default function EventLobby({ id }: { id: string }) {
           Es cosa de la carrera, como la salida o la foto. */}
       {event.isOwner && (
         <Plegable
+          orga
           title="🔮 La porra"
           summary={event.betsEnabled ? 'abierta' : 'apagada'}
         >
@@ -1154,8 +1172,8 @@ export default function EventLobby({ id }: { id: string }) {
         </Plegable>
       )}
 
-      {event.isOwner && (
-        <Plegable title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
+      {event.canOrganize && !(event.hasPhoto && !event.isOwner) && (
+        <Plegable orga title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
           <label className="inline-block px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50 cursor-pointer">
             {event.hasPhoto ? 'Cambiar foto' : 'Subir foto'}
             <input

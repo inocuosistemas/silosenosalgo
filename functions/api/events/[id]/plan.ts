@@ -2,6 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { genId } from '../../../../shared/ids'
 
@@ -43,7 +44,11 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
 
   const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
     .bind(id).first<{ createdBy: string }>()
-  if (!ev || ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
+  if (!ev) return json({ error: 'not_found' }, 404)
+  // También los organizadores nombrados: cambiar el recorrido a última hora
+  // —el rodeo por unas obras, la variante por mal tiempo— es exactamente lo que
+  // hay que poder hacer sin esperar a que el dueño mire el móvil.
+  if (!(await puedeOrganizar(env, id, user))) return json({ error: 'not_found' }, 404)
 
   const buf = await request.arrayBuffer()
   if (buf.byteLength === 0) return json({ error: 'invalid_request' }, 400)
@@ -114,10 +119,10 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
               WHEN ? IS NOT NULL AND starts_at IS NOT NULL AND ? > starts_at
               THEN CAST((? - starts_at) / 60000 AS INTEGER) ELSE limit_min END,
             plan_updated_at = ?, plan_change = ?
-      WHERE id = ? AND created_by = ?`,
+      WHERE id = ?`,
   ).bind(
     shareId, planName, startsAt, totalKm, endsAt, activity,
-    endsAt, endsAt, endsAt, Date.now(), planChange, id, user.id,
+    endsAt, endsAt, endsAt, Date.now(), planChange, id,
   ).run()
 
   return json({ planShareId: shareId }, 200, { 'Cache-Control': 'no-store' })

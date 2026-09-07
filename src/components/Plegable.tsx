@@ -11,10 +11,20 @@ import { useState, type ReactNode } from 'react'
  * Por eso el criterio de si nace abierta es siempre el mismo: abierta cuando
  * queda algo por decidir, cerrada cuando ya está decidido.
  */
-export function Plegable({ title, icon, summary, defaultOpen = false, children }: {
+export function Plegable({ title, icon, summary, orga = false, defaultOpen = false, children }: {
   title: string
   /** Un icono delante del título, cuando la sección se busca de un vistazo. */
   icon?: ReactNode
+  /**
+   * Si esto es cosa de QUIEN ORGANIZA.
+   *
+   * Se pinta con una banda ámbar a la izquierda, la misma en todas: en una
+   * pantalla que mezcla lo de uno —su marca, su planificación, su baliza— con
+   * lo de la carrera entera, la banda dice de un vistazo cuál es cuál. Sin
+   * ella hay que leer cada título para saber si lo que se va a tocar lo ve
+   * todo el mundo.
+   */
+  orga?: boolean
   /** Qué hay elegido ahora mismo. Se ve con la sección cerrada. */
   summary?: ReactNode
   defaultOpen?: boolean
@@ -22,7 +32,9 @@ export function Plegable({ title, icon, summary, defaultOpen = false, children }
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60">
+    <section className={`mt-3 rounded-lg border bg-slate-950/60 ${
+      orga ? 'border-slate-800 border-l-2 border-l-amber-700/70' : 'border-slate-800'
+    }`}>
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
