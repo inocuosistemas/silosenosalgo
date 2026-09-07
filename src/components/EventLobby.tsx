@@ -611,7 +611,7 @@ export default function EventLobby({ id }: { id: string }) {
               // La marca de los demás solo la toca quien organiza: es de cada
               // uno, pero alguien tiene que poder arreglar un emoji repetido o
               // repartir los colores cuando están reservados.
-              canEditMark={event.isOwner}
+              canEditMark={!!event.canOrganize}
               editing={editing === m.userId}
               onToggleMark={() => setEditing(editing === m.userId ? null : m.userId)}
               takenEmojis={allEmojiKeys.filter((k) => k !== emojiKeys.get(m.userId))}
@@ -749,11 +749,11 @@ export default function EventLobby({ id }: { id: string }) {
             <ColorPalette
               value={me?.color ?? null}
               taken={takenColors}
-              disabled={event.colorsLocked && !event.isOwner}
+              disabled={event.colorsLocked && !event.canOrganize}
               busy={busy}
               onPick={(c) => void pickColor(c)}
             />
-            {event.colorsLocked && !event.isOwner && (
+            {event.colorsLocked && !event.canOrganize && (
               <p className="mt-1.5 text-[11px] text-slate-500">
                 En esta carrera los colores agrupan —el club, el relevo, la categoría— y los reparte quien
                 organiza. Tu emoji sí lo eliges tú.
@@ -762,7 +762,7 @@ export default function EventLobby({ id }: { id: string }) {
           </div>
 
           {/* El candado, solo para quien organiza */}
-          {event.isOwner && (
+          {event.canOrganize && (
             <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-400">
               <input
                 type="checkbox"

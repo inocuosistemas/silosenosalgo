@@ -328,6 +328,34 @@ Pasos, en orden:
    el APK por un enlace. En iOS no hay reparto directo: sin cuenta de pago, una
    app instalada desde Xcode **caduca a los 7 días**.
 
+### Mientras tanto: instalar con el certificado gratuito
+
+Hasta que Apple apruebe el alta (`4YGPNGP75X`, en verificación), la app se
+instala en el iPhone desde aquí y hay que repetirlo cada semana:
+
+```bash
+ios/scripts/instala-en-iphone.sh          # al primer iPhone que vea
+ios/scripts/instala-en-iphone.sh <UDID>   # a uno concreto
+```
+
+El script compila la web, la copia dentro de la app —sin ese paso se instala
+con el visor viejo aunque la web esté al día—, regenera el proyecto, firma y
+lo instala.
+
+**Un requisito que hay que hacer A MANO una vez**: la cuenta de Apple tiene que
+estar dada de alta en Xcode (*Xcode ▸ Settings ▸ Accounts ▸ + ▸ Apple ID*). Es
+una pantalla de contraseña, así que no la puede hacer un script. Sin eso, el
+firmado automático no puede crear el perfil y el build muere con:
+
+```
+error: No Accounts: Add a new account in Accounts settings.
+error: No profiles for 'com.themakercrowd.silosenosalgo' were found
+```
+
+El equipo del certificado gratuito es `GQN76XXKG3` (personal, a nombre de la
+persona). Va por variable y no en `project.yml`, porque ahí irá el de la
+organización cuando exista y no conviene que uno pise al otro.
+
 ## Qué cambió al unificar la identidad
 
 El proyecto de iOS venía con el prefijo `app.silosenosalgo`, de un dominio que

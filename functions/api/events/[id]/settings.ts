@@ -109,8 +109,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // durante el día —un cambio de recorrido, dónde aparcar— y hacerlo depender
   // de una sola persona que está corriendo es dejarlo sin escribir. Lo demás
   // de esta puerta (colores, salida, porra) sigue siendo del dueño: son
-  // decisiones de la carrera, no recados.
-  // Lo que puede tocar QUIEN ORGANIZA: el tablón, la hora de salida, la de
+  // Todo lo de esta puerta lo puede QUIEN ORGANIZA: el tablón, la hora de salida, la de
   // cierre y el límite. Son las cosas que cambian el mismo día —la
   // organización retrasa la salida media hora, amplía el corte por el
   // temporal— y esperar a que el dueño mire el móvil es tenerlas mal en
@@ -119,17 +118,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // La porra también: encenderla o apagarla es del día —"esto se anima, ponla"—
   // y apagarla no borra nada, así que no hay nada irreversible que proteger.
   //
-  // Lo que NO: el bloqueo de colores. Ahí el organizador reparte los colores de
-  // todos a mano, y es la única de estas que cambia lo que puede hacer el
-  // RESTO de la gente, no lo que dice la carrera.
-  const soloDeOrganizacion = !tocaColores
-  const permitido = ev.createdBy === user.id
-    || (soloDeOrganizacion && await puedeOrganizar(env, id, user))
-  if (!permitido) return json({ error: 'forbidden' }, 403)
+  // Y el reparto de colores, que es de las que más se usan el día antes:
+  // ponerlo agrupa por equipos —todo el club en verde— y quitarlo devuelve a
+  // cada uno el suyo. Nada de esto se pierde al cambiarlo.
+  if (!(await puedeOrganizar(env, id, user))) return json({ error: 'forbidden' }, 403)
 
   if (tocaColores) {
-    await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ? AND created_by = ?')
-      .bind(body.colorsLocked ? 1 : 0, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ?')
+      .bind(body.colorsLocked ? 1 : 0, id).run()
   }
   if (tocaNotas) {
     await env.DB.prepare('UPDATE events SET notes = ? WHERE id = ?')
