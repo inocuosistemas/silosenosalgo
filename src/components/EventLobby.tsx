@@ -45,6 +45,52 @@ export default function EventLobby({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
   /** A quién se está a punto de sacar de la parrilla (su userId). */
   const [expulsando, setExpulsando] = useState<string | null>(null)
+  /** Lo último que se subió como vista previa, para no repetir la subida. */
+  const tarjetaSubida = useRef<string | null>(null)
+
+  /**
+   * La vista previa del enlace, dibujada y subida.
+   *
+   * Quien pega el enlace de la parrilla en el grupo no ve la aplicación: ve la
+   * pastilla que arma WhatsApp con lo que diga el HTML, y decide si toca por
+   * eso. Se dibuja aquí porque en el borde no hay lienzo, y la sube QUIEN
+   * ORGANIZA, que es quien pone el nombre, el cartel y la hora: si la subiera
+   * cualquiera que abre la parrilla, treinta personas dibujarían la misma
+   * imagen treinta veces.
+   *
+   * Solo cuando algo de lo que se ve ha cambiado —la firma—: sin eso, cada
+   * visita del organizador repetiría una subida idéntica.
+   */
+  useEffect(() => {
+    const ev = data?.event
+    if (!ev?.isOwner) return
+    const cuantos = data?.members.length ?? 0
+    const firma = [ev.name, ev.hasPhoto, ev.photoAt ?? '', ev.startsAt ?? '', ev.endedAt ?? '',
+      ev.planTotalKm ?? '', cuantos].join('|')
+    if (tarjetaSubida.current === firma) return
+    tarjetaSubida.current = firma
+    void (async () => {
+      try {
+        const { dibujaTarjetaEvento, cargaImagen } = await import('../lib/eventCard')
+        // `hasPhoto` y no `photoAt`: los eventos anteriores a que existiera esa
+        // marca de tiempo tienen cartel y la traen a null, y se quedaban sin él.
+        const cartel = ev.hasPhoto ? await cargaImagen(eventPhotoUrl(ev.id, ev.photoAt)) : null
+        const png = dibujaTarjetaEvento({
+          nombre: ev.name,
+          cartel,
+          cuando: ev.startsAt ? new Date(ev.startsAt).toLocaleString('es-ES', {
+            weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+          }) : null,
+          participantes: cuantos,
+          km: ev.planTotalKm ?? null,
+          desnivel: null,
+          terminada: ev.endedAt !== null,
+        })
+        const blob = await (await fetch(png)).blob()
+        await fetch(`/og/evento-${encodeURIComponent(ev.id)}.png`, { method: 'PUT', body: blob })
+      } catch { /* al mejor esfuerzo: sin tarjeta, la vista previa es la de antes */ }
+    })()
+  }, [data])
   const [copied, setCopied] = useState(false)
   const [copiedPublic, setCopiedPublic] = useState(false)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
@@ -162,6 +208,7 @@ export default function EventLobby({ id }: { id: string }) {
       </Shell>
     )
   }
+
   if (!data) return <Shell><p className="text-sm text-slate-400">Cargando el evento…</p></Shell>
 
   const { event, members: enParrilla, takenColors, takenEmojis, myPlanOverlay } = data
@@ -360,6 +407,7 @@ export default function EventLobby({ id }: { id: string }) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     } finally { setBusy(false) }
   }
+
 
   /** Guarda un enlace oficial de la carrera (solo el organizador). */
   async function pedirEnlace(cual: 'trackingUrl' | 'websiteUrl') {

@@ -66,6 +66,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const isTrackLink = !!track && /^[A-Za-z0-9_-]{16,32}$/.test(track)
   const eventToken = url.searchParams.get('ev')
   const isEventLink = !!eventToken && /^[A-Za-z0-9_-]{16,32}$/.test(eventToken)
+  const memberEvent = url.searchParams.get('e')
+  const isMemberEventLink = !!memberEvent && /^[A-Za-z0-9_-]{16,32}$/.test(memberEvent)
   const joinCode = url.searchParams.get('evento')
   const isJoinLink = !!joinCode && /^[A-Za-z0-9_-]{8,64}$/.test(joinCode)
   const invite = url.searchParams.get('invite')
@@ -159,6 +161,67 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
           imageUrl = `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
         } else {
           imageUrl = `${url.origin}/og-live.png`
+        }
+      }
+    } catch { /* sin datos del evento, vista previa de marca */ }
+  }
+
+  // Enlace de la PARRILLA (`?e=<id>`). Es el que se pasan entre los que corren,
+  // y era el único de los cuatro que se quedaba con la vista previa de marca:
+  // "previsión meteorológica hora a hora", que no dice ni qué carrera es. Lleva
+  // una tarjeta dibujada para esto —cartel de fondo, nombre, cuándo se sale y
+  // cuántos van—, que sube quien organiza al abrir la parrilla; si todavía no
+  // existe, el cartel a secas, y si tampoco hay, la de "en directo".
+  if (isMemberEventLink) {
+    try {
+      const row = await ctx.env.DB.prepare(
+        `SELECT e.id, e.name, e.starts_at AS startsAt, e.ended_at AS endedAt,
+                e.photo_key AS photoKey, e.photo_at AS photoAt,
+                (SELECT COUNT(*) FROM event_members m WHERE m.event_id = e.id) AS members,
+                (SELECT COUNT(*) FROM tracking_sessions t
+                  WHERE t.event_id = e.id AND t.status = 'active') AS live
+           FROM events e WHERE e.id = ?`,
+      ).bind(memberEvent).first<{
+        id: string; name: string; startsAt: number | null; endedAt: number | null
+        photoKey: string | null; photoAt: number | null; members: number; live: number
+      }>()
+      if (row) {
+        const raw = row.name.trim()
+        const name = raw.length > 48 ? `${raw.slice(0, 47).trimEnd()}…` : raw
+        // Lo primero del título es lo único que se lee seguro, así que dice el
+        // estado: en directo manda sobre todo lo demás.
+        title = row.live > 0 ? `🔴 En directo · ${name}`
+          : row.endedAt ? `🏁 ${name} · terminada`
+          : `🏁 Parrilla · ${name}`
+        const quienes = row.members === 1 ? '1 participante' : `${row.members} participantes`
+        desc = row.live > 0
+          ? `Sigue en el mapa a ${row.live} ${row.live === 1 ? 'participante' : 'participantes'}: posición, ritmo y margen sobre los cortes.`
+          : row.endedAt
+            ? `Resultados, meta y replay de la carrera. ${quienes}.`
+            : [row.startsAt ? fechaLarga(row.startsAt) : null, quienes,
+                'Prepara tu baliza y sigue a los tuyos en el mapa común.'].filter(Boolean).join(' · ')
+        // Se comprueba que la tarjeta EXISTE antes de anunciarla: si no, el
+        // previsualizador se come un 404 y no enseña imagen ninguna.
+        const propia = `evento-${row.id}`
+        let puesta = false
+        try {
+          const stored = await ctx.env.SHARE_KV.get(`${propia}:img`, 'stream')
+          if (stored) {
+            // Con versión: la puerta sirve estas tarjetas con caché de un año
+            // —para las de una ruta compartida está bien, que no cambian
+            // nunca— y la de un evento sí cambia: entra gente, se pone la foto,
+            // se fija la hora. Sin esto, la primera que se subiera sería la que
+            // vería el grupo para siempre.
+            const v = `${row.photoAt ?? 0}-${row.members}-${row.startsAt ?? 0}`
+            imageUrl = `${url.origin}/og/${propia}.png?v=${v}`
+            puesta = true
+            await stored.cancel()
+          }
+        } catch { /* sin tarjeta propia, se cae al cartel */ }
+        if (!puesta) {
+          imageUrl = row.photoKey
+            ? `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
+            : `${url.origin}/og-live.png`
         }
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
