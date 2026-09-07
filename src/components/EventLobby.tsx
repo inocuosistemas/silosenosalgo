@@ -1028,7 +1028,7 @@ export default function EventLobby({ id }: { id: string }) {
       {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
           menú: es la acción que cierra la historia —congela los resultados y
           deja de admitir gente— y hasta ahora sencillamente no existía. */}
-      {event.isOwner && (
+      {event.canOrganize && (
         <Plegable
           orga
           title="🏁 Terminar la carrera"
@@ -1134,7 +1134,7 @@ export default function EventLobby({ id }: { id: string }) {
       {/* La porra vive con los ajustes del EVENTO y no dentro de "Mi marca":
           quien organiza puede no correr, y allí ni siquiera veía la casilla.
           Es cosa de la carrera, como la salida o la foto. */}
-      {event.isOwner && (
+      {event.canOrganize && (
         <Plegable
           orga
           title="🔮 La porra"

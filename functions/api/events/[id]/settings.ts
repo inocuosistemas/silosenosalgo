@@ -116,9 +116,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // temporal— y esperar a que el dueño mire el móvil es tenerlas mal en
   // pantalla mientras tanto.
   //
-  // Lo que NO: los colores y la porra. No son recados sino decisiones sobre
-  // cómo funciona la carrera, y ninguna hace falta con prisa.
-  const soloDeOrganizacion = !tocaColores && !tocaPorra
+  // La porra también: encenderla o apagarla es del día —"esto se anima, ponla"—
+  // y apagarla no borra nada, así que no hay nada irreversible que proteger.
+  //
+  // Lo que NO: el bloqueo de colores. Ahí el organizador reparte los colores de
+  // todos a mano, y es la única de estas que cambia lo que puede hacer el
+  // RESTO de la gente, no lo que dice la carrera.
+  const soloDeOrganizacion = !tocaColores
   const permitido = ev.createdBy === user.id
     || (soloDeOrganizacion && await puedeOrganizar(env, id, user))
   if (!permitido) return json({ error: 'forbidden' }, 403)
@@ -135,8 +139,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     // Apagarla NO borra los pronósticos: quien organiza puede estar quitándola
     // un momento para reabrirla, y perder la porra entera por un clic sería
     // una sorpresa cara. Dejan de verse, y vuelven si se reactiva.
-    await env.DB.prepare('UPDATE events SET bets_enabled = ? WHERE id = ? AND created_by = ?')
-      .bind(body.betsEnabled ? 1 : 0, id, user.id).run()
+    await env.DB.prepare('UPDATE events SET bets_enabled = ? WHERE id = ?')
+      .bind(body.betsEnabled ? 1 : 0, id).run()
   }
   if (tocaCierre) {
     await env.DB.prepare('UPDATE events SET ends_at = ? WHERE id = ?')

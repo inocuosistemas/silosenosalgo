@@ -2,6 +2,7 @@
 import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { cierraEvento } from '../../../lib/eventStats'
 
@@ -33,7 +34,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     'SELECT created_by AS createdBy, plan_total_km AS totalKm FROM events WHERE id = ?',
   ).bind(id).first<{ createdBy: string; totalKm: number | null }>()
   if (!ev) return json({ error: 'not_found' }, 404)
-  if (ev.createdBy !== user.id) return json({ error: 'forbidden' }, 403)
+  // También quien organiza: dar la carrera por terminada es una decisión del
+  // día —se ha retirado el último, la organización ha recogido la meta— y la
+  // toma quien está allí, no necesariamente quien creó el evento.
+  if (!(await puedeOrganizar(env, id, user))) return json({ error: 'forbidden' }, 403)
 
   const body = (await readJson<{ end?: unknown; recompute?: unknown }>(request)) || {}
   const cerrar = body.end !== false
