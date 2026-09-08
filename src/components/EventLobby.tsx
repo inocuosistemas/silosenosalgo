@@ -10,16 +10,18 @@ import {
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
-  expulsaDelEvento, setEventOrganizer,
+  expulsaDelEvento, setEventOrganizer, getEventBets,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
+import { durationLabel } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
 import { simplificaTrazado, trazadoBastaFino } from '../lib/eventPlan'
 import { BaseChangeNotice } from './BaseChangeNotice'
+import { Dorsal, DorsalGrande, carreraDeBase, type DorsalCarrera } from './Dorsal'
 
 /**
  * LA PARRILLA de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
@@ -45,6 +47,12 @@ export default function EventLobby({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
   /** A quién se está a punto de sacar de la parrilla (su userId). */
   const [expulsando, setExpulsando] = useState<string | null>(null)
+  /** De quién se está mirando el dorsal en grande (su userId), o null. */
+  const [dorsal, setDorsal] = useState<string | null>(null)
+  /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
+  const [carrera, setCarrera] = useState<DorsalCarrera | null>(null)
+  /** Lo que la porra le da a cada uno ("29h 00m – 33h 00m"), por nombre. */
+  const [porras, setPorras] = useState<Map<string, string>>(new Map())
   /** Lo último que se subió como vista previa, para no repetir la subida. */
   const tarjetaSubida = useRef<string | null>(null)
 
@@ -103,6 +111,64 @@ export default function EventLobby({ id }: { id: string }) {
   const [editandoNotas, setEditandoNotas] = useState(false)
   /** Llega con `&marca=1` desde la unión cuando su emoji favorito estaba cogido. */
   const [emojiTaken] = useState(() => new URLSearchParams(window.location.search).has('marca'))
+
+  /** Si ya se preguntó por la porra en esta visita (aunque no hubiera nada). */
+  const porraPedida = useRef(false)
+
+  /**
+   * Lo que hace falta para IMPRIMIR el dorsal, y solo cuando se pide.
+   *
+   * El perfil sale de la base publicada —decenas de miles de puntos— y lo que
+   * le da la porra, de los pronósticos: dos cosas que la parrilla no necesita
+   * para nada más. Así que no se bajan al abrir la pantalla, sino la primera
+   * vez que alguien pulsa un dorsal, y se quedan puestas para los demás.
+   */
+  useEffect(() => {
+    const ev = data?.event
+    if (dorsal === null || !ev) return
+    let vivo = true
+    if (carrera === null && ev.planShareId) {
+      void (async () => {
+        try {
+          const base = await getEventPlan(ev.planShareId!)
+          if (!vivo) return
+          setCarrera(carreraDeBase(base, {
+            nombre: ev.name,
+            salida: ev.startsAt,
+            // El cierre publicado manda; si el evento no lo tiene, el último
+            // corte del recorrido, que es de donde sale.
+            cierre: ev.endsAt ?? ultimoCierre(base),
+          }))
+        } catch { /* sin recorrido el dorsal sale sin perfil, y sigue valiendo */ }
+      })()
+    }
+    if (!porraPedida.current && ev.betsEnabled) {
+      porraPedida.current = true
+      void (async () => {
+        try {
+          const d = await getEventBets(id)
+          if (!vivo || d.startsAt === null) return
+          const salida = d.startsAt
+          const mins = new Map<string, number[]>()
+          for (const b of d.bets) {
+            if (b.kind !== 'finish_time') continue
+            const m = (Number(b.value) - salida) / 60_000
+            if (!Number.isFinite(m) || m <= 0) continue
+            mins.set(b.target, [...(mins.get(b.target) ?? []), m])
+          }
+          const dicho = new Map<string, string>()
+          for (const [nombre, lista] of mins) {
+            const orden = [...lista].sort((a, b) => a - b)
+            dicho.set(nombre, orden.length > 1
+              ? `${durationLabel(orden[0] * 60_000)} – ${durationLabel(orden[orden.length - 1] * 60_000)}`
+              : durationLabel(orden[0] * 60_000))
+          }
+          setPorras(dicho)
+        } catch { /* sin porra, la banda del dorsal va con el día y ya está */ }
+      })()
+    }
+    return () => { vivo = false }
+  }, [dorsal, data, carrera, id])
 
   const refresh = useCallback(async () => {
     try {
@@ -623,6 +689,7 @@ export default function EventLobby({ id }: { id: string }) {
               // dorsales se reparten juntos y quien los tiene delante es él.
               canEditBib={m.userId === user.id || event.isOwner}
               onBib={(userId, actual) => void pedirDorsal(userId, actual)}
+              onDorsal={() => setDorsal(m.userId)}
               // Sacar de la parrilla: quien organiza y quien administra, y
               // nunca a uno mismo —para eso está "salir del evento", que dice
               // lo que hace— ni a quien organiza, que es de quien cuelga todo.
@@ -1276,6 +1343,36 @@ export default function EventLobby({ id }: { id: string }) {
           onDone={(jpeg) => void uploadPhoto(jpeg)}
         />
       )}
+
+      {/* El dorsal en grande. Se abre con lo que ya hay en pantalla y el perfil
+          entra cuando llega: esperar a bajarse el recorrido para enseñar un
+          número que ya sabemos sería hacer esperar por nada. */}
+      {(() => {
+        const m = members.find((x) => x.userId === dorsal)
+        if (!m?.bib) return null
+        return (
+          <DorsalGrande
+            bib={m.bib}
+            username={m.username}
+            emoji={m.emoji}
+            color={m.color}
+            carrera={carrera ?? {
+              nombre: event.name,
+              km: event.planTotalKm ?? null,
+              desnivelM: null,
+              salida: event.startsAt,
+              cierre: event.endsAt ?? null,
+              perfil: [],
+              puntos: [],
+            }}
+            porra={porras.get(m.username) ?? null}
+            onEditar={m.userId === user.id || event.isOwner
+              ? () => { setDorsal(null); void pedirDorsal(m.userId, m.bib ?? '') }
+              : undefined}
+            onClose={() => setDorsal(null)}
+          />
+        )
+      })()}
     </Shell>
   )
 }
@@ -1338,7 +1435,7 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
 }
 
 function MemberRow({
-  m, now, isMe, eventId, canEditBib, onBib,
+  m, now, isMe, eventId, canEditBib, onBib, onDorsal,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
 }: {
@@ -1349,6 +1446,8 @@ function MemberRow({
   /** El propio siempre; los de los demás, solo el organizador. */
   canEditBib: boolean
   onBib: (userId: string, bib: string) => void
+  /** Sacar su dorsal en grande. */
+  onDorsal: () => void
   canEditMark: boolean
   editing: boolean
   onToggleMark: () => void
@@ -1378,23 +1477,20 @@ function MemberRow({
       ) : (
         <MarkBadge emoji={m.emoji} color={m.color} size={24} />
       )}
-      {/* El dorsal, delante del nombre: ese día es el nombre. */}
-      {canEditBib ? (
+      {/* El dorsal, delante del nombre: ese día es el nombre. Pulsarlo lo
+          saca en grande —el impreso entero, con el perfil y los cortes—, y
+          desde ahí se cambia quien pueda; poner el primero sigue siendo un
+          botón aparte, porque de un dorsal que no existe no hay nada que ver. */}
+      {m.bib ? (
+        <Dorsal bib={m.bib} size="md" onClick={onDorsal} title={`Ver el dorsal de ${m.username}`} />
+      ) : canEditBib ? (
         <button
-          onClick={() => onBib(m.userId, m.bib ?? '')}
-          title={m.bib ? 'Cambiar el dorsal' : 'Poner dorsal'}
-          className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition-colors ${
-            m.bib
-              ? 'border-slate-700 bg-slate-800 text-slate-100 hover:border-sky-700'
-              : 'border-dashed border-slate-700 text-slate-500 hover:text-sky-400'
-          }`}
+          onClick={() => onBib(m.userId, '')}
+          title="Poner dorsal"
+          className="shrink-0 rounded border border-dashed border-slate-700 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-500 transition-colors hover:text-sky-400"
         >
-          {m.bib ?? '+ dorsal'}
+          + dorsal
         </button>
-      ) : m.bib ? (
-        <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-100">
-          {m.bib}
-        </span>
       ) : null}
       <span className="text-sm text-slate-200 truncate">
         {m.username}{isMe && <span className="text-slate-500"> · tú</span>}

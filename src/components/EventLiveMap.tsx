@@ -18,6 +18,7 @@ import { paradoDesde } from '../lib/parado'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { ACTIVITY_MAX_SPEED_KMH, haversineKm } from '../lib/timing'
 import { MarkBadge } from './MarkPicker'
+import { Dorsal } from './Dorsal'
 import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
@@ -1235,11 +1236,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   {/* El dorsal, aquí también: en el mapa de una carrera con
                       dorsales es como se busca a alguien, y quien mira desde
                       fuera lo cruza con la clasificación oficial. */}
-                  {r.bib && (
-                    <span className="rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                      {r.bib}
-                    </span>
-                  )}
+                  {r.bib && <Dorsal bib={r.bib} />}
                   {r.username}
                   {/* El borde discontinuo ya lo insinúa, pero a un participante
                       que falta en el mapa hay que decírselo con palabras: sin
@@ -1477,11 +1474,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   {parrilla.map(({ r, key, idle, armed, lost, retirado }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
-                      {r.bib && (
-                        <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                          {r.bib}
-                        </span>
-                      )}
+                      {r.bib && <Dorsal bib={r.bib} />}
                       <span className={`min-w-0 flex-1 truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
                         {r.username}
                       </span>
@@ -1642,11 +1635,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                 {/* El dorsal es como se le conoce ese dia: va delante del
                     nombre, que es lo que hace comparable esta lista con la
                     clasificacion oficial. */}
-                {r.bib && (
-                  <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-[10px] font-bold tabular-nums text-slate-200">
-                    {r.bib}
-                  </span>
-                )}
+                {r.bib && <Dorsal bib={r.bib} />}
                 {idle ? (
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-400">{r.username}</span>
                 ) : (
@@ -1799,11 +1788,7 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
     <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
       <div className="flex items-center gap-2">
         <MarkBadge emoji={r.emoji} color={r.color} size={26} />
-        {r.bib && (
-          <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-200">
-            {r.bib}
-          </span>
-        )}
+        {r.bib && <Dorsal bib={r.bib} size="md" />}
         <span className="truncate text-sm font-bold text-slate-100">{r.username}</span>
         {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
         {/* Seguir: el mapa se recoloca solo en cada refresco y deja de hacerlo

@@ -8,6 +8,7 @@ import {
   type RunnerOutcome, type Proyeccion, type BetScore,
 } from '../../shared/bets'
 import { MarkBadge } from './MarkPicker'
+import { Dorsal } from './Dorsal'
 import { useAuth } from '../lib/AuthContext'
 import { Modal, LoginForm } from './AuthMenu'
 
@@ -310,7 +311,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                   <li key={nombre} className="flex items-center gap-1.5 rounded-lg border border-amber-800/50 bg-amber-950/20 px-2 py-1 text-xs">
                     <span className="w-5 shrink-0 text-center font-bold tabular-nums text-amber-300">{i + 1}º</span>
                     <MarkBadge emoji={r?.emoji ?? null} color={r?.color ?? null} size={18} />
-                    {r?.bib && <span className="tabular-nums text-slate-400">{r.bib}</span>}
+                    {r?.bib && <Dorsal bib={r.bib} />}
                     <span className="min-w-0 flex-1 truncate text-slate-100">{nombre}</span>
                     <button
                       onClick={() => setOrder(order.filter((n) => n !== nombre))}
@@ -332,7 +333,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                 className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 transition-colors hover:border-amber-600"
               >
                 <MarkBadge emoji={r.emoji} color={r.color} size={18} />
-                {r.bib && <span className="tabular-nums text-slate-400">{r.bib}</span>}
+                {r.bib && <Dorsal bib={r.bib} />}
                 {r.username}
                 <span className="text-slate-600">{order.length + 1}º</span>
               </button>
@@ -354,11 +355,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                 <li key={r.username} className="rounded-lg border border-slate-800 bg-slate-950/60 p-2">
                   <div className="flex items-center gap-2">
                     <MarkBadge emoji={r.emoji} color={r.color} size={20} />
-                    {r.bib && (
-                      <span className="rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                        {r.bib}
-                      </span>
-                    )}
+                    {r.bib && <Dorsal bib={r.bib} />}
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{r.username}</span>
                     <div className="flex shrink-0 gap-1">
                       {([['si', 'acaba'], ['no', 'no acaba']] as const).map(([v, label]) => (

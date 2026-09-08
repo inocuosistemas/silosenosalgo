@@ -1,5 +1,6 @@
 import type { EventStats } from '../../shared/wireTypes'
 import { MarkBadge } from './MarkPicker'
+import { Dorsal } from './Dorsal'
 
 /**
  * Los resultados congelados de una carrera, tal como se enseñan.
@@ -70,11 +71,7 @@ export function ListaResultados({ stats }: { stats: EventStats }) {
                 {c.finished ? (c.puesto ?? i + 1) : '·'}
               </span>
               <MarkBadge emoji={c.emoji} color={c.color} size={20} />
-              {c.bib && (
-                <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1 text-[10px] font-bold tabular-nums text-slate-300">
-                  {c.bib}
-                </span>
-              )}
+              {c.bib && <Dorsal bib={c.bib} />}
               <span className="min-w-0 flex-1 truncate text-sm text-slate-100">{c.username}</span>
               {c.finished
                 ? (
