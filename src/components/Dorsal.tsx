@@ -1,7 +1,9 @@
-import { useEffect, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { Share2 } from 'lucide-react'
 import { eventColorHex } from '../../shared/eventColors'
 import type { SharePayloadV1 } from '../lib/sharePayload'
+import { comparteImagen } from '../lib/compartirImagen'
 
 /**
  * El dorsal de la carrera, dibujado como lo que es.
@@ -125,6 +127,12 @@ export function carreraDeBase(
   }
 }
 
+/** "99 km", "42,2 km": el decimal solo cuando dice algo (igual que el impreso). */
+const etiquetaKm = (km: number) => {
+  const uno = Math.round(km * 10) / 10
+  return Number.isInteger(uno) ? `${uno.toFixed(0)} km` : `${uno.toFixed(1).replace('.', ',')} km`
+}
+
 const hora = (ms: number) =>
   new Date(ms).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 const dia = (ms: number) =>
@@ -194,11 +202,50 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
   onEditar?: () => void
   onClose: () => void
 }) {
+  const [compartiendo, setCompartiendo] = useState(false)
+
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', esc)
     return () => window.removeEventListener('keydown', esc)
   }, [onClose])
+
+  /**
+   * El dorsal, al grupo.
+   *
+   * No se fotografía esto: se dibuja aparte a 1080 px de ancho (ver
+   * `dorsalCard.ts`). Lo de aquí está hecho para caber en un móvil, y lo que se
+   * manda tiene que leerse sin ampliar, como la porra.
+   */
+  async function compartir() {
+    if (compartiendo || !carrera) return
+    setCompartiendo(true)
+    try {
+      const { dibujaDorsal } = await import('../lib/dorsalCard')
+      await comparteImagen(
+        dibujaDorsal({
+          bib,
+          nombre: username,
+          emoji,
+          color,
+          carrera: carrera.nombre,
+          km: carrera.km,
+          desnivelM: carrera.desnivelM,
+          salida: carrera.salida,
+          cierre: carrera.cierre,
+          perfil: carrera.perfil,
+          puntos: carrera.puntos,
+          porra,
+        }),
+        `dorsal-${bib.replace(/[^A-Za-z0-9-]/g, '')}.png`,
+        `${username} · dorsal ${bib}`,
+      )
+    } catch {
+      // Sin imagen no hay nada que ofrecer ni remedio que sugerir.
+    } finally {
+      setCompartiendo(false)
+    }
+  }
 
   const hex = color ? eventColorHex(color) : '#94a3b8'
   const puntos = carrera?.puntos ?? []
@@ -240,7 +287,7 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#5b6472]">
                 {[
-                  carrera?.km != null ? `${carrera.km.toFixed(carrera.km < 100 ? 1 : 0)} km` : null,
+                  carrera?.km != null ? etiquetaKm(carrera.km) : null,
                   carrera?.desnivelM ? `${carrera.desnivelM.toLocaleString('es-ES')} m D+` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
@@ -316,6 +363,15 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Compartirlo es la mitad de la gracia: el dorsal se enseña. */}
+            <button
+              type="button"
+              onClick={() => void compartir()}
+              disabled={compartiendo || !carrera}
+              className="flex items-center gap-1.5 rounded-full border border-sky-800 bg-sky-950/60 px-4 py-1.5 text-xs font-semibold text-sky-300 transition-colors hover:border-sky-600 hover:text-sky-100 disabled:opacity-50"
+            >
+              <Share2 size={13} /> {compartiendo ? 'Preparando…' : 'Compartir'}
+            </button>
             {onEditar && (
               <button
                 type="button"

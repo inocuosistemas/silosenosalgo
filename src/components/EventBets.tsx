@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { X, ChevronRight, Share2, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { dibujaPorra, cargaImagen } from '../lib/porraCard'
+import { comparteImagen } from '../lib/compartirImagen'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
   scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
@@ -755,26 +756,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         limiteMin: limitMin ?? null,
       }, C_SI, C_NO)
 
-      const blob = await (await fetch(url)).blob()
-      const fichero = new File([blob], 'porra.png', { type: 'image/png' })
-      const descarga = () => {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = 'porra.png'
-        a.click()
-      }
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
-      if (nav.canShare?.({ files: [fichero] })) {
-        try {
-          await nav.share({ files: [fichero], title: eventName ?? 'La porra' })
-        } catch (e) {
-          // Cancelar el menú NO es un fallo: quien cierra el compartir no
-          // quiere que le caiga un fichero en Descargas por haberlo cerrado.
-          if ((e as { name?: string })?.name !== 'AbortError') descarga()
-        }
-      } else {
-        descarga()
-      }
+      await comparteImagen(url, 'porra.png', eventName ?? 'La porra')
     } catch {
       // Sin imagen no hay nada que ofrecer ni remedio que sugerir.
     } finally {
