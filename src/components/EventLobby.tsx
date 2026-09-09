@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, UserPlus, Shield } from 'lucide-react'
+import { X, UserPlus, Shield, Download } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, EVENT_NAME_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
@@ -22,6 +22,8 @@ import { Plegable } from './Plegable'
 import { simplificaTrazado, trazadoBastaFino } from '../lib/eventPlan'
 import { BaseChangeNotice } from './BaseChangeNotice'
 import { Dorsal, DorsalGrande, carreraDeBase, type DorsalCarrera } from './Dorsal'
+import { reviveSharePayload } from '../lib/sharePayload'
+import { downloadGpx } from '../lib/gpxSerialize'
 
 /**
  * LA PARRILLA de un evento (`?e=<id>`): la foto y el nombre de la carrera, quién
@@ -53,6 +55,8 @@ export default function EventLobby({ id }: { id: string }) {
   const [carrera, setCarrera] = useState<DorsalCarrera | null>(null)
   /** Lo que la porra le da a cada uno ("29h 00m – 33h 00m"), por nombre. */
   const [porras, setPorras] = useState<Map<string, string>>(new Map())
+  /** Se está armando el GPX del recorrido para bajarlo. */
+  const [bajandoGpx, setBajandoGpx] = useState(false)
   /** Lo último que se subió como vista previa, para no repetir la subida. */
   const tarjetaSubida = useRef<string | null>(null)
 
@@ -327,6 +331,37 @@ export default function EventLobby({ id }: { id: string }) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
       await refresh()
     } finally { setBusy(false) }
+  }
+
+  /**
+   * El GPX del recorrido del evento, bajado desde la propia parrilla.
+   *
+   * Se pide la base publicada y se serializa AQUÍ, en el navegador: sale el
+   * mismo fichero que daría el planificador —trazado a resolución completa,
+   * los POIs como `<wpt>` y los cierres dentro de `<extensions>`—, pero sin
+   * obligar a entrar al planificador a buscarlo. Quien lo quiere suele estar
+   * en el móvil, recién llegado del enlace del grupo, y lo único que busca es
+   * pasárselo al reloj.
+   *
+   * No se baja al abrir la pantalla: son decenas de miles de puntos que la
+   * parrilla no necesita para nada más, así que solo cuando se pulsa.
+   */
+  async function descargaGpx() {
+    const ev = data?.event
+    if (!ev?.planShareId || bajandoGpx) return
+    setBajandoGpx(true); setError(null)
+    try {
+      const base = await getEventPlan(ev.planShareId)
+      const { track, cutoffWallClocks } = reviveSharePayload(base)
+      // El nombre de la CARRERA, no el del track: es como la gente llama a
+      // este fichero cuando lo tiene en el reloj entre otros veinte.
+      const nombre = (ev.name || track.name || 'recorrido').replace(/[^a-z0-9_-]/gi, '_')
+      downloadGpx(track, cutoffWallClocks, `${nombre}.gpx`)
+    } catch (e) {
+      setError(e instanceof EventsError
+        ? eventsErrorMessage(e.code)
+        : 'No se ha podido preparar el GPX del recorrido. Inténtalo de nuevo.')
+    } finally { setBajandoGpx(false) }
   }
 
   /** Nombrar o quitar organizador. Solo lo ofrece la pantalla al dueño. */
@@ -958,26 +993,48 @@ export default function EventLobby({ id }: { id: string }) {
         </p>
         {event.planShareId && (
           <>
-            {/* El recorrido del evento se abre en el planificador como COPIA
-                editable (el mismo camino que un enlace compartido): nadie tiene
-                que buscarse el GPX por su cuenta ni puede tocar el del evento. */}
-            {/* `de=` marca la procedencia: al guardar la previsión quedará
-                anotada como de este evento, y así la baliza sabrá cuál de
-                todas es la de esta carrera. */}
-            {/* `salida=` es la hora oficial de la carrera. Sin ella se heredaba
-                la de la previsión con la que el organizador montó el evento, que
-                es la que él tenía puesta ese día y casi nunca la de la carrera:
-                todo el mundo empezaba corrigiendo la fecha a mano. */}
-            <a
-              href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
-                event.startsAt ? `&salida=${event.startsAt}` : ''
-              }`}
-              className="mt-2 block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
-            >
-              Planificar sobre el recorrido del evento →
-            </a>
-            <p className="mt-1.5 text-[11px] text-slate-500">
-              Se abre en el planificador con el recorrido, los controles y los cierres ya puestos. Guárdala en tus previsiones y elígela al empezar a compartir.
+            {/* LAS DOS COSAS QUE SE HACEN CON EL RECORRIDO, dichas a la vez.
+                Antes solo había el enlace al planificador, y en línea suelta
+                entre dos párrafos: se leía como una nota al pie y no como la
+                acción que es. El GPX, además, no estaba por ningún lado —quien
+                lo quería tenía que entrar al planificador y encontrarlo allí—,
+                y son dos intenciones distintas: llevarse el fichero al reloj no
+                es planificar. Una al lado de la otra y con su peso, porque en
+                este punto de la parrilla es exactamente lo que se viene a
+                buscar. */}
+            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={descargaGpx}
+                disabled={bajandoGpx}
+                title="Descargar el GPX del recorrido del evento, con los controles y los cierres dentro"
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-xs font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800/60 disabled:opacity-50"
+              >
+                <Download size={13} className="shrink-0" />
+                {bajandoGpx ? 'Preparando…' : 'Descargar el GPX'}
+              </button>
+              {/* El recorrido del evento se abre en el planificador como COPIA
+                  editable (el mismo camino que un enlace compartido): nadie
+                  puede tocar el del evento. */}
+              {/* `de=` marca la procedencia: al guardar la previsión quedará
+                  anotada como de este evento, y así la baliza sabrá cuál de
+                  todas es la de esta carrera. */}
+              {/* `salida=` es la hora oficial de la carrera. Sin ella se heredaba
+                  la de la previsión con la que el organizador montó el evento, que
+                  es la que él tenía puesta ese día y casi nunca la de la carrera:
+                  todo el mundo empezaba corrigiendo la fecha a mano. */}
+              <a
+                href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
+                  event.startsAt ? `&salida=${event.startsAt}` : ''
+                }`}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-sky-800/70 bg-sky-950/40 px-3 py-2.5 text-xs font-medium text-sky-300 transition-colors hover:border-sky-700 hover:bg-sky-900/40"
+              >
+                Planificar mi salida →
+              </a>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              El GPX lleva dentro los controles y los horarios de cierre, listo para el reloj o para otra aplicación.
+              Planificar abre el recorrido en el planificador con todo eso ya puesto: guárdala en tus previsiones y elígela al empezar a compartir.
             </p>
           </>
         )}
