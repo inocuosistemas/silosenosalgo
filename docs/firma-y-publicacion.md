@@ -423,11 +423,37 @@ pantallas con contraseña:
    El **nombre** sí tiene que ser único en toda la App Store; si
    `SiLoSeNoSalgo` está cogido, hay que elegir otro y ese es el que verá la
    gente — el identificador no cambia.
-2. **Clave de la API de App Store Connect** (*Users and Access ▸ Integrations ▸
-   App Store Connect API*), rol *App Manager*. Guardar el `.p8` en
-   `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` — **Apple solo deja
-   descargarlo una vez** — y exportar `ASC_KEY_ID` y `ASC_ISSUER_ID`. Es lo que
-   evita meter la contraseña de Apple en cada subida.
+2. **Clave de la API de App Store Connect** (*Usuarios y acceso ▸
+   Integraciones*). Es lo que evita meter la contraseña de Apple en cada
+   subida, y tiene dos trampas seguidas:
+
+   - **La API no viene habilitada.** La primera vez esa pantalla no ofrece
+     ninguna clave, solo un botón **Solicitar acceso**, que concede el permiso
+     a toda la organización. Solo lo puede pulsar el titular de la cuenta.
+   - **La clave tiene que ser *Admin*.** Con *App Manager* —que parece
+     suficiente, porque gestiona TestFlight— el archivado va bien y la subida
+     se cae en el último paso:
+
+     ```
+     error: exportArchive Cloud signing permission error
+     error: exportArchive No profiles for 'com.themakercrowd.silosenosalgo' were found
+     ```
+
+     No es un problema de perfiles: es que **firmar en la nube** —crear el
+     certificado y el perfil de distribución sobre la marcha— Apple solo se lo
+     permite a las claves con acceso Admin.
+
+   El `.p8` se descarga **una sola vez**; si se pierde, hay que revocar la clave
+   y crear otra. Va a `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` con
+   permisos `600`, que es donde lo buscan `xcodebuild` y `altool`. El Key ID y
+   el Issuer ID no son secretos por sí solos, pero con el `.p8` dan acceso
+   completo a la cuenta, así que **no van al repositorio**: van al perfil del
+   shell.
+
+   ```bash
+   export ASC_KEY_ID=XXXXXXXXXX                              # en ~/.zshrc
+   export ASC_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+   ```
 3. **Probadores**. Hay dos clases y se parecen poco:
 
 | | Internos | Externos |
@@ -438,6 +464,20 @@ pantallas con contraseña:
 
    Para empezar a probar hoy, internos: *Users and Access ▸ +*, se invita por
    correo, y en *TestFlight* se les asigna el build.
+
+### Si la subida por la línea de órdenes se atasca
+
+Xcode sube el mismo archivo sin clave ninguna, usando la cuenta que tiene dada
+de alta. Sirve de escape mientras se arregla lo de arriba:
+
+```bash
+cp -R ios/build/SiLoSeNoSalgo.xcarchive \
+   "$HOME/Library/Developer/Xcode/Archives/$(date +%F)/SiLoSeNoSalgo.xcarchive"
+```
+
+y en Xcode, *Window ▸ Organizer ▸ Archives ▸ Distribute App ▸ App Store Connect
+▸ Upload*. Ahí Xcode re-firma para distribución, que es lo que le falta al
+archivo: recién hecho lleva firma de desarrollo.
 
 **Lo que Apple va a preguntar en la revisión** (solo para externos), y conviene
 tener escrito antes: por qué la app usa la ubicación **en segundo plano**. La

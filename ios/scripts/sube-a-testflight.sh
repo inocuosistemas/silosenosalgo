@@ -14,10 +14,19 @@
 #   · La cuenta soporte@inocuo.com dada de alta en Xcode ▸ Settings ▸ Accounts.
 #   · La app creada en App Store Connect con el identificador
 #     com.themakercrowd.silosenosalgo.
-#   · Una clave de la API de App Store Connect (App Store Connect ▸ Users and
-#     Access ▸ Integrations ▸ App Store Connect API), con el .p8 guardado en
-#     ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8 —Apple solo deja
-#     descargarlo una vez— y estas dos variables en el entorno:
+#   · Una clave de la API de App Store Connect (App Store Connect ▸ Usuarios y
+#     acceso ▸ Integraciones), CON ACCESO "ADMIN". Con "App Manager" el
+#     archivado va bien y la subida se cae con:
+#
+#       error: exportArchive Cloud signing permission error
+#       error: exportArchive No profiles for '...' were found
+#
+#     porque firmar en la nube —crear el certificado y el perfil de
+#     distribución— Apple solo se lo permite a las claves Admin.
+#
+#     El .p8 se guarda en ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8
+#     —Apple solo deja descargarlo una vez— y las dos variables van en el
+#     perfil del shell (~/.zshrc), no en el repositorio:
 #
 #       export ASC_KEY_ID=XXXXXXXXXX
 #       export ASC_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
