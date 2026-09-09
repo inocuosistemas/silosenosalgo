@@ -47,7 +47,7 @@ class LocalStore(context: Context) {
         val distanciaMetros: Double = 100.0,
         val perfil: String = TrackingRules.Perfil.EQUILIBRADO.name,
         val salidaMs: Double = 0.0,
-        val retenerHoras: Double = 48.0,
+        val retenerHoras: Double = 720.0,
         val actividad: String? = null,
         val titulo: String? = null,
         /** Evento al que se atribuye la salida; null = baliza suelta. Nullable

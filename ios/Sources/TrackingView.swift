@@ -99,7 +99,9 @@ struct TrackingView: View {
                 ? "Cada \(distanceLabel(store.distanceMeters))"
                 : "Cada \(intervalLabel(store.intervalSeconds))"
         }
-        let keep = store.retainHours >= 168 ? "1 semana" : "\(Int(store.retainHours)) h"
+        let keep = store.retainHours >= 720
+            ? "30 días"
+            : (store.retainHours >= 168 ? "1 semana" : "\(Int(store.retainHours)) h")
         return "\(activity) · \(pace) · \(keep)"
     }
 
@@ -396,6 +398,7 @@ struct TrackingView: View {
                             Text("48 h").tag(48.0)
                             Text("72 h").tag(72.0)
                             Text("1 semana").tag(168.0)
+                            Text("30 días").tag(720.0)
                         }
                         // El consejo de bajo consumo vive aquí y no en una
                         // sección aparte: habla del gasto, que es justo de lo

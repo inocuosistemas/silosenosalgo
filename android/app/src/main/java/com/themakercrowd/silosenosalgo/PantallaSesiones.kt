@@ -756,7 +756,7 @@ private fun EscalaDeRitmo(
 @Composable
 fun SelectorRetencion(horas: Double, onElige: (Double) -> Unit) {
     val pasos = TrackingRules.PASOS_RETENCION
-    val indice = pasos.indexOf(horas).let { if (it >= 0) it else pasos.indexOf(48.0) }
+    val indice = pasos.indexOf(horas).let { if (it >= 0) it else pasos.indexOf(720.0) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,

@@ -54,7 +54,7 @@ object TrackingStore {
          *  salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la
          *  pantalla: espejo de `startAtTouched` en iOS. */
         val salidaTocada: Boolean = false,
-        val retenerHoras: Double = 48.0,
+        val retenerHoras: Double = 720.0,
         /**
          * Emitiendo por RED en vez de por GPS. Pasa cuando el GPS está apagado
          * o el móvil en modo de ubicación de ahorro: la app se cae al respaldo

@@ -98,7 +98,12 @@ final class TrackingStore: ObservableObject {
     /// normal: los eventos son la excepción, no el modo por defecto.
     @Published var selectedEventId: String? = nil
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
-    @Published var retainHours: Double = 48
+    /// Cuánto se conserva la ruta al terminar. Treinta días, el mismo plazo
+    /// que aplica el servidor cuando nadie le dice otra cosa: la enhorabuena
+    /// llega durante días y un enlace pegado en un grupo se sigue abriendo
+    /// mucho después. Eran 48 h, y como el plazo que manda la app pisa al del
+    /// servidor, una salida del sábado aparecía "Caducada" el lunes.
+    @Published var retainHours: Double = 720
     /// GPS fixes recorded but not yet uploaded (offline backlog, e.g. no coverage).
     @Published var pendingCount = 0
     /// Field notes anchored during the current session (count, for the UI).

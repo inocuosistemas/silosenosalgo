@@ -261,10 +261,13 @@ object TrackingRules {
     // ── Mis seguimientos ─────────────────────────────────────────────────────
 
     /** Cuánto se conserva una ruta terminada. 48 h por defecto, como en iOS. */
-    val PASOS_RETENCION = listOf(6.0, 12.0, 24.0, 48.0, 72.0, 168.0)
+    val PASOS_RETENCION = listOf(6.0, 12.0, 24.0, 48.0, 72.0, 168.0, 720.0)
 
-    fun etiquetaRetencion(horas: Double): String =
-        if (horas >= 168) "1 semana" else "${horas.toInt()} h"
+    fun etiquetaRetencion(horas: Double): String = when {
+        horas >= 720 -> "30 días"
+        horas >= 168 -> "1 semana"
+        else -> "${horas.toInt()} h"
+    }
 
     /**
      * Clave de orden de la lista: lo más recientemente terminado primero. Las
