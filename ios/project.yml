@@ -49,12 +49,34 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo
+        # El nombre bajo el icono. Va por variable —y no escrito en el
+        # Info.plist— para poder distinguir en la pantalla de inicio la copia
+        # de desarrollo de la de TestFlight.
+        APP_DISPLAY_NAME: SiLoSeNoSalgo - Baliza
         PRODUCT_NAME: SiLoSeNoSalgo
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        # La copia de desarrollo es OTRA app para iOS, que identifica cada una
+        # por su bundle id. Sin esto, instalar desde Xcode pisaba la de
+        # TestFlight y la siguiente subida pisaba la de desarrollo: nunca se
+        # podían tener las dos para comparar. Es el mismo apaño que Android ya
+        # hacía con `applicationIdSuffix = ".debug"`.
+        #
+        # No hace falta dar de alta este App ID: nunca va a la tienda, y para
+        # instalar por cable Xcode se apaña con el comodín (ver 60d4bf6). Se
+        # cambia SOLO el identificador y el nombre visible, no PRODUCT_NAME:
+        # las pruebas corren en Debug y su TEST_HOST lleva escrito el nombre
+        # del ejecutable.
+        #
+        # Ojo: son apps distintas, así que la de desarrollo no hereda la sesión
+        # —el llavero va por app—, ni las trazas, ni las teselas descargadas.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug
+          APP_DISPLAY_NAME: SiLoSeNoSalgo dev
   SiLoSeNoSalgoTrackerTests:
     type: bundle.unit-test
     platform: iOS

@@ -68,6 +68,26 @@ En Xcode:
      app **caduca a los ~7 días**; vuelve a ejecutar desde Xcode para
      reinstalarla.
 
+### La copia de desarrollo convive con la de TestFlight
+
+Lo que instala Xcode (**Debug**) tiene su propio identificador,
+`com.themakercrowd.silosenosalgo.debug`, y sale en la pantalla de inicio como
+**SiLoSeNoSalgo dev**. Así se pueden tener las dos en el mismo móvil y comparar;
+antes, con un solo identificador, cada instalación pisaba a la otra. Es el mismo
+apaño que Android hace con `applicationIdSuffix = ".debug"`.
+
+Lo que conviene saber antes de fiarse de una prueba ahí:
+
+- **Empieza vacía y va por libre**: no hereda la sesión (el llavero va por app),
+  ni las trazas, ni las teselas descargadas, ni las guías importadas.
+- **Las dos registran `.slsnsguide`**, así que "Abrir con" ofrecerá las dos.
+- **Solo hay una baliza activa por cuenta.** Dos apps en el mismo móvil siguen
+  siendo la misma cuenta: emitir en una desarma la otra. Para ver dos emisores a
+  la vez hace falta una segunda cuenta, no una segunda app.
+
+TestFlight no se ve afectado: se archiva en **Release**, que conserva el
+identificador de siempre.
+
 Para repartir a probadores en vez de instalar por cable:
 
 ```sh
