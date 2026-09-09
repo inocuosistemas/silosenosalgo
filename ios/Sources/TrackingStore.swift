@@ -91,6 +91,9 @@ final class TrackingStore: ObservableObject {
     @Published var sessions: [TrackSessionSummary] = []
     /// Eventos en los que participo (los que puedo elegir al salir).
     @Published var events: [EventSummary] = []
+    /// Nombre de cada evento visto, TERMINADOS INCLUIDOS, para poder etiquetar
+    /// salidas viejas: `events` solo lleva los que aún admiten emitir.
+    private var eventNames: [String: String] = [:]
     /// Evento al que se atribuye esta salida. nil = baliza suelta, que es lo
     /// normal: los eventos son la excepción, no el modo por defecto.
     @Published var selectedEventId: String? = nil
@@ -312,6 +315,11 @@ final class TrackingStore: ObservableObject {
     func loadEvents() async {
         if let result = try? await API.listEvents(token: token) {
             events = result.filter { !$0.isOver }
+            // Los terminados NO se ofrecen para emitir —de ahí el filtro— pero
+            // sus nombres siguen haciendo falta: el listado de seguimientos
+            // trae el id del evento, y sin esto una salida pasaba a leerse
+            // "Sin nombre" en cuanto el organizador cerraba la carrera.
+            for ev in result { eventNames[ev.id] = ev.name }
         }
     }
 
@@ -1292,9 +1300,18 @@ final class TrackingStore: ObservableObject {
         return modelo.isEmpty || nombre.contains(modelo) ? nombre : "\(nombre) (\(modelo))"
     }()
 
-    func labelForSession(_ s: TrackSessionSummary) -> String {
-        if let id = s.eventId, let ev = events.first(where: { $0.id == id }) { return ev.name }
-        return s.title ?? s.planName ?? "Sin nombre"
+    /// Cómo se llama una salida en el listado. El título mandado por el dueño
+    /// va primero: desde que el servidor hereda el nombre del evento al crear
+    /// la sesión, ese título YA es el de la carrera, y renombrar a mano tiene
+    /// que poder ganarle. El evento queda de respaldo para las sesiones
+    /// anteriores a la herencia, y el nombre del recorrido para las sueltas.
+    /// `fallback`: qué poner cuando la salida no tiene de dónde sacar nombre.
+    /// En el listado es "Sin nombre" —ahí la falta de nombre es el dato—, pero
+    /// como título de una pantalla de mapa eso se lee mal.
+    func labelForSession(_ s: TrackSessionSummary, fallback: String = "Sin nombre") -> String {
+        if let t = s.title, !t.isEmpty { return t }
+        if let id = s.eventId, let name = eventNames[id] { return name }
+        return s.planName ?? fallback
     }
 
     /// La sesión viva de esta cuenta que NO es la de este móvil, si la hay.

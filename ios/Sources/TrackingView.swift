@@ -604,7 +604,7 @@ struct TrackingView: View {
                 }
                 Button("Cancelar", role: .cancel) { pendingDelete = nil }
             } message: { session in
-                Text("Se borrará por completo \"\(session.title ?? "Sin nombre")\". Esta acción no se puede deshacer.")
+                Text("Se borrará por completo \"\(store.labelForSession(session))\". Esta acción no se puede deshacer.")
             }
             .alert("¿Limpiar seguimientos?", isPresented: Binding(
                 get: { pendingCleanup != nil },
@@ -692,7 +692,7 @@ struct TrackingView: View {
                 // locally like a guide, read-only (it's already over).
                 LiveMapView(
                     source: .offline(token: session.id), offlineToken: session.id,
-                    allowsEditing: false, title: session.title ?? "Seguimiento"
+                    allowsEditing: false, title: store.labelForSession(session, fallback: "Seguimiento")
                 )
             }
             .fullScreenCover(item: $selectedGuide) { guide in
@@ -903,7 +903,7 @@ struct TrackingView: View {
                         .font(.caption2)
                         .foregroundStyle(Theme.sky500)
                 }
-                Text(session.title ?? "Sin nombre")
+                Text(store.labelForSession(session))
                     .foregroundStyle(Theme.slate100)
                     .lineLimit(1)
                     .truncationMode(.tail)

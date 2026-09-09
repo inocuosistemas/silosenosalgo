@@ -25,7 +25,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const body =
     (await readJson<{ title?: string; planId?: string; planShareId?: string; ttlMs?: number; startAt?: number; activity?: unknown; eventId?: string; device?: string }>(request)) || {}
-  const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
+  let title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 80).trim() : null
   const ttl = typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Math.min(body.ttlMs, MAX_TTL_MS) : MAX_TTL_MS
   // Movement type (nullable): store only a recognised value, else NULL = auto.
   let activity: BeaconActivity | null = isBeaconActivity(body.activity) ? body.activity : null
@@ -109,10 +109,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // incluidas las que ya no se pueden actualizar.
   if (eventId) {
     const ev = await env.DB.prepare(
-      `SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
+      `SELECT name, plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
          FROM events WHERE id = ?`,
     ).bind(eventId).first<{
-      planShareId: string | null; planName: string | null; startsAt: number | null; activity: string | null
+      name: string | null; planShareId: string | null; planName: string | null; startsAt: number | null
+      activity: string | null
     }>()
     if (ev?.planShareId && !planShareId) {
       planShareId = ev.planShareId
@@ -126,6 +127,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // carrera sabe de qué va; quien quiera otra cosa —ir en bici barriendo una
     // prueba a pie— la declara a mano y entonces manda la suya.
     if (!activity && isBeaconActivity(ev?.activity)) activity = ev.activity
+
+    // Y EL NOMBRE. Una salida de carrera se llama como la carrera: es lo que su
+    // dueño espera leer en "Mis seguimientos" meses después, y el campo de
+    // título de la baliza se deja en blanco casi siempre —nadie reescribe a
+    // mano un nombre que la app ya sabe—, así que la sesión nacía "Sin nombre".
+    //
+    // Solo por defecto: un título escrito a mano manda, y renombrar después
+    // sigue pudiendo dejarlo en blanco. Y aquí, no en cada pantalla, porque el
+    // listado tiene el id del evento pero no su nombre, y un evento cerrado ya
+    // no viaja en la lista de eventos con la que las apps lo resolvían.
+    if (!title && typeof ev?.name === 'string' && ev.name.trim()) title = ev.name.slice(0, 80).trim()
   }
 
   // De qué aparato sale esta baliza. Sirve para una sola cosa: que el móvil al
