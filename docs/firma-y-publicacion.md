@@ -400,9 +400,18 @@ pantallas con contraseña:
    error: Your team has no devices from which to generate a provisioning profile
    ```
 
-   Se arregla conectando el iPhone y lanzando `instala-en-iphone.sh` una vez
-   (lo registra solo), o metiendo el UDID a mano en *Certificates, Identifiers
-   & Profiles ▸ Devices*.
+   `-allowProvisioningUpdates` **no** basta: registra el dispositivo solo si
+   está conectado por cable y desbloqueado. Con el iPhone emparejado por red se
+   queda en "Device isn't registered in your developer account", así que hay
+   que darlo de alta a mano en *Certificates, Identifiers & Profiles ▸ Devices
+   ▸ +*, con su UDID:
+
+   ```bash
+   xcrun devicectl list devices -j /tmp/d.json   # el UDID sale en hardwareProperties
+   ```
+
+   Ojo: un dispositivo registrado **cuenta contra el límite de 100 aunque luego
+   se borre**. La cuenta solo se reinicia al renovar la membresía.
 1. **Crear la app en App Store Connect** (*Mis apps ▸ +*): plataforma iOS,
    identificador `com.themakercrowd.silosenosalgo`, idioma principal español,
    y un **SKU** cualquiera que no se ve en la tienda (vale `silosenosalgo`).

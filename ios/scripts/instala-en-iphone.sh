@@ -37,8 +37,25 @@ fi
 
 udid="${1:-}"
 if [ -z "$udid" ]; then
-  udid="$(xcrun xctrace list devices 2>/dev/null \
-    | awk '/^iPhone.*\(/{ if (match($0, /\(([0-9A-Fa-f-]{25,})\)/, m)) { print m[1]; exit } }')"
+  # El UDID sale de devicectl y no de `xctrace`, que lista los iPhone
+  # emparejados por red como "offline" aunque se pueda instalar en ellos.
+  json="$(mktemp -t udid)"
+  xcrun devicectl list devices -j "$json" >/dev/null 2>&1 || true
+  iphones="$(python3 -c 'import json, sys
+for d in json.load(open(sys.argv[1]))["result"]["devices"]:
+    h = d["hardwareProperties"]
+    if h.get("deviceType") == "iPhone":
+        print(h["udid"], h.get("marketingName", ""))' "$json" 2>/dev/null)" || true
+  rm -f "$json"
+  if [ "$(printf '%s\n' "$iphones" | grep -c .)" -gt 1 ]; then
+    # Elegir por él sería una lotería, y el que salga se registra en la cuenta
+    # de Apple gastando una de las 100 plazas anuales.
+    echo "Veo más de un iPhone. Dime en cuál:" >&2
+    printf '%s\n' "$iphones" | sed 's/^/  /' >&2
+    echo "  ios/scripts/instala-en-iphone.sh <UDID>" >&2
+    exit 1
+  fi
+  udid="$(printf '%s\n' "$iphones" | awk '{print $1}')"
 fi
 [ -n "$udid" ] || { echo "No veo ningún iPhone. Conéctalo o ponlo en la misma red y desbloquéalo." >&2; exit 1; }
 echo "▸ iPhone: $udid"
