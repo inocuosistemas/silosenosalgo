@@ -40,6 +40,10 @@ targets:
       - path: WebDist
         type: folder
         buildPhase: resources
+      # El icono, generado desde el favicon del visor por scripts/genera-icono.mjs.
+      - path: Resources/Assets.xcassets
+      # Manifiesto de privacidad: sin él la subida a TestFlight avisa (ITMS-91053).
+      - path: Resources/PrivacyInfo.xcprivacy
     dependencies:
       - package: ZIPFoundation
     settings:
@@ -50,6 +54,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   SiLoSeNoSalgoTrackerTests:
     type: bundle.unit-test
     platform: iOS

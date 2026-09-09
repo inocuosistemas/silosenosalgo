@@ -68,6 +68,17 @@ En Xcode:
      app **caduca a los ~7 días**; vuelve a ejecutar desde Xcode para
      reinstalarla.
 
+Para repartir a probadores en vez de instalar por cable:
+
+```sh
+ios/scripts/sube-a-testflight.sh --sin-subir   # solo archiva, para probar
+ios/scripts/sube-a-testflight.sh               # archiva y sube a TestFlight
+```
+
+Necesita una clave de la API de App Store Connect en el entorno; los requisitos
+y la parte que hay que hacer a mano en la web están en
+[`../docs/firma-y-publicacion.md`](../docs/firma-y-publicacion.md).
+
 > El identificador cambió de `app.silosenosalgo.tracker` a
 > `com.themakercrowd.silosenosalgo`, así que la primera vez el iPhone la instala
 > como app **nueva**: borra la anterior y vuelve a iniciar sesión.

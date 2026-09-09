@@ -375,6 +375,69 @@ DEVELOPMENT_TEAM=GQN76XXKG3 ios/scripts/instala-en-iphone.sh
 La diferencia práctica es cuánto dura lo instalado: con el equipo de la empresa
 el perfil vale **un año**; con el gratuito, **siete días** y a repetirlo.
 
+### TestFlight
+
+Para repartir a varias personas sin cables:
+
+```bash
+ios/scripts/sube-a-testflight.sh --sin-subir   # solo archiva, para probar
+ios/scripts/sube-a-testflight.sh               # archiva y sube
+```
+
+El **número de build** sale del número de commits (`git rev-list --count HEAD`),
+así que sube solo y nunca se repite — App Store Connect rechaza un build con un
+número ya usado, y es el error tonto más habitual.
+
+**Lo que hay que preparar una vez**, y que no puede hacer un script porque son
+pantallas con contraseña:
+
+0. **Registrar un dispositivo en la cuenta.** Suena a que no viene a cuento
+   —TestFlight no reparte por cable— pero con firma automática el archivado se
+   firma primero para desarrollo y solo al exportar se vuelve a firmar para la
+   tienda, y Apple no emite un perfil de desarrollo sin ningún dispositivo:
+
+   ```
+   error: Your team has no devices from which to generate a provisioning profile
+   ```
+
+   Se arregla conectando el iPhone y lanzando `instala-en-iphone.sh` una vez
+   (lo registra solo), o metiendo el UDID a mano en *Certificates, Identifiers
+   & Profiles ▸ Devices*.
+1. **Crear la app en App Store Connect** (*Mis apps ▸ +*): plataforma iOS,
+   identificador `com.themakercrowd.silosenosalgo`, idioma principal español,
+   y un **SKU** cualquiera que no se ve en la tienda (vale `silosenosalgo`).
+   El **nombre** sí tiene que ser único en toda la App Store; si
+   `SiLoSeNoSalgo` está cogido, hay que elegir otro y ese es el que verá la
+   gente — el identificador no cambia.
+2. **Clave de la API de App Store Connect** (*Users and Access ▸ Integrations ▸
+   App Store Connect API*), rol *App Manager*. Guardar el `.p8` en
+   `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` — **Apple solo deja
+   descargarlo una vez** — y exportar `ASC_KEY_ID` y `ASC_ISSUER_ID`. Es lo que
+   evita meter la contraseña de Apple en cada subida.
+3. **Probadores**. Hay dos clases y se parecen poco:
+
+| | Internos | Externos |
+|---|---|---|
+| Quiénes | hasta 100, y tienen que ser usuarios de la cuenta de desarrollador | hasta 10.000, cualquier correo |
+| Revisión de Apple | **no** | **sí**, *Beta App Review*, la primera vez y en cada cambio grande |
+| Cuándo está disponible | en cuanto el build termina de procesarse | cuando pase la revisión |
+
+   Para empezar a probar hoy, internos: *Users and Access ▸ +*, se invita por
+   correo, y en *TestFlight* se les asigna el build.
+
+**Lo que Apple va a preguntar en la revisión** (solo para externos), y conviene
+tener escrito antes: por qué la app usa la ubicación **en segundo plano**. La
+respuesta es el motivo de existir de la app —retransmitir la posición de quien
+corre mientras lleva el móvil en el bolsillo y con la pantalla apagada— y hay
+que decirlo en las notas para el revisor, junto con una cuenta de prueba con la
+que puedan entrar, porque sin sesión no se ve nada.
+
+Antes de la primera subida hay que rellenar también el **cuestionario de
+privacidad** de App Store Connect. Tiene que cuadrar con
+`ios/Resources/PrivacyInfo.xcprivacy`, que ya declara lo que sale del
+dispositivo: ubicación precisa, usuario de la cuenta, y las fotos y notas de voz
+que se anclan a una nota de campo. Nada de eso es seguimiento publicitario.
+
 ## Qué cambió al unificar la identidad
 
 El proyecto de iOS venía con el prefijo `app.silosenosalgo`, de un dominio que

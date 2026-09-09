@@ -22,6 +22,11 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- La app solo cifra con HTTPS estándar, que está exento. Declararlo aquí
+	     evita que App Store Connect pregunte por el cumplimiento de exportación
+	     en cada subida a TestFlight. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
