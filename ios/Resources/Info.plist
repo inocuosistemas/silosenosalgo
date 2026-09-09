@@ -27,6 +27,15 @@
 	     en cada subida a TestFlight. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Al declarar CFBundleDocumentTypes, Apple exige decir también cómo se
+	     abre el fichero, y avisa en cada subida si falta. «En su sitio» es lo
+	     que recomienda y lo que encaja aquí: importGuide lee el original con
+	     permiso de ámbito y se queda una copia propia en LocalStore, así que no
+	     hace falta que el sistema duplique nada en Documents/Inbox, que además
+	     nadie limpia después. No expone la carpeta de la app en Archivos: eso
+	     pide además UIFileSharingEnabled, que no está puesto. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
