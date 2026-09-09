@@ -127,6 +127,23 @@ depuración USB activada):
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+### El icono
+
+Sale del mismo favicon del visor web que el de iOS, para que la marca sea una
+sola en los tres sitios. Se regenera cuando cambie `public/favicon.svg`:
+
+```sh
+node android/scripts/genera-icono.mjs
+```
+
+Deja los PNG del primer plano en `res/mipmap-*dpi/` (el fondo es un color plano
+en `res/drawable/ic_launcher_background.xml`) y, aparte, el de 512×512 de la
+ficha de Google Play en `app/src/main/ic_launcher-playstore.png`, que se sube a
+mano a la consola y no entra en el APK.
+
+No es un VectorDrawable a propósito: el favicon lleva máscaras y desenfoques
+gaussianos, que un vector de Android no sabe dibujar.
+
 ## Firmar y repartir
 
 El APK de **debug** solo sirve para el móvil de desarrollo: va marcado como
