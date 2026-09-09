@@ -331,10 +331,15 @@ Pasos, en orden:
 
 1. ✅ **D-U-N-S**: ya lo teníamos, `462403905` (ver arriba). Nada que pedir.
 2. ✅ **Apple Developer Program**, cuenta de organización, 99 €/año.
-3. **App ID** `com.themakercrowd.silosenosalgo`: todavía no está registrado en
-   el portal, y probablemente no haga falta darlo de alta a mano — con
-   *Automatically manage signing* lo crea Xcode en el primer build con el Team
-   de la empresa.
+3. ✅ **App ID** `com.themakercrowd.silosenosalgo`, registrado como *explicit*
+   y sin ninguna capacidad: la app solo usa notificaciones **locales** y la
+   ubicación en segundo plano, y ninguna de las dos pide nada en el App ID.
+
+   Hay que darlo de alta **a mano**, en contra de lo que parece. Con firma
+   automática Xcode no crea el identificador explícito: se apaña con un
+   comodín (`XC Wildcard`, `*`), que vale para instalar por cable pero **no
+   para la tienda** — al crear la app en App Store Connect el desplegable *ID
+   de pack* no ofrece comodines.
 4. En Xcode, *Automatically manage signing* con el Team de la empresa: los
    certificados y perfiles los emite Apple. **Requisito a mano, una vez**:
    `soporte@inocuo.com` tiene que estar dado de alta en *Xcode ▸ Settings ▸
