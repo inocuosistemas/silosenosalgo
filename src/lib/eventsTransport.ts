@@ -147,6 +147,14 @@ export async function setEventNotes(id: string, notes: string): Promise<void> {
 }
 
 /**
+ * Renombrar la carrera. Solo quien organiza, y vacío no vale: el servidor lo
+ * rechaza en vez de dejarla sin nombre.
+ */
+export async function setEventName(id: string, name: string): Promise<void> {
+  return setEventSettings(id, { name })
+}
+
+/**
  * Terminar la carrera (o reabrirla). Solo quien organiza.
  *
  * Al terminar se congelan los resultados; al reabrir se tiran, porque unos
@@ -229,6 +237,7 @@ async function setEventSettings(
     colorsLocked?: boolean; notes?: string; startsAt?: number | null
     betsEnabled?: boolean; endsAt?: number | null; limitMin?: number | null
     totalKm?: number; polyline?: [number, number, number][]; activity?: string
+    name?: string
   },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/settings`, {

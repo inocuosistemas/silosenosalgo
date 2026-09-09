@@ -3,6 +3,7 @@ import type { Env } from '../../lib/db'
 import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { genId } from '../../../shared/ids'
+import { EVENT_NAME_MAX } from '../../../shared/wireTypes'
 import type { CreateEventResponse, EventsListResponse, EventInfo } from '../../../shared/wireTypes'
 import { assignColor, isEventColor } from '../../../shared/eventColors'
 import { isBeaconActivity } from '../../../shared/validate'
@@ -19,7 +20,6 @@ import { EMOJI_POOL, emojiOk, foldEmoji } from '../../../shared/emoji'
  * Unirse, en cambio, lo hace cualquiera con el código.
  */
 
-const NAME_MAX = 80
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -28,7 +28,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!user.isAdmin) return json({ error: 'forbidden' }, 403)
 
   const body = await readJson<{ name?: unknown; startsAt?: unknown; join?: unknown }>(request)
-  const name = typeof body?.name === 'string' ? body.name.trim().slice(0, NAME_MAX) : ''
+  const name = typeof body?.name === 'string' ? body.name.trim().slice(0, EVENT_NAME_MAX) : ''
   if (!name) return json({ error: 'invalid_request' }, 400)
   const startsAt = typeof body?.startsAt === 'number' && Number.isFinite(body.startsAt)
     ? Math.round(body.startsAt)

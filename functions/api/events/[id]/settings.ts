@@ -4,14 +4,20 @@ import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
-import { EVENT_NOTES_MAX as NOTES_MAX } from '../../../../shared/wireTypes'
+import { EVENT_NOTES_MAX as NOTES_MAX, EVENT_NAME_MAX } from '../../../../shared/wireTypes'
 import { cierraEvento } from '../../../lib/eventStats'
 
 /**
  * POST /api/events/:id/settings — los ajustes del evento que decide quien organiza.
  *
- * Tres: `{ colorsLocked }`, `{ notes }` y `{ startsAt }`. Se mandan por
- * separado o juntos; lo que no viene, no se toca.
+ * Se mandan por separado o juntos; lo que no viene, no se toca.
+ *
+ * El NOMBRE es el de la carrera, el que se puso al crearla. Se corrige aquí
+ * porque hasta ahora solo se escribía una vez y para siempre: una errata, o un
+ * "Ruta del Cares" que la organización acaba llamando "XV Ruta del Cares",
+ * obligaba a rehacer el evento entero —código de unión nuevo, todo el mundo a
+ * apuntarse otra vez— por un cambio de texto. Vacío NO lo quita: una carrera
+ * sin nombre no se distingue de otra en la lista, así que se rechaza.
  *
  * La SALIDA es la hora oficial de la carrera, y es de la carrera y no de la
  * previsión de nadie: con ella, quien planifica sobre el recorrido del evento
@@ -42,7 +48,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const body = (await readJson<{
     colorsLocked?: unknown; notes?: unknown; startsAt?: unknown; betsEnabled?: unknown
     endsAt?: unknown; limitMin?: unknown; totalKm?: unknown; polyline?: unknown; activity?: unknown
+    name?: unknown
   }>(request)) || {}
+  const tocaNombre = body.name !== undefined
   const tocaColores = typeof body.colorsLocked === 'boolean'
   const tocaNotas = body.notes !== undefined
   const tocaSalida = body.startsAt !== undefined
@@ -52,8 +60,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const tocaKm = typeof body.totalKm === 'number' && Number.isFinite(body.totalKm) && body.totalKm > 0
   const tocaActividad = typeof body.activity === 'string' && ['walk', 'run', 'bike'].includes(body.activity)
   if (!tocaColores && !tocaNotas && !tocaSalida && !tocaPorra && !tocaCierre && !tocaLimite
-      && !tocaKm && !tocaActividad) {
+      && !tocaKm && !tocaActividad && !tocaNombre) {
     return json({ error: 'invalid_request' }, 400)
+  }
+
+  // El nombre se recorta como al crear —mismo tope, `EVENT_NAME_MAX`— pero
+  // vacío no vale: la columna es NOT NULL y, sobre todo, un evento sin nombre
+  // es indistinguible en la lista de quien corre varias.
+  let nombre = ''
+  if (tocaNombre) {
+    nombre = typeof body.name === 'string' ? body.name.trim().slice(0, EVENT_NAME_MAX) : ''
+    if (!nombre) return json({ error: 'invalid_request' }, 400)
   }
 
   let startsAt: number | null = null
@@ -109,7 +126,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // durante el día —un cambio de recorrido, dónde aparcar— y hacerlo depender
   // de una sola persona que está corriendo es dejarlo sin escribir. Lo demás
   // de esta puerta (colores, salida, porra) sigue siendo del dueño: son
-  // Todo lo de esta puerta lo puede QUIEN ORGANIZA: el tablón, la hora de salida, la de
+  // Todo lo de esta puerta lo puede QUIEN ORGANIZA: el nombre, el tablón, la hora de salida, la de
   // cierre y el límite. Son las cosas que cambian el mismo día —la
   // organización retrasa la salida media hora, amplía el corte por el
   // temporal— y esperar a que el dueño mire el móvil es tenerlas mal en
@@ -123,6 +140,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // cada uno el suyo. Nada de esto se pierde al cambiarlo.
   if (!(await puedeOrganizar(env, id, user))) return json({ error: 'forbidden' }, 403)
 
+  if (tocaNombre) {
+    await env.DB.prepare('UPDATE events SET name = ? WHERE id = ?')
+      .bind(nombre, id).run()
+  }
   if (tocaColores) {
     await env.DB.prepare('UPDATE events SET colors_locked = ? WHERE id = ?')
       .bind(body.colorsLocked ? 1 : 0, id).run()

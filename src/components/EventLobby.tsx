@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, UserPlus, Shield } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
-import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
+import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, EVENT_NAME_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
-  setEventEmoji, setEventColorsLocked, setEventNotes, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
+  setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
   expulsaDelEvento, setEventOrganizer, getEventBets,
@@ -373,6 +373,16 @@ export default function EventLobby({ id }: { id: string }) {
     } catch {
       setError('No se pudo guardar tu marca favorita.')
     } finally { setBusy(false) }
+  }
+
+  /** Renombrar la carrera. Vacío no vale, así que ni se manda. */
+  async function guardarNombre(texto: string) {
+    const limpio = texto.trim()
+    if (!limpio || limpio === event.name) return
+    setBusy(true); setError(null)
+    try { await setEventName(id, limpio); await refresh() }
+    catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')) }
+    finally { setBusy(false) }
   }
 
   async function guardarNotas(texto: string) {
@@ -994,6 +1004,23 @@ export default function EventLobby({ id }: { id: string }) {
           carrera, y luego se mira cero veces: plegado por defecto, con el
           estado en el encabezado para no tener que abrir para comprobar. Quien
           organiza también corre, y ese día lo que necesita es lo de arriba. */}
+      {/* El NOMBRE, el primero de la organización: es lo que ve todo el mundo en
+          la lista y en el enlace que circula, y hasta ahora solo se escribía al
+          crear la carrera. Corregir una errata obligaba a rehacer el evento
+          entero, con código de unión nuevo y todos apuntándose otra vez. */}
+      {event.canOrganize && (
+        <Plegable orga title="Nombre de la carrera" summary={event.name}>
+          <NombreEditor
+            inicial={event.name}
+            busy={busy}
+            onGuardar={(t) => void guardarNombre(t)}
+          />
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Se cambia solo el nombre: el enlace, el código de unión y quien ya está apuntado siguen igual.
+          </p>
+        </Plegable>
+      )}
+
       {/* El recorrido, para quien organiza. Estaba SOLO dentro de "Mi
           planificación", que es de quien corre: un organizador que no corre se
           quedaba sin manera de abrir la base para retocar un POI, que es la
@@ -1382,6 +1409,44 @@ export default function EventLobby({ id }: { id: string }) {
  * campo que se autoguarde mientras se teclea —lo van a leer treinta personas y
  * media frase a medio escribir no es lo que se quiere publicar—.
  */
+/**
+ * El nombre de la carrera, en una línea. Sin botón de quitar —a diferencia del
+ * tablón— porque una carrera sin nombre no existe: el servidor lo rechaza y
+ * aquí ni se ofrece.
+ */
+function NombreEditor({ inicial, busy, onGuardar }: {
+  inicial: string
+  busy: boolean
+  onGuardar: (texto: string) => void
+}) {
+  const [texto, setTexto] = useState(inicial)
+  // Si lo renombra otro organizador mientras esto está abierto, el campo se
+  // pone al día en vez de quedarse enseñando el nombre viejo como si fuera lo
+  // que hay guardado.
+  useEffect(() => { setTexto(inicial) }, [inicial])
+  const limpio = texto.trim()
+  const sinCambios = limpio === inicial
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && limpio && !sinCambios && !busy) onGuardar(texto) }}
+        maxLength={EVENT_NAME_MAX}
+        placeholder="Cómo se llama la carrera"
+        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-sky-600 focus:outline-none"
+      />
+      <button
+        onClick={() => onGuardar(texto)}
+        disabled={busy || !limpio || sinCambios}
+        className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+      >
+        Guardar
+      </button>
+    </div>
+  )
+}
+
 function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
   inicial: string
   busy: boolean

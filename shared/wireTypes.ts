@@ -845,6 +845,14 @@ export const EVENT_TAIL_POINTS = 60
 /** Tope de las notas del evento: viajan en cada carga de la parrilla. */
 export const EVENT_NOTES_MAX = 4000
 
+/**
+ * Tope del nombre de la carrera, el mismo con el que se crea y con el que se
+ * renombra después. Está aquí y no suelto en cada puerta porque son dos sitios
+ * que tienen que decir lo mismo: uno más largo que el otro deja nombres que se
+ * pueden poner al crear y no al corregir.
+ */
+export const EVENT_NAME_MAX = 80
+
 export interface CreateEventResponse {
   id: string
 }
