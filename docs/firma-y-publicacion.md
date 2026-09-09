@@ -45,6 +45,7 @@ posibilidad de actualizar a quien tenga la vieja.
 - **Identificador:** `com.themakercrowd.silosenosalgo`, **el mismo en las dos
   plataformas**.
 - **D-U-N-S:** `462403905`, el que ya tenía la sociedad (ver abajo).
+- **Team ID de Apple:** `3M9984SP6R`, el de la cuenta de organización (ver iOS).
 
 ### El D-U-N-S ya lo teníamos
 
@@ -307,31 +308,44 @@ Es una razón de peso para ir a Play aunque el reparto directo siga: **es el
 
 ## iOS
 
-`ios/project.yml` fija `PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo`
-y deja `DEVELOPMENT_TEAM` vacío. Cuando exista la cuenta de organización, poner
-ahí el Team ID para que XcodeGen no lo pierda al regenerar el proyecto:
+**El alta de organización ya está aprobada.** `ios/project.yml` fija
+`PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo` y
+`DEVELOPMENT_TEAM: "3M9984SP6R"`, para que XcodeGen no pierda el equipo al
+regenerar el proyecto.
 
-```yaml
-settings:
-  base:
-    DEVELOPMENT_TEAM: "XXXXXXXXXX"
-```
+| Membresía | |
+|---|---|
+| Entidad | `INOCUO SISTEMAS INFORMATICOS SL` |
+| **Team ID** | **`3M9984SP6R`** |
+| Tipo de cuenta | Organization |
+| Titular | Jose Manuel Lara (*Account Holder*) |
+| Apple ID de la cuenta | `soporte@inocuo.com` |
+| Cuota | 99 €/año, con renovación automática |
+| Próxima renovación | 10 de septiembre de 2027 |
+
+Comprobado el 9 de septiembre de 2026 en <https://developer.apple.com/account>.
+El `4YGPNGP75X` que se apuntó aquí durante el alta **no era el Team ID**, era el
+identificador del trámite; no sirve para firmar.
 
 Pasos, en orden:
 
-1. **D-U-N-S**: ya lo tenemos, `462403905` (ver arriba). Nada que pedir.
-2. **Apple Developer Program**, cuenta de organización, 99 €/año.
-3. Registrar el App ID `com.themakercrowd.silosenosalgo` en el portal.
+1. ✅ **D-U-N-S**: ya lo teníamos, `462403905` (ver arriba). Nada que pedir.
+2. ✅ **Apple Developer Program**, cuenta de organización, 99 €/año.
+3. **App ID** `com.themakercrowd.silosenosalgo`: todavía no está registrado en
+   el portal, y probablemente no haga falta darlo de alta a mano — con
+   *Automatically manage signing* lo crea Xcode en el primer build con el Team
+   de la empresa.
 4. En Xcode, *Automatically manage signing* con el Team de la empresa: los
-   certificados y perfiles los emite Apple.
+   certificados y perfiles los emite Apple. **Requisito a mano, una vez**:
+   `soporte@inocuo.com` tiene que estar dado de alta en *Xcode ▸ Settings ▸
+   Accounts ▸ + ▸ Apple ID*. Es una pantalla de contraseña, no la puede hacer un
+   script; sin ella el build muere con "No Accounts".
 5. **TestFlight** para el reparto a probadores, que es el equivalente de mandar
-   el APK por un enlace. En iOS no hay reparto directo: sin cuenta de pago, una
-   app instalada desde Xcode **caduca a los 7 días**.
+   el APK por un enlace. En iOS no hay reparto directo.
 
-### Mientras tanto: instalar con el certificado gratuito
+### Instalar en un iPhone sin pasar por TestFlight
 
-Hasta que Apple apruebe el alta (`4YGPNGP75X`, en verificación), la app se
-instala en el iPhone desde aquí y hay que repetirlo cada semana:
+Para probar en un dispositivo concreto sin subir nada a App Store Connect:
 
 ```bash
 ios/scripts/instala-en-iphone.sh          # al primer iPhone que vea
@@ -342,19 +356,24 @@ El script compila la web, la copia dentro de la app —sin ese paso se instala
 con el visor viejo aunque la web esté al día—, regenera el proyecto, firma y
 lo instala.
 
-**Un requisito que hay que hacer A MANO una vez**: la cuenta de Apple tiene que
-estar dada de alta en Xcode (*Xcode ▸ Settings ▸ Accounts ▸ + ▸ Apple ID*). Es
-una pantalla de contraseña, así que no la puede hacer un script. Sin eso, el
-firmado automático no puede crear el perfil y el build muere con:
+Necesita la cuenta de la organización dada de alta en Xcode (paso 4 de arriba).
+Sin eso el firmado automático no puede crear el perfil y el build muere con:
 
 ```
 error: No Accounts: Add a new account in Accounts settings.
 error: No profiles for 'com.themakercrowd.silosenosalgo' were found
 ```
 
-El equipo del certificado gratuito es `GQN76XXKG3` (personal, a nombre de la
-persona). Va por variable y no en `project.yml`, porque ahí irá el de la
-organización cuando exista y no conviene que uno pise al otro.
+El equipo lo coge de `project.yml`. Para firmar con otro —por ejemplo el
+certificado gratuito personal, `GQN76XXKG3`, a nombre de la persona— se pisa
+por variable de entorno:
+
+```bash
+DEVELOPMENT_TEAM=GQN76XXKG3 ios/scripts/instala-en-iphone.sh
+```
+
+La diferencia práctica es cuánto dura lo instalado: con el equipo de la empresa
+el perfil vale **un año**; con el gratuito, **siete días** y a repetirlo.
 
 ## Qué cambió al unificar la identidad
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Instala la app en un iPhone conectado, firmando con el certificado GRATUITO.
+# Instala la app en un iPhone conectado, firmando con el equipo de la empresa.
 #
-# Es el camino de mientras: sin cuenta de pago no hay TestFlight, así que la
-# app se instala desde aquí y CADUCA A LOS SIETE DÍAS —hay que repetirlo—. En
-# cuanto Apple apruebe el alta de organización, esto se sustituye por archivar
-# y subir a App Store Connect.
+# Es el camino corto para probar en un dispositivo sin pasar por TestFlight ni
+# por App Store Connect. Con el equipo de pago el perfil vale un año; con el
+# certificado personal gratuito, siete días.
 #
-# Requisito de una vez: la cuenta de Apple tiene que estar dada de alta en
-# Xcode (Xcode ▸ Settings ▸ Accounts ▸ + ▸ Apple ID). Sin eso el firmado
-# automático no puede crear el perfil y el build muere con "No Accounts".
+# Requisito de una vez: la cuenta de Apple de la organización
+# (soporte@inocuo.com) tiene que estar dada de alta en Xcode (Xcode ▸ Settings
+# ▸ Accounts ▸ + ▸ Apple ID). Sin eso el firmado automático no puede crear el
+# perfil y el build muere con "No Accounts".
 #
 # Uso:
 #   ios/scripts/instala-en-iphone.sh                # al primer iPhone que vea
@@ -25,10 +25,15 @@
 set -euo pipefail
 
 raiz="$(cd "$(dirname "$0")/../.." && pwd)"
-# El equipo personal, el del certificado gratuito. No vive en `project.yml`
-# porque ahí va el de la ORGANIZACIÓN cuando exista, y no conviene que uno pise
-# al otro en un fichero versionado.
-EQUIPO="${DEVELOPMENT_TEAM:-GQN76XXKG3}"
+# El equipo sale de `project.yml` (el de la organización). Solo se pasa a
+# xcodebuild si se pide otro por variable de entorno, p. ej. el personal
+# gratuito:  DEVELOPMENT_TEAM=GQN76XXKG3 ios/scripts/instala-en-iphone.sh
+EQUIPO="${DEVELOPMENT_TEAM:-}"
+equipo_arg=()
+if [ -n "$EQUIPO" ]; then
+  equipo_arg=( DEVELOPMENT_TEAM="$EQUIPO" )
+  echo "▸ equipo: $EQUIPO (pisa el de project.yml)"
+fi
 
 udid="${1:-}"
 if [ -z "$udid" ]; then
@@ -54,7 +59,7 @@ echo "▸ 4/5 compilando y firmando…"
     -configuration Debug \
     -destination "id=$udid" \
     -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$EQUIPO" \
+    "${equipo_arg[@]+"${equipo_arg[@]}"}" \
     build )
 
 app="$(cd "$raiz/ios" && xcodebuild -project SiLoSeNoSalgoTracker.xcodeproj \
@@ -65,5 +70,5 @@ echo "▸ 5/5 instalando $app"
 xcrun devicectl device install app --device "$udid" "$app"
 
 echo
-echo "Listo. Recuerda: con certificado gratuito la app deja de abrirse a los 7 días."
+echo "Listo. Con el equipo de la empresa el perfil vale un año; con el gratuito, 7 días."
 echo "La primera vez, en el iPhone: Ajustes ▸ General ▸ VPN y gestión de dispositivos ▸ confiar."
