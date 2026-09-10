@@ -63,6 +63,34 @@ el commit 271.
 
 ## 2026-09-10
 
+### Los tres enlaces de una carrera ya no parecen el mismo
+
+**Web · desplegado.** Al arreglar la vista previa, los tres enlaces del evento
+—parrilla, público e invitación— pasaron a compartir la MISMA tarjeta, con el
+sello de "PARRILLA" en los tres. En un grupo, pegados uno detrás de otro,
+parecían el mismo enlace repetido hasta que alguien se paraba a leer el texto.
+
+Ahora cada enlace tiene su tarjeta, y se distingue sin leer nada:
+
+| Enlace | Sello | Color |
+|---|---|---|
+| Parrilla (`?e=`) | 🏁 PARRILLA | azul |
+| Público (`?ev=`) | 📍 SIGUE LA CARRERA | rojo |
+| Invitación (`?evento=`) | 🎽 TE APUNTAS | verde |
+| Cualquiera, ya corrida | 🏁 CARRERA TERMINADA | ámbar |
+
+El sello es una pastilla rellena y no un renglón de color, porque una vista
+previa se mira del tamaño de un sello de correos y ahí una línea de texto se
+pierde sobre el cartel; y el color tiñe la tarjeta entera —el velo sobre el
+cartel—, que es lo que de verdad los separa de un golpe de vista.
+
+Las dibuja y las sube quien organiza al abrir la parrilla, las tres de una vez.
+Mientras un evento no tenga las suyas, sus enlaces siguen enseñando la de la
+parrilla: el sello no cuadrará, pero se sigue viendo la carrera en grande, que
+es mejor que caer al cartel recortado.
+
+**Android / iOS** · *Compatible*. Las vistas previas las arma el borde.
+
 ### El enlace de la carrera enseñaba media palabra del cartel
 
 **Web · desplegado.** Al pegar el enlace público de un evento en

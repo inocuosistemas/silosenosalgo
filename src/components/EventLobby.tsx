@@ -83,11 +83,11 @@ export default function EventLobby({ id }: { id: string }) {
     tarjetaSubida.current = firma
     void (async () => {
       try {
-        const { dibujaTarjetaEvento, cargaImagen } = await import('../lib/eventCard')
+        const { dibujaTarjetaEvento, cargaImagen, VARIANTES } = await import('../lib/eventCard')
         // `hasPhoto` y no `photoAt`: los eventos anteriores a que existiera esa
         // marca de tiempo tienen cartel y la traen a null, y se quedaban sin él.
         const cartel = ev.hasPhoto ? await cargaImagen(eventPhotoUrl(ev.id, ev.photoAt)) : null
-        const png = dibujaTarjetaEvento({
+        const datos = {
           nombre: ev.name,
           cartel,
           cuando: ev.startsAt ? new Date(ev.startsAt).toLocaleString('es-ES', {
@@ -97,9 +97,18 @@ export default function EventLobby({ id }: { id: string }) {
           km: ev.planTotalKm ?? null,
           desnivel: null,
           terminada: ev.endedAt !== null,
-        })
-        const blob = await (await fetch(png)).blob()
-        await fetch(`/og/evento-${encodeURIComponent(ev.id)}.png`, { method: 'PUT', body: blob })
+        }
+        // Una por enlace. Los tres se pegan en el mismo grupo —la parrilla a
+        // quien corre, el público a quien mira, la invitación a quien aún no
+        // está— y con una sola imagen parecían el mismo enlace repetido. Se
+        // suben en fila y al mejor esfuerzo: si una falla, las otras valen.
+        for (const v of VARIANTES) {
+          const png = dibujaTarjetaEvento({ ...datos, tipo: v.tipo })
+          const blob = await (await fetch(png)).blob()
+          await fetch(`/og/evento-${encodeURIComponent(ev.id)}${v.sufijo}.png`, {
+            method: 'PUT', body: blob,
+          })
+        }
       } catch { /* al mejor esfuerzo: sin tarjeta, la vista previa es la de antes */ }
     })()
   }, [data])

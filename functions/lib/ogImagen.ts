@@ -41,8 +41,27 @@ export interface EventoParaImagen {
   members: number
 }
 
+/**
+ * Los tres enlaces de una carrera. Cada uno tiene SU tarjeta: los tres se pegan
+ * en el mismo grupo, y con una sola imagen parecían el mismo enlace repetido.
+ * Espejo de `TipoEnlace` en `src/lib/eventCard.ts`, que es quien las dibuja.
+ */
+export type TipoEnlace = 'parrilla' | 'publico' | 'invitacion'
+
+/** La parrilla se queda sin sufijo: es la clave que ya existía, y cambiarla
+ *  dejaría huérfanas todas las tarjetas subidas hasta ahora. */
+const SUFIJO: Record<TipoEnlace, string> = { parrilla: '', publico: '-p', invitacion: '-i' }
+
 /** La clave KV donde vive la tarjeta dibujada de un evento. */
-export const claveTarjeta = (id: string): string => `evento-${id}`
+export const claveTarjeta = (id: string, tipo: TipoEnlace = 'parrilla'): string =>
+  `evento-${id}${SUFIJO[tipo]}`
+
+/**
+ * Qué tarjeta se encontró en KV: la de ESTE enlace, la genérica de la parrilla
+ * —que es la que hay para los eventos que nadie ha vuelto a abrir desde que
+ * existen las tres— o ninguna.
+ */
+export type TarjetaHallada = 'propia' | 'generica' | null
 
 /**
  * La versión de la url de la tarjeta.
@@ -59,10 +78,13 @@ export function versionTarjeta(ev: EventoParaImagen): string {
 /**
  * La imagen de un evento, por orden de lo que mejor cuenta la carrera:
  *
- *  1. La TARJETA dibujada (cartel de fondo, nombre, cuándo y cuántos van), que
- *     ya viene 1200×630 y entra en la pastilla grande. La sube quien organiza
- *     desde la parrilla; aquí solo se usa si existe de verdad, porque anunciar
- *     una que no está deja al previsualizador con un 404 y sin imagen ninguna.
+ *  1. La TARJETA de ESE enlace (cartel de fondo, nombre, cuándo, cuántos van y
+ *     un sello que dice de qué enlace se trata), que ya viene 1200×630 y entra
+ *     en la pastilla grande. La sube quien organiza desde la parrilla; aquí
+ *     solo se usa si existe de verdad, porque anunciar una que no está deja al
+ *     previsualizador con un 404 y sin imagen ninguna. Si todavía no está la
+ *     suya, la genérica de la parrilla: el sello no cuadrará, pero se sigue
+ *     viendo la carrera en grande.
  *  2. El CARTEL a secas, declarado 3:1. Enseña de qué carrera se trata aunque
  *     el previsualizador lo recorte.
  *  3. La tarjeta de "en directo" de la marca, que es mejor que nada.
@@ -72,10 +94,12 @@ export function versionTarjeta(ev: EventoParaImagen): string {
 export function imagenDeEvento(
   origin: string,
   ev: EventoParaImagen,
-  hayTarjeta: boolean,
+  hallada: TarjetaHallada,
+  tipo: TipoEnlace = 'parrilla',
 ): ImagenPrevia {
-  if (hayTarjeta) {
-    return tarjeta(`${origin}/og/${claveTarjeta(ev.id)}.png?v=${versionTarjeta(ev)}`)
+  if (hallada) {
+    const clave = claveTarjeta(ev.id, hallada === 'propia' ? tipo : 'parrilla')
+    return tarjeta(`${origin}/og/${clave}.png?v=${versionTarjeta(ev)}`)
   }
   if (ev.photoKey) {
     return cartel(`${origin}/api/events/${ev.id}/photo${ev.photoAt ? `?v=${ev.photoAt}` : ''}`)

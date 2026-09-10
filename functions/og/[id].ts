@@ -21,7 +21,10 @@ const TTL_SECONDS = 60 * 60 * 24 * 180
 const MAX_IMG_BYTES = 6 * 1024 * 1024
 
 const imgKey = (id: string) => `${id}:img`
-const validId = (id: string) => /^[A-Za-z0-9_-]{8,32}$/.test(id)
+// Hasta 40: las tarjetas de un evento son `evento-<id>` con un sufijo por tipo
+// de enlace (`-p`, `-i`), y con un id de 22 caracteres eso ya son 31. El tope
+// está para que la clave no sea cualquier cosa, no para apretar.
+const validId = (id: string) => /^[A-Za-z0-9_-]{8,40}$/.test(id)
 
 /** Strip an optional image extension so `/og/<id>`, `.jpg`, `.png` all resolve. */
 function cleanId(raw: unknown): string {

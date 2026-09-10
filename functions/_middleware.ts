@@ -28,7 +28,8 @@
  */
 
 import {
-  imagenDeEvento, claveTarjeta, tarjeta, type ImagenPrevia, type EventoParaImagen,
+  imagenDeEvento, claveTarjeta, tarjeta,
+  type ImagenPrevia, type EventoParaImagen, type TipoEnlace, type TarjetaHallada,
 } from './lib/ogImagen'
 
 interface Env {
@@ -53,20 +54,29 @@ function fechaLarga(ms: number): string {
   } catch { return '' }
 }
 
-/**
- * ¿Está subida ya la tarjeta dibujada de este evento?
- *
- * Se comprueba de verdad, sin descargarla (`stream` + `cancel`): anunciar una
- * imagen que no está deja al previsualizador con un 404 y sin pastilla, que es
- * peor que enseñar el cartel a secas.
- */
-async function hayTarjetaDeEvento(env: Env, id: string): Promise<boolean> {
+/** ¿Está esta clave en KV? Se comprueba sin descargarla (`stream` + `cancel`). */
+async function existeEnKv(env: Env, clave: string): Promise<boolean> {
   try {
-    const stored = await env.SHARE_KV.get(`${claveTarjeta(id)}:img`, 'stream')
+    const stored = await env.SHARE_KV.get(`${clave}:img`, 'stream')
     if (!stored) return false
     await stored.cancel()
     return true
   } catch { return false }
+}
+
+/**
+ * ¿Qué tarjeta hay subida para este enlace?
+ *
+ * Primero la SUYA —cada enlace tiene su sello: parrilla, público, invitación—,
+ * y si no está, la genérica de la parrilla, que es la única que existe para los
+ * eventos que nadie ha vuelto a abrir desde que se dibujan las tres. Anunciar
+ * una imagen que no está deja al previsualizador con un 404 y sin pastilla, que
+ * es peor que enseñar el cartel a secas.
+ */
+async function tarjetaDeEvento(env: Env, id: string, tipo: TipoEnlace): Promise<TarjetaHallada> {
+  if (await existeEnKv(env, claveTarjeta(id, tipo))) return 'propia'
+  if (tipo !== 'parrilla' && await existeEnKv(env, claveTarjeta(id, 'parrilla'))) return 'generica'
+  return null
 }
 
 /** HTMLRewriter handler that sets one attribute to a fixed value. */
@@ -179,12 +189,14 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         desc = row.live > 0
           ? `Sigue en el mapa a ${row.live} ${row.live === 1 ? 'participante' : 'participantes'}: posición, ritmo y margen sobre los cortes.`
           : 'Sigue a los participantes en el mapa cuando empiecen a compartir su posición.'
-        // La TARJETA del evento, la misma que la parrilla: 1200×630 con el
-        // cartel de fondo, el nombre y cuántos van. Antes iba el cartel a
-        // secas, que es 3:1, y el previsualizador lo recortaba a un cuadrado
-        // diminuto —el enlace del grupo enseñaba media palabra del cartel—.
-        // Sin tarjeta todavía, el cartel; sin cartel, la de "en directo".
-        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
+        // La TARJETA del evento: 1200×630 con el cartel de fondo, el nombre y
+        // cuántos van. Antes iba el cartel a secas, que es 3:1, y el
+        // previsualizador lo recortaba a un cuadrado diminuto. La de este
+        // enlace lleva su sello —"SIGUE LA CARRERA"— para no confundirse con
+        // la parrilla ni con la invitación en el mismo grupo.
+        imagen = imagenDeEvento(
+          url.origin, row, await tarjetaDeEvento(ctx.env, row.id, 'publico'), 'publico',
+        )
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
@@ -222,10 +234,10 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
             ? `Resultados, meta y replay de la carrera. ${quienes}.`
             : [row.startsAt ? fechaLarga(row.startsAt) : null, quienes,
                 'Prepara tu baliza y sigue a los tuyos en el mapa común.'].filter(Boolean).join(' · ')
-        // La tarjeta dibujada si está subida, y si no el cartel. Se comprueba
-        // que EXISTE antes de anunciarla: si no, el previsualizador se come un
-        // 404 y no enseña imagen ninguna.
-        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
+        // La tarjeta de la parrilla si está subida, y si no el cartel.
+        imagen = imagenDeEvento(
+          url.origin, row, await tarjetaDeEvento(ctx.env, row.id, 'parrilla'), 'parrilla',
+        )
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
@@ -260,9 +272,11 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
               `${quienes} en la parrilla`,
               'Toca para entrar y compartir tu posición en el mapa común.',
             ].filter(Boolean).join(' · ')
-        // La misma tarjeta que los otros dos enlaces del evento: el cartel a
-        // secas es 3:1 y salía recortado a un cuadrado.
-        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
+        // Con su propio sello ("TE APUNTAS"): es el único de los tres que pide
+        // algo a quien lo recibe, y tiene que notarse antes de leer nada.
+        imagen = imagenDeEvento(
+          url.origin, row, await tarjetaDeEvento(ctx.env, row.id, 'invitacion'), 'invitacion',
+        )
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }

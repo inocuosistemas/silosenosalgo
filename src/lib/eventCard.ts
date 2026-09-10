@@ -28,13 +28,59 @@ const ALTO = 630
  * pasa del tamaño que los previsualizadores aceptan y se quedan sin imagen.
  */
 const ESCALA = 1.5
-const FONDO = '#0b1120'
-
 const FUENTE = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 const fuente = (px: number, peso = 400) => `${peso} ${px}px ${FUENTE}`
 
+/**
+ * Los tres enlaces de una carrera que se pegan en un chat. Cada uno ofrece una
+ * cosa distinta y hasta ahora los tres se anunciaban con la misma imagen: en el
+ * grupo parecían el mismo enlace repetido hasta que alguien leía el texto.
+ */
+export type TipoEnlace = 'parrilla' | 'publico' | 'invitacion'
+
+/** El sello de arriba y el color de la tarjeta: lo que distingue un enlace de
+ *  otro DE UN VISTAZO, que es como se miran las vistas previas. */
+interface Sello {
+  etiqueta: string
+  /** Relleno del sello. */
+  color: string
+  /** Base del velo sobre el cartel (y del fondo liso si no hay cartel). Tiñe
+   *  la tarjeta entera, así que los tres se distinguen sin leer nada. */
+  velo: [number, number, number]
+}
+
+const SELLOS: Record<TipoEnlace, Sello> = {
+  // Azul: la parrilla es la casa de quien ya corre la carrera.
+  parrilla: { etiqueta: '🏁 PARRILLA', color: '#38bdf8', velo: [11, 17, 32] },
+  // Rojo: el enlace público es para MIRAR, y el rojo es el color de seguir algo
+  // que está pasando.
+  publico: { etiqueta: '📍 SIGUE LA CARRERA', color: '#fb7185', velo: [32, 12, 20] },
+  // Verde: te están invitando a entrar, que es lo único de los tres que pide
+  // algo de quien lo recibe.
+  invitacion: { etiqueta: '🎽 TE APUNTAS', color: '#34d399', velo: [8, 28, 24] },
+}
+
+/** Terminada manda sobre el tipo: da igual a qué enlace apuntes, ya se corrió. */
+const SELLO_TERMINADA: Sello = {
+  etiqueta: '🏁 CARRERA TERMINADA', color: '#fbbf24', velo: [24, 18, 10],
+}
+
+/**
+ * Las tres tarjetas que hay que dibujar y subir, con el sufijo de su clave.
+ * La parrilla se queda SIN sufijo: es la clave que ya existía, y cambiarla
+ * dejaría huérfanas las tarjetas subidas hasta ahora. Espejo del `SUFIJO` de
+ * `functions/lib/ogImagen.ts`, que es quien las sirve.
+ */
+export const VARIANTES: readonly { tipo: TipoEnlace; sufijo: string }[] = [
+  { tipo: 'parrilla', sufijo: '' },
+  { tipo: 'publico', sufijo: '-p' },
+  { tipo: 'invitacion', sufijo: '-i' },
+]
+
 export interface DatosTarjetaEvento {
   nombre: string
+  /** Qué enlace anuncia esta tarjeta. */
+  tipo: TipoEnlace
   /** El cartel de la carrera, ya cargado. Sin él, fondo liso de la marca. */
   cartel: HTMLImageElement | null
   /** Cuándo se sale, ya escrito ("sábado, 5 de septiembre · 08:30"). */
@@ -70,6 +116,34 @@ function enDosLineas(ctx: CanvasRenderingContext2D, texto: string, max: number):
   return [primera, recorta(ctx, resto, max)]
 }
 
+/**
+ * El sello: una pastilla de color con el tipo de enlace dentro.
+ *
+ * Pastilla rellena y no texto suelto porque una vista previa se mira del tamaño
+ * de un sello de correos: un renglón de 26 px en color se pierde sobre el
+ * cartel, y una mancha de color no.
+ */
+function dibujaSello(ctx: CanvasRenderingContext2D, sello: Sello, x: number, y: number): void {
+  const ALTO_SELLO = 52
+  const LADOS = 22
+  ctx.font = fuente(28, 800)
+  const ancho = ctx.measureText(sello.etiqueta).width + LADOS * 2
+  ctx.fillStyle = sello.color
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath()
+    ctx.roundRect(x, y, ancho, ALTO_SELLO, ALTO_SELLO / 2)
+    ctx.fill()
+  } else {
+    // Safari viejo: sin esquinas redondas, pero con sello.
+    ctx.fillRect(x, y, ancho, ALTO_SELLO)
+  }
+  // Texto oscuro sobre el color, que es lo que más contrasta a tamaño pequeño.
+  ctx.fillStyle = '#0b1120'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(sello.etiqueta, x + LADOS, y + ALTO_SELLO / 2 + 1)
+  ctx.textBaseline = 'alphabetic'
+}
+
 export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
   const lienzo = document.createElement('canvas')
   lienzo.width = ANCHO * ESCALA
@@ -77,7 +151,9 @@ export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
   const ctx = lienzo.getContext('2d')!
   // Todo lo que viene debajo dibuja en unidades de 1200×630 y sale a 1800×945.
   ctx.scale(ESCALA, ESCALA)
-  ctx.fillStyle = FONDO
+  const sello = d.terminada ? SELLO_TERMINADA : SELLOS[d.tipo]
+  const [vr, vg, vb] = sello.velo
+  ctx.fillStyle = `rgb(${vr}, ${vg}, ${vb})`
   ctx.fillRect(0, 0, ANCHO, ALTO)
 
   // ── El cartel, de fondo y oscurecido ───────────────────────────────────
@@ -91,9 +167,9 @@ export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
     const al = d.cartel.naturalHeight * escala
     ctx.drawImage(d.cartel, (ANCHO - an) / 2, (ALTO - al) / 2, an, al)
     const velo = ctx.createLinearGradient(0, 0, 0, ALTO)
-    velo.addColorStop(0, 'rgba(11,17,32,0.55)')
-    velo.addColorStop(0.55, 'rgba(11,17,32,0.82)')
-    velo.addColorStop(1, 'rgba(11,17,32,0.97)')
+    velo.addColorStop(0, `rgba(${vr},${vg},${vb},0.55)`)
+    velo.addColorStop(0.55, `rgba(${vr},${vg},${vb},0.82)`)
+    velo.addColorStop(1, `rgba(${vr},${vg},${vb},0.97)`)
     ctx.fillStyle = velo
     ctx.fillRect(0, 0, ANCHO, ALTO)
   }
@@ -101,10 +177,8 @@ export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
   const M = 72
   ctx.textAlign = 'left'
 
-  // ── El sello de arriba: de qué va esto ─────────────────────────────────
-  ctx.font = fuente(26, 700)
-  ctx.fillStyle = d.terminada ? '#fbbf24' : '#38bdf8'
-  ctx.fillText(d.terminada ? '🏁 CARRERA TERMINADA' : '🏁 PARRILLA', M, M + 30)
+  // ── El sello de arriba: QUÉ enlace es este ─────────────────────────────
+  dibujaSello(ctx, sello, M, M - 8)
 
   // ── El nombre, lo más grande de la tarjeta ─────────────────────────────
   ctx.font = fuente(76, 800)
