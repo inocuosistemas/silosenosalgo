@@ -65,7 +65,7 @@ el commit 271.
 
 ### El enlace de la carrera enseñaba media palabra del cartel
 
-**Web · pendiente de desplegar.** Al pegar el enlace público de un evento en
+**Web · desplegado.** Al pegar el enlace público de un evento en
 WhatsApp salía la pastilla pequeña: una miniatura cuadrada con el cartel
 recortado a lo bruto —"NFRA" de Canfranc— y el texto al lado. Dos cosas a la
 vez: el enlace público anunciaba el CARTEL a secas, que es 3:1, y el HTML lo
