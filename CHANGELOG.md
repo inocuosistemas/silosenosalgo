@@ -65,7 +65,7 @@ el commit 271.
 
 ### Los cortes de la Canfranc-Canfranc decían que sobraban 176 horas
 
-**Web · pendiente de desplegar.** El plan de paso de la Canfranc-Canfranc daba
+**Web · desplegado.** El plan de paso de la Canfranc-Canfranc daba
 márgenes de fantasía: +24 h en el primer control y +176 h en meta. La hora del
 corte se guarda sin fecha (solo HH:MM) y el día se deduce al pintarlo, pidiendo
 que cada corte caiga DESPUÉS del anterior. El GPX de la organización trae cada
@@ -85,9 +85,9 @@ planes y los eventos ya guardados se arreglan solos en cuanto sale el
 despliegue.
 
 **Android / iOS** · *Compatible*. El visor va dentro de las apps, así que se
-arregla con la actualización OTA del visor en cuanto la web esté desplegada; no
-hace falta APK nuevo. Un móvil que nunca se conecte se queda con el visor del
-APK que lleve dentro.
+arregla con la actualización OTA del visor, ya desplegado; no hace falta APK
+nuevo. Un móvil que nunca se conecte se queda con el visor del APK que lleve
+dentro.
 
 ### El día de la carrera, la baliza ya viene con la carrera puesta
 
