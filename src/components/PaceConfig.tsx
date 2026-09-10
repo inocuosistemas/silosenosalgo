@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { ActivityType, PaceConfig } from '../lib/timing'
-import { ACTIVITY_LABEL, formatPace, splitHoursMinutes } from '../lib/timing'
+import { ACTIVITY_LABEL, formatPace, PACE_MODE_LABEL, splitHoursMinutes } from '../lib/timing'
 import type { GpxTimesValidity } from '../lib/gpxValidity'
 import { checkGpxTimes, gpxTimesIssueMessage } from '../lib/gpxValidity'
 import { parseGpx, type GpxTrack } from '../lib/gpx'
@@ -250,9 +250,7 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, totalDistanc
                       ? 'border-sky-500 bg-sky-500/15 text-sky-100'
                       : 'border-slate-700 bg-slate-950/35 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60'}`}
                 >
-                  <span className="block font-semibold">
-                    {m === 'fixed' ? 'Fijo' : m === 'naismith' ? 'D+' : 'Inteligente'}
-                  </span>
+                  <span className="block font-semibold">{PACE_MODE_LABEL[m]}</span>
                   <span className={`mt-0.5 block text-[11px] leading-snug ${config.mode === m ? 'text-sky-200/80' : 'text-slate-500'}`}>
                     {m === 'fixed' ? 'media constante' : m === 'naismith' ? 'ritmo + subida' : 'D+/D- y fatiga'}
                   </span>
@@ -276,7 +274,7 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, totalDistanc
                     ? 'border-sky-500 bg-sky-500/15 text-sky-100'
                     : 'border-slate-700 bg-slate-950/35 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60'}`}
               >
-                <span className="block font-semibold">Tiempos reales</span>
+                <span className="block font-semibold">{PACE_MODE_LABEL.gpx}</span>
                 <span className={`mt-0.5 block text-[11px] leading-snug ${config.mode === 'gpx' ? 'text-sky-200/80' : 'text-slate-500'}`}>
                   tramo a tramo{overallPace !== null ? ` · ~${formatPace(overallPace, config.activity)}` : ''}
                 </span>
@@ -293,7 +291,7 @@ export function PaceConfigPanel({ config, hasGpxTimes, gpxValidity, totalDistanc
                     ? 'border-sky-500 bg-sky-500/15 text-sky-100'
                     : 'border-slate-700 bg-slate-950/35 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60'}`}
               >
-                <span className="block font-semibold">Media en movimiento</span>
+                <span className="block font-semibold">{PACE_MODE_LABEL['gpx-moving']}</span>
                 <span className={`mt-0.5 block text-[11px] leading-snug ${config.mode === 'gpx-moving' ? 'text-sky-200/80' : 'text-slate-500'}`}>
                   sin paradas{movingPace !== null ? ` · ${formatPace(movingPace, config.activity)}` : ''}
                 </span>

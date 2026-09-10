@@ -17,7 +17,7 @@ import { PoisPanel, type MaterialisedPoi, type PoiUpdateDraft } from './componen
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
-import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, estimateArrivalTimeAtKm, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm } from './lib/timing'
+import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, estimateArrivalTimeAtKm, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm, PACE_MODE_LABEL } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import { solarIrradiance, sunTempUplift } from './lib/sunTemp'
@@ -35,7 +35,9 @@ import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
 import { LivePoiCarousel } from './components/LivePoiCarousel'
 import type { TrailPoint } from './lib/livePacing'
-import { computeCutoffStrategy, type CutoffStrategyTimeMode } from './lib/cutoffStrategy'
+import { computeCutoffStrategy, computeMarginChoices, MARGIN_CHOICES_MIN, type CutoffStrategyTimeMode } from './lib/cutoffStrategy'
+import { CutoffMarginPicker } from './components/CutoffMarginPicker'
+import { Plegable } from './components/Plegable'
 import type { SegmentPace } from './lib/timing'
 import type { BuddyObservation } from './lib/buddyTracking'
 import { buildBuddyDerived, projectBuddyKmAt } from './lib/buddyTracking'
@@ -941,6 +943,45 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     return inferCutoffDatesFromWaypoints(track.namedWaypoints, cutoffWallClocks, startTime)
   }, [track, cutoffWallClocks, startTime])
 
+  // ── Planificar desde el margen a los cortes ───────────────────────────────
+  // Los cortes se saben ANTES de calcular nada: son horas de reloj puestas en
+  // los POIs del GPX. Por eso el paso "Ritmo" ya puede contestar la única
+  // pregunta que un corredor sabe hacerse de antemano —cuánto quiero llegar
+  // antes de cada corte— sin haber elegido todavía modelo ni ritmo base.
+  //
+  // No se reutiliza `enrichedNamedWaypoints`: ese deja el corte sin poner
+  // mientras no hay previsión, a propósito, para que los paneles de corte no
+  // salgan antes de tiempo. Aquí el corte es justo lo que hace falta.
+  const cutoffWaypoints = useMemo<EnrichedNamedWaypoint[]>(() => {
+    if (!track || cutoffTimes.size === 0) return []
+    return track.namedWaypoints
+      .map((w) => ({
+        ...w,
+        estimatedTime: null,
+        weather: null,
+        cutoffTime: cutoffTimes.get(wptKey(w.lat, w.lon)),
+      }))
+      .filter((w) => w.cutoffTime != null)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+  }, [track, cutoffTimes])
+
+  // Un ritmo por cada margen ofrecido. Si el margen actual no es de la lista
+  // (lo ha tecleado a mano), entra también para que su pastilla salga elegida.
+  const marginChoices = useMemo(() => {
+    if (!track || cutoffWaypoints.length === 0) return []
+    const margins = MARGIN_CHOICES_MIN.includes(strategyMargin)
+      ? MARGIN_CHOICES_MIN
+      : [...MARGIN_CHOICES_MIN, strategyMargin].sort((a, b) => a - b)
+    return computeMarginChoices(margins, {
+      track,
+      namedWaypoints: cutoffWaypoints,
+      startTime,
+      paceConfig,
+      targetTimes: segmentTargets,
+      pauses,
+    })
+  }, [track, cutoffWaypoints, startTime, paceConfig, segmentTargets, pauses, strategyMargin])
+
   // ── Enriched named waypoints (<wpt> POIs from GPX) ────────────────────────
   // Estimated time: exact timing at the POI km, with interpolation fallback.
   // Weather: taken from the nearest enrichedWaypoint by distanceKm.
@@ -1587,6 +1628,27 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     setBuddyObs([])   // strategy paces override any buddy observation
     reset()
     await doCompute(paceConfig, paces)
+  }
+
+  /**
+   * Paso 3: el margen elegido pone el ritmo base.
+   *
+   * No recalcula el plan —estamos dentro del formulario de parámetros, y de
+   * ahí se sale por el botón de calcular— así que solo deja la configuración
+   * lista y marca que hay cambios pendientes.
+   */
+  function handleApplyMarginPace(pace: number) {
+    const next: PaceConfig = {
+      ...paceConfig,
+      // Con los tiempos del GPX mandando tramo a tramo, un ritmo base no
+      // pintaría nada: hay que pasar a fijo para que el ritmo se aplique.
+      mode: paceConfig.mode === 'gpx' || paceConfig.mode === 'gpx-moving' ? 'fixed' : paceConfig.mode,
+      paceMinPerKm: pace,
+    }
+    setPaceConfig(next)
+    setSegmentPaces(null)
+    setBuddyObs([])
+    if (hasComputedOnce) setParamsDirty(true)
   }
 
   // ── Buddy-tracker handlers ────────────────────────────────────────────────
@@ -2631,20 +2693,50 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                 <PlanningStep
                   step="3"
                   title="Ritmo"
-                  description="Elige el modelo de previsión y ajusta solo los parámetros que necesita ese modelo."
+                  description={marginChoices.length > 0
+                    ? 'Empieza por el margen que quieres tener en cada corte: de ahí sale el ritmo. El modelo de previsión queda debajo, para afinarlo.'
+                    : 'Elige el modelo de previsión y ajusta solo los parámetros que necesita ese modelo.'}
                 >
-                  <PaceConfigPanel
-                    config={paceConfig}
-                    hasGpxTimes={hasGpxTimes}
-                    gpxValidity={gpxValidity}
-                    totalDistanceKm={track.totalDistanceKm}
-                    onChange={(c) => {
-                      setPaceConfig(c)
-                      setSegmentPaces(null)
-                      setBuddyObs([])
-                      if (hasComputedOnce) setParamsDirty(true)
-                    }}
-                  />
+                  {marginChoices.length > 0 && (
+                    <CutoffMarginPicker
+                      choices={marginChoices}
+                      marginMin={strategyMargin}
+                      activity={paceConfig.activity}
+                      paceMode={paceConfig.mode}
+                      currentPaceMinPerKm={paceConfig.paceMinPerKm}
+                      onMarginChange={handleStrategyMarginChange}
+                      onApplyPace={handleApplyMarginPace}
+                    />
+                  )}
+                  {/* Con el margen delante, el modelo ya no es lo primero que
+                      hay que decidir: nace plegado y con lo elegido a la vista.
+                      Sin cortes no hay margen que elegir, y entonces esto vuelve
+                      a ser la decisión del paso, así que nace abierto. */}
+                  <Plegable
+                    title="Modelo y ritmo base"
+                    defaultOpen={marginChoices.length === 0}
+                    summary={
+                      <span className="truncate">
+                        {PACE_MODE_LABEL[paceConfig.mode]}
+                        <span className="ml-1.5 font-mono text-slate-400">
+                          {formatPace(paceConfig.paceMinPerKm, paceConfig.activity)}
+                        </span>
+                      </span>
+                    }
+                  >
+                    <PaceConfigPanel
+                      config={paceConfig}
+                      hasGpxTimes={hasGpxTimes}
+                      gpxValidity={gpxValidity}
+                      totalDistanceKm={track.totalDistanceKm}
+                      onChange={(c) => {
+                        setPaceConfig(c)
+                        setSegmentPaces(null)
+                        setBuddyObs([])
+                        if (hasComputedOnce) setParamsDirty(true)
+                      }}
+                    />
+                  </Plegable>
                   {/* Variable-pace active indicator — shown when strategy panel has been applied */}
                   {segmentPaces && (
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-3 py-2 text-xs">

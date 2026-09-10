@@ -315,3 +315,80 @@ export function computeCutoffStrategy(
 
   return { timeMode, segments, tightestSegment, hasImpossible, singlePace, variablePaces }
 }
+
+// ── Planificar desde el margen ────────────────────────────────────────────────
+
+/**
+ * Los márgenes que se ofrecen de primeras, en minutos.
+ *
+ * No son ritmos ni modelos: son la única pregunta que un corredor sabe
+ * contestar sin dudar antes de una carrera larga —cuánto quiere llegar antes
+ * de cada corte—. El ritmo se deduce de ahí, que es el camino natural y no al
+ * revés.
+ */
+export const MARGIN_CHOICES_MIN = [0, 15, 30, 45, 60]
+
+export interface MarginChoice {
+  marginMin: number
+  /**
+   * Ritmo base (min/km) con el que se llega a TODOS los cortes con ese margen,
+   * interpretado según el modelo de previsión activo (en «D+» e «Inteligente»
+   * es el ritmo en llano equivalente, igual que el que se teclea a mano).
+   * null = no hay ritmo humano que llegue.
+   */
+  requiredPaceMinPerKm: number | null
+  /** El corte que manda: el que fija ese ritmo. */
+  bottleneckLabel: string | null
+  /** Km del corte que manda. */
+  bottleneckKm: number | null
+  /** Cuántos cortes quedan fuera de alcance con ese margen. */
+  unreachableCount: number
+}
+
+export interface MarginChoiceInputs {
+  track: GpxTrack
+  /** POIs con corte (los demás se ignoran), en cualquier orden. */
+  namedWaypoints: EnrichedNamedWaypoint[]
+  startTime: Date
+  paceConfig: PaceConfig
+  /** Horas de paso fijadas a mano para algún corte. */
+  targetTimes?: Map<number, Date>
+  pauses?: PausePoint[]
+}
+
+/**
+ * Qué ritmo pide cada margen.
+ *
+ * Es `computeCutoffStrategy` contestando la pregunta al revés: en vez de
+ * «con este ritmo, ¿llego?», responde «para llegar con N minutos de sobra en
+ * cada corte, ¿a qué ritmo tengo que ir?». El ritmo que sale es el del tramo
+ * más exigente, así que aplicado a todo el recorrido el margen se cumple en
+ * todos los cortes, no solo en el que aprieta.
+ *
+ * Ojo con una cosa que no es evidente: el resultado NO depende del ritmo base
+ * configurado, solo del modelo (llano / D+ / inteligente), de las paradas
+ * previstas y de la hora de salida. Por eso sirve para empezar, cuando
+ * precisamente el ritmo es lo que no se sabe.
+ *
+ * Siempre en modo «objetivos»: la previsión actual no pinta nada aquí — la
+ * pregunta es qué hace falta, no qué se está haciendo.
+ */
+export function computeMarginChoices(
+  margins: number[],
+  { track, namedWaypoints, startTime, paceConfig, targetTimes, pauses }: MarginChoiceInputs,
+): MarginChoice[] {
+  return margins.map((marginMin) => {
+    const strategy = computeCutoffStrategy(
+      track, namedWaypoints, startTime, paceConfig, marginMin,
+      0, 'Salida', targetTimes, pauses, 'objectives',
+    )
+    const tightest = strategy.tightestSegment
+    return {
+      marginMin,
+      requiredPaceMinPerKm: strategy.singlePace,
+      bottleneckLabel: tightest?.toLabel ?? null,
+      bottleneckKm: tightest?.toKm ?? null,
+      unreachableCount: strategy.segments.filter((s) => s.requiredPaceMinPerKm === null).length,
+    }
+  })
+}

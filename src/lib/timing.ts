@@ -34,6 +34,20 @@ export const ACTIVITY_LABEL: Record<ActivityType, { emoji: string; label: string
   transport: { emoji: '🚌', label: 'Transporte' },
 }
 
+/**
+ * Cómo se llama cada modelo de previsión en pantalla. Vive aquí, y no en el
+ * panel que los pinta, porque el nombre también hace falta donde solo se
+ * resume lo elegido (una sección plegada, por ejemplo), y dos listas de
+ * nombres separadas se desincronizan en cuanto se toca una.
+ */
+export const PACE_MODE_LABEL: Record<PaceConfig['mode'], string> = {
+  fixed: 'Fijo',
+  naismith: 'D+',
+  smart: 'Inteligente',
+  gpx: 'Tiempos reales',
+  'gpx-moving': 'Media en movimiento',
+}
+
 /** Activities whose speed is shown as km/h (not min/km pace): bike and any
  *  vehicle/transport. Walk/run (and an unknown activity) use min/km. */
 export function usesSpeedUnit(activity?: ActivityType): boolean {

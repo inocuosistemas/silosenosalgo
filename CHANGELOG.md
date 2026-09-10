@@ -63,6 +63,39 @@ el commit 271.
 
 ## 2026-09-10
 
+### El planificador empieza por el margen que quieres en cada corte
+
+**Web · desplegado.** El paso «Ritmo» pedía lo que nadie sabe
+contestar antes de una carrera larga: modelo de previsión, ritmo en llano,
+minutos por cada 100 m de D+. Ahora lo primero que pregunta es lo único que sí
+se sabe —**cuánto quieres llegar antes de cada corte**— y de ahí sale el ritmo.
+
+Se elige entre justo, 15, 30, 45 minutos o una hora (o se teclea otro), y cada
+opción enseña ya el ritmo que pide; un margen que no da dice «no llegas» en vez
+de dejarte calcularlo. Debajo, una línea dice qué corte manda —el que fija el
+ritmo de todo el recorrido— y el botón lo pone de ritmo base. En los demás
+cortes se llega con más colchón que el pedido, nunca con menos.
+
+Lo que hace que esto sirva para empezar: **el ritmo necesario no depende del
+ritmo que lleves puesto**. Sale del recorrido, de las horas de corte, de las
+paradas previstas y de la hora de salida, así que contesta incluso cuando el
+ritmo es justo lo que no tienes ni idea de cuál es. Con los tiempos del GPX
+mandando tramo a tramo, ponerlo cambia el modelo a ritmo fijo —si no, el ritmo
+no pintaría nada— y avisa antes de hacerlo.
+
+El modelo de previsión y el ritmo base pasan a una sección plegada que enseña,
+cerrada, lo que hay elegido. Siguen enteros: esto no quita nada, cambia el
+orden en que se pregunta.
+
+**Sin cortes de tiempo no aparece.** Un recorrido sin horas de corte no tiene
+margen que elegir, así que el paso vuelve a ser el de antes —modelo y ritmo,
+abiertos— sin una opción vacía que no lleva a ningún sitio. En cuanto se le
+ponen cortes a los waypoints, aparece.
+
+**Android / iOS** · *Compatible*. No les toca: las apps llevan el visor, no el
+planificador. La estrategia por tramos de después, con su margen y sus botones
+de ritmo único y variable, se queda igual.
+
 ### Los cortes de la Canfranc-Canfranc decían que sobraban 176 horas
 
 **Web · desplegado.** El plan de paso de la Canfranc-Canfranc daba
