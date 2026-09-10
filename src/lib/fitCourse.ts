@@ -1,4 +1,4 @@
-import type { GpxTrack } from './gpx'
+import type { GpxNamedWaypoint, GpxTrack } from './gpx'
 import type { ActivityType } from './timing'
 
 /**
@@ -56,6 +56,22 @@ const COURSE_POINT_GENERIC = 0  // course_point.type
 const FIT_EPOCH_OFFSET_S = 631065600
 /** Degrees → semicircles. */
 const SEMICIRCLES = 2147483648 / 180
+
+/**
+ * A cuántos km/h se supone que se recorre el curso, por actividad.
+ *
+ * Las marcas de tiempo de un curso no son un horario: son el eje temporal que
+ * el reloj usa para estimar cuánto queda. Ponerlas a un segundo por punto —que
+ * es lo que se hacía— convierte un recorrido de 429 km en hora y media, o sea
+ * 257 km/h a pie. Con la velocidad nominal sale un tiempo que al menos es de
+ * este mundo.
+ */
+const NOMINAL_KMH: Record<ActivityType, number> = {
+  walk: 4.5,
+  run: 8,
+  bike: 18,
+  transport: 40,
+}
 
 function activityToSport(a: ActivityType): number {
   switch (a) {
@@ -135,19 +151,198 @@ function writeString(w: ByteWriter, utf8: number[], size: number): void {
   for (let i = n; i < size; i++) w.u8(0)
 }
 
-// ── Downsampling ───────────────────────────────────────────────────────────────
-// Keep course files comfortably within Garmin's import limits. Course points
-// (POIs) are never dropped — only the geometry is thinned, and each kept point
-// keeps its true cumulative distance, so POI km stay exact.
-const MAX_RECORDS = 16000
+// ── Cuántos puntos aguanta el reloj ────────────────────────────────────────────
+//
+// Garmin Connect se traga cualquier cosa; el reloj no. El Fenix 7 se **reinicia
+// al abrir** un curso demasiado grande, y el umbral que se repite en los foros
+// de Garmin está sobre los 10 000 puntos de trazado: hay quien congela el reloj
+// con 14 235 y quien navega la TOR330 —350 km— tras bajar de 30 000 a poco
+// menos de 10 000. Aquí el tope estaba en 16 000, o sea por encima del límite,
+// y un recorrido de 65 km salía con 11 867 puntos: uno cada cinco metros y
+// medio, densidad que no aporta nada a la navegación y sí acerca al reinicio.
+//
+// Así que se manda muchísimo menos, y sobre todo se manda mejor: primero se
+// quitan las posiciones repetidas —tramos de longitud cero, donde el rumbo no
+// está definido, y de esos había 1 485 en un fichero real—, luego se simplifica
+// la geometría guardando las curvas y tirando lo que no dobla, y solo si aun
+// así sobran puntos se diezma de forma uniforme.
+//
+// Los POI no se tocan: cada punto que se queda conserva su distancia acumulada
+// real, así que los km de los POI siguen exactos.
+const MAX_RECORDS = 6000
 
-function downsampleIndices(n: number, max: number): number[] {
-  if (n <= max) return Array.from({ length: n }, (_, i) => i)
+/**
+ * Cuánto puede alejarse la línea simplificada de la original, en metros.
+ *
+ * Cuatro metros están por debajo del error del propio GPS y muy por debajo de
+ * lo que dobla una curva de verdad: las horquillas se quedan enteras y lo que
+ * desaparece son los puntos de más en las rectas.
+ */
+const SIMPLIFY_TOLERANCE_M = 4
+
+/** Dos posiciones más juntas que esto son la misma: sobra una. */
+const DUPLICATE_POINT_M = 0.5
+
+/** Tope de puntos de curso del reloj. Pasarse hace que descarte los últimos. */
+const MAX_COURSE_POINTS = 200
+
+/** Dos POI a menos de esto son el mismo sitio (control y su avituallamiento). */
+const SAME_POI_KM = 0.01
+
+interface PlanarPoint { x: number; y: number }
+
+/** Lat/lon a metros en un plano local, que para simplificar sobra y basta. */
+function toPlanar(points: { lat: number; lon: number }[]): PlanarPoint[] {
+  const lat0 = points.length > 0 ? (points[0].lat * Math.PI) / 180 : 0
+  const kx = 111_320 * Math.cos(lat0)
+  return points.map((p) => ({ x: p.lon * kx, y: p.lat * 110_540 }))
+}
+
+/** Distancia de `p` al segmento `a`–`b`, en metros. */
+function perpDistance(p: PlanarPoint, a: PlanarPoint, b: PlanarPoint): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+
+/** Quita las posiciones repetidas seguidas. Primero y último nunca se van. */
+export function dedupeIndices(points: { lat: number; lon: number }[]): number[] {
+  if (points.length === 0) return []
+  const planar = toPlanar(points)
+  const kept = [0]
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = planar[kept[kept.length - 1]]
+    if (Math.hypot(planar[i].x - prev.x, planar[i].y - prev.y) >= DUPLICATE_POINT_M) kept.push(i)
+  }
+  if (points.length > 1) kept.push(points.length - 1)
+  return kept
+}
+
+/**
+ * Ramer-Douglas-Peucker sobre los índices dados: se queda con los puntos que
+ * dibujan la forma y tira los que caen sobre la recta que ya trazan sus
+ * vecinos. Iterativo a propósito: con treinta mil puntos, la versión recursiva
+ * se lleva la pila por delante.
+ */
+export function simplifyIndices(
+  points: { lat: number; lon: number }[],
+  indices: number[],
+  toleranceM: number,
+): number[] {
+  if (indices.length <= 2) return indices
+  const planar = toPlanar(points)
+  const keep = new Uint8Array(indices.length)
+  keep[0] = 1
+  keep[indices.length - 1] = 1
+  const stack: [number, number][] = [[0, indices.length - 1]]
+  while (stack.length > 0) {
+    const [lo, hi] = stack.pop()!
+    if (hi - lo < 2) continue
+    const a = planar[indices[lo]]
+    const b = planar[indices[hi]]
+    let worst = -1
+    let worstDist = toleranceM
+    for (let i = lo + 1; i < hi; i++) {
+      const d = perpDistance(planar[indices[i]], a, b)
+      if (d > worstDist) { worstDist = d; worst = i }
+    }
+    if (worst < 0) continue
+    keep[worst] = 1
+    stack.push([lo, worst], [worst, hi])
+  }
+  return indices.filter((_, i) => keep[i] === 1)
+}
+
+/** Diezma uniformemente una lista de índices hasta `max`, con los extremos. */
+export function capIndices(indices: number[], max: number): number[] {
+  const n = indices.length
+  if (n <= max) return indices
   const stride = (n - 1) / (max - 1)
-  const idx: number[] = []
-  for (let k = 0; k < max; k++) idx.push(Math.round(k * stride))
-  idx[max - 1] = n - 1
-  return idx
+  const out: number[] = []
+  for (let k = 0; k < max; k++) out.push(indices[Math.round(k * stride)])
+  out[max - 1] = indices[n - 1]
+  return out
+}
+
+/** Los puntos que se mandan: sin repetidos, simplificados y dentro del tope. */
+export function courseRecordIndices(points: { lat: number; lon: number }[]): number[] {
+  return capIndices(
+    simplifyIndices(points, dedupeIndices(points), SIMPLIFY_TOLERANCE_M),
+    MAX_RECORDS,
+  )
+}
+
+// ── Puntos de curso (los POI) ──────────────────────────────────────────────────
+
+/**
+ * Cuántos bytes de nombre se mandan por punto de curso.
+ *
+ * El nombre viaja en un campo de tamaño fijo, el mismo para todos, así que sin
+ * tope un solo POI con un nombre kilométrico infla el fichero entero — y por
+ * encima de 254 bytes el tamaño ya no cabe donde se anota y el fichero sale
+ * ilegible. En la pantalla del reloj no entran ni de lejos treinta y dos.
+ */
+const NAME_MAX_BYTES = 32
+
+/** Recorta a `max` bytes sin partir un carácter por la mitad. */
+export function truncateUtf8(bytes: number[], max: number): number[] {
+  if (bytes.length <= max) return bytes
+  let end = max
+  // Los bytes de continuación son 10xxxxxx: si el corte cae en uno, se
+  // retrocede hasta el principio del carácter. Partir una «ú» por la mitad
+  // deja una cadena que no es UTF-8 válido.
+  while (end > 0 && (bytes[end] & 0xC0) === 0x80) end--
+  return bytes.slice(0, end)
+}
+
+/** Diezma uniformemente una lista hasta `max`, conservando los extremos. */
+function capList<T>(list: T[], max: number): T[] {
+  if (list.length <= max) return list
+  if (max <= 0) return []
+  if (max === 1) return [list[0]]
+  const stride = (list.length - 1) / (max - 1)
+  const out: T[] = []
+  for (let k = 0; k < max; k++) out.push(list[Math.round(k * stride)])
+  out[max - 1] = list[list.length - 1]
+  return out
+}
+
+/**
+ * Qué POI se mandan como puntos de curso.
+ *
+ * Dos reglas, las dos aprendidas a base de disgustos:
+ *
+ *   1. Un sitio, un punto. El GPX de la organización trae cada control DOS
+ *      veces —el cierre y su avituallamiento, en las mismas coordenadas—, y
+ *      duplicarlos en el reloj solo sirve para gastar el cupo y avisar dos
+ *      veces de lo mismo. Cuando coinciden, manda el que lleva hora de corte.
+ *   2. El reloj tiene un tope de puntos de curso y, pasado, se come los
+ *      últimos sin avisar: los del final del recorrido, justo cuando más falta
+ *      hacen. Si hay que elegir, se quedan los cortes.
+ */
+export function selectCoursePoints(wpts: GpxNamedWaypoint[]): GpxNamedWaypoint[] {
+  const merged: GpxNamedWaypoint[] = []
+  for (const w of [...wpts].sort((a, b) => a.distanceKm - b.distanceKm)) {
+    const last = merged[merged.length - 1]
+    if (last && w.distanceKm - last.distanceKm < SAME_POI_KM) {
+      if (!last.cutoffWallClock && w.cutoffWallClock) merged[merged.length - 1] = w
+      continue
+    }
+    merged.push(w)
+  }
+  if (merged.length <= MAX_COURSE_POINTS) return merged
+
+  const conCorte = merged.filter((w) => w.cutoffWallClock)
+  if (conCorte.length >= MAX_COURSE_POINTS) return capList(conCorte, MAX_COURSE_POINTS)
+  const elegidos = new Set([
+    ...conCorte,
+    ...capList(merged.filter((w) => !w.cutoffWallClock), MAX_COURSE_POINTS - conCorte.length),
+  ])
+  return merged.filter((w) => elegidos.has(w))
 }
 
 // ── Encoder ──────────────────────────────────────────────────────────────────────
@@ -160,19 +355,32 @@ export function serializeFitCourse(track: GpxTrack, activity: ActivityType): Uin
   const totalKm = track.totalDistanceKm
   const base = Math.floor(Date.now() / 1000) - FIT_EPOCH_OFFSET_S
 
-  const keep = downsampleIndices(points.length, MAX_RECORDS)
+  const keep = courseRecordIndices(points)
   const m = keep.length
-  const lastSeq = Math.max(0, m - 1)
+
+  // Segundos transcurridos al llegar a cada punto que se manda. Se exige que
+  // crezcan de uno en uno como mínimo: dos marcas iguales en registros
+  // seguidos son un fichero mal formado, y en un recorrido corto y denso los
+  // redondeos empatan solos.
+  const kmh = NOMINAL_KMH[activity] ?? 5
+  const elapsed: number[] = []
+  let prev = -1
+  for (const idx of keep) {
+    const t = Math.max(prev + 1, Math.round((cumKm[idx] / kmh) * 3600))
+    elapsed.push(t)
+    prev = t
+  }
+  const lastSeq = m > 0 ? elapsed[m - 1] : 0
 
   // Local message types
   const L_FILE_ID = 0, L_COURSE = 1, L_LAP = 2, L_EVENT = 3, L_RECORD = 4, L_CP = 5
 
-  const courseNameBytes = bytesOf(track.name || 'Course')
+  const courseNameBytes = truncateUtf8(bytesOf(track.name || 'Course'), NAME_MAX_BYTES * 2)
   const courseNameSize = courseNameBytes.length + 1
 
   // course_point names share one definition → fixed field size = longest + null.
-  const cps = [...namedWaypoints].sort((a, b) => a.distanceKm - b.distanceKm)
-  const cpNameBytes = cps.map((w) => bytesOf(w.name || 'POI'))
+  const cps = selectCoursePoints(namedWaypoints)
+  const cpNameBytes = cps.map((w) => truncateUtf8(bytesOf(w.name || 'POI'), NAME_MAX_BYTES))
   const cpNameSize = Math.max(1, ...cpNameBytes.map((b) => b.length)) + 1
 
   const w = new ByteWriter()
@@ -203,7 +411,7 @@ export function serializeFitCourse(track: GpxTrack, activity: ActivityType): Uin
 
   // ── lap (totals + bounding positions) ────────────────────────────────────────
   const first = points[keep[0]]
-  const last = points[keep[lastSeq]]
+  const last = points[keep[m - 1]]
   writeDefinition(w, L_LAP, MESG_LAP, [
     { num: 253, type: T_UINT32 }, // timestamp
     { num: 2,   type: T_UINT32 }, // start_time
@@ -249,7 +457,7 @@ export function serializeFitCourse(track: GpxTrack, activity: ActivityType): Uin
     const idx = keep[k]
     const p = points[idx]
     w.u8(L_RECORD)
-    w.u32(base + k)
+    w.u32(base + elapsed[k])
     w.i32(degToSemicircles(p.lat))
     w.i32(degToSemicircles(p.lon))
     w.u32(distScaled(cumKm[idx]))
@@ -268,8 +476,9 @@ export function serializeFitCourse(track: GpxTrack, activity: ActivityType): Uin
   ])
   cps.forEach((cp, i) => {
     const km = Math.max(0, Math.min(totalKm, cp.distanceKm))
-    // timestamp must fall inside [base, base+lastSeq]; derive from fractional km.
-    const seq = totalKm > 0 ? Math.round((km / totalKm) * lastSeq) : 0
+    // La marca ha de caer dentro de [base, base+lastSeq]: sale de su distancia
+    // a la misma velocidad nominal que los registros.
+    const seq = Math.max(0, Math.min(lastSeq, Math.round((km / kmh) * 3600)))
     const idx = Math.max(0, Math.min(points.length - 1, cp.nearestTrackIndex))
     const p = points[idx]
     w.u8(L_CP)

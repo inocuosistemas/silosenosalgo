@@ -63,6 +63,51 @@ el commit 271.
 
 ## 2026-09-10
 
+### El curso FIT reiniciaba el Fenix 7 al abrirlo
+
+**Web · desplegado.** Descargar el curso FIT, subirlo a Garmin
+Connect y sincronizarlo con un Fenix 7 acababa siempre igual: el reloj se
+reinicia al abrir el recorrido. El mismo recorrido en GPX va fino, y ahí está
+la pista — **Connect recorta puntos cuando importa un GPX, pero un FIT de curso
+se lo queda tal cual**. O sea que el tamaño del fichero lo teníamos que
+arreglar nosotros y no lo hacíamos.
+
+Los ficheros que salían de aquí, medidos: 16 000 puntos para 429 km, 11 867
+para 65 km —uno cada cinco metros y medio— y 1 485 posiciones repetidas
+seguidas en uno de ellos. El umbral que se repite en los foros de Garmin para
+un Fenix 7 está sobre los **10 000 puntos**: por encima hay congelaciones y
+reinicios. Íbamos claramente por encima, y encima con tramos de longitud cero,
+que es donde el cálculo de rumbo se queda sin definir.
+
+Ahora se manda mucho menos y, sobre todo, mejor:
+
+- **Fuera las posiciones repetidas.** Un punto que no se mueve del anterior no
+  es un punto, es un tramo de longitud cero.
+- **La geometría se simplifica guardando la forma** (Ramer-Douglas-Peucker con
+  cuatro metros de tolerancia, por debajo del error del propio GPS): las
+  horquillas se quedan enteras y desaparecen los puntos de más de las rectas.
+  Los mismos recorridos de arriba salen ahora con 2 913 y 1 302 puntos.
+- **Tope duro de 6 000**, muy por debajo del límite del reloj, por si acaso.
+- **Un sitio, un punto de curso.** El control y su avituallamiento vienen en
+  las mismas coordenadas del GPX de la organización; en el reloj eso gastaba
+  cupo y avisaba dos veces de lo mismo. Cuando coinciden, manda el que lleva
+  hora de corte.
+- **Tope de 200 puntos de curso**, el del reloj, que pasado se come los últimos
+  sin avisar —los del final del recorrido, justo cuando más falta hacen—. Si
+  hay que elegir, se quedan los cortes.
+- **Los nombres se recortan a 32 bytes sin partir un carácter.** Sin tope, un
+  solo POI con nombre kilométrico infla el fichero entero, y pasados los 254
+  bytes el tamaño ya no cabe donde se anota y el fichero sale ilegible.
+- **Las marcas de tiempo salen de la distancia**, no de un segundo por punto:
+  429 km ya no se recorren en hora y media —257 km/h a pie— sino a una
+  velocidad de este mundo, que es de donde el reloj saca lo que queda.
+
+Los km de cada POI siguen exactos: cada punto que se queda conserva su
+distancia acumulada real. **Hay que volver a descargar el FIT**: los que ya
+estén en Connect siguen siendo los de antes.
+
+**Android / iOS** · No aplica: el curso FIT se descarga desde la web.
+
 ### El planificador empieza por el margen que quieres en cada corte
 
 **Web · desplegado.** El paso «Ritmo» pedía lo que nadie sabe
