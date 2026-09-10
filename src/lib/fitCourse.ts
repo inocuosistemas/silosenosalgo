@@ -4,18 +4,25 @@ import type { ActivityType } from './timing'
 /**
  * Encodes a GpxTrack as a Garmin **FIT course** file.
  *
- * Why this exists (and why GPX can't do it):
- *   GPX has no field for "distance along the course" of a `<wpt>`. Garmin
- *   Connect's GPX importer is supposed to compute it by projecting each
- *   waypoint onto the route, but it doesn't — it lists every imported POI at
- *   "0,00 km". The km only sticks for course points *created inside* Garmin's
- *   editor. We verified this against a course exported from Garmin: our POIs
- *   and a point added in Garmin's editor are byte-for-byte equivalent `<wpt>`s
- *   with no distance anywhere — the distance lives only in Garmin's database.
+ * Why this exists (and what changed since):
+ *   GPX has no field for "distance along the course" of a `<wpt>`. When this
+ *   was written, Garmin Connect's GPX importer listed every imported POI at
+ *   "0,00 km" instead of projecting it onto the route, so the km only stuck for
+ *   course points created inside Garmin's own editor. FIT solved it: the
+ *   `course_point` message carries an explicit `distance` field (uint32,
+ *   meters × 100), which we write from each POI's known km and Garmin uses
+ *   verbatim — no geodesic projection on their end.
  *
- *   FIT solves it: the `course_point` message has an explicit `distance` field
- *   (uint32, meters × 100). We already know each POI's km, so we write it
- *   directly and Garmin uses it verbatim — no geodesic projection on their end.
+ *   **Garmin has since fixed the GPX importer** (comprobado el 2026-09-10 con
+ *   una ruta de 99,59 km: los diez POI salen en "Puntos del trayecto" a su km
+ *   real). Así que para la vía normal —subir a Connect y sincronizar— el GPX
+ *   ya vale, y encima es MÁS SEGURO: Connect recorta puntos al importar un
+ *   GPX y un FIT se lo queda tal cual, que es lo que reiniciaba el Fenix 7.
+ *
+ *   Lo que le queda de propio al FIT: el km va escrito y no calculado, los POI
+ *   llegan como puntos de curso de verdad, y el fichero puede copiarse DIRECTO
+ *   al reloj por USB (carpeta NewFiles) sin pasar por Connect — que es la
+ *   única vía en la que controlamos exactamente qué recibe el reloj.
  *
  * The encoder is hand-rolled (no FIT SDK dependency), mirroring the project's
  * hand-rolled GPX serializer. It emits a minimal but complete course:
@@ -160,6 +167,11 @@ function writeString(w: ByteWriter, utf8: number[], size: number): void {
 // menos de 10 000. Aquí el tope estaba en 16 000, o sea por encima del límite,
 // y un recorrido de 65 km salía con 11 867 puntos: uno cada cinco metros y
 // medio, densidad que no aporta nada a la navegación y sí acerca al reinicio.
+//
+// Cuánto es razonable lo dice la propia Garmin: el curso de 429 km que se le
+// subió con 75 074 puntos en un GPX, ella lo guardó con 3 851 —uno cada 111 m—
+// y así lo exporta. Ese es el orden de magnitud al que hay que ir; por ese
+// camino le mandábamos cuatro veces más.
 //
 // Así que se manda muchísimo menos, y sobre todo se manda mejor: primero se
 // quitan las posiciones repetidas —tramos de longitud cero, donde el rumbo no

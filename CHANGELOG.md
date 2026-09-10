@@ -106,6 +106,21 @@ Los km de cada POI siguen exactos: cada punto que se queda conserva su
 distancia acumulada real. **Hay que volver a descargar el FIT**: los que ya
 estén en Connect siguen siendo los de antes.
 
+El listón lo pone la propia Garmin: ese recorrido de 429 km se le subió con
+75 074 puntos en un GPX y ella lo guardó con **3 851** —uno cada 111 m—, que es
+como lo exporta. Ahora le mandamos 2 913 por esa ruta; antes, 16 000.
+
+**Y el motivo por el que existía el FIT ya no es cierto.** Se hizo porque
+Connect importaba los POI de un GPX y los dejaba todos a «0,00 km». Ya no:
+comprobado el 10/09/2026 con una ruta de 99,59 km, los diez POI salen en
+«Puntos del trayecto» a su kilómetro real. Así que para la vía normal —subir a
+Connect y sincronizar— **el GPX es la vía recomendada**, y además la más
+segura, porque Connect recorta al importarlo. Al FIT le queda lo suyo: el km va
+escrito y no calculado, los POI llegan como puntos de curso de verdad, y el
+fichero se puede copiar **directo al reloj por USB** (carpeta `NewFiles`) sin
+pasar por Connect, que es la única vía en la que controlamos exactamente qué
+recibe el reloj. Los botones de descarga lo dicen ya en su ayuda.
+
 **Android / iOS** · No aplica: el curso FIT se descarga desde la web.
 
 ### El planificador empieza por el margen que quieres en cada corte

@@ -2451,14 +2451,14 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
               <div className="shrink-0 flex items-center gap-2">
                 <button
                   onClick={handleDownloadGpx}
-                  title="Descargar el GPX de esta ruta (con POIs y cortes si los hay)"
+                  title="Descargar el GPX de esta ruta (con POIs y cortes si los hay). Es la vía recomendada para Garmin Connect: respeta el km de cada POI y recorta puntos al importar, así que el reloj lo abre sin ahogarse."
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
                 >
                   ↓ <span className="hidden sm:inline">Descargar </span>GPX
                 </button>
                 <button
                   onClick={handleDownloadFit}
-                  title="Descargar curso FIT para Garmin Connect: los POI conservan su km (a diferencia del GPX)"
+                  title="Descargar el curso FIT: lleva el km de cada POI escrito, no calculado. Para copiarlo directo al reloj por USB (carpeta NewFiles) sin pasar por Garmin Connect."
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium transition-colors"
                 >
                   ↓ <span className="hidden sm:inline">Curso </span>FIT
