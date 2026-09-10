@@ -685,7 +685,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             abiertaPorDefecto = !estado.compartiendo && estado.planId == null && estado.eventoId == null,
         ) {
             if (eventos.isNotEmpty()) {
-                SelectorEvento(eventos, estado.eventoId) { TrackingStore.ajustaEvento(it) }
+                SelectorEvento(eventos, estado.eventoId, estado.eventoAuto) {
+                    TrackingStore.ajustaEvento(it)
+                }
                 Spacer(Modifier.height(14.dp))
             }
             if (!estado.compartiendo) {

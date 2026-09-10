@@ -316,6 +316,48 @@ object TrackingRules {
         return null
     }
 
+    // ── Eventos ──────────────────────────────────────────────────────────────
+
+    /**
+     * La carrera que se corre HOY, si la hay: la que la baliza propone sola al
+     * abrirla.
+     *
+     * El día de la carrera nadie abre la baliza para otra cosa. Hacer que ese
+     * día haya que elegir el evento a mano es pedir justo el paso que se olvida
+     * —con el dorsal puesto, con guantes y con prisa—, y olvidarlo no es un
+     * despiste inocuo: la salida se queda fuera del mapa común y quien te sigue
+     * no te encuentra donde te busca. De regalo viene la hora oficial (ver
+     * [TrackingStore.ajustaEvento]), que es lo que deja la baliza ARMADA y en
+     * silencio hasta el disparo en vez de emitiendo desde el aparcamiento.
+     *
+     * Se propone, no se impone: es solo lo que aparece elegido al abrir, y
+     * quitarlo es un toque. Por eso el criterio puede ser generoso.
+     *
+     * Reglas, y el porqué de cada una:
+     * - **El mismo día natural**, en la zona del móvil. Una carrera de mañana
+     *   no tiene por qué salir hoy, y una de ayer ya no.
+     * - **Sin terminar** ([EventSummary.isOver]): al cerrarla el organizador ya
+     *   no admite balizas.
+     * - **Con hora puesta**: sin ella no hay nada que heredar y el criterio del
+     *   día no se sostiene.
+     * - **La más cercana a este momento** si hay varias, antes o después de su
+     *   hora: en un día con dos carreras, la que toca es la de al lado.
+     */
+    fun eventoDeHoy(
+        eventos: List<EventSummary>,
+        ahoraMs: Double,
+        zona: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ): EventSummary? {
+        fun dia(ms: Double) = java.time.Instant.ofEpochMilli(ms.toLong()).atZone(zona).toLocalDate()
+        val hoy = dia(ahoraMs)
+        return eventos
+            .filter { !it.isOver }
+            .mapNotNull { ev -> ev.startsAt?.takeIf { it > 0.0 }?.let { ev to it } }
+            .filter { (_, salida) -> dia(salida) == hoy }
+            .minByOrNull { (_, salida) -> abs(salida - ahoraMs) }
+            ?.first
+    }
+
     // ── Geometría ────────────────────────────────────────────────────────────
 
     /** Distancia entre dos puntos por haversine (metros). */

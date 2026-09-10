@@ -253,6 +253,18 @@ struct TrackingView: View {
                                     Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name).tag(Optional(ev.id))
                                 }
                             }
+                            // Puesto por la app, no por su dueño: hay que
+                            // decirlo. Atribuir la salida a una carrera cambia
+                            // quién te ve y de dónde sale la hora, y eso no
+                            // puede pasar en silencio; enseñarlo es lo que
+                            // convierte el atajo en una propuesta que se
+                            // rechaza volviendo a "Ninguno".
+                            if store.eventPickedAutomatically, store.selectedEventId != nil {
+                                Label("Hoy corres esta. La baliza viene preparada para ella, con su hora de salida.",
+                                      systemImage: "sparkles")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.sky500)
+                            }
                             if let ev = store.events.first(where: { $0.id == store.selectedEventId }),
                                let emoji = ev.myEmoji {
                                 HStack(spacing: 8) {

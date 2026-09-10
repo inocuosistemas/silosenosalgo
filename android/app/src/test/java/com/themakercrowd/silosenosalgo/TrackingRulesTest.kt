@@ -574,6 +574,63 @@ class TrackingRulesTest {
         assertNull(TrackingRules.anclaje(null, null))
     }
 
+    // ── El evento de hoy ─────────────────────────────────────────────────────
+
+    private fun evento(
+        id: String,
+        salida: Double? = null,
+        terminado: Boolean = false,
+    ) = EventSummary(
+        id = id,
+        name = id,
+        startsAt = salida,
+        endedAt = if (terminado) salida else null,
+    )
+
+    /** Epoch ms de una hora local, para escribir los casos en horas de reloj. */
+    private fun cuando(dia: String, hora: String): Double =
+        java.time.LocalDateTime.parse("${dia}T$hora")
+            .atZone(java.time.ZoneId.of("Europe/Madrid"))
+            .toInstant().toEpochMilli().toDouble()
+
+    private fun deHoy(eventos: List<EventSummary>, ahora: Double) =
+        TrackingRules.eventoDeHoy(eventos, ahora, java.time.ZoneId.of("Europe/Madrid"))
+
+    @Test fun `la carrera de hoy se propone sola, la de manana no`() {
+        val hoy = evento("hoy", cuando("2026-09-12", "08:00"))
+        val manana = evento("manana", cuando("2026-09-13", "08:00"))
+        val ayer = evento("ayer", cuando("2026-09-11", "08:00"))
+        val alAbrir = cuando("2026-09-12", "07:10")
+        assertEquals("hoy", deHoy(listOf(ayer, manana, hoy), alAbrir)?.id)
+        // La víspera NO propone nada: abrir la baliza el día antes es para
+        // preparar el móvil, no para salir.
+        assertNull(deHoy(listOf(hoy), cuando("2026-09-11", "22:00")))
+    }
+
+    @Test fun `una carrera ya empezada sigue siendo la de hoy`() {
+        // Llegar tarde a encender la baliza es de lo más normal: el evento se
+        // propone igual hasta que acaba el día.
+        val ev = evento("ultra", cuando("2026-09-12", "07:00"))
+        assertEquals("ultra", deHoy(listOf(ev), cuando("2026-09-12", "09:30"))?.id)
+    }
+
+    @Test fun `con dos carreras el mismo dia gana la mas cercana`() {
+        val manana = evento("manana", cuando("2026-09-12", "09:00"))
+        val tarde = evento("tarde", cuando("2026-09-12", "18:00"))
+        assertEquals("manana", deHoy(listOf(tarde, manana), cuando("2026-09-12", "08:30"))?.id)
+        assertEquals("tarde", deHoy(listOf(manana, tarde), cuando("2026-09-12", "16:00"))?.id)
+    }
+
+    @Test fun `no se propone lo que no se puede correr`() {
+        val ahora = cuando("2026-09-12", "07:10")
+        // Terminada por el organizador: ya no admite balizas.
+        assertNull(deHoy(listOf(evento("cerrada", cuando("2026-09-12", "06:00"), terminado = true)), ahora))
+        // Sin hora no hay nada que heredar, y sin hora tampoco hay "hoy".
+        assertNull(deHoy(listOf(evento("sinhora")), ahora))
+        assertNull(deHoy(listOf(evento("cero", 0.0)), ahora))
+        assertNull(deHoy(emptyList(), ahora))
+    }
+
     // ── Presentación ─────────────────────────────────────────────────────────
 
     @Test fun `las distancias se formatean en metros o kilometros`() {

@@ -61,6 +61,38 @@ el commit 271.
 
 ---
 
+## 2026-09-10
+
+### El día de la carrera, la baliza ya viene con la carrera puesta
+
+**Android · 1.0 (433)** · *Mejora al actualizar*
+**iOS · instalada en el iPhone** · *Mejora al actualizar*
+**Web** · no aplica: la baliza es de las apps.
+
+Al abrir la baliza el día de un evento en el que participas, aparece ya elegido
+—con un aviso de que lo ha puesto la app, y se quita con un toque—. Con él viene
+la hora oficial de salida, así que la baliza se queda **armada y en silencio**
+hasta el disparo en vez de emitir desde el aparcamiento.
+
+Elige la carrera de HOY (día natural del móvil), sin terminar y con hora puesta;
+si hay dos el mismo día, la más cercana a ese momento. No se mete donde no la
+llaman: nunca con una salida en marcha o armada, nunca si ya hay evento elegido,
+y nunca el que acabas de quitar —eso se recuerda aunque cierres la app—.
+
+**Y la ruta sin hora ya no borra la del evento.** Una ruta planificada casi nunca
+lleva hora (se planifica el recorrido, no el día). En Android, elegirla después
+del evento dejaba la salida en "ahora" y la baliza arrancaba a emitir en cuanto
+se pulsaba Empezar. Ahora la hora la pone la ruta si la trae y, si no, el evento.
+Una ruta CON hora sigue mandando sobre la del evento: quien sale en otra tanda la
+planifica con la suya.
+
+> **Compatible con cualquier APK anterior.** No cambia nada del servidor: se usa
+> `startsAt` de `GET /api/events`, que ya viajaba y ya venía relleno. Un APK
+> viejo se comporta como siempre —hay que elegir el evento a mano— y quien lo
+> lleve sale igual de bien en el mapa común.
+
+---
+
 ## 2026-09-01
 
 ### Marcas de evento: cada participante con su emoji

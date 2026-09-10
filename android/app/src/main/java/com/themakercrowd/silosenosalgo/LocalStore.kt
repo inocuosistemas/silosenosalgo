@@ -36,6 +36,22 @@ class LocalStore(context: Context) {
         prefs.edit().apply { if (nota == null) remove("notaRelevo") else putString("notaRelevo", nota) }.apply()
     }
 
+    /**
+     * El evento que la baliza propuso sola y su dueño quito.
+     *
+     * Tambien en preferencias, y por lo mismo: sin esto, cerrar y volver a abrir
+     * la app el dia de la carrera devolveria el evento que se acaba de quitar, y
+     * una propuesta que no acepta un "no" deja de ser una propuesta. Se guarda
+     * uno solo —el ultimo— porque solo hay uno que proponer a la vez.
+     */
+    fun leeEventoRechazado(): String? = prefs.getString("eventoRechazado", null)
+
+    fun guardaEventoRechazado(id: String?) {
+        prefs.edit().apply {
+            if (id == null) remove("eventoRechazado") else putString("eventoRechazado", id)
+        }.apply()
+    }
+
     /** El estado de la sesión viva, para reanudarla tras un reinicio o una
      *  muerte del proceso. */
     @Serializable

@@ -590,7 +590,12 @@ fun SelectorPlan(
  * obligar a parar y volver a empezar partiría la traza en dos.
  */
 @Composable
-fun SelectorEvento(eventos: List<EventSummary>, elegido: String?, onElige: (String?) -> Unit) {
+fun SelectorEvento(
+    eventos: List<EventSummary>,
+    elegido: String?,
+    auto: Boolean = false,
+    onElige: (String?) -> Unit,
+) {
     if (eventos.isEmpty()) return
     Text("Evento", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(4.dp))
@@ -604,6 +609,18 @@ fun SelectorEvento(eventos: List<EventSummary>, elegido: String?, onElige: (Stri
         }
     }
     Spacer(Modifier.height(6.dp))
+    // Puesto por la app, no por su dueño: hay que decirlo. Atribuir la salida a
+    // una carrera cambia quién te ve y de dónde sale la hora de salida, y eso no
+    // puede pasar en silencio; enseñarlo es lo que convierte el atajo en una
+    // propuesta que se puede rechazar con un toque en "Ninguno".
+    if (auto && elegido != null) {
+        Text(
+            "Hoy corres esta. La baliza viene preparada para ella, con su hora de salida.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Paleta.sky500,
+        )
+        Spacer(Modifier.height(6.dp))
+    }
     val actual = eventos.firstOrNull { it.id == elegido }
     if (actual != null && actual.myEmoji != null) {
         Row(verticalAlignment = Alignment.CenterVertically) {

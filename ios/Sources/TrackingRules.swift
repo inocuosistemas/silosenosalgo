@@ -11,6 +11,35 @@ enum TrackingRules {
     /// readings, so above that the filter would confuse walking with standing.
     static let reliableAccuracyM = 10.0
 
+    /// La carrera que se corre HOY, si la hay: la que la baliza deja puesta
+    /// sola al abrirla. Espejo de `TrackingRules.eventoDeHoy` en Android, donde
+    /// está la explicación larga y las pruebas.
+    ///
+    /// El día de la carrera nadie abre la baliza para otra cosa. Obligar a
+    /// elegir el evento a mano ese día es pedir justo el paso que se olvida —con
+    /// el dorsal puesto y con prisa—, y olvidarlo deja la salida fuera del mapa
+    /// común: quien te sigue no te encuentra donde te busca. De regalo viene la
+    /// hora oficial, que es lo que deja la baliza ARMADA y en silencio hasta el
+    /// disparo en vez de emitiendo desde el aparcamiento.
+    ///
+    /// Mismo día natural (el del móvil), sin terminar, con hora puesta, y si hay
+    /// dos, la más cercana a este momento —antes o después de su hora—.
+    static func todaysEvent(
+        _ events: [EventSummary],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> EventSummary? {
+        events
+            .filter { !$0.isOver }
+            .compactMap { ev -> (EventSummary, Date)? in
+                guard let ms = ev.startsAt, ms > 0 else { return nil }
+                return (ev, Date(timeIntervalSince1970: ms / 1000))
+            }
+            .filter { calendar.isDate($0.1, inSameDayAs: now) }
+            .min { abs($0.1.timeIntervalSince(now)) < abs($1.1.timeIntervalSince(now)) }?
+            .0
+    }
+
     /// Straight-line metres between two coordinates.
     static func distanceMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
         CLLocation(latitude: lat1, longitude: lon1)

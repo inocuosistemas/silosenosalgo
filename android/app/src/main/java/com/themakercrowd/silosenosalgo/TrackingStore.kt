@@ -49,6 +49,10 @@ object TrackingStore {
         /** Evento al que se atribuye esta salida. null = baliza suelta, que es
          *  lo normal: los eventos son la excepción, no el modo por defecto. */
         val eventoId: String? = null,
+        /** El evento lo propuso la app (es el de HOY), no lo eligió su dueño.
+         *  Se dice en pantalla: atribuir una salida a una carrera sin avisar
+         *  sería decidir por él. Ver [autoeligeEventoDeHoy]. */
+        val eventoAuto: Boolean = false,
         val salidaMs: Double = 0.0,
         /** Si la salida la fijó alguien (el plan, o la mano). Sin tocar, la
          *  salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la
@@ -483,7 +487,34 @@ object TrackingStore {
         val t = token ?: return
         runCatching { api.listEvents(t) }.onSuccess { lista ->
             _eventos.value = lista.filter { !it.isOver }
+            autoeligeEventoDeHoy()
         }
+    }
+
+    /**
+     * Deja puesto el evento de HOY al abrir la baliza, si hay uno.
+     *
+     * Quien abre la baliza el día de su carrera la abre PARA su carrera. La
+     * regla de qué carrera es vive en [TrackingRules.eventoDeHoy]; aquí solo
+     * está cuándo se puede proponer, que es lo delicado:
+     *
+     * - **Nunca con una salida en marcha o armada**: la sesión ya existe con su
+     *   evento (o sin él), y cambiárselo por detrás mandaría al servidor una
+     *   unión que nadie ha pedido.
+     * - **Nunca si ya hay evento elegido**: lo eligió alguien y manda.
+     * - **Nunca el que se acaba de quitar**: se recuerda entre arranques
+     *   ([LocalStore.leeEventoRechazado]) porque si no, cerrar y volver a abrir
+     *   la app lo devolvería una y otra vez.
+     *
+     * Se llama al refrescar la lista, y eso incluye el tirón hacia abajo: los
+     * tres candados de arriba hacen que repetirlo no sea repetirse.
+     */
+    fun autoeligeEventoDeHoy() {
+        val e = _estado.value
+        if (e.compartiendo || e.enEspera || e.eventoId != null) return
+        val hoy = TrackingRules.eventoDeHoy(_eventos.value, ahoraMs) ?: return
+        if (hoy.id == almacen.leeEventoRechazado()) return
+        ajustaEvento(hoy.id, auto = true)
     }
 
     /** El evento de la salida en curso, para enseñarlo mientras se emite. */
@@ -498,8 +529,13 @@ object TrackingStore {
      * pararla y volver a empezar para corregir el evento partiría la traza en
      * dos. Mismo camino que el lobby de la web.
      */
-    fun ajustaEvento(eventoId: String?) {
+    fun ajustaEvento(eventoId: String?, auto: Boolean = false) {
         val anterior = _estado.value.eventoId
+        // La mano manda sobre la propuesta, y se recuerda: quitar el evento que
+        // propuso la app es decirle que hoy no, y volver a proponerlo al abrir
+        // otra vez sería no haber escuchado. Elegir uno a mano borra el rechazo:
+        // ya no hay nada que evitar.
+        if (!auto) almacen.guardaEventoRechazado(if (eventoId == null) anterior else null)
         // La salida OFICIAL del evento pasa a ser la prevista, igual que hace
         // el plan al elegirlo. Es lo que ya sabe la organización y lo que nadie
         // debería tener que teclear a mano en la línea de salida con guantes —y
@@ -533,7 +569,7 @@ object TrackingStore {
                     _estado.value.copy(eventoId = eventoId, salidaMs = 0.0, salidaTocada = false)
                 else -> _estado.value.copy(eventoId = eventoId)
             },
-        )
+        ).copy(eventoAuto = auto && eventoId != null)
         guardaActivo()
         if (!_estado.value.compartiendo) return
         val t = token ?: return
@@ -564,10 +600,18 @@ object TrackingStore {
      */
     fun eligePlan(planId: String?) {
         val plan = _planes.value.firstOrNull { it.id == planId }
-        val salida = TrackingRules.parseaIso(plan?.startTime)
-        // Sin plan (o sin hora en el plan) la salida vuelve a "ahora", que se
-        // resuelve al pulsar "Empezar": dejar aquí la hora de este instante la
-        // volvería rancia si se comparte más tarde.
+        // La hora la pone la RUTA si la trae y, si no, el EVENTO. Una ruta sin
+        // hora es lo normal —se planifica el recorrido, no el día— y hasta ahora
+        // elegirla borraba la salida oficial que acababa de heredarse del
+        // evento: la baliza salía emitiendo desde el aparcamiento en vez de
+        // quedarse armada y en silencio hasta el disparo. El orden es ese porque
+        // una ruta CON hora es más concreta que la carrera: quien sale en otra
+        // tanda la planifica con la suya.
+        val salidaEvento = eventoActual()?.startsAt?.takeIf { it > 0.0 }
+        val salida = TrackingRules.parseaIso(plan?.startTime) ?: salidaEvento
+        // Sin plan (o sin hora en el plan ni en el evento) la salida vuelve a
+        // "ahora", que se resuelve al pulsar "Empezar": dejar aquí la hora de
+        // este instante la volvería rancia si se comparte más tarde.
         // La ACTIVIDAD también viene del plan: es la que se eligió al
         // planificar, con el recorrido delante, y de ella dependen los filtros
         // de lecturas imposibles. Solo rellena si está en Automático.

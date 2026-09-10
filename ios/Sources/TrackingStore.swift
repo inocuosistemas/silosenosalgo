@@ -97,6 +97,21 @@ final class TrackingStore: ObservableObject {
     /// Evento al que se atribuye esta salida. nil = baliza suelta, que es lo
     /// normal: los eventos son la excepción, no el modo por defecto.
     @Published var selectedEventId: String? = nil
+    /// El evento lo propuso la app (es el de HOY), no lo eligió su dueño. Se
+    /// dice en pantalla: atribuir una salida a una carrera sin avisar sería
+    /// decidir por él. Ver `autoSelectTodaysEvent()`.
+    @Published var eventPickedAutomatically = false
+    /// El evento que la app propuso y su dueño quitó. En `UserDefaults` —como
+    /// `takeoverNote`— y por lo mismo: sin esto, cerrar y volver a abrir la app
+    /// el día de la carrera devolvería el evento que se acaba de quitar, y una
+    /// propuesta que no acepta un "no" deja de ser una propuesta.
+    private var rejectedEventId: String? {
+        get { UserDefaults.standard.string(forKey: "rejectedEventId") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "rejectedEventId") }
+            else { UserDefaults.standard.removeObject(forKey: "rejectedEventId") }
+        }
+    }
     /// How long a finished route stays viewable (hours). Sent to the backend on stop.
     /// Cuánto se conserva la ruta al terminar. Treinta días, el mismo plazo
     /// que aplica el servidor cuando nadie le dice otra cosa: la enhorabuena
@@ -301,9 +316,20 @@ final class TrackingStore: ObservableObject {
         if activity == nil, let a = p.activity.flatMap(BeaconActivity.init(rawValue:)) {
             setActivity(a)
         }
-        guard let iso = p.startTime, let d = Self.parseISO(iso) else { return }
-        startAt = d
-        startAtTouched = true
+        // La hora la pone la RUTA si la trae y, si no, el EVENTO. Una ruta sin
+        // hora es lo normal —se planifica el recorrido, no el día—, y sin este
+        // respaldo elegirla dejaba la salida en "ahora": la baliza salía
+        // emitiendo desde el aparcamiento en vez de quedarse armada y en
+        // silencio hasta el disparo. El orden es ese porque una ruta CON hora es
+        // más concreta que la carrera: quien sale en otra tanda la planifica con
+        // la suya.
+        if let iso = p.startTime, let d = Self.parseISO(iso) {
+            startAt = d
+            startAtTouched = true
+        } else if let ms = activeEvent?.startsAt, ms > 0 {
+            startAt = Date(timeIntervalSince1970: ms / 1000)
+            startAtTouched = true
+        }
     }
 
     private static func parseISO(_ s: String) -> Date? {
@@ -325,7 +351,30 @@ final class TrackingStore: ObservableObject {
             // trae el id del evento, y sin esto una salida pasaba a leerse
             // "Sin nombre" en cuanto el organizador cerraba la carrera.
             for ev in result { eventNames[ev.id] = ev.name }
+            autoSelectTodaysEvent()
         }
+    }
+
+    /// Deja puesto el evento de HOY al abrir la baliza, si hay uno.
+    ///
+    /// Quien abre la baliza el día de su carrera la abre PARA su carrera. Qué
+    /// carrera es lo decide `TrackingRules.todaysEvent`; aquí está cuándo se
+    /// puede proponer, que es lo delicado:
+    ///
+    /// - **Nunca con una salida en marcha o armada**: la sesión ya existe con su
+    ///   evento (o sin él), y cambiárselo por detrás mandaría al servidor una
+    ///   unión que nadie ha pedido.
+    /// - **Nunca si ya hay evento elegido**: lo eligió alguien y manda.
+    /// - **Nunca el que se acaba de quitar** (`rejectedEventId`, que sobrevive a
+    ///   cerrar la app).
+    ///
+    /// Se llama al refrescar la lista, tirón hacia abajo incluido: los tres
+    /// candados hacen que repetirlo no sea repetirse.
+    func autoSelectTodaysEvent() {
+        guard !isSharing, !isStandby, selectedEventId == nil,
+              let ev = TrackingRules.todaysEvent(events),
+              ev.id != rejectedEventId else { return }
+        setEvent(ev.id, auto: true)
     }
 
     /// Las previsiones hechas SOBRE el recorrido del evento elegido: las únicas
@@ -364,9 +413,15 @@ final class TrackingStore: ObservableObject {
      * obligar a pararla y volver a empezar para corregir el evento partiría la
      * traza en dos. Es el mismo camino que usa el lobby de la web.
      */
-    func setEvent(_ eventId: String?) {
+    func setEvent(_ eventId: String?, auto: Bool = false) {
         let previous = selectedEventId
+        // La mano manda sobre la propuesta, y se recuerda: quitar el evento que
+        // propuso la app es decirle que hoy no, y volver a proponerlo al abrir
+        // otra vez sería no haber escuchado. Elegir uno a mano borra el rechazo:
+        // ya no hay nada que evitar.
+        if !auto { rejectedEventId = eventId == nil ? previous : nil }
         selectedEventId = eventId
+        eventPickedAutomatically = auto && eventId != nil
         applyEventStart(previous: previous)
         guard isSharing else { return }
         Task {
@@ -452,8 +507,10 @@ final class TrackingStore: ObservableObject {
         activePlanName = summary?.planName
         activity = summary?.activity
         // El evento viene de la sesión, no de lo que estuviera elegido: al
-        // retomar una salida de ayer, el evento es el suyo.
+        // retomar una salida de ayer, el evento es el suyo —y por tanto ya no
+        // es una propuesta de la app.
         selectedEventId = summary?.eventId
+        eventPickedAutomatically = false
         isSharing = true
         pingCount = 0
         lastSentAt = nil
