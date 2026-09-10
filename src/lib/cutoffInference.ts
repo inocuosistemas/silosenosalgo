@@ -30,18 +30,46 @@ interface InferenceInput {
 }
 
 /**
+ * Two cut-offs closer than this along the route are treated as the SAME point:
+ * a control and the aid station that shares its tent. Fifty metres — no two
+ * genuinely different controls sit that close, and a race never puts a whole
+ * day between two markers pitched next to each other.
+ */
+const SAME_POINT_KM = 0.05
+
+/** The wall-clock HH:MM on `startMidnight + day`, in local time (DST-safe). */
+function atDay(startMidnight: Date, day: number, wc: CutoffWallClock): Date {
+  const d = new Date(startMidnight)
+  d.setDate(d.getDate() + day)
+  d.setHours(wc.hour, wc.minute, 0, 0)
+  return d
+}
+
+/**
  * Infer absolute Date for each cut-off given:
  *   - the user-defined wall-clock time (HH:MM)
  *   - the order along the route (km)
  *   - the activity start time
  *
  * Rules (in order):
- *   1. Each cut-off lands at HH:MM on the smallest day such that the resulting
- *      absolute time is strictly **after** the previous cut-off (or `startTime`
- *      for the first one).
- *   2. The day is anchored on `startTime`'s calendar day in local time. Day 0
- *      = same day as start; day 1 = next day; etc. Multi-day events thus get
- *      their day rollovers automatically.
+ *   1. Each cut-off lands at HH:MM on the smallest day that is **not before**
+ *      the previous cut-off (or `startTime` for the first one). Not before, not
+ *      strictly after: two points that close at the very same minute are
+ *      ordinary — a control and its aid station — and pushing the second one a
+ *      day forward is how a table ends up promising 24 hours of slack that
+ *      don't exist.
+ *   2. Cut-offs at the SAME point of the route (see `SAME_POINT_KM`) never sit
+ *      on different days by accident: the second one takes the reading of its
+ *      clock CLOSEST to the first. So an aid station that packs up five minutes
+ *      before its control stays five minutes before it, and a 23:50 → 00:10
+ *      pair still crosses midnight, which is the only reading of "the same
+ *      place, twenty minutes later" that makes sense.
+ *   3. The same point listed twice (identical key — the organiser's GPX carries
+ *      the closure and the aid station on the same coordinates) is ONE cut-off.
+ *      This is what the Canfranc-Canfranc plan tripped on: eight duplicated
+ *      controls, eight days added, +176 h of imaginary margin at the finish.
+ *   4. The day is anchored on `startTime`'s calendar day in local time. Day 0 =
+ *      same day as the start; day 1 = next day; etc.
  *
  * This means:
  *   - Setting a cut-off "13:00" with start at 09:00 → same day 13:00.
@@ -65,35 +93,48 @@ export function inferCutoffDates(
   const startMidnight = new Date(startTime)
   startMidnight.setHours(0, 0, 0, 0)
 
-  // Sort by km so the monotonicity check walks the route in order.
-  const sorted = [...items].sort((a, b) => a.km - b.km)
+  // Sort by km so the monotonicity check walks the route in order, and keep one
+  // entry per key: the same point repeated is the same cut-off, not a later one.
+  const seen = new Set<string>()
+  const sorted = [...items]
+    .sort((a, b) => a.km - b.km)
+    .filter((it) => !seen.has(it.key) && seen.add(it.key))
 
   let lastMs = startTime.getTime()
+  let lastKm = Number.NEGATIVE_INFINITY
+  let lastDay = 0
   for (const it of sorted) {
-    // Initial day guess: the calendar day containing `lastMs`. We need at
-    // least that day; we may need to advance.
-    let day = Math.floor((lastMs - startMidnight.getTime()) / 86_400_000)
-    if (day < 0) day = 0  // defensive: never go before day 0
-
-    // Find the smallest day where (day × 24h + HH:MM) > lastMs.
-    // Bounded loop (a sane event has <100 days), so this terminates.
-    let candidate: Date
-    let safety = 0
-    while (true) {
-      candidate = new Date(startMidnight)
-      candidate.setDate(candidate.getDate() + day)
-      candidate.setHours(it.wallClock.hour, it.wallClock.minute, 0, 0)
-      if (candidate.getTime() > lastMs) break
-      day++
-      if (++safety > 1000) {
-        // Should never happen — if it does, just stop and emit something
-        // sensible to avoid an infinite loop.
-        break
+    let day: number
+    if (it.km - lastKm <= SAME_POINT_KM) {
+      // Same point as the previous cut-off: the nearest reading of this clock,
+      // which may be the day before if the previous one crossed midnight.
+      day = [lastDay - 1, lastDay, lastDay + 1]
+        .filter((d) => d >= 0)
+        .reduce((best, d) => (
+          Math.abs(atDay(startMidnight, d, it.wallClock).getTime() - lastMs) <
+          Math.abs(atDay(startMidnight, best, it.wallClock).getTime() - lastMs) ? d : best
+        ))
+    } else {
+      // Initial day guess: the calendar day containing `lastMs`. We need at
+      // least that day; we may need to advance.
+      day = Math.floor((lastMs - startMidnight.getTime()) / 86_400_000)
+      if (day < 0) day = 0  // defensive: never go before day 0
+      // Find the smallest day where (day × 24h + HH:MM) is not before lastMs.
+      // Bounded loop (a sane event has <100 days), so this terminates.
+      let safety = 0
+      while (atDay(startMidnight, day, it.wallClock).getTime() < lastMs) {
+        day++
+        if (++safety > 1000) break  // should never happen; don't hang the UI
       }
     }
 
+    const candidate = atDay(startMidnight, day, it.wallClock)
     result.set(it.key, candidate)
-    lastMs = candidate.getTime()
+    // `max`: a same-point cut-off that steps back a few minutes must not drag
+    // the chain backwards with it.
+    lastMs = Math.max(lastMs, candidate.getTime())
+    lastKm = it.km
+    lastDay = day
   }
 
   return result

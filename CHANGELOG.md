@@ -63,6 +63,32 @@ el commit 271.
 
 ## 2026-09-10
 
+### Los cortes de la Canfranc-Canfranc decían que sobraban 176 horas
+
+**Web · pendiente de desplegar.** El plan de paso de la Canfranc-Canfranc daba
+márgenes de fantasía: +24 h en el primer control y +176 h en meta. La hora del
+corte se guarda sin fecha (solo HH:MM) y el día se deduce al pintarlo, pidiendo
+que cada corte caiga DESPUÉS del anterior. El GPX de la organización trae cada
+control DOS veces —el cierre de control y su avituallamiento, en las mismas
+coordenadas—, así que la segunda copia no podía caer a la misma hora que la
+primera y se iba veinticuatro horas más allá. Ocho controles duplicados, ocho
+días de más.
+
+Ahora el mismo punto repetido es UN corte; dos cortes a la misma hora pueden
+serlo (un control y su avituallamiento cierran a la vez); y en un mismo punto la
+hora se lee en su lectura más cercana, así que un avituallamiento que recoge
+cinco minutos antes de su control se queda cinco minutos antes, y un 23:50 →
+00:10 sigue cruzando la medianoche.
+
+No hay que volver a publicar nada: el día se deduce al pintar, así que los
+planes y los eventos ya guardados se arreglan solos en cuanto sale el
+despliegue.
+
+**Android / iOS** · *Compatible*. El visor va dentro de las apps, así que se
+arregla con la actualización OTA del visor en cuanto la web esté desplegada; no
+hace falta APK nuevo. Un móvil que nunca se conecte se queda con el visor del
+APK que lleve dentro.
+
 ### El día de la carrera, la baliza ya viene con la carrera puesta
 
 **Android · 1.0 (435)** · *Mejora al actualizar* — APK firmado en `reparto/`, listo para mandar.
