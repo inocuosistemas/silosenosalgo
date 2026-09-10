@@ -63,6 +63,34 @@ el commit 271.
 
 ## 2026-09-10
 
+### El enlace de la carrera enseñaba media palabra del cartel
+
+**Web · pendiente de desplegar.** Al pegar el enlace público de un evento en
+WhatsApp salía la pastilla pequeña: una miniatura cuadrada con el cartel
+recortado a lo bruto —"NFRA" de Canfranc— y el texto al lado. Dos cosas a la
+vez: el enlace público anunciaba el CARTEL a secas, que es 3:1, y el HTML lo
+declaraba como 1200×630. Un previsualizador que espera 1,91:1 y recibe un 3:1
+recorta al centro y se cae a la miniatura.
+
+Ahora los tres enlaces del evento —público, parrilla e invitación— anuncian la
+misma **tarjeta de 1200×630** que ya se dibujaba para la parrilla: el cartel de
+fondo, el nombre de la carrera, cuándo se sale y cuántos van. Y el tamaño que se
+declara es el de la imagen que de verdad se sirve, incluso cuando toca caer al
+cartel (3:1) porque la tarjeta todavía no está subida.
+
+De paso, más resolución: la tarjeta se dibuja a 1,5× (1800×945 reales, como ya
+hacía la de una ruta compartida) y el cartel se guarda a 1800 px de ancho en vez
+de 1200, que era menos de lo que la tarjeta necesita de fondo y se veía blando.
+El fichero sigue por debajo de lo que aceptan los previsualizadores, que es lo
+que de verdad manda: una imagen demasiado pesada la descartan y no se ve nada.
+
+La tarjeta la dibuja y la sube quien organiza al abrir la parrilla, así que los
+eventos que ya existen estrenan la suya la próxima vez que su organizador entre.
+Los carteles ya subidos se quedan como están hasta que alguien los reencuadre.
+
+**Android / iOS** · *Compatible*. Las vistas previas las arma el borde con el
+HTML; las apps no pintan nada de esto.
+
 ### El curso FIT reiniciaba el Fenix 7 al abrirlo
 
 **Web · desplegado.** Descargar el curso FIT, subirlo a Garmin

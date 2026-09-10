@@ -17,9 +17,14 @@ import { createPortal } from 'react-dom'
  * foto, que es justo lo que se hace de todas formas cuando no gusta cómo quedó.
  */
 
-/** Tamaño de salida: sobra para una cabecera a pantalla completa en móvil y
- *  pesa poco (el tope de KV para la foto son 1,5 MB). */
-const OUT_W = 1200
+/**
+ * Tamaño de salida. 1800 y no 1200: el cartel no se ve solo en la cabecera del
+ * lobby —va de fondo en la tarjeta que anuncia el enlace, que se dibuja a
+ * 1800×945—, y a 1200 había que estirarlo un 50% para llenarla, con lo que el
+ * cartel llegaba blando justo donde más se mira. Sigue pesando poco al lado del
+ * tope de KV para la foto, que son 1,5 MB.
+ */
+const OUT_W = 1800
 const ZOOM_MAX = 4
 
 export function PhotoCropper({

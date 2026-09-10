@@ -19,6 +19,15 @@ import { cargaImagen } from './porraCard'
 
 const ANCHO = 1200
 const ALTO = 630
+/**
+ * Píxeles reales por unidad de dibujo. Se dibuja en 1200×630 —la medida que
+ * espera todo el mundo y la que declara el HTML— sobre un lienzo de 1800×945,
+ * así que el texto y el cartel llegan con pixeles de sobra a una pantalla
+ * retina en vez de verse blandos. Mismo 1,5× que la tarjeta de una ruta
+ * compartida (`ShareCard.capturePreview`), y por lo mismo: a 2× el fichero se
+ * pasa del tamaño que los previsualizadores aceptan y se quedan sin imagen.
+ */
+const ESCALA = 1.5
 const FONDO = '#0b1120'
 
 const FUENTE = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
@@ -63,9 +72,11 @@ function enDosLineas(ctx: CanvasRenderingContext2D, texto: string, max: number):
 
 export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
   const lienzo = document.createElement('canvas')
-  lienzo.width = ANCHO
-  lienzo.height = ALTO
+  lienzo.width = ANCHO * ESCALA
+  lienzo.height = ALTO * ESCALA
   const ctx = lienzo.getContext('2d')!
+  // Todo lo que viene debajo dibuja en unidades de 1200×630 y sale a 1800×945.
+  ctx.scale(ESCALA, ESCALA)
   ctx.fillStyle = FONDO
   ctx.fillRect(0, 0, ANCHO, ALTO)
 
@@ -130,8 +141,9 @@ export function dibujaTarjetaEvento(d: DatosTarjetaEvento): string {
   // JPEG y no PNG: la puerta que la sirve declara `image/jpeg` para todas las
   // tarjetas, y un PNG servido como JPEG es pedirle al previsualizador que
   // adivine. Además pesa la cuarta parte, y un crawler impaciente descarta las
-  // imágenes lentas.
-  return lienzo.toDataURL('image/jpeg', 0.9)
+  // imágenes lentas. 0,85 y no 0,9 porque ahora el lienzo es 1,5×: el fichero
+  // se queda donde estaba y los píxeles son los que suben.
+  return lienzo.toDataURL('image/jpeg', 0.85)
 }
 
 export { cargaImagen }

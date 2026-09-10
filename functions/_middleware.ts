@@ -27,6 +27,10 @@
  * degrades gracefully to the brand defaults baked into index.html.
  */
 
+import {
+  imagenDeEvento, claveTarjeta, tarjeta, type ImagenPrevia, type EventoParaImagen,
+} from './lib/ogImagen'
+
 interface Env {
   SHARE_KV: KVNamespace
   DB: D1Database
@@ -47,6 +51,22 @@ function fechaLarga(ms: number): string {
       timeZone: 'Europe/Madrid',
     })
   } catch { return '' }
+}
+
+/**
+ * ¿Está subida ya la tarjeta dibujada de este evento?
+ *
+ * Se comprueba de verdad, sin descargarla (`stream` + `cancel`): anunciar una
+ * imagen que no está deja al previsualizador con un 404 y sin pastilla, que es
+ * peor que enseñar el cartel a secas.
+ */
+async function hayTarjetaDeEvento(env: Env, id: string): Promise<boolean> {
+  try {
+    const stored = await env.SHARE_KV.get(`${claveTarjeta(id)}:img`, 'stream')
+    if (!stored) return false
+    await stored.cancel()
+    return true
+  } catch { return false }
 }
 
 /** HTMLRewriter handler that sets one attribute to a fixed value. */
@@ -75,8 +95,12 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
 
   // Share links get a per-link image (the rendered track card, served by
   // /og/<id>.png with a brand-card fallback). Everything else gets the brand
-  // card. Both are 1200×630, so the static og:image:width/height stay valid.
-  let imageUrl = isShareLink ? `${url.origin}/og/${id}.jpg` : `${url.origin}/og-card.png`
+  // card. Ambas son 1200×630; el tamaño viaja junto a la url porque no todas lo
+  // son —el cartel de una carrera es 3:1— y declararlo mal es lo que hace que
+  // el previsualizador recorte a un cuadrado en vez de pintar la grande.
+  let imagen: ImagenPrevia = tarjeta(
+    isShareLink ? `${url.origin}/og/${id}.jpg` : `${url.origin}/og-card.png`,
+  )
 
   // Per-link title/description, if this is a share link with a stored sidecar.
   let title: string | null = null
@@ -119,13 +143,12 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         // tarjeta de marca, que habla de previsión meteorológica y no dice nada
         // de un seguimiento. Por eso se comprueba antes si existe de verdad y,
         // si no, se usa la tarjeta propia de "en directo".
-        const fallback = `${url.origin}/og-live.png`
-        imageUrl = fallback
+        imagen = tarjeta(`${url.origin}/og-live.png`)
         if (row.planShareId) {
           try {
             const stored = await ctx.env.SHARE_KV.get(`${row.planShareId}:img`, 'stream')
             if (stored) {
-              imageUrl = `${url.origin}/og/${row.planShareId}.jpg`
+              imagen = tarjeta(`${url.origin}/og/${row.planShareId}.jpg`)
               await stored.cancel()
             }
           } catch { /* sin tarjeta de ruta, la de en directo sirve */ }
@@ -143,10 +166,12 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
     try {
       const row = await ctx.env.DB.prepare(
         `SELECT e.id, e.name, e.photo_key AS photoKey, e.photo_at AS photoAt,
+                e.starts_at AS startsAt,
+                (SELECT COUNT(*) FROM event_members m WHERE m.event_id = e.id) AS members,
                 (SELECT COUNT(*) FROM tracking_sessions t
                   WHERE t.event_id = e.id AND t.status = 'active') AS live
            FROM events e WHERE e.public_token = ?`,
-      ).bind(eventToken).first<{ id: string; name: string; photoKey: string | null; photoAt: number | null; live: number }>()
+      ).bind(eventToken).first<EventoParaImagen & { name: string; live: number }>()
       if (row) {
         const raw = row.name.trim()
         const name = raw.length > 48 ? `${raw.slice(0, 47).trimEnd()}…` : raw
@@ -154,14 +179,12 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
         desc = row.live > 0
           ? `Sigue en el mapa a ${row.live} ${row.live === 1 ? 'participante' : 'participantes'}: posición, ritmo y margen sobre los cortes.`
           : 'Sigue a los participantes en el mapa cuando empiecen a compartir su posición.'
-        // El cartel del evento vale como vista previa aunque sea 3:1 y no
-        // 1200×630: los previsualizadores recortan, y un cartel recortado sigue
-        // diciendo qué carrera es. Sin foto, la tarjeta de "en directo".
-        if (row.photoKey) {
-          imageUrl = `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
-        } else {
-          imageUrl = `${url.origin}/og-live.png`
-        }
+        // La TARJETA del evento, la misma que la parrilla: 1200×630 con el
+        // cartel de fondo, el nombre y cuántos van. Antes iba el cartel a
+        // secas, que es 3:1, y el previsualizador lo recortaba a un cuadrado
+        // diminuto —el enlace del grupo enseñaba media palabra del cartel—.
+        // Sin tarjeta todavía, el cartel; sin cartel, la de "en directo".
+        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
@@ -181,9 +204,8 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
                 (SELECT COUNT(*) FROM tracking_sessions t
                   WHERE t.event_id = e.id AND t.status = 'active') AS live
            FROM events e WHERE e.id = ?`,
-      ).bind(memberEvent).first<{
-        id: string; name: string; startsAt: number | null; endedAt: number | null
-        photoKey: string | null; photoAt: number | null; members: number; live: number
+      ).bind(memberEvent).first<EventoParaImagen & {
+        name: string; endedAt: number | null; live: number
       }>()
       if (row) {
         const raw = row.name.trim()
@@ -200,29 +222,10 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
             ? `Resultados, meta y replay de la carrera. ${quienes}.`
             : [row.startsAt ? fechaLarga(row.startsAt) : null, quienes,
                 'Prepara tu baliza y sigue a los tuyos en el mapa común.'].filter(Boolean).join(' · ')
-        // Se comprueba que la tarjeta EXISTE antes de anunciarla: si no, el
-        // previsualizador se come un 404 y no enseña imagen ninguna.
-        const propia = `evento-${row.id}`
-        let puesta = false
-        try {
-          const stored = await ctx.env.SHARE_KV.get(`${propia}:img`, 'stream')
-          if (stored) {
-            // Con versión: la puerta sirve estas tarjetas con caché de un año
-            // —para las de una ruta compartida está bien, que no cambian
-            // nunca— y la de un evento sí cambia: entra gente, se pone la foto,
-            // se fija la hora. Sin esto, la primera que se subiera sería la que
-            // vería el grupo para siempre.
-            const v = `${row.photoAt ?? 0}-${row.members}-${row.startsAt ?? 0}`
-            imageUrl = `${url.origin}/og/${propia}.png?v=${v}`
-            puesta = true
-            await stored.cancel()
-          }
-        } catch { /* sin tarjeta propia, se cae al cartel */ }
-        if (!puesta) {
-          imageUrl = row.photoKey
-            ? `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
-            : `${url.origin}/og-live.png`
-        }
+        // La tarjeta dibujada si está subida, y si no el cartel. Se comprueba
+        // que EXISTE antes de anunciarla: si no, el previsualizador se come un
+        // 404 y no enseña imagen ninguna.
+        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
@@ -240,10 +243,7 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
                 e.photo_key AS photoKey, e.photo_at AS photoAt,
                 (SELECT COUNT(*) FROM event_members m WHERE m.event_id = e.id) AS members
            FROM events e WHERE e.invite_code = ?`,
-      ).bind(joinCode).first<{
-        id: string; name: string; startsAt: number | null; endedAt: number | null
-        photoKey: string | null; photoAt: number | null; members: number
-      }>()
+      ).bind(joinCode).first<EventoParaImagen & { name: string; endedAt: number | null }>()
       if (row) {
         const raw = row.name.trim()
         const name = raw.length > 44 ? `${raw.slice(0, 43).trimEnd()}…` : raw
@@ -260,9 +260,9 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
               `${quienes} en la parrilla`,
               'Toca para entrar y compartir tu posición en el mapa común.',
             ].filter(Boolean).join(' · ')
-        imageUrl = row.photoKey
-          ? `${url.origin}/api/events/${row.id}/photo${row.photoAt ? `?v=${row.photoAt}` : ''}`
-          : `${url.origin}/og-live.png`
+        // La misma tarjeta que los otros dos enlaces del evento: el cartel a
+        // secas es 3:1 y salía recortado a un cuadrado.
+        imagen = imagenDeEvento(url.origin, row, await hayTarjetaDeEvento(ctx.env, row.id))
       }
     } catch { /* sin datos del evento, vista previa de marca */ }
   }
@@ -293,7 +293,7 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
           title = '🎟️ Tienes una invitación'
           desc = 'Crea tu cuenta en SiLoSeNoSalgo: planifica la carrera hora a hora, comparte tu posición en directo y sigue a los tuyos en el mapa.'
         }
-        imageUrl = `${url.origin}/og-card.png`
+        imagen = tarjeta(`${url.origin}/og-card.png`)
       }
     } catch { /* sin datos de la invitación, vista previa de marca */ }
   }
@@ -310,9 +310,14 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   }
 
   // Always: make image + url absolute (works for the home page too).
+  // El TAMAÑO va con la imagen: el previsualizador lo usa para decidir el
+  // hueco antes de bajarse nada, y si no cuadra con lo que luego recibe pinta
+  // la miniatura de al lado en vez de la pastilla grande.
   let rw = new HTMLRewriter()
-    .on('meta[property="og:image"]', setAttr('content', imageUrl))
-    .on('meta[name="twitter:image"]', setAttr('content', imageUrl))
+    .on('meta[property="og:image"]', setAttr('content', imagen.url))
+    .on('meta[property="og:image:width"]', setAttr('content', String(imagen.width)))
+    .on('meta[property="og:image:height"]', setAttr('content', String(imagen.height)))
+    .on('meta[name="twitter:image"]', setAttr('content', imagen.url))
     .on('meta[property="og:url"]', setAttr('content', url.href))
 
   // Share links: override title + description with the outing's own data.
