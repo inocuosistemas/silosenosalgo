@@ -685,7 +685,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             abiertaPorDefecto = !estado.compartiendo && estado.planId == null && estado.eventoId == null,
         ) {
             if (eventos.isNotEmpty()) {
-                SelectorEvento(eventos, estado.eventoId, estado.eventoAuto) {
+                // El aviso de "lo he puesto yo" solo antes de salir: en marcha
+                // ya no hay nada que preparar y el evento es cosa hecha.
+                SelectorEvento(eventos, estado.eventoId, estado.eventoAuto && !estado.compartiendo) {
                     TrackingStore.ajustaEvento(it)
                 }
                 Spacer(Modifier.height(14.dp))

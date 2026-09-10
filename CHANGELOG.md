@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**433**) compilado y firmado, en `android/app/build/outputs/reparto/SiLoSeNoSalgo-1.0-433.apk` | sí, **listo para mandar**: lleva el visor web reconstruido y el evento del día. El compañero sigue con el **271** |
-| iOS | 1.0 (433 en código); compila y pasa sus pruebas | **no**: falta instalarla en el iPhone (`ios/scripts/instala-en-iphone.sh`) |
+| Android · APK de reparto | 1.0 (**435**) compilado y firmado, en `android/app/build/outputs/reparto/SiLoSeNoSalgo-1.0-435.apk` | sí, **listo para mandar**: lleva el visor web reconstruido y el evento del día. El compañero sigue con el **271** |
+| iOS | 1.0 (435 en código); compila y pasa sus pruebas | **no**: falta instalarla en el iPhone (`ios/scripts/instala-en-iphone.sh`) |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -65,7 +65,7 @@ el commit 271.
 
 ### El día de la carrera, la baliza ya viene con la carrera puesta
 
-**Android · 1.0 (433)** · *Mejora al actualizar* — APK firmado en `reparto/`, listo para mandar.
+**Android · 1.0 (435)** · *Mejora al actualizar* — APK firmado en `reparto/`, listo para mandar.
 **iOS · en código, sin instalar todavía** · *Mejora al actualizar*
 **Web** · no aplica: la baliza es de las apps.
 

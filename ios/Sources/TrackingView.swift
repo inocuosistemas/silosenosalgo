@@ -259,7 +259,7 @@ struct TrackingView: View {
                             // puede pasar en silencio; enseñarlo es lo que
                             // convierte el atajo en una propuesta que se
                             // rechaza volviendo a "Ninguno".
-                            if store.eventPickedAutomatically, store.selectedEventId != nil {
+                            if store.eventPickedAutomatically, store.selectedEventId != nil, !store.isSharing {
                                 Label("Hoy corres esta. La baliza viene preparada para ella, con su hora de salida.",
                                       systemImage: "sparkles")
                                     .font(.caption)
