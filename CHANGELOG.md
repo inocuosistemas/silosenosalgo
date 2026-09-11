@@ -86,6 +86,29 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-11
 
+### La traza en directo se perdía sobre el mapa
+
+**Web · pendiente de desplegar.** El trazo verde sobre un bosque verde no se
+veía. Y no era solo el verde: el color de la traza SIGNIFICA algo —la precisión
+del GPS, con sus cuatro bandas— y el mapa de fondo tiene sus propios verdes,
+naranjas y rojos, así que el naranja se perdía sobre una carretera naranja y el
+rojo sobre una autovía roja. Un color que quiere decir algo y no se lee no dice
+nada.
+
+La solución ya estaba en casa: **el mapa del evento y el del planificador dibujan
+un filo oscuro debajo de sus líneas** (`#020617` / `#0f172a`, más grueso y
+translúcido) y el visor en directo era el único sin él. Ahora lo lleva, con el
+mismo criterio, y los cuatro colores se leen sobre cualquier fondo.
+
+Dos detalles del cómo: **todos los filos se dibujan antes que todos los
+colores** —no filo y color tramo a tramo— porque si no el filo de un tramo tapa
+el color del anterior en cada junta. Y **con el mapa de calor puesto no hay
+filo** en la traza: ahí se apaga a propósito para no competir con los colores del
+ritmo, que son los protagonistas. El calor sí estrena el suyo.
+
+**Android / iOS** · *Compatible*. El visor va dentro de las apps: les llega con
+la actualización OTA en cuanto la web esté desplegada.
+
 ### La app enseña tus carreras, y desde ellas se llega a la parrilla
 
 **iOS · 1.0 (453) en TestFlight** · *Mejora al actualizar*

@@ -2190,12 +2190,29 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
             traza. En un circuito las pasadas se superponen y pintando la traza
             solo se veria la ultima vuelta; sobre la ruta cabe el acumulado. */}
+        {/* El filo oscuro bajo lo que se pinta de color, como en el mapa del
+            evento y en el del planificador. No es adorno: el color de la traza
+            SIGNIFICA algo —la precisión del GPS— y el mapa de fondo tiene sus
+            propios verdes, naranjas y rojos, así que un trazo verde sobre un
+            bosque verde o uno naranja sobre una carretera naranja se pierde. Con
+            el filo debajo, cualquiera de los cuatro colores se lee sobre
+            cualquier fondo, que es lo que un color con significado necesita. */}
+        {heatRange && planLatLng.length > 1 && (
+          <Polyline positions={planLatLng} pathOptions={{ color: '#020617', weight: 10, opacity: 0.55 }} />
+        )}
         {heatRange && plan && heatBins.map((b, i) => {
           if (b.speedKmh == null) return null
           const pts = pathBetweenKm(plan.track, b.fromKm, b.toKm)
           if (pts.length < 2) return null
           return <Polyline key={`heat-${i}`} positions={pts} pathOptions={{ color: heatColor(b.speedKmh, heatRange), weight: 6, opacity: 0.9 }} />
         })}
+        {/* Todos los filos antes que todos los colores, y no filo+color por
+            tramo: si no, el filo de un tramo taparía el color del anterior en
+            cada junta. Con el calor puesto no hay filo, porque ahí la traza se
+            apaga a propósito para no competir con los colores del ritmo. */}
+        {!heatRange && trailSegments.map((s, i) => (
+          <Polyline key={`trail-borde-${i}`} positions={s.positions} pathOptions={{ color: '#020617', weight: 8, opacity: 0.55 }} />
+        ))}
         {trailSegments.map((s, i) => (
           // Con el calor puesto la traza se apaga: sigue diciendo por donde se
           // fue de verdad, pero sin competir con los colores del ritmo.
