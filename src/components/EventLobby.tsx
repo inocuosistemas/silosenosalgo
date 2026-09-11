@@ -14,6 +14,7 @@ import {
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl } from '../../shared/validate'
+import { ANDROID_APK_URL } from '../../shared/config'
 import { durationLabel } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
@@ -989,6 +990,25 @@ export default function EventLobby({ id }: { id: string }) {
               ? 'Los demás participantes te ven en el mapa del evento.'
               : 'Empieza a compartir tu posición con la app y pulsa aquí para aparecer en el mapa.'}
         </p>
+        {/* La app, justo donde se descubre que hace falta: quien entra en la
+            parrilla y lee "empieza a compartir con la app" es exactamente quien
+            todavía no la tiene. Solo a quien corre y aún no está emitiendo: con
+            la baliza en marcha, sobra. El enlace no caduca —apunta siempre a la
+            última publicada— y la de iPhone no se enlaza porque se reparte por
+            invitación, así que ahí lo honesto es decir a quién pedirla. */}
+        {me && !meLive && (
+          <p className="mt-1 text-[11px] text-slate-500">
+            ¿Aún no tienes la baliza?{' '}
+            <a
+              href={ANDROID_APK_URL}
+              className="text-sky-400 hover:underline"
+              rel="noopener"
+            >
+              Descárgala para Android
+            </a>
+            . En iPhone se reparte por TestFlight: pídesela a quien organiza.
+          </p>
+        )}
       </section>
 
       {/* Mi planificación: lo personal sobre la base común. De quien corre. */}

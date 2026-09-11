@@ -53,7 +53,7 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
 | Android · APK de reparto | 1.0 (**449**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**447**) subida a TestFlight el 2026-09-11 (antes el 442, 443 y 444) | sí, en cuanto salga de *Processing* |
+| iOS | 1.0 (**450**) subida a TestFlight el 2026-09-11 (antes el 442, 443, 444 y 447) | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -86,10 +86,27 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-11
 
+### La parrilla ofrece la baliza a quien todavía no la tiene
+
+**Web · pendiente de desplegar.** En "El directo", justo debajo de "empieza a
+compartir tu posición con la app", hay ahora un enlace para descargarla. Es el
+sitio donde se descubre que hace falta: quien entra en la parrilla y lee esa
+frase es exactamente quien no la tiene.
+
+Solo se le ofrece a quien CORRE y todavía no está emitiendo —con la baliza en
+marcha sobra, y a quien solo mira la carrera no le hace falta—. El enlace apunta
+siempre a la última publicada (`ANDROID_APK_URL` en `shared/config.ts`, el mismo
+que se pega en los grupos), así que no hay que tocarlo al repartir una versión.
+
+La de iPhone no se enlaza: se reparte por TestFlight, por invitación, así que lo
+que dice es a quién pedirla.
+
+**Android / iOS** · *Compatible*. La parrilla es de la web.
+
 ### Cada app dice qué versión es
 
-**iOS · en código** · *Mejora al actualizar*
-**Android · en código** · *Mejora al actualizar*
+**iOS · 1.0 (450) en TestFlight** · *Mejora al actualizar*
+**Android · 1.0 (449)** · *Mejora al actualizar* — publicado.
 **Web** · no aplica.
 
 Al pie de la pantalla de la baliza, en pequeño: `SiLoSeNoSalgo 1.0 (447)`.
