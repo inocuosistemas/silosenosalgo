@@ -70,8 +70,13 @@ struct TrackingView: View {
         guard let ms = startsAtMs, ms > 0 else { return "Sin hora de salida" }
         let d = Date(timeIntervalSince1970: ms / 1000)
         let hora = d.formatted(date: .omitted, time: .shortened)
-        if isToday(ms) { return "hoy · \(hora)" }
-        return "\(d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(hora)"
+        let dia = isToday(ms)
+            ? "hoy"
+            : d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        // Pasada la hora se dice, en vez de dejar una fecha suelta que no aclara
+        // si la carrera va o no: la cuenta atrás ya no puede decirlo.
+        let salio = d < Date() ? " · ya ha salido" : ""
+        return "\(dia) · \(hora)\(salio)"
     }
 
     /// "SiLoSeNoSalgo 1.0 (447)": el número corto y el de compilación, tal y
@@ -279,7 +284,7 @@ struct TrackingView: View {
                 // verdades. "Parrilla" abre su pantalla web, que es donde vive.
                 // Lo que NO hace es empezar a emitir: eso sigue siendo el botón
                 // de arriba, con el nombre y la ruta ya decididos.
-                if !store.events.isEmpty {
+                if !store.events.isEmpty || !store.pastEvents.isEmpty {
                     Section {
                         ForEach(store.events) { ev in
                             HStack(spacing: 10) {
@@ -299,6 +304,20 @@ struct TrackingView: View {
                                                 .font(.caption2)
                                                 .foregroundStyle(Self.isToday(ev.startsAt)
                                                                  ? Theme.sky500 : Theme.slate400)
+                                            // La cuenta atrás, al segundo. Es lo
+                                            // único de esta lista que se mira la
+                                            // víspera. `TimelineView` la repinta
+                                            // sola y solo mientras se ve: no hay
+                                            // temporizador que apagar.
+                                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                                                if let falta = TrackingRules.countdown(
+                                                    startsAtMs: ev.startsAt, now: ctx.date
+                                                ) {
+                                                    Text("faltan \(falta)")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(Theme.sky500)
+                                                }
+                                            }
                                         }
                                         Spacer()
                                     }
@@ -312,6 +331,34 @@ struct TrackingView: View {
                                         .accessibilityLabel("Abrir la parrilla de \(ev.name)")
                                 }
                             }
+                        }
+
+                        // Las terminadas, plegadas: ya no se pueden correr, pero
+                        // su parrilla sigue siendo donde están los resultados.
+                        if !store.pastEvents.isEmpty {
+                            DisclosureGroup("Terminadas (\(store.pastEvents.count))") {
+                                ForEach(store.pastEvents) { ev in
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name)
+                                                .foregroundStyle(Theme.slate400)
+                                                .lineLimit(1)
+                                            Text(Self.whenLabel(ev.startsAt))
+                                                .font(.caption2)
+                                                .foregroundStyle(Theme.slate400)
+                                        }
+                                        Spacer()
+                                        if let url = URL(string: Config.eventLobbyLink(for: ev.id)) {
+                                            Link(destination: url) { Text("Parrilla") }
+                                                .buttonStyle(.borderless)
+                                                .foregroundStyle(Theme.sky500)
+                                                .accessibilityLabel("Abrir la parrilla de \(ev.name)")
+                                        }
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                            .tint(Theme.sky500)
                         }
                     } header: {
                         Text("Mis carreras").foregroundStyle(Theme.slate400)

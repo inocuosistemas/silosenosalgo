@@ -358,6 +358,38 @@ object TrackingRules {
             ?.first
     }
 
+    /**
+     * Lo que falta para la salida, en palabras: `2 d 03 h 04 m 05 s`.
+     *
+     * Se enseña en la lista de carreras porque el día antes es lo único que se
+     * mira, y porque una cuenta atrás dice dos cosas de golpe que un "sáb 13 sep
+     * · 08:00" no dice: que queda MUCHO —y se puede uno ir a dormir— o que queda
+     * poco y hay que ir preparando la baliza.
+     *
+     * - Sin hora puesta no hay cuenta atrás: nulo. Es justo el caso en que la
+     *   baliza no puede quedarse armada, y la fila lo dice con otras palabras.
+     * - Pasada la hora, `null` también: lo que toca entonces no es un número
+     *   creciente sino "ya ha salido", que lo pone la pantalla.
+     * - Las unidades en cero de delante no se escriben (`4 m 05 s`, no
+     *   `0 d 00 h 04 m 05 s`); las de detrás sí, con dos cifras, para que el
+     *   número no baile de ancho cada segundo.
+     */
+    fun cuentaAtras(salidaMs: Double?, ahoraMs: Double): String? {
+        val ms = salidaMs?.takeIf { it > 0.0 } ?: return null
+        val restan = ((ms - ahoraMs) / 1000.0).toLong()
+        if (restan <= 0L) return null
+        val d = restan / 86_400
+        val h = (restan % 86_400) / 3_600
+        val m = (restan % 3_600) / 60
+        val s = restan % 60
+        return when {
+            d > 0 -> "$d d %02d h %02d m %02d s".format(h, m, s)
+            h > 0 -> "$h h %02d m %02d s".format(m, s)
+            m > 0 -> "$m m %02d s".format(s)
+            else -> "$s s"
+        }
+    }
+
     // ── Geometría ────────────────────────────────────────────────────────────
 
     /** Distancia entre dos puntos por haversine (metros). */

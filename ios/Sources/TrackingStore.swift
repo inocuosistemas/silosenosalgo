@@ -102,8 +102,15 @@ final class TrackingStore: ObservableObject {
     /// si la puso alguien a mano y entonces se queda.
     private var startAtFromPlan: Date? = nil
     @Published var sessions: [TrackSessionSummary] = []
-    /// Eventos en los que participo (los que puedo elegir al salir).
+    /// Eventos en los que participo que TODAVÍA admiten baliza: los que se
+    /// pueden elegir al salir.
     @Published var events: [EventSummary] = []
+    /// Las carreras ya terminadas por su organizador. No se pueden emitir —por
+    /// eso van aparte de `events`, que es lo que alimenta el selector— pero se
+    /// siguen corriendo: su parrilla es donde están los resultados, y perder el
+    /// atajo a ella justo cuando se quieren mirar no tenía sentido. En pantalla
+    /// van plegadas, para no hacer ruido.
+    @Published var pastEvents: [EventSummary] = []
     /// Nombre de cada evento visto, TERMINADOS INCLUIDOS, para poder etiquetar
     /// salidas viejas: `events` solo lleva los que aún admiten emitir.
     private var eventNames: [String: String] = [:]
@@ -407,7 +414,13 @@ final class TrackingStore: ObservableObject {
     /// igual que siempre y el selector simplemente no aparece.
     func loadEvents() async {
         if let result = try? await API.listEvents(token: token) {
+            // Las que vienen, la más cercana primero: es el orden en que se
+            // miran. Las que no tienen hora, al final —no compiten con una que
+            // sale mañana—. Las terminadas al revés: la última corrida arriba.
             events = result.filter { !$0.isOver }
+                .sorted { ($0.startsAt ?? .greatestFiniteMagnitude) < ($1.startsAt ?? .greatestFiniteMagnitude) }
+            pastEvents = result.filter { $0.isOver }
+                .sorted { ($0.startsAt ?? 0) > ($1.startsAt ?? 0) }
             // Los terminados NO se ofrecen para emitir —de ahí el filtro— pero
             // sus nombres siguen haciendo falta: el listado de seguimientos
             // trae el id del evento, y sin esto una salida pasaba a leerse

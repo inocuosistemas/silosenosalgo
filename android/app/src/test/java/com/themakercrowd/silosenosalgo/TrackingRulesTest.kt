@@ -631,6 +631,39 @@ class TrackingRulesTest {
         assertNull(deHoy(emptyList(), ahora))
     }
 
+    // ── La cuenta atrás ──────────────────────────────────────────────────────
+
+    private fun faltan(segundos: Long) =
+        TrackingRules.cuentaAtras(1_000_000_000.0 + segundos * 1000.0, 1_000_000_000.0)
+
+    @Test fun `la cuenta atras escribe solo las unidades que hacen falta`() {
+        assertEquals("2 d 03 h 04 m 05 s", faltan(2 * 86_400 + 3 * 3_600 + 4 * 60 + 5))
+        // Sin días, no se escribe "0 d": lo que queda cabe en horas.
+        assertEquals("3 h 04 m 05 s", faltan(3 * 3_600 + 4 * 60 + 5))
+        assertEquals("4 m 05 s", faltan(4 * 60 + 5))
+        assertEquals("5 s", faltan(5))
+    }
+
+    @Test fun `los segundos y minutos van con dos cifras para que no baile`() {
+        // Una cuenta atrás que cambia de ancho cada segundo es imposible de
+        // leer de reojo, que es como se lee.
+        assertEquals("1 d 00 h 00 m 09 s", faltan(86_400 + 9))
+        assertEquals("1 h 00 m 00 s", faltan(3_600))
+    }
+
+    @Test fun `pasada la hora ya no hay cuenta atras`() {
+        // Lo que toca entonces es "ya ha salido", y eso lo pone la pantalla: un
+        // número creciente ahí no significaría nada.
+        assertNull(faltan(0))
+        assertNull(faltan(-1))
+        assertNull(faltan(-86_400))
+    }
+
+    @Test fun `sin hora de salida no hay cuenta atras`() {
+        assertNull(TrackingRules.cuentaAtras(null, 1_000_000_000.0))
+        assertNull(TrackingRules.cuentaAtras(0.0, 1_000_000_000.0))
+    }
+
     // ── Presentación ─────────────────────────────────────────────────────────
 
     @Test fun `las distancias se formatean en metros o kilometros`() {

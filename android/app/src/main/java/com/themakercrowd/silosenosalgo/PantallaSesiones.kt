@@ -45,6 +45,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.RadioButton
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
@@ -607,11 +609,22 @@ fun SelectorPlan(
 @Composable
 fun SeccionCarreras(
     eventos: List<EventSummary>,
+    pasadas: List<EventSummary>,
     elegido: String?,
     onElige: (String?) -> Unit,
     onParrilla: (String) -> Unit,
 ) {
-    if (eventos.isEmpty()) return
+    if (eventos.isEmpty() && pasadas.isEmpty()) return
+    // El reloj de la cuenta atrás. Un tic por segundo y solo mientras esta
+    // pantalla está compuesta: se para sola al irse, no hay nada que apagar.
+    var ahora by remember { mutableStateOf(System.currentTimeMillis().toDouble()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            ahora = System.currentTimeMillis().toDouble()
+        }
+    }
+
     eventos.forEach { ev ->
         val esta = ev.id == elegido
         Row(
@@ -639,11 +652,59 @@ fun SeccionCarreras(
                         style = MaterialTheme.typography.bodySmall,
                         color = if (esHoy(ev.startsAt)) Paleta.sky500 else Paleta.slate400,
                     )
+                    // La cuenta atrás, debajo y en su color: es lo único de esta
+                    // lista que se mira la víspera.
+                    TrackingRules.cuentaAtras(ev.startsAt, ahora)?.let { falta ->
+                        Text(
+                            "faltan $falta",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Paleta.sky500,
+                        )
+                    }
                 }
             }
             TextButton(onClick = { onParrilla(ev.id) }) { Text("Parrilla") }
         }
     }
+
+    // Las terminadas, plegadas: ya no se pueden correr, pero su parrilla sigue
+    // siendo donde están los resultados.
+    if (pasadas.isNotEmpty()) {
+        var abiertas by remember { mutableStateOf(false) }
+        TextButton(
+            onClick = { abiertas = !abiertas },
+            contentPadding = PaddingValues(horizontal = 0.dp),
+        ) {
+            Text(
+                if (abiertas) "Ocultar las terminadas" else "Ver las terminadas (${pasadas.size})",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (abiertas) {
+            pasadas.forEach { ev ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (ev.myEmoji != null) "${ev.myEmoji}  ${ev.name}" else ev.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Paleta.slate400,
+                            maxLines = 1,
+                        )
+                        Text(
+                            "terminada · " + cuandoEsLaCarrera(ev.startsAt),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Paleta.slate400,
+                        )
+                    }
+                    TextButton(onClick = { onParrilla(ev.id) }) { Text("Parrilla") }
+                }
+            }
+        }
+    }
+
     Spacer(Modifier.height(4.dp))
     Text(
         "Toca una carrera para preparar la baliza con su hora de salida oficial. " +
@@ -667,8 +728,11 @@ private fun esHoy(salidaMs: Double?): Boolean {
 private fun cuandoEsLaCarrera(salidaMs: Double?): String {
     val ms = salidaMs?.takeIf { it > 0.0 } ?: return "Sin hora de salida"
     val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms.toLong()))
-    if (esHoy(ms)) return "hoy · $hora"
-    return SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms.toLong())) + " · " + hora
+    val dia = if (esHoy(ms)) "hoy" else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms.toLong()))
+    // Pasada la hora se dice, en vez de dejar una fecha suelta que no aclara si
+    // la carrera va o no: la cuenta atrás ya no puede decirlo.
+    val salio = if (ms < System.currentTimeMillis()) " · ya ha salido" else ""
+    return "$dia · $hora$salio"
 }
 
 /**

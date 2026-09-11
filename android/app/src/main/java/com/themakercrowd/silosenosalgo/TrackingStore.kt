@@ -126,9 +126,16 @@ object TrackingStore {
     private val _planes = MutableStateFlow<List<PlanSummary>>(emptyList())
     val planes: StateFlow<List<PlanSummary>> = _planes.asStateFlow()
 
-    /** Los eventos en los que participo, para elegir uno al salir. */
+    /** Los eventos en los que participo que TODAVÍA admiten baliza: los que se
+     *  pueden elegir al salir. */
     private val _eventos = MutableStateFlow<List<EventSummary>>(emptyList())
     val eventos: StateFlow<List<EventSummary>> = _eventos.asStateFlow()
+
+    /** Las carreras ya terminadas por su organizador. Aparte de [eventos] —no se
+     *  pueden emitir, y esa lista alimenta el selector— pero se siguen corriendo:
+     *  su parrilla es donde están los resultados. En pantalla van plegadas. */
+    private val _eventosPasados = MutableStateFlow<List<EventSummary>>(emptyList())
+    val eventosPasados: StateFlow<List<EventSummary>> = _eventosPasados.asStateFlow()
 
     /** Las guías `.slsnsguide` importadas, para consultarlas sin conexión. */
     private val _guias = MutableStateFlow<List<GuideRules.GuiaLocal>>(emptyList())
@@ -486,7 +493,13 @@ object TrackingStore {
     suspend fun cargaEventos() {
         val t = token ?: return
         runCatching { api.listEvents(t) }.onSuccess { lista ->
+            // Las que vienen, la más cercana primero: es el orden en que se
+            // miran. Las que no tienen hora, al final. Las terminadas al revés:
+            // la última corrida arriba.
             _eventos.value = lista.filter { !it.isOver }
+                .sortedBy { it.startsAt ?: Double.MAX_VALUE }
+            _eventosPasados.value = lista.filter { it.isOver }
+                .sortedByDescending { it.startsAt ?: 0.0 }
             autoeligeEventoDeHoy()
         }
     }

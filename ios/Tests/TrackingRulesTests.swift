@@ -62,6 +62,31 @@ final class TrackingRulesTests: XCTestCase {
         XCTAssertEqual(deHoy([manana, tarde], cuando("2026-09-12", "16:00"))?.id, "tarde")
     }
 
+    // La cuenta atrás: mismos casos que en Android, para que las dos apps
+    // escriban lo mismo. Una que cambia de ancho cada segundo no se puede leer
+    // de reojo, que es como se lee.
+    private func faltan(_ segundos: Double) -> String? {
+        let ahora = Date(timeIntervalSince1970: 1_000_000)
+        return TrackingRules.countdown(
+            startsAtMs: (1_000_000 + segundos) * 1000, now: ahora
+        )
+    }
+
+    func testLaCuentaAtrasEscribeSoloLasUnidadesQueHacenFalta() {
+        XCTAssertEqual(faltan(2 * 86_400 + 3 * 3_600 + 4 * 60 + 5), "2 d 03 h 04 m 05 s")
+        XCTAssertEqual(faltan(3 * 3_600 + 4 * 60 + 5), "3 h 04 m 05 s")
+        XCTAssertEqual(faltan(4 * 60 + 5), "4 m 05 s")
+        XCTAssertEqual(faltan(5), "5 s")
+        XCTAssertEqual(faltan(86_400 + 9), "1 d 00 h 00 m 09 s")
+    }
+
+    func testPasadaLaHoraYSinHoraNoHayCuentaAtras() {
+        XCTAssertNil(faltan(0))
+        XCTAssertNil(faltan(-1))
+        XCTAssertNil(TrackingRules.countdown(startsAtMs: nil))
+        XCTAssertNil(TrackingRules.countdown(startsAtMs: 0))
+    }
+
     func testNoSeProponeLoQueNoSePuedeCorrer() {
         let ahora = cuando("2026-09-12", "07:10")
         // Terminada por el organizador: ya no admite balizas.

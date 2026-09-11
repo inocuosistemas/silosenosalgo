@@ -115,11 +115,25 @@ Lo que NO hace es empezar a emitir. Eso sigue siendo un solo botón, el de
 arriba, con el nombre y la ruta ya decididos: empezar a compartir la posición no
 puede pasar por tocar un nombre en una lista.
 
-> **Pendiente.** La lista solo trae las carreras que **aún admiten baliza**: al
-> cerrarlas el organizador desaparecen, y con ellas el atajo a su parrilla, que
-> es justo donde están los resultados. `GET /api/events` las devuelve; lo que las
-> filtra es la app (`loadEvents` / `cargaEventos`), porque esa misma lista es la
-> que alimenta el selector, donde una carrera terminada no puede salir.
+Salen **todas**, incluidas las que ya no admiten baliza: esas van **plegadas**
+("Ver las terminadas"), porque no se pueden correr pero su parrilla sigue siendo
+donde están los resultados, que es justo lo que se quiere mirar el domingo por la
+tarde. El selector de abajo sigue viendo solo las vivas —a una carrera cerrada no
+se le puede atribuir una baliza—, así que son dos listas distintas en el store
+(`events` / `pastEvents`, `eventos` / `eventosPasados`) y no un filtro de
+pantalla.
+
+Y las pendientes llevan **cuenta atrás al segundo**: `faltan 2 d 03 h 04 m 05 s`.
+Dice dos cosas que una fecha no dice —que queda mucho y uno se puede ir a dormir,
+o que queda poco y hay que ir preparando la baliza—. La regla es común a las dos
+apps (`TrackingRules.cuentaAtras` / `countdown`, con pruebas en las dos): las
+unidades en cero de delante no se escriben y las de detrás van con dos cifras,
+para que el número no baile de ancho cada segundo y se pueda leer de reojo.
+Pasada la hora no hay cuenta atrás sino "ya ha salido": un número creciente ahí
+no significaría nada.
+
+El reloj late solo mientras la pantalla se ve (`TimelineView` en iOS, un
+`LaunchedEffect` en Android), así que no hay nada que apagar al salir.
 
 ### La parrilla ofrece la baliza a quien todavía no la tiene
 

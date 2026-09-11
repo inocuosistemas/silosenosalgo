@@ -269,6 +269,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val sesiones by TrackingStore.sesiones.collectAsState()
     val planes by TrackingStore.planes.collectAsState()
     val eventos by TrackingStore.eventos.collectAsState()
+    val eventosPasados by TrackingStore.eventosPasados.collectAsState()
     val notas by TrackingStore.notas.collectAsState()
     val portapapeles = LocalClipboardManager.current
 
@@ -680,10 +681,11 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // (la actividad, el ritmo, cuánto se conserva).
         // Las carreras, lo primero después de los mandos de emitir: quien abre
         // la app el día de una carrera la abre POR esa carrera.
-        if (eventos.isNotEmpty()) {
+        if (eventos.isNotEmpty() || eventosPasados.isNotEmpty()) {
             Seccion(titulo = "Mis carreras") {
                 SeccionCarreras(
                     eventos = eventos,
+                    pasadas = eventosPasados,
                     elegido = estado.eventoId,
                     onElige = { TrackingStore.ajustaEvento(it) },
                     onParrilla = { id ->

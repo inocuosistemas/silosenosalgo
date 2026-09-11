@@ -40,6 +40,27 @@ enum TrackingRules {
             .0
     }
 
+    /// Lo que falta para la salida, en palabras: `2 d 03 h 04 m 05 s`. Espejo de
+    /// `TrackingRules.cuentaAtras` en Android, donde están las pruebas.
+    ///
+    /// Nulo sin hora puesta y nulo pasada la hora: lo que toca entonces no es un
+    /// número creciente, sino "ya ha salido", que lo pone la pantalla. Las
+    /// unidades en cero de delante no se escriben; las de detrás van con dos
+    /// cifras para que el número no baile de ancho cada segundo.
+    static func countdown(startsAtMs: Double?, now: Date = Date()) -> String? {
+        guard let ms = startsAtMs, ms > 0 else { return nil }
+        let remaining = Int((ms / 1000 - now.timeIntervalSince1970).rounded(.down))
+        guard remaining > 0 else { return nil }
+        let d = remaining / 86_400
+        let h = (remaining % 86_400) / 3_600
+        let m = (remaining % 3_600) / 60
+        let s = remaining % 60
+        if d > 0 { return String(format: "%d d %02d h %02d m %02d s", d, h, m, s) }
+        if h > 0 { return String(format: "%d h %02d m %02d s", h, m, s) }
+        if m > 0 { return String(format: "%d m %02d s", m, s) }
+        return "\(s) s"
+    }
+
     /// Straight-line metres between two coordinates.
     static func distanceMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
         CLLocation(latitude: lat1, longitude: lon1)
