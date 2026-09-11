@@ -53,7 +53,7 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
 | Android · APK de reparto | 1.0 (**435**) compilado y firmado, en `android/app/build/outputs/reparto/SiLoSeNoSalgo-1.0-435.apk` | sí, **listo para mandar**: lleva el visor web reconstruido y el evento del día. El compañero sigue con el **271** |
-| iOS | 1.0 (435 en código); compila y pasa sus pruebas | **no**: falta instalarla en el iPhone (`ios/scripts/instala-en-iphone.sh`) |
+| iOS | 1.0 (**444**) subida a TestFlight el 2026-09-11 (antes el 442 y el 443, el mismo día) | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -65,8 +65,8 @@ el commit 271.
 
 ### "Salgo ya" es un toque, y quitar la ruta se lleva su hora
 
-**iOS · en código** · *Mejora al actualizar*
-**Android · en código** · *Mejora al actualizar*
+**iOS · 1.0 (444) en TestFlight** · *Mejora al actualizar*
+**Android · en código, sin APK todavía** · *Mejora al actualizar* — el de reparto sigue siendo el 435.
 
 En la baliza, elegir una ruta con hora ponía esa hora como salida prevista —bien—
 pero quitar la ruta la dejaba ahí, huérfana, y no había forma de volver a
