@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**449**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**450**) subida a TestFlight el 2026-09-11 (antes el 442, 443, 444 y 447) | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**453**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**453**) subida a TestFlight el 2026-09-11 (antes el 442, 443, 444, 447 y 450) | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -88,8 +88,8 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ### La app enseña tus carreras, y desde ellas se llega a la parrilla
 
-**iOS · en código** · *Mejora al actualizar*
-**Android · en código** · *Mejora al actualizar*
+**iOS · 1.0 (453) en TestFlight** · *Mejora al actualizar*
+**Android · 1.0 (453)** · *Mejora al actualizar* — publicado.
 **Web** · no aplica.
 
 Nada más abrir la app, una sección **"Mis carreras"** con las que corres: el
