@@ -325,8 +325,37 @@ struct TrackingView: View {
                                 .disabled(resolvingRoute)
                             }
                             TextField("Nombre (opcional)", text: $title)
-                            DatePicker("Hora de salida prevista", selection: $store.startAt, displayedComponents: [.date, .hourAndMinute])
-                                .onChange(of: store.startAt) { _ in store.startAtTouched = true }
+                            // La hora, con las dos salidas a la vista. Sin hora
+                            // fijada se lee "Ahora" —no un selector con la hora
+                            // de cuando se abrió la pantalla, que parecía una
+                            // hora puesta— y un botón para programarla. Con hora,
+                            // el selector y un botón para quitarla: "salgo ya"
+                            // tiene que ser un toque, no pelearse con la rueda.
+                            if store.startAtTouched {
+                                DatePicker(
+                                    "Hora de salida prevista",
+                                    selection: Binding(get: { store.startAt }, set: { store.setStartAt($0) }),
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                                Button {
+                                    store.clearStartAt()
+                                } label: {
+                                    Label("Salir ahora · quitar la hora prevista", systemImage: "bolt.fill")
+                                }
+                                .foregroundStyle(Theme.sky500)
+                            } else {
+                                HStack {
+                                    Text("Hora de salida prevista")
+                                    Spacer()
+                                    Text("Ahora").foregroundStyle(Theme.slate400)
+                                }
+                                Button {
+                                    store.setStartAt(Date())
+                                } label: {
+                                    Label("Programar la salida", systemImage: "clock")
+                                }
+                                .foregroundStyle(Theme.sky500)
+                            }
                         }
                     } label: {
                         Text(outingSummary)

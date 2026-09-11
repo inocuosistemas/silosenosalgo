@@ -686,6 +686,17 @@ object TrackingStore {
     }
 
     /**
+     * "Salgo ya": fuera la hora prevista, la pusiera la ruta, el evento o la
+     * mano. La salida vuelve a ser el momento de pulsar Empezar y la baliza no
+     * se queda armada esperando una hora que ya no va. Es un toque a propósito:
+     * la alternativa era volver a abrir calendario y reloj para poner "ahora".
+     */
+    fun salidaAhora() {
+        _estado.value = _estado.value.copy(salidaMs = 0.0, salidaTocada = false)
+        guardaActivo()
+    }
+
+    /**
      * Vuelve a transmitir a una sesión que YA existe y sigue activa, sin crear
      * otra. El endpoint de ping ya acepta una sesión propia y activa, así que no
      * hace falta tocar el backend: basta con recuperar de disco lo que quedó.

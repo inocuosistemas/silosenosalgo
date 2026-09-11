@@ -714,9 +714,10 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(14.dp))
-                SelectorSalida(estado.salidaMs, estado.salidaTocada) {
-                    TrackingStore.ajustaSalida(it)
-                }
+                SelectorSalida(
+                    estado.salidaMs, estado.salidaTocada,
+                    onAhora = { TrackingStore.salidaAhora() },
+                ) { TrackingStore.ajustaSalida(it) }
             }
         }
 

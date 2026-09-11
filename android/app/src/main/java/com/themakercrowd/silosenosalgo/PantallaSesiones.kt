@@ -804,7 +804,12 @@ fun SelectorRetencion(horas: Double, onElige: (Double) -> Unit) {
  * calendario y el reloj, que es lo que hacen los propios ajustes del sistema.
  */
 @Composable
-fun SelectorSalida(salidaMs: Double, tocada: Boolean, onElige: (Double) -> Unit) {
+fun SelectorSalida(
+    salidaMs: Double,
+    tocada: Boolean,
+    onAhora: () -> Unit,
+    onElige: (Double) -> Unit,
+) {
     var eligiendoFecha by remember { mutableStateOf(false) }
     var eligiendoHora by remember { mutableStateOf(false) }
     var diaElegidoMs by remember { mutableStateOf(0L) }
@@ -821,6 +826,14 @@ fun SelectorSalida(salidaMs: Double, tocada: Boolean, onElige: (Double) -> Unit)
         )
         TextButton(onClick = { eligiendoFecha = true }) {
             Text(if (tocada) fecha(salidaMs) else "Ahora")
+        }
+    }
+    // Con hora puesta, la vuelta a "ahora" es un toque. Antes no había: una vez
+    // fijada —por la ruta, por el evento o a mano— la única forma de salir ya
+    // era volver a pasar por el calendario y el reloj.
+    if (tocada) {
+        TextButton(onClick = onAhora, contentPadding = PaddingValues(horizontal = 0.dp)) {
+            Text("Salir ahora · quitar la hora prevista")
         }
     }
     Text(

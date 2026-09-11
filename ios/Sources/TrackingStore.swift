@@ -87,7 +87,14 @@ final class TrackingStore: ObservableObject {
     /// Planned departure time = reference for paces/predictions. Defaults to the
     /// selected plan's start (so predictions follow the plan), else now.
     @Published var startAt: Date = Date()
-    var startAtTouched = false
+    /// Si la salida la fijó alguien (la ruta, el evento o la mano). Sin tocar,
+    /// la salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la pantalla.
+    /// Solo lo cambia el store: la vista pasa por `setStartAt` / `clearStartAt`.
+    @Published private(set) var startAtTouched = false
+    /// La hora que dejó puesta la RUTA (o el evento a través de ella). Sirve
+    /// para saber si la que hay es suya y se la tiene que llevar al quitarla, o
+    /// si la puso alguien a mano y entonces se queda.
+    private var startAtFromPlan: Date? = nil
     @Published var sessions: [TrackSessionSummary] = []
     /// Eventos en los que participo (los que puedo elegir al salir).
     @Published var events: [EventSummary] = []
@@ -308,9 +315,20 @@ final class TrackingStore: ObservableObject {
 
     /// When a plan is selected, default the departure to the PLAN's start so all
     /// paces/predictions follow the plan (not the activation moment). Adjustable.
+    ///
+    /// Y al QUITAR la ruta, la hora que puso se va con ella. Antes se quedaba
+    /// huérfana: elegías una previsión con salida a las 08:45, la quitabas
+    /// porque al final salías sin ruta, y las 08:45 seguían ahí sin forma de
+    /// volver a "ahora" salvo pelearse con el selector de fecha. Una hora puesta
+    /// A MANO sí se queda: quien la tocó tenía un motivo.
     private func applyPlanStart() {
+        let cameFromPlan = startAtTouched && startAtFromPlan == startAt
         guard let id = selectedPlanId,
-              let p = plans.first(where: { $0.id == id }) else { return }
+              let p = plans.first(where: { $0.id == id }) else {
+            if cameFromPlan { resetStartAt() }
+            startAtFromPlan = nil
+            return
+        }
         // La actividad viene del plan igual que la hora: es la que se eligió al
         // planificar, con el recorrido delante. Solo rellena "Automático".
         if activity == nil, let a = p.activity.flatMap(BeaconActivity.init(rawValue:)) {
@@ -326,10 +344,48 @@ final class TrackingStore: ObservableObject {
         if let iso = p.startTime, let d = Self.parseISO(iso) {
             startAt = d
             startAtTouched = true
+            startAtFromPlan = d
         } else if let ms = activeEvent?.startsAt, ms > 0 {
+            let d = Date(timeIntervalSince1970: ms / 1000)
+            startAt = d
+            startAtTouched = true
+            startAtFromPlan = d
+        } else if cameFromPlan {
+            // De una ruta con hora a otra sin ella: la hora era de la primera.
+            resetStartAt()
+            startAtFromPlan = nil
+        }
+    }
+
+    /// A lo que vuelve la salida cuando se va lo que la había puesto: la
+    /// oficial del evento si hay uno, y si no "ahora", que se resuelve al
+    /// pulsar Empezar.
+    private func resetStartAt() {
+        if let ms = activeEvent?.startsAt, ms > 0 {
             startAt = Date(timeIntervalSince1970: ms / 1000)
             startAtTouched = true
+        } else {
+            startAt = Date()
+            startAtTouched = false
         }
+    }
+
+    /// La hora puesta A MANO desde el selector. Es el único camino por el que
+    /// la vista toca la salida: antes un `.onChange` marcaba "tocada" ante
+    /// cualquier cambio del valor, también los que hacía el propio store, así
+    /// que en cuanto se fijaba una hora ya no había forma de volver a "ahora".
+    func setStartAt(_ d: Date) {
+        startAt = d
+        startAtTouched = true
+    }
+
+    /// "Salgo ya": fuera la hora prevista, sea de quien sea. La salida vuelve a
+    /// ser el momento de pulsar Empezar, y la baliza no se queda armada
+    /// esperando una hora que ya no va.
+    func clearStartAt() {
+        startAt = Date()
+        startAtTouched = false
+        startAtFromPlan = nil
     }
 
     private static func parseISO(_ s: String) -> Date? {

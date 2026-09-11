@@ -61,6 +61,34 @@ el commit 271.
 
 ---
 
+## 2026-09-11
+
+### "Salgo ya" es un toque, y quitar la ruta se lleva su hora
+
+**iOS · en código** · *Mejora al actualizar*
+**Android · en código** · *Mejora al actualizar*
+
+En la baliza, elegir una ruta con hora ponía esa hora como salida prevista —bien—
+pero quitar la ruta la dejaba ahí, huérfana, y no había forma de volver a
+"ahora" que no fuera pelearse con el selector de fecha. Peor en iOS: una vez
+tocada, la hora ya no podía volver a "ahora" nunca, porque el aviso de cambio
+marcaba "tocada" también cuando la cambiaba el propio código y deshacía al
+instante su propio reset.
+
+Ahora:
+
+- **Quitar la ruta se lleva la hora que puso.** Si hay evento, vuelve a la
+  oficial del evento; si no, a "ahora". Una hora puesta A MANO se queda: quien
+  la tocó tenía un motivo. (Android ya lo hacía; iOS no.)
+- **"Salir ahora · quitar la hora prevista"**, un botón debajo de la hora en las
+  dos apps. La salida vuelve a ser el momento de pulsar Empezar y la baliza no
+  se queda armada esperando una hora que ya no va.
+- **En iOS, sin hora fijada se lee "Ahora"** y un botón "Programar la salida",
+  en vez de un selector con la hora de cuando se abrió la pantalla, que parecía
+  una hora puesta y no lo era.
+
+**Web** · no aplica: la baliza es de las apps.
+
 ## 2026-09-10
 
 ### Los tres enlaces de una carrera ya no parecen el mismo
