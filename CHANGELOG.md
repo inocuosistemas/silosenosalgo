@@ -52,12 +52,28 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**445**) compilado y firmado, en `android/app/build/outputs/reparto/SiLoSeNoSalgo-1.0-445.apk` | sí, **listo para mandar**: evento del día, "Salir ahora", y el visor con los sellos. El compañero sigue con el **271** |
-| iOS | 1.0 (**444**) subida a TestFlight el 2026-09-11 (antes el 442 y el 443, el mismo día) | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**447**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**447**) subida a TestFlight el 2026-09-11 (antes el 442, 443 y 444) | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
 el commit 271.
+
+## Cómo llega cada versión a quien la prueba
+
+| Pieza | Camino |
+|---|---|
+| Web | `npm run deploy` (Cloudflare Pages). Las apps recogen el visor nuevo por OTA. |
+| iOS | `ios/scripts/sube-a-testflight.sh` → TestFlight, probadores internos, sin revisión de Apple. |
+| Android | `./gradlew assembleRelease` y se publica el APK como *release* de GitHub. El enlace que se manda **no cambia nunca**: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk` |
+
+El APK se sube con el nombre `SiLoSeNoSalgo.apk` a secas —sin versión— porque es
+lo que hace que ese enlace funcione siempre. La versión va en el título de la
+release y dentro del propio APK, que es donde la mira Android al instalar.
+
+> El repositorio es público, así que ese APK lo puede descargar cualquiera que
+> tenga el enlace. Dentro no va ningún secreto: la clave de firma no viaja en el
+> APK, solo su firma. Es el mismo fichero que antes se mandaba por WhatsApp.
 
 ---
 
@@ -65,8 +81,8 @@ el commit 271.
 
 ### El nombre de la salida se perdía al reabrir la app (iOS)
 
-**iOS · en código** · *Mejora al actualizar*
-**Android** · ya lo hacía bien; no cambia.
+**iOS · 1.0 (447) en TestFlight** · *Mejora al actualizar*
+**Android** · ya lo hacía bien; el APK 447 lo lleva igual.
 **Web** · no aplica.
 
 Ponerle nombre a una salida, cerrar la app y volver a abrirla dejaba la baliza
@@ -88,7 +104,7 @@ volver a abrir.
 ### "Salgo ya" es un toque, y quitar la ruta se lleva su hora
 
 **iOS · 1.0 (444) en TestFlight** · *Mejora al actualizar*
-**Android · 1.0 (445)** · *Mejora al actualizar* — APK firmado en `reparto/`, listo para mandar.
+**Android · 1.0 (445)** · *Mejora al actualizar* — luego rehecho como 447.
 
 En la baliza, elegir una ruta con hora ponía esa hora como salida prevista —bien—
 pero quitar la ruta la dejaba ahí, huérfana, y no había forma de volver a
