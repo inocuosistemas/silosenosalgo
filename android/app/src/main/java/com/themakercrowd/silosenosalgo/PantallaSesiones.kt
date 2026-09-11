@@ -335,7 +335,7 @@ private fun Chip(texto: String, fondo: Color, colorTexto: Color) {
 }
 
 @Composable
-private fun DialogoRenombrar(
+fun DialogoRenombrar(
     actual: String?,
     onCancelar: () -> Unit,
     onAceptar: (String?) -> Unit,

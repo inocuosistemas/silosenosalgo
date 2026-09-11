@@ -774,6 +774,15 @@ object TrackingStore {
     /** Un título vacío la devuelve a "Sin nombre". */
     suspend fun renombraSesion(id: String, titulo: String?) {
         val t = token ?: return
+        // Si es la salida EN MARCHA, el nombre nuevo es el suyo aquí también.
+        // Sin esto el servidor y la lista se enteraban, pero el estado vivo no:
+        // se seguía guardando en disco el nombre viejo —y con él volvía al
+        // reabrir la app— y el visor incrustado, que lee de aquí, seguía
+        // enseñándolo. Espejo de `rename` en iOS.
+        if (id == _estado.value.sessionId) {
+            _estado.value = _estado.value.copy(titulo = titulo)
+            guardaActivo()
+        }
         api.rename(t, id, titulo)
         cargaSesiones()
     }

@@ -86,6 +86,27 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-11
 
+### Cambiar el nombre de la salida sin salir de "En directo"
+
+**iOS · en código** · *Mejora al actualizar*
+**Android · en código** · *Mejora al actualizar*
+**Web** · no aplica.
+
+Renombrar una salida en marcha ya se podía, pero había que bajar hasta "Mis
+seguimientos" y buscar la propia sesión entre las anteriores. Se le ocurre a uno
+a mitad de ruta —"esto no era un entrenamiento, era la carrera"— y donde se está
+mirando entonces es en **En directo**: ahí está ahora el nombre, con su botón de
+renombrar al lado. El enlace ya compartido no cambia: el nombre es una etiqueta,
+el token es otra cosa.
+
+Y con él, un fallo de Android que solo se veía al reabrir la app:
+`renombraSesion` avisaba al servidor y recargaba la lista —así que la fila se
+veía bien— pero no tocaba `Estado.titulo`, que es lo que se guarda en disco para
+reanudar y lo que alimenta el visor incrustado (`ViewerData`). O sea: renombrabas
+a mitad de carrera, cerrabas la app, y **volvía el nombre viejo**. Es el gemelo
+exacto del fallo del título que se perdía al reabrir, que era de iOS; ahora las
+dos apps propagan el nombre nuevo al estado vivo, al disco y al visor.
+
 ### La traza en directo se perdía sobre el mapa
 
 **Web · desplegado.** El trazo verde sobre un bosque verde no se

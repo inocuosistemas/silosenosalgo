@@ -370,6 +370,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val desplazamiento = rememberScrollState()
     var refrescando by remember { mutableStateOf(false) }
     var confirmandoSalida by remember { mutableStateOf(false) }
+    var renombrandoEnMarcha by remember { mutableStateOf(false) }
 
     // Arrastrar hacia abajo refresca, como en iOS: recoge lo hecho en otro
     // sitio (una previsión recién creada en la web) sin salir de la pantalla.
@@ -630,7 +631,41 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         )
 
         if (estado.compartiendo) {
-            Seccion(titulo = "En directo") { DatosDeLaSesion(estado) }
+            Seccion(titulo = "En directo") {
+                // El nombre, y poder cambiarlo aquí mismo. Se le ocurre a uno a
+                // mitad de ruta —"esto no era un entrenamiento, era la carrera"—
+                // y hasta ahora había que bajar hasta "Mis seguimientos" y
+                // buscar la propia sesión entre las anteriores. Aquí es donde se
+                // está mirando mientras se emite.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        estado.titulo?.takeIf { it.isNotBlank() } ?: "Sin nombre",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (estado.titulo.isNullOrBlank()) Paleta.slate400 else Paleta.slate100,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { renombrandoEnMarcha = true }) { Text("Renombrar") }
+                }
+                Spacer(Modifier.height(6.dp))
+                DatosDeLaSesion(estado)
+            }
+        }
+
+        if (renombrandoEnMarcha) {
+            DialogoRenombrar(
+                actual = estado.titulo,
+                onCancelar = { renombrandoEnMarcha = false },
+                onAceptar = { nuevo ->
+                    renombrandoEnMarcha = false
+                    estado.sessionId?.let { id ->
+                        scope.launch { TrackingStore.renombraSesion(id, nuevo) }
+                    }
+                },
+            )
         }
 
         if (estado.compartiendo) {

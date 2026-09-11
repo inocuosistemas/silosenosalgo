@@ -8,6 +8,9 @@ struct TrackingView: View {
     @ObservedObject private var guideLibrary = GuideLibrary.shared
     @ObservedObject private var net = Reachability.shared
     @State private var title = ""
+    /// Renombrar la salida EN MARCHA, desde "En directo".
+    @State private var renamingLive = false
+    @State private var liveRenameText = ""
     @State private var pendingDelete: TrackSessionSummary?
     @State private var pendingRename: TrackSessionSummary?
     /// The expired-and-nothing-kept sessions queued for the bulk "Limpiar".
@@ -675,6 +678,36 @@ struct TrackingView: View {
                 }
 
                 if store.isSharing, let link = store.shareLink {
+                    // El nombre, y poder cambiarlo aquí mismo. Se le ocurre a uno
+                    // a mitad de ruta —"esto no era un entrenamiento, era la
+                    // carrera"— y hasta ahora había que bajar hasta "Mis
+                    // seguimientos" y buscar la propia sesión entre las
+                    // anteriores. Aquí es donde se está mirando mientras se emite.
+                    Section {
+                        Button {
+                            liveRenameText = store.activeTitle ?? ""
+                            renamingLive = true
+                        } label: {
+                            HStack {
+                                Text(store.activeTitle?.isEmpty == false
+                                     ? store.activeTitle! : "Sin nombre")
+                                    .foregroundStyle(store.activeTitle?.isEmpty == false
+                                                     ? Theme.slate100 : Theme.slate400)
+                                    .lineLimit(1)
+                                Spacer()
+                                Label("Renombrar", systemImage: "pencil")
+                                    .labelStyle(.titleAndIcon)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.sky500)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } header: {
+                        Text("Nombre de esta salida").foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+
                     Section {
                         Text(link)
                             .font(.footnote)
@@ -805,6 +838,17 @@ struct TrackingView: View {
                 Button("Cancelar", role: .cancel) { pendingCleanup = nil }
             } message: { sessions in
                 Text("Son \(sessions.count): las que ya han caducado y de las que no queda nada en este móvil. No se puede ver su mapa ni exportarlas, y su enlace ya no funciona. Solo se quita la entrada de la lista.")
+            }
+            .alert("Nombre del seguimiento", isPresented: $renamingLive) {
+                TextField("Nombre", text: $liveRenameText)
+                Button("Guardar") {
+                    guard let id = store.sessionToken else { return }
+                    let t = liveRenameText.trimmingCharacters(in: .whitespaces)
+                    Task { await store.rename(id, t.isEmpty ? nil : t) }
+                }
+                Button("Cancelar", role: .cancel) { }
+            } message: {
+                Text("Vacío lo devuelve a «Sin nombre». El enlace que ya has compartido no cambia.")
             }
             .alert("Renombrar seguimiento", isPresented: Binding(
                 get: { pendingRename != nil },
