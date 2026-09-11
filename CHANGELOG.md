@@ -63,6 +63,28 @@ el commit 271.
 
 ## 2026-09-11
 
+### El nombre de la salida se perdía al reabrir la app (iOS)
+
+**iOS · en código** · *Mejora al actualizar*
+**Android** · ya lo hacía bien; no cambia.
+**Web** · no aplica.
+
+Ponerle nombre a una salida, cerrar la app y volver a abrirla dejaba la baliza
+sin nombre. El seguimiento seguía siendo el mismo —el enlace no cambia y el
+servidor sí guardaba el nombre—, pero en el móvil y en el visor incrustado
+pasaba a llamarse "Sin nombre" a mitad de carrera.
+
+El motivo: en iOS el nombre vivía solo en el `@State` de la pantalla, que muere
+con el proceso. Lo que se guardaba en disco para poder reanudar llevaba la
+cadencia, la hora, la ruta y la actividad, pero no el nombre; y al reanudar se
+registraba en el visor un `title: nil` literal. Android lo guardaba desde
+siempre (`EstadoActivo.titulo`): es otra de las asimetrías entre las dos apps.
+
+Ahora el nombre vive en el store, se guarda con el resto del estado activo y
+vuelve al reanudar, también sin cobertura. De paso, renombrar la salida EN
+MARCHA cambia el nombre al instante en el visor, en vez de esperar a parar y
+volver a abrir.
+
 ### "Salgo ya" es un toque, y quitar la ruta se lleva su hora
 
 **iOS · 1.0 (444) en TestFlight** · *Mejora al actualizar*

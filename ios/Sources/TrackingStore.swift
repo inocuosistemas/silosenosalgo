@@ -77,6 +77,12 @@ final class TrackingStore: ObservableObject {
     /// Name of the route linked to the CURRENT live/armed session (persists while
     /// sharing, incl. continued sessions where selectedPlanId isn't known).
     @Published var activePlanName: String? = nil
+    /// El NOMBRE que se le puso a esta salida. Vive aquí y no en la vista porque
+    /// la vista muere con el proceso: el nombre lo escribe quien sale, es lo que
+    /// ve quien abre el enlace, y perderlo al reabrir la app —que es lo que
+    /// pasaba— deja la salida llamándose "Sin nombre" a mitad de carrera.
+    /// Espejo de `Estado.titulo` en Android, que sí lo guardaba.
+    @Published var activeTitle: String? = nil
     @Published var selectedPlanId: String? = nil {
         didSet { applyPlanStart() }
     }
@@ -533,6 +539,13 @@ final class TrackingStore: ObservableObject {
     /// Rename a finished/pinned session so it's identifiable later in the list
     /// (pass nil/empty to clear it). Refreshes to reflect the new label.
     func rename(_ id: String, _ title: String?) async {
+        // Si es la salida EN MARCHA, el nombre nuevo es el suyo aquí también:
+        // si no, seguiría emitiendo con el viejo hasta parar y volver a abrir.
+        if id == sessionToken {
+            activeTitle = title
+            persistActive()
+            ViewerDataProvider.shared.setTitle(token: id, title: title)
+        }
         await API.rename(token: token, id: id, title: title)
         await loadSessions()
     }
@@ -561,6 +574,7 @@ final class TrackingStore: ObservableObject {
         // (selectedPlanId isn't known for a session we didn't just create).
         let summary = sessions.first(where: { $0.id == id })
         activePlanName = summary?.planName
+        activeTitle = summary?.title
         activity = summary?.activity
         // El evento viene de la sesión, no de lo que estuviera elegido: al
         // retomar una salida de ayer, el evento es el suyo —y por tanto ya no
@@ -701,6 +715,7 @@ final class TrackingStore: ObservableObject {
             persistPendingNotes()
             persistPendingNoteDeletes()
             persistPendingMedia()
+            activeTitle = title
             ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
             ViewerDataProvider.shared.setActivity(token: res.id, activity: activity)
             cachePlanBytes(for: res.id, planId: selectedPlanId)
@@ -729,6 +744,7 @@ final class TrackingStore: ObservableObject {
         isSharing = false
         isStandby = false
         activePlanName = nil
+        activeTitle = nil
         clearActive() // explicit stop (or server-ended): don't resume on relaunch
         // Keep serving the just-finished session to a still-open offline viewer,
         // now flagged as ended (its trail file is kept for later review).
@@ -1246,6 +1262,9 @@ final class TrackingStore: ObservableObject {
         let retainHours: Double
         let startAtMs: Double
         let planName: String?
+        /// El nombre de la salida. Opcional para que un estado guardado antes de
+        /// que esto existiera siga decodificando (→ nil).
+        let title: String?
         let savedAtMs: Double
         /// Movement type (raw value), nil = Automático. Optional so states saved
         /// before this field decode fine (→ nil).
@@ -1262,6 +1281,7 @@ final class TrackingStore: ObservableObject {
             token: t, sendMode: sendMode.rawValue, intervalSeconds: intervalSeconds,
             distanceMeters: distanceMeters, profile: profile.rawValue, retainHours: retainHours,
             startAtMs: startAt.timeIntervalSince1970 * 1000, planName: activePlanName,
+            title: activeTitle,
             savedAtMs: Date().timeIntervalSince1970 * 1000, activity: activity?.rawValue)
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: activeKey) }
     }
@@ -1294,6 +1314,7 @@ final class TrackingStore: ObservableObject {
         startAt = Date(timeIntervalSince1970: s.startAtMs / 1000)
         startAtTouched = true
         activePlanName = s.planName
+        activeTitle = s.title
         activity = s.activity.flatMap(BeaconActivity.init(rawValue:))
 
         sessionToken = s.token
@@ -1310,7 +1331,7 @@ final class TrackingStore: ObservableObject {
         loadPendingNotes(s.token)
         loadPendingNoteDeletes(s.token)
         loadPendingMedia(s.token)
-        ViewerDataProvider.shared.register(token: s.token, title: nil, startedAt: s.startAtMs, expiresAt: 0, status: "active")
+        ViewerDataProvider.shared.register(token: s.token, title: s.title, startedAt: s.startAtMs, expiresAt: 0, status: "active")
         ViewerDataProvider.shared.setActivity(token: s.token, activity: activity)
         let lastFix = trail.last.map { TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil, accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t) }
         ViewerDataProvider.shared.update(token: s.token, fix: lastFix, reportedFix: nil, trail: trail)

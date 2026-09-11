@@ -220,6 +220,14 @@ final class ViewerDataProvider {
         lock.unlock()
     }
 
+    /// Rename the current session, so el visor incrustado deja de enseñar el
+    /// nombre viejo sin tener que volver a registrar la sesión entera.
+    func setTitle(token: String, title: String?) {
+        lock.lock()
+        if self.token == token { self.title = title }
+        lock.unlock()
+    }
+
     /// Replace the current session's field notes (the store is the single writer).
     func setNotes(token: String, notes: [Note]) {
         lock.lock()
