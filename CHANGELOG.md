@@ -52,7 +52,7 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**447**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| Android · APK de reparto | 1.0 (**449**) publicado en GitHub Releases | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
 | iOS | 1.0 (**447**) subida a TestFlight el 2026-09-11 (antes el 442, 443 y 444) | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
@@ -67,9 +67,16 @@ el commit 271.
 | iOS | `ios/scripts/sube-a-testflight.sh` → TestFlight, probadores internos, sin revisión de Apple. |
 | Android | `./gradlew assembleRelease` y se publica el APK como *release* de GitHub. El enlace que se manda **no cambia nunca**: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk` |
 
-El APK se sube con el nombre `SiLoSeNoSalgo.apk` a secas —sin versión— porque es
-lo que hace que ese enlace funcione siempre. La versión va en el título de la
-release y dentro del propio APK, que es donde la mira Android al instalar.
+Cada release lleva **el mismo APK dos veces**: como `SiLoSeNoSalgo.apk`, que es
+lo que hace que el enlace de arriba funcione siempre, y como
+`SiLoSeNoSalgo-1.0-<build>.apk`, para que en la carpeta de descargas se sepa
+cuál es cuál. Son idénticos byte a byte; el enlace fijo exige que el primero
+exista con ese nombre exacto, así que no se puede publicar solo el versionado.
+
+Para saber qué versión hay publicada, sin cuenta de GitHub:
+`…/releases/latest` redirige a la etiqueta (`/releases/tag/v1.0-449`), y
+`https://api.github.com/repos/inocuosistemas/silosenosalgo/releases/latest`
+devuelve el dato crudo, con la fecha y el número de descargas.
 
 > El repositorio es público, así que ese APK lo puede descargar cualquiera que
 > tenga el enlace. Dentro no va ningún secreto: la clave de firma no viaja en el
