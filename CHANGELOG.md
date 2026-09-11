@@ -88,7 +88,7 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ### La traza en directo se perdía sobre el mapa
 
-**Web · pendiente de desplegar.** El trazo verde sobre un bosque verde no se
+**Web · desplegado.** El trazo verde sobre un bosque verde no se
 veía. Y no era solo el verde: el color de la traza SIGNIFICA algo —la precisión
 del GPS, con sus cuatro bandas— y el mapa de fondo tiene sus propios verdes,
 naranjas y rojos, así que el naranja se perdía sobre una carretera naranja y el
