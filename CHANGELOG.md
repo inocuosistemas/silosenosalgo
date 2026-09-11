@@ -86,6 +86,41 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-11
 
+### La app enseña tus carreras, y desde ellas se llega a la parrilla
+
+**iOS · en código** · *Mejora al actualizar*
+**Android · en código** · *Mejora al actualizar*
+**Web** · no aplica.
+
+Nada más abrir la app, una sección **"Mis carreras"** con las que corres: el
+nombre con tu marca, el día y la hora, y **"hoy"** destacado el día que toca.
+
+Hasta ahora los eventos solo existían dentro del selector de "qué salida es
+esta": escondidos tras una sección plegada y presentados como un ATRIBUTO de la
+salida. Para quien corre carreras organizadas el evento no es un atributo, es el
+motivo de abrir la app.
+
+Cada carrera lleva las dos cosas que se quieren hacer con ella:
+
+- **Tocarla** la deja preparada: la baliza se atribuye a ella y hereda su hora
+  oficial, así que queda armada hasta el disparo. Otro toque la quita. Es el
+  mismo estado que el selector de abajo —no hay dos verdades—, solo que aquí se
+  llega en un gesto.
+- **"Parrilla"** abre su pantalla web: quién corre, el tablón, los resultados.
+  Va al navegador porque **la parrilla vive solo en la web**: el visor incrustado
+  en la app se carga siempre con `?t=` y no puede pintarla (`Config.eventLobbyLink`
+  en las dos apps).
+
+Lo que NO hace es empezar a emitir. Eso sigue siendo un solo botón, el de
+arriba, con el nombre y la ruta ya decididos: empezar a compartir la posición no
+puede pasar por tocar un nombre en una lista.
+
+> **Pendiente.** La lista solo trae las carreras que **aún admiten baliza**: al
+> cerrarlas el organizador desaparecen, y con ellas el atajo a su parrilla, que
+> es justo donde están los resultados. `GET /api/events` las devuelve; lo que las
+> filtra es la app (`loadEvents` / `cargaEventos`), porque esa misma lista es la
+> que alimenta el selector, donde una carrera terminada no puede salir.
+
 ### La parrilla ofrece la baliza a quien todavía no la tiene
 
 **Web · pendiente de desplegar.** En "El directo", justo debajo de "empieza a

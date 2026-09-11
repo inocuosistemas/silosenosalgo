@@ -15,6 +15,7 @@ package com.themakercrowd.silosenosalgo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,6 +44,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
@@ -579,6 +581,94 @@ fun SelectorPlan(
             color = Paleta.ambar,
         )
     }
+}
+
+/**
+ * MIS CARRERAS: las que corro, a la vista nada más abrir la app.
+ *
+ * Antes los eventos solo existían dentro del selector de "qué salida es esta",
+ * o sea escondidos detrás de una sección plegada y presentados como un ATRIBUTO
+ * de la salida. Pero para quien corre carreras organizadas el evento no es un
+ * atributo: es el motivo de abrir la app. Aquí están con su día y su hora, y
+ * cada una lleva las dos cosas que se quieren hacer con ella:
+ *
+ *  - **Tocar la carrera** la deja preparada para salir: la baliza se atribuye a
+ *    ella y hereda su hora oficial, así que queda armada hasta el disparo. Otro
+ *    toque la quita. Es el mismo estado que el selector de abajo —no hay dos
+ *    verdades—, solo que aquí se llega en un gesto.
+ *  - **"Parrilla"** abre su pantalla web: quién corre, el tablón, los
+ *    resultados. Va al navegador porque la parrilla vive solo en la web (el
+ *    visor incrustado se carga siempre con `?t=` y no puede pintarla).
+ *
+ * Lo que NO hace es empezar a emitir: eso sigue siendo un solo botón, el de
+ * arriba, y con nombre y ruta ya decididos. Empezar a compartir la posición no
+ * puede pasar por tocar un nombre en una lista.
+ */
+@Composable
+fun SeccionCarreras(
+    eventos: List<EventSummary>,
+    elegido: String?,
+    onElige: (String?) -> Unit,
+    onParrilla: (String) -> Unit,
+) {
+    if (eventos.isEmpty()) return
+    eventos.forEach { ev ->
+        val esta = ev.id == elegido
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onElige(if (esta) null else ev.id) }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = esta, onClick = null)
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (ev.myEmoji != null) "${ev.myEmoji}  ${ev.name}" else ev.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Paleta.slate100,
+                        maxLines = 1,
+                    )
+                    Text(
+                        cuandoEsLaCarrera(ev.startsAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (esHoy(ev.startsAt)) Paleta.sky500 else Paleta.slate400,
+                    )
+                }
+            }
+            TextButton(onClick = { onParrilla(ev.id) }) { Text("Parrilla") }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Toca una carrera para preparar la baliza con su hora de salida oficial. " +
+            "\"Parrilla\" abre su página en el navegador: quién corre, el tablón y los resultados.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Paleta.slate400,
+    )
+}
+
+/** ¿La carrera es HOY, en la zona del móvil? Se dice aparte porque es lo que
+ *  más se mira de esta lista el día que toca. */
+private fun esHoy(salidaMs: Double?): Boolean {
+    val ms = salidaMs?.takeIf { it > 0.0 } ?: return false
+    val zona = java.time.ZoneId.systemDefault()
+    val dia = java.time.Instant.ofEpochMilli(ms.toLong()).atZone(zona).toLocalDate()
+    return dia == java.time.LocalDate.now(zona)
+}
+
+/** "sáb 13 sep · 08:00", o "hoy · 22:00" el día de la carrera. Sin hora puesta
+ *  lo dice: es justo lo que hace que la baliza no pueda quedarse armada. */
+private fun cuandoEsLaCarrera(salidaMs: Double?): String {
+    val ms = salidaMs?.takeIf { it > 0.0 } ?: return "Sin hora de salida"
+    val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms.toLong()))
+    if (esHoy(ms)) return "hoy · $hora"
+    return SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms.toLong())) + " · " + hora
 }
 
 /**

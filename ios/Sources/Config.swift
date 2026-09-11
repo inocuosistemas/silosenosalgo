@@ -25,6 +25,17 @@ enum Config {
         "\(publicURL)/?t=\(token)"
     }
 
+    /// La PARRILLA de un evento: la pantalla web donde están los participantes,
+    /// el tablón, la marca de cada uno y los resultados.
+    ///
+    /// Vive solo en la web —el visor incrustado en la app se carga siempre con
+    /// `?t=`, así que nunca puede pintarla— y hasta ahora no había forma de
+    /// llegar a ella desde aquí: quien abría la app para salir tenía que buscar
+    /// el enlace en el chat del grupo. Mirror of `Config.kt`.
+    static func eventLobbyLink(for eventId: String) -> String {
+        "\(publicURL)/?e=\(eventId)"
+    }
+
     // MARK: Offline map tiles
 
     /// OSM raster tile template for the offline map cache. Kept in one place so a

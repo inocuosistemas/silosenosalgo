@@ -58,6 +58,22 @@ struct TrackingView: View {
         Binding(get: { store.selectedEventId }, set: { store.setEvent($0) })
     }
 
+    /// ¿La carrera es HOY? Es lo que más se mira de la lista el día que toca.
+    private static func isToday(_ startsAtMs: Double?) -> Bool {
+        guard let ms = startsAtMs, ms > 0 else { return false }
+        return Calendar.current.isDateInToday(Date(timeIntervalSince1970: ms / 1000))
+    }
+
+    /// "sáb 13 sep · 08:00", o "hoy · 22:00" el día de la carrera. Sin hora
+    /// puesta lo dice: es justo lo que impide que la baliza se quede armada.
+    private static func whenLabel(_ startsAtMs: Double?) -> String {
+        guard let ms = startsAtMs, ms > 0 else { return "Sin hora de salida" }
+        let d = Date(timeIntervalSince1970: ms / 1000)
+        let hora = d.formatted(date: .omitted, time: .shortened)
+        if isToday(ms) { return "hoy · \(hora)" }
+        return "\(d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(hora)"
+    }
+
     /// "SiLoSeNoSalgo 1.0 (447)": el número corto y el de compilación, tal y
     /// como los lleva el paquete. El de compilación es el que distingue una
     /// versión de otra —es el número de commits—; el corto es el mismo siempre.
@@ -251,6 +267,61 @@ struct TrackingView: View {
                 // está puesto.
                 //
                 // Son dos preguntas distintas y por eso son dos secciones: "qué
+                // MIS CARRERAS: las que corro, a la vista nada más abrir.
+                //
+                // Antes los eventos solo existían dentro del selector de abajo,
+                // escondidos tras una sección plegada y presentados como un
+                // ATRIBUTO de la salida. Para quien corre carreras organizadas
+                // el evento no es un atributo: es el motivo de abrir la app.
+                // Tocar una la deja preparada —se atribuye la baliza y hereda su
+                // hora oficial, así que queda armada hasta el disparo— y otro
+                // toque la quita; es el mismo estado que el selector, no hay dos
+                // verdades. "Parrilla" abre su pantalla web, que es donde vive.
+                // Lo que NO hace es empezar a emitir: eso sigue siendo el botón
+                // de arriba, con el nombre y la ruta ya decididos.
+                if !store.events.isEmpty {
+                    Section {
+                        ForEach(store.events) { ev in
+                            HStack(spacing: 10) {
+                                Button {
+                                    store.setEvent(store.selectedEventId == ev.id ? nil : ev.id)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: store.selectedEventId == ev.id
+                                              ? "largecircle.fill.circle" : "circle")
+                                            .foregroundStyle(store.selectedEventId == ev.id
+                                                             ? Theme.sky500 : Theme.slate400)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name)
+                                                .foregroundStyle(Theme.slate100)
+                                                .lineLimit(1)
+                                            Text(Self.whenLabel(ev.startsAt))
+                                                .font(.caption2)
+                                                .foregroundStyle(Self.isToday(ev.startsAt)
+                                                                 ? Theme.sky500 : Theme.slate400)
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if let url = URL(string: Config.eventLobbyLink(for: ev.id)) {
+                                    Link(destination: url) { Text("Parrilla") }
+                                        .buttonStyle(.borderless)
+                                        .foregroundStyle(Theme.sky500)
+                                        .accessibilityLabel("Abrir la parrilla de \(ev.name)")
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Mis carreras").foregroundStyle(Theme.slate400)
+                    } footer: {
+                        Text("Toca una carrera para preparar la baliza con su hora de salida oficial. «Parrilla» abre su página en el navegador: quién corre, el tablón y los resultados.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
                 // salida es esta" y "cómo se registra".
                 Section {
                     DisclosureGroup(isExpanded: $outingOpen) {

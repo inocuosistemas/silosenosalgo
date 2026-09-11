@@ -678,6 +678,25 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // Son dos preguntas distintas y por eso son dos secciones: "qué salida
         // es esta" (el evento, la ruta, el nombre, la hora) y "cómo se registra"
         // (la actividad, el ritmo, cuánto se conserva).
+        // Las carreras, lo primero después de los mandos de emitir: quien abre
+        // la app el día de una carrera la abre POR esa carrera.
+        if (eventos.isNotEmpty()) {
+            Seccion(titulo = "Mis carreras") {
+                SeccionCarreras(
+                    eventos = eventos,
+                    elegido = estado.eventoId,
+                    onElige = { TrackingStore.ajustaEvento(it) },
+                    onParrilla = { id ->
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(Config.eventLobbyLink(id))),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+
         SeccionPlegable(
             titulo = "Qué salida es esta",
             resumen = resumenSalida(estado, eventos, planes),

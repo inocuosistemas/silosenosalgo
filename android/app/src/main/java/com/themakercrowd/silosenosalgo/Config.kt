@@ -32,6 +32,17 @@ object Config {
     /** Enlace público de seguimiento para el token de una sesión. */
     fun shareLink(token: String): String = "$PUBLIC_URL/?t=$token"
 
+    /**
+     * La PARRILLA de un evento: la pantalla web con los participantes, el
+     * tablón, la marca de cada uno y los resultados.
+     *
+     * Vive solo en la web —el visor incrustado se carga siempre con `?t=`, así
+     * que nunca puede pintarla— y hasta ahora no había forma de llegar desde
+     * aquí: quien abría la app para salir tenía que ir a buscar el enlace al
+     * chat del grupo. Espejo de `Config.swift`.
+     */
+    fun eventLobbyLink(eventId: String): String = "$PUBLIC_URL/?e=$eventId"
+
     // Teselas del mapa offline
 
     /** Plantilla de teselas OSM. En un solo sitio para poder cambiar de
