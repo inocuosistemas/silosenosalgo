@@ -79,6 +79,26 @@ release y dentro del propio APK, que es donde la mira Android al instalar.
 
 ## 2026-09-11
 
+### Cada app dice qué versión es
+
+**iOS · en código** · *Mejora al actualizar*
+**Android · en código** · *Mejora al actualizar*
+**Web** · no aplica.
+
+Al pie de la pantalla de la baliza, en pequeño: `SiLoSeNoSalgo 1.0 (447)`.
+
+No es decoración. El número visible —`versionName` en Android, el corto en
+iOS— es **"1.0" en todas las compilaciones**, así que en los ajustes del sistema
+se veía lo mismo con el APK de agosto que con el de hoy. Quien probaba no podía
+decir qué versión llevaba, y sin eso no hay forma de responder a un "a mí no me
+sale lo del evento del día": el número que distingue una versión de otra es el
+de compilación, que es el número de commits, y no salía por ningún sitio.
+
+En Android hizo falta activar `buildConfig = true`: desde AGP 8 no se genera
+`BuildConfig` si no se pide, y sin él el número solo se puede leer abriendo el
+APK. En iOS sale del propio paquete (`CFBundleVersion`). Se puede seleccionar
+con el dedo para pegarlo en un mensaje.
+
 ### El nombre de la salida se perdía al reabrir la app (iOS)
 
 **iOS · 1.0 (447) en TestFlight** · *Mejora al actualizar*

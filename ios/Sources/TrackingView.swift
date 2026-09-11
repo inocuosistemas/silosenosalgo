@@ -58,6 +58,16 @@ struct TrackingView: View {
         Binding(get: { store.selectedEventId }, set: { store.setEvent($0) })
     }
 
+    /// "SiLoSeNoSalgo 1.0 (447)": el número corto y el de compilación, tal y
+    /// como los lleva el paquete. El de compilación es el que distingue una
+    /// versión de otra —es el número de commits—; el corto es el mismo siempre.
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let corta = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "SiLoSeNoSalgo \(corta) (\(build))"
+    }
+
     /// Lo que se lee sin desplegar "Qué salida es esta".
     ///
     /// Es la razón de ser de una sección plegada: si el resumen no dice lo que
@@ -636,6 +646,21 @@ struct TrackingView: View {
                         .foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)
+
+                // La versión, al pie y en pequeño. No es decoración: es lo
+                // primero que hay que preguntar cuando alguien dice que algo no
+                // le funciona, y hasta ahora no había forma de saberlo —el
+                // número corto es "1.0" en todas las compilaciones, así que en
+                // los ajustes del sistema se ve lo mismo con la de agosto que
+                // con la de hoy—.
+                Section {
+                    Text(Self.appVersion)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.slate400)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .textSelection(.enabled)
+                }
+                .listRowBackground(Color.clear)
 
             }
             .alert("Eliminar seguimiento", isPresented: Binding(

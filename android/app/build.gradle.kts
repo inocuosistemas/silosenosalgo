@@ -140,6 +140,13 @@ android {
     }
     buildFeatures {
         compose = true
+        // Para poder ENSEÑAR la versión dentro de la app. Hace falta pedirlo
+        // desde AGP 8: sin esto no se genera `BuildConfig` y el número de build
+        // solo se puede leer abriendo el APK. Y eso importa: `versionName` es
+        // "1.0" en todas, así que en los ajustes de Android quien prueba ve lo
+        // mismo con el APK de agosto que con el de hoy, y no hay forma de
+        // responder a un "a mí no me sale eso".
+        buildConfig = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

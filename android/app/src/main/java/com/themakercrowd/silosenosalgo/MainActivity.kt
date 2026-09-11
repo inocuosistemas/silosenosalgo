@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -834,6 +835,17 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
         }
 
+        // La versión, al pie y en pequeño. No es decoración: es lo primero que
+        // hay que preguntar cuando alguien dice que algo no le funciona, y sin
+        // esto no había forma de saberlo —`versionName` es "1.0" en todas—.
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "SiLoSeNoSalgo ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            style = MaterialTheme.typography.bodySmall,
+            color = Paleta.slate400,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(24.dp))
     }
     }
