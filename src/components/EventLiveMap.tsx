@@ -67,6 +67,25 @@ const LOST_MS = 20 * 60_000
  * trazado —seria dibujar una carrera que no está corriendo— y se avisa.
  */
 const DESVIADO_M = 100
+/**
+ * Cuándo se sospecha que la VENTANA de proyección se ha quedado atrás, y no que
+ * el corredor se haya salido del recorrido.
+ *
+ * El kilómetro de quien no lo manda se proyecta en una ventana alrededor de su
+ * último kilómetro conocido, para que en un circuito no salte al otro extremo
+ * del trazado. El precio es que la ventana se puede quedar descolgada: basta un
+ * rato sin refrescar —la pantalla apagada, la pestaña en segundo plano, la app
+ * reabierta— para que el corredor haya avanzado más de lo que la ventana
+ * alcanza. Y entonces NO se recupera sola: la ventana se vuelve a centrar en el
+ * kilómetro malo y se queda ahí clavada el resto de la carrera, enseñando un
+ * "fuera del recorrido" y un margen a los cortes que son falsos.
+ *
+ * Así que pasado este umbral se rehace la búsqueda en TODO el recorrido y se
+ * acepta solo si el corredor está MUCHO más cerca del punto nuevo: eso
+ * distingue una ventana descolgada (donde el punto global está a metros) de
+ * alguien que de verdad va por otro valle (donde también está lejos).
+ */
+const REENGANCHE_M = 300
 /** A cuántos metros del final se da la meta por cruzada. Ver eventStats. */
 const META_M = 50
 /** A partir de cuánto tiempo quieto se dice que alguien está parado. Menos que
@@ -378,7 +397,18 @@ export default function EventLiveMap({ source }: { source: Source }) {
         if (cerca == null && km == null) {
           for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca)
         }
-        const proyectado = projectKm(r.fix.lat, r.fix.lon, route, km ?? cerca, 3, medida)
+        let proyectado = projectKm(r.fix.lat, r.fix.lon, route, km ?? cerca, 3, medida)
+        // La ventana se ha quedado atrás: se reengancha buscando en todo el
+        // recorrido. Ver REENGANCHE_M — sin esto, una sola pausa larga de la
+        // pantalla deja a un corredor clavado en un kilómetro que ya no es suyo.
+        if (km == null && medida.m > REENGANCHE_M) {
+          const global = { m: 0 }
+          const kmGlobal = projectKm(r.fix.lat, r.fix.lon, route, null, 3, global)
+          if (kmGlobal != null && global.m < medida.m / 2) {
+            proyectado = kmGlobal
+            medida.m = global.m
+          }
+        }
         km = km ?? proyectado
       }
       if (km != null) kmPrevio.current.set(key, km)
@@ -772,6 +802,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
     // estaban: aquí salía el orden de inscripción y allí el barajado.
     <ListView rows={parrilla} totalKm={route?.totalKm ?? null} now={now} isPublic={isPublic}
               eventId={source.kind === 'member' ? source.id : null}
+              // La clave se arma igual que en la lista (`r.userId ?? r.username`),
+              // así que basta con el id de la sesión iniciada. En el enlace
+              // público no hay sesión y esto va nulo, que es lo correcto: ahí
+              // nadie es "yo".
+              yoKey={user ? (parrilla.find(({ r }) => r.userId === user.id)?.key ?? null) : null}
               following={following}
               onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
               onPick={(k) => { setSelected(k); setView('mapa') }} />
@@ -1571,18 +1606,35 @@ type Row = {
  * repartidos por un valle no se comparan de un vistazo— y de paso es la
  * clasificación oficiosa del grupo.
  */
-function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, onPick }: {
+function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onFollow, onPick }: {
   rows: Row[]
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo. */
   totalKm: number | null
   now: number
   isPublic: boolean
   eventId: string | null
+  /** Mi propia fila, para poder decir a cuánto va cada uno DE MÍ. Nulo sin
+   *  sesión iniciada (el enlace público) o si no corro esta carrera. */
+  yoKey: string | null
   following: string | null
   onFollow: (key: string) => void
   onPick: (key: string) => void
 }) {
   const [query, setQuery] = useState('')
+  /**
+   * Mi kilómetro, que es lo que convierte una lista de posiciones en una
+   * carrera: lo que se quiere saber a las tres de la mañana no es que alguien
+   * va por el km 18,2, sino que te lleva 1,7 km. La resta la hacía uno de
+   * cabeza mirando dos números; ahora la hace la pantalla.
+   *
+   * Nulo cuando no estoy emitiendo, cuando no corro esta carrera o cuando el
+   * enlace es el público: sin un "yo" no hay nada con lo que comparar, y
+   * entonces la lista se queda exactamente como estaba.
+   */
+  const miKm = useMemo(
+    () => (yoKey ? rows.find((x) => x.key === yoKey)?.km ?? null : null),
+    [rows, yoKey],
+  )
   // Por nombre, por dorsal y por emoji: los tres son "como se llama" según
   // quién pregunte. Sin tildes ni mayúsculas, que nadie las teclea con guantes.
   const shown = useMemo(() => {
@@ -1654,12 +1706,29 @@ function ListView({ rows, totalKm, now, isPublic, eventId, following, onFollow, 
                 {!idle && !retirado && r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">en meta</span>}
                 {armed && <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">preparado</span>}
                 {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
+                {key === yoKey && (
+                  <span className="shrink-0 rounded bg-sky-900/50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-300">tú</span>
+                )}
                 <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
                   {km !== null ? `${km.toFixed(1)}` : '—'}
                   <span className="ml-0.5 text-[10px] font-normal text-slate-500">{totalKm ? `/${totalKm.toFixed(0)} km` : 'km'}</span>
                 </span>
               </div>
               <div className="mt-1 flex items-center gap-3 pl-7 text-[11px]">
+                {/* Lo primero de la línea, antes que el ritmo: cuando se busca a
+                    alguien en esta lista es para saber esto. Con palabras y no
+                    con un signo, que a las tres de la mañana un "−1,7" se lee
+                    mal en los dos sentidos. Solo cuando los dos tienen
+                    kilómetro: de quien no lo manda no se puede restar nada. */}
+                {miKm !== null && km !== null && key !== yoKey && (() => {
+                  const d = km - miKm
+                  if (Math.abs(d) < 0.05) return <span className="text-slate-300">a tu altura</span>
+                  return (
+                    <span className={d > 0 ? 'text-amber-300' : 'text-emerald-300'}>
+                      {Math.abs(d).toFixed(1)} km {d > 0 ? 'por delante' : 'por detrás'}
+                    </span>
+                  )
+                })()}
                 {idle ? (
                   // Ni ritmo ni "hace X": de quien no ha emitido no hay nada que
                   // envejecer, y un "sin señal" ahí sugiere una avería que no hay.

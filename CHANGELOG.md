@@ -84,6 +84,49 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ---
 
+## 2026-09-12
+
+### Un corredor se quedaba clavado en un kilómetro que ya no era suyo
+
+**Web · desplegado.** Encontrado EN CARRERA, en la CanFranc: la lista del mapa
+del evento daba a un participante por el **km 2,7 y "fuera del recorrido ·
+2620 m"**, con un margen en rojo de −2 h 25 ante un corte que en realidad tenía
+de sobra. Su posición real era el km 17,1, a 16 m del trazado.
+
+El kilómetro de quien NO lo manda se proyecta sobre el trazado en una ventana de
+±3 km alrededor de su último kilómetro conocido. La ventana existe por una razón
+buena —en un circuito que acaba donde empieza, una búsqueda global pone en el
+km 0 al que acaba de cruzar meta— pero **no sabía recuperarse**: basta un rato
+sin refrescar (la pantalla apagada, la pestaña en segundo plano) para que el
+corredor avance más de lo que la ventana alcanza, y entonces se queda clavada
+para siempre, porque cada refresco la vuelve a centrar en el kilómetro malo.
+
+Ahora, cuando el punto que encuentra la ventana queda a más de 300 m del
+corredor, se rehace la búsqueda en todo el recorrido y se acepta solo si está
+**mucho** más cerca. Eso distingue una ventana descolgada —donde el punto bueno
+está a metros— de alguien que de verdad va por otro valle, a quien se le sigue
+avisando sin moverlo. Comprobado con los datos reales del caso: 2620 m → se
+reengancha al km 17,14 a 16 m.
+
+> Solo lo sufrían las balizas que **no mandan su kilómetro**, o sea Android con
+> APK anterior al que lo calcula. Con `trackKm` en el ping no hay proyección que
+> valga: manda el que lo calcula, que es quien va corriendo.
+
+### Cuánto le llevas a cada uno
+
+**Web · desplegado.** En la lista del mapa del evento, debajo de cada
+participante: **"1,7 km por delante"** o **"2,3 km por detrás"** — respecto a ti.
+Y tu propia fila marcada con un **"tú"**.
+
+Lo que se quiere saber a las tres de la mañana no es que alguien va por el km
+18,2, sino que te lleva 1,7. La resta la hacía uno de cabeza comparando dos
+números; ahora la hace la pantalla. Con palabras y no con un signo: un "−1,7" se
+lee mal en los dos sentidos cuando llevas cuatro horas corriendo.
+
+Solo aparece con la sesión iniciada y si tú también corres esa carrera —sin un
+"yo" no hay nada que restar— y solo entre quienes mandan kilómetro. En el enlace
+público la lista se queda exactamente como estaba.
+
 ## 2026-09-11
 
 ### Cambiar el nombre de la salida sin salir de "En directo"
