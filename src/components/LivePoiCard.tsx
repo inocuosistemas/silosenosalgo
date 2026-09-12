@@ -15,6 +15,14 @@ interface Props {
   finishTime: Date | null
   /** This is the default "next" card (the one centred by default). */
   isNext: boolean
+  /**
+   * Vista ampliada: la misma tarjeta a pantalla completa. Cambia la PLANTA de
+   * los dibujos —el mapa y el perfil dejan de ir a media tarjeta cada uno y se
+   * apilan a todo lo ancho, con el perfil mucho más alto—, que es lo que quita
+   * el achatamiento: en 168×56 una subida de 400 m se ve como una rampa suave.
+   * El tamaño de la letra no se toca aquí: lo amplía el contenedor.
+   */
+  grande?: boolean
 }
 
 interface Tone { text: string; bg: string; ring: string }
@@ -53,7 +61,7 @@ function fmtRemaining(min: number): string {
   return formatDuration(min * 60_000)
 }
 
-export function LivePoiCard({ card, activity, currentPaceMinPerKm, finishTime, isNext }: Props) {
+export function LivePoiCard({ card, activity, currentPaceMinPerKm, finishTime, isNext, grande = false }: Props) {
   const arrival = card.referenceArrival
   const w = card.weather
   const wl = w ? weatherLabel(w.weatherCode) : null
@@ -71,7 +79,9 @@ export function LivePoiCard({ card, activity, currentPaceMinPerKm, finishTime, i
     : 'border-slate-700'
 
   return (
-    <div className={`relative flex-shrink-0 w-[17.5rem] rounded-2xl border ${bgCls} ${borderCls} p-3 flex flex-col gap-2.5 overflow-hidden`}>
+    <div className={`relative rounded-2xl border ${bgCls} ${borderCls} p-3 flex flex-col gap-2.5 overflow-hidden ${
+      grande ? 'w-full' : 'flex-shrink-0 w-[17.5rem]'
+    }`}>
       {/* Night / twilight accent bar spanning the whole card top */}
       {(night || civil) && (
         <div
@@ -162,19 +172,38 @@ export function LivePoiCard({ card, activity, currentPaceMinPerKm, finishTime, i
         <TimeCell label="corte" value={card.cutoffTime ? formatTime(card.cutoffTime) : '—'} accent="text-amber-200" />
       </div>
 
-      {/* ── Visuals: mini-map + elevation sparkline ── */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800">
-          <SegmentMiniMap points={card.segmentPoints} position={card.positionLatLon} />
-        </div>
-        <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800 flex flex-col">
-          <SegmentSparkline samples={card.elevSamples} fromKm={card.segFromKm} toKm={card.segToKm} positionKm={card.positionKm} />
-          <div className="flex items-center justify-center gap-2 text-[9px] font-mono py-0.5">
-            <span className="text-orange-400">↑{Math.round(card.elevGainM)}</span>
-            <span className="text-sky-400">↓{Math.round(card.elevLossM)}</span>
+      {/* ── Visuals: mini-map + elevation sparkline ──
+          Lado a lado en la tarjeta pequeña —donde lo que se pide es una ojeada—
+          y apilados a todo lo ancho en la ampliada, que es donde se va a MIRAR:
+          el perfil a 168×56 aplasta cualquier montaña, y el de esta carrera
+          sube 1200 m en el tramo. */}
+      {grande ? (
+        <div className="flex flex-col gap-2">
+          <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800">
+            <SegmentSparkline samples={card.elevSamples} fromKm={card.segFromKm} toKm={card.segToKm} positionKm={card.positionKm} width={272} height={150} />
+            <div className="flex items-center justify-center gap-3 text-[11px] font-mono py-1">
+              <span className="text-orange-400">↑{Math.round(card.elevGainM)} m</span>
+              <span className="text-sky-400">↓{Math.round(card.elevLossM)} m</span>
+            </div>
+          </div>
+          <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800">
+            <SegmentMiniMap points={card.segmentPoints} position={card.positionLatLon} width={272} height={132} />
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800">
+            <SegmentMiniMap points={card.segmentPoints} position={card.positionLatLon} />
+          </div>
+          <div className="rounded-lg overflow-hidden bg-slate-950/60 border border-slate-800 flex flex-col">
+            <SegmentSparkline samples={card.elevSamples} fromKm={card.segFromKm} toKm={card.segToKm} positionKm={card.positionKm} />
+            <div className="flex items-center justify-center gap-2 text-[9px] font-mono py-0.5">
+              <span className="text-orange-400">↑{Math.round(card.elevGainM)}</span>
+              <span className="text-sky-400">↓{Math.round(card.elevLossM)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Weather ── */}
       {w && wl && (

@@ -1622,19 +1622,36 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
 }) {
   const [query, setQuery] = useState('')
   /**
-   * Mi kilómetro, que es lo que convierte una lista de posiciones en una
-   * carrera: lo que se quiere saber a las tres de la mañana no es que alguien
-   * va por el km 18,2, sino que te lleva 1,7 km. La resta la hacía uno de
-   * cabeza mirando dos números; ahora la hace la pantalla.
+   * El hueco de cada uno con EL DE DELANTE, como en la clasificación de una
+   * carrera: lo que se quiere saber no es que alguien va por el km 29,6, sino
+   * que te saca 1,9 km. Leyendo la lista hacia abajo salen las dos preguntas —
+   * el de delante en tu propia fila y el de atrás en la de debajo—, que es la
+   * forma en la que ya se leen estas tablas.
    *
-   * Nulo cuando no estoy emitiendo, cuando no corro esta carrera o cuando el
-   * enlace es el público: sin un "yo" no hay nada con lo que comparar, y
-   * entonces la lista se queda exactamente como estaba.
+   * El tiempo va A TU RITMO, no al suyo: la pregunta es cuánto tardarías TÚ en
+   * cerrar ese hueco, y con el ritmo del otro saldría un número que no puedes
+   * hacer. Sin ritmo fresco se enseña solo la distancia, que no se inventa.
+   *
+   * Se calcula sobre la lista ENTERA y no sobre la filtrada: si no, buscar a
+   * alguien por su nombre le cambiaría el hueco, y el hueco no depende de a
+   * quién estés mirando.
    */
-  const miKm = useMemo(
-    () => (yoKey ? rows.find((x) => x.key === yoKey)?.km ?? null : null),
-    [rows, yoKey],
-  )
+  const huecos = useMemo(() => {
+    const m = new Map<string, { km: number; min: number | null; quien: string }>()
+    const clasificados = rows.filter((x) => x.km !== null && !x.idle && !x.armed)
+    for (let i = 1; i < clasificados.length; i++) {
+      const yo = clasificados[i], delante = clasificados[i - 1]
+      const dkm = delante.km! - yo.km!
+      if (dkm < 0) continue
+      const kmh = yo.r.fix?.speed != null ? yo.r.fix.speed * 3.6 : 0
+      m.set(yo.key, {
+        km: dkm,
+        min: kmh > 0.5 ? (dkm / kmh) * 60 : null,
+        quien: delante.r.username,
+      })
+    }
+    return m
+  }, [rows])
   // Por nombre, por dorsal y por emoji: los tres son "como se llama" según
   // quién pregunte. Sin tildes ni mayúsculas, que nadie las teclea con guantes.
   const shown = useMemo(() => {
@@ -1714,18 +1731,29 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                   <span className="ml-0.5 text-[10px] font-normal text-slate-500">{totalKm ? `/${totalKm.toFixed(0)} km` : 'km'}</span>
                 </span>
               </div>
-              <div className="mt-1 flex items-center gap-3 pl-7 text-[11px]">
-                {/* Lo primero de la línea, antes que el ritmo: cuando se busca a
-                    alguien en esta lista es para saber esto. Con palabras y no
-                    con un signo, que a las tres de la mañana un "−1,7" se lee
-                    mal en los dos sentidos. Solo cuando los dos tienen
-                    kilómetro: de quien no lo manda no se puede restar nada. */}
-                {miKm !== null && km !== null && key !== yoKey && (() => {
-                  const d = km - miKm
-                  if (Math.abs(d) < 0.05) return <span className="text-slate-300">a tu altura</span>
+              {/* UNA línea, y que no se parta nunca.
+                  Antes esto era un `flex` con seis cosas y un aviso `w-full`
+                  dentro: el aviso forzaba el salto y el flex repartía lo demás
+                  en columnas de una palabra por línea —"sin / cobertura / hace
+                  50 / min"—, que con el móvil en la mano no hay quien lo lea.
+                  Ahora el aviso vive fuera, a lo ancho, y esta línea no envuelve:
+                  si no cabe, se desplaza. */}
+              <div className="mt-1 flex items-center gap-2.5 overflow-x-auto whitespace-nowrap pl-7 text-[11px] scrollbar-slim">
+                {/* El hueco con el de delante, lo primero: es la pregunta con la
+                    que se abre esta lista. Al líder se le dice que lo es. */}
+                {km !== null && !idle && !armed && (() => {
+                  const h = huecos.get(key)
+                  if (!h) return <span className="shrink-0 font-semibold text-amber-300">🥇 líder</span>
                   return (
-                    <span className={d > 0 ? 'text-amber-300' : 'text-emerald-300'}>
-                      {Math.abs(d).toFixed(1)} km {d > 0 ? 'por delante' : 'por detrás'}
+                    <span
+                      className={`shrink-0 ${key === yoKey ? 'font-semibold text-sky-300' : 'text-slate-300'}`}
+                      title={`A ${h.km.toFixed(1)} km de ${h.quien}${h.min != null ? ` · ${Math.round(h.min)} min a tu ritmo` : ''}`}
+                    >
+                      ▲ {h.km.toFixed(1)} km
+                      {/* El tiempo solo cuando significa algo: un hueco de
+                          veintidós horas con quien lleva la baliza parada no es
+                          un dato, es ruido que empuja el renglón. */}
+                      {h.min != null && h.min < 360 && <span className="text-slate-500"> · {fmtHueco(h.min)}</span>}
                     </span>
                   )
                 })()}
@@ -1741,15 +1769,25 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                   </span>
                 ) : (
                   <>
-                  <span className="text-slate-400">
+                  <span className="shrink-0 text-slate-400">
                     {r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
                   </span>
                   {margin && (
-                    <span className={marginClass(margin.minutes)}>
+                    <span className={`shrink-0 ${marginClass(margin.minutes)}`}>
                       {formatMargin(margin.minutes)} · {margin.cutoff.name}
                     </span>
                   )}
-                  <span className={`ml-auto ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
+                  </>
+                )}
+              </div>
+              {/* Segundo renglón: el estado de la baliza y los mandos, aparte
+                  del de carrera. Son dos preguntas distintas —"cómo va" y
+                  "llega su señal"— y juntas no caben en un móvil sin que una se
+                  escape por la derecha. El estado se recorta con puntos
+                  suspensivos antes que empujar a nadie fuera. */}
+              {!idle && !armed && (
+                <div className="mt-1 flex items-center gap-2.5 overflow-hidden whitespace-nowrap pl-7 text-[11px]">
+                  <span className={`min-w-0 truncate ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
                     {r.updatedAt === null ? 'sin señal'
                       : lost ? `📡 sin cobertura · hace ${agoLabel(now - r.updatedAt)}`
                       // Entre el pulso normal y la avería hay un rato largo que
@@ -1763,7 +1801,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                   {r.fix && (
                     <button
                       onClick={() => onFollow(key)}
-                      className={`shrink-0 ${following === key ? 'text-sky-300' : 'text-slate-400 hover:text-sky-400'}`}
+                      className={`ml-auto shrink-0 ${following === key ? 'text-sky-300' : 'text-slate-400 hover:text-sky-400'}`}
                     >
                       {following === key ? '◎ siguiendo' : '◎ seguir'}
                     </button>
@@ -1782,17 +1820,18 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                       los guarda sin cobertura y los sube en bloque al
                       recuperarla—, así que el hueco se cierra solo con datos de
                       verdad al cabo de un rato. */}
-                  {callado && (
-                    <span className="w-full text-[10px] leading-snug text-slate-500">
-                      {fantasma
-                        ? 'El aro hueco del mapa es una proyección por su ritmo y el terreno, no su posición. '
-                        : ''}
-                      Los puntos que falten se rellenan solos cuando recupere cobertura.
-                    </span>
-                  )}
-                  </>
-                )}
-              </div>
+                </div>
+              )}
+              {/* A lo ancho y debajo, no dentro de la línea: es una explicación,
+                  no un dato, y metida en el flex partía la fila entera. */}
+              {callado && !idle && !armed && (
+                <p className="mt-1 pl-7 text-[10px] leading-snug text-slate-500">
+                  {fantasma
+                    ? 'El aro hueco del mapa es una proyección por su ritmo y el terreno, no su posición. '
+                    : ''}
+                  Los puntos que falten se rellenan solos cuando recupere cobertura.
+                </p>
+              )}
             </li>
           )
         })}
@@ -2164,6 +2203,14 @@ function tramoEntreKm(
 }
 
 function isFoot(a?: string | null): boolean { return a === 'walk' || a === 'run' || a == null }
+
+/** El hueco en tiempo: "38 min", "1 h 12". Sin segundos, que a esa distancia
+ *  no significan nada y solo alargan la línea. */
+function fmtHueco(min: number): string {
+  const m = Math.round(min)
+  if (m < 60) return `${m} min`
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+}
 
 function paceOrSpeed(speedMs: number, activity?: string | null): string {
   const kmh = speedMs * 3.6

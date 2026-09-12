@@ -86,6 +86,39 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-12
 
+### La lista se lee como una clasificación, y el tramo se abre a pantalla completa
+
+**Web · desplegado.** Dos cosas encontradas corriendo.
+
+**La lista del evento estaba ilegible.** El aviso largo de "sin cobertura" vivía
+DENTRO de la misma línea flex que el ritmo, el margen y los mandos, y con un
+`w-full` en medio: el resultado en un móvil era media docena de columnas de una
+palabra por renglón —"sin / cobertura / hace 50 / min"—. Ahora la fila son tres
+renglones con un trabajo cada uno: quién va y por dónde; cómo va (hueco, ritmo,
+margen); y cómo está su baliza, con los mandos. Ninguno envuelve.
+
+**Y el hueco con el de delante, como en una clasificación de ciclismo**: `▲ 1,9
+km · 1 h 00`. Leyendo hacia abajo salen las dos preguntas —el de delante en tu
+fila, el de atrás en la de debajo—, que es como ya se leen estas tablas. Sustituye
+al "por delante / por detrás" respecto a ti de ayer, que obligaba a buscarse a uno
+mismo primero. El tiempo va **a tu ritmo**, no al suyo: la pregunta es cuánto
+tardarías TÚ en cerrarlo. Y no se enseña cuando pasa de seis horas, que entonces
+es ruido, ni al líder, que lleva su medalla.
+
+### Un tramo, a pantalla completa
+
+**Web · desplegado.** En el seguimiento individual, tocar una tarjeta de tramo la
+abre ampliada: la misma tarjeta con `zoom` de CSS —letra y dibujos crecen a la
+vez, sin una segunda pantalla que mantener— y con el mapa y el perfil apilados a
+todo lo ancho en vez de a media tarjeta cada uno.
+
+El perfil pasa de 168×56 a 272×150. Eso es lo que quita el achatamiento: a la
+medida vieja, los 1200 m de subida de un tramo de esta carrera se veían como una
+rampa suave. Se pasa de tramo con ‹ › o con las flechas, y se cierra con Escape.
+
+Arrastrar el carrusel ya no abre el zoom sin querer: diez píxeles de movimiento
+separan un toque de un arrastre.
+
 ### Un corredor se quedaba clavado en un kilómetro que ya no era suyo
 
 **Web · desplegado.** Encontrado EN CARRERA, en la CanFranc: la lista del mapa

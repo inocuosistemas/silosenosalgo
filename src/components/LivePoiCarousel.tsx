@@ -49,6 +49,11 @@ export function LivePoiCarousel(props: Props) {
   const lastInteractRef = useRef(0)
   const lastAutoIdxRef = useRef(-1)
   const [activeIdx, setActiveIdx] = useState(0)
+  /** Tramo abierto a pantalla completa, o null. */
+  const [zoom, setZoom] = useState<number | null>(null)
+  /** Dónde empezó el dedo: sirve para NO abrir el zoom cuando lo que se hace es
+   *  arrastrar el carrusel. Un toque mueve pocos píxeles; un arrastre, muchos. */
+  const tocoEn = useRef<{ x: number; y: number } | null>(null)
 
   const scrollToIndex = useCallback((i: number, smooth = true) => {
     const sc = scrollerRef.current
@@ -141,7 +146,23 @@ export function LivePoiCarousel(props: Props) {
         style={{ scrollSnapType: 'x mandatory' }}
       >
         {cards.map((card, i) => (
-          <div key={card.key} ref={(el) => { cardRefs.current[i] = el }} className="snap-start">
+          <div
+            key={card.key}
+            ref={(el) => { cardRefs.current[i] = el }}
+            className="snap-start cursor-zoom-in"
+            role="button"
+            tabIndex={0}
+            aria-label={`Ampliar ${card.name}`}
+            onPointerDown={(e) => { tocoEn.current = { x: e.clientX, y: e.clientY } }}
+            onClick={(e) => {
+              // Arrastrar el carrusel termina en un "click" que abriría el zoom
+              // sin querer. Diez píxeles separan las dos intenciones.
+              const p = tocoEn.current
+              if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) return
+              setZoom(i)
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoom(i) } }}
+          >
             <LivePoiCard
               card={card}
               activity={paceConfig.activity}
@@ -151,6 +172,102 @@ export function LivePoiCarousel(props: Props) {
             />
           </div>
         ))}
+      </div>
+
+      {zoom !== null && cards[zoom] && (
+        <TramoAmpliado
+          cards={cards}
+          idx={zoom}
+          activity={paceConfig.activity}
+          currentPaceMinPerKm={currentPaceMinPerKm}
+          finishTime={finishTime}
+          nextIdx={nextIdx}
+          onIdx={setZoom}
+          onCerrar={() => setZoom(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Un tramo a pantalla completa.
+ *
+ * La tarjeta pequeña está pensada para una ojeada de dos segundos entre zancada
+ * y zancada; esta es para pararse a mirarla. Es la MISMA tarjeta —no hay dos
+ * verdades que mantener— ampliada con `zoom` de CSS, que agranda letra y
+ * dibujos a la vez y respeta la maquetación, en lugar de duplicar la pantalla
+ * con tamaños distintos. Lo único que cambia de planta es el mapa y el perfil,
+ * que se apilan a lo ancho (ver `grande` en LivePoiCard).
+ *
+ * El factor sale del ancho real: 17,5 rem de tarjeta en la pantalla que haya,
+ * con tope para que en una tablet no salga una tarjeta absurda.
+ */
+function TramoAmpliado({
+  cards, idx, activity, currentPaceMinPerKm, finishTime, nextIdx, onIdx, onCerrar,
+}: {
+  cards: ReturnType<typeof buildLivePoiCards>
+  idx: number
+  activity: PaceConfig['activity']
+  currentPaceMinPerKm: number
+  finishTime: Date | null
+  nextIdx: number
+  onIdx: (i: number) => void
+  onCerrar: () => void
+}) {
+  const [factor, setFactor] = useState(1)
+  useEffect(() => {
+    const mide = () => setFactor(Math.min(2, Math.max(1, (window.innerWidth - 20) / 280)))
+    mide()
+    window.addEventListener('resize', mide)
+    return () => window.removeEventListener('resize', mide)
+  }, [])
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar()
+      else if (e.key === 'ArrowRight' && idx < cards.length - 1) onIdx(idx + 1)
+      else if (e.key === 'ArrowLeft' && idx > 0) onIdx(idx - 1)
+    }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [idx, cards.length, onIdx, onCerrar])
+
+  const card = cards[idx]
+  return (
+    <div className="fixed inset-0 z-[1200] flex flex-col bg-slate-950/95 backdrop-blur-sm">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+        <span className="min-w-0 truncate text-sm font-semibold text-slate-200">{card.name}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => onIdx(Math.max(0, idx - 1))}
+            disabled={idx <= 0}
+            aria-label="Tramo anterior"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-lg text-slate-300 disabled:opacity-40"
+          >‹</button>
+          <button
+            onClick={() => onIdx(Math.min(cards.length - 1, idx + 1))}
+            disabled={idx >= cards.length - 1}
+            aria-label="Tramo siguiente"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-lg text-slate-300 disabled:opacity-40"
+          >›</button>
+          <button
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-lg text-slate-300"
+          >×</button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2.5 scrollbar-slim">
+        <div style={{ zoom: factor }}>
+          <LivePoiCard
+            card={card}
+            activity={activity}
+            currentPaceMinPerKm={currentPaceMinPerKm}
+            finishTime={finishTime}
+            isNext={idx === nextIdx}
+            grande
+          />
+        </div>
       </div>
     </div>
   )
