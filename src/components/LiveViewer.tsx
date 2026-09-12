@@ -144,8 +144,10 @@ function FitPlan({ positions }: { positions: [number, number][] }) {
   return null
 }
 
-function freshness(updatedAt: number, staleMs: number): { label: string; stale: boolean } {
-  const now = Date.now()
+function freshness(updatedAt: number, staleMs: number, ahora?: number): { label: string; stale: boolean } {
+  // `ahora` lo pasa la demo, que está congelada: con el reloj de verdad, una
+  // carrera de la semana pasada dice "visto hace 17:41 h" y parece averiada.
+  const now = ahora ?? Date.now()
   const s = Math.max(0, Math.round((now - updatedAt) / 1000))
   const stale = now - updatedAt > staleMs
   if (s < 60) return { label: `hace ${s} s`, stale }
@@ -677,6 +679,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const advDraggedRef = useRef(false)
   // Embedded in the native app (served under the appweb:// scheme): route map
   // tiles through the app's on-disk cache (`/_tile/...`) so the map works offline.
+  /**
+   * Esta baliza es una DEMO: una carrera real rebobinada, no alguien moviéndose
+   * ahora. Se dice en pantalla y no de forma discreta: una demo que parece real
+   * es peligrosa —basta que alguien la comparta para que una familia crea que
+   * está viendo a los suyos—.
+   */
+  const esDemo = !!token?.startsWith('demo:')
+  /** El instante en que está congelada la demo. Manda sobre el reloj: si no,
+   *  los márgenes a los cortes se calcularían contra HOY y saldría todo
+   *  caducado por meses. */
+  const demoEnMs = useMemo(() => {
+    if (!esDemo) return null
+    const n = Number(token!.split(':')[3])
+    return Number.isFinite(n) ? n : null
+  }, [esDemo, token])
   const embedded = new URLSearchParams(window.location.search).get('embedded') === '1'
   const tileUrl = embedded ? '/_tile/{z}/{x}/{y}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 
@@ -1287,10 +1304,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    * final, aunque sea provisional.
    */
   const sinCobertura = !!fix && !ended && Date.now() - fix.updatedAt > SIN_COBERTURA_MS
-  const refNow = fix && (ended || sinCobertura) ? fix.updatedAt : Date.now()
+  const refNow = demoEnMs ?? (fix && (ended || sinCobertura) ? fix.updatedAt : Date.now())
   // Activated before the planned start → show a countdown, not projections.
   const preStart = !ended && sessionStart.getTime() > refNow
-  const fr = fix ? freshness(fix.updatedAt, staleMsRef.current) : null
+  const fr = fix ? freshness(fix.updatedAt, staleMsRef.current, demoEnMs ?? undefined) : null
   // "Parado": the position hasn't moved for a while while the beacon is still
   // reporting. A stationary beacon only pings via the heartbeat (~150 s), well
   // past the 35 s "stale" mark, so we gate on a wider "still reporting" window
@@ -1778,6 +1795,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </span>
       {/* Activity icon: declared by the broadcaster, or inferred from the trail
           ("auto" mark) when left on Automático. */}
+      {/* La chapa de DEMO, delante de todo y en ámbar: lo primero que se lee.
+          Con la hora dentro, que es el dato que la convierte en otra cosa —esto
+          no es alguien moviéndose ahora, es un momento de una carrera que ya
+          pasó—. */}
+      {esDemo && (
+        <span
+          title="Carrera real rebobinada: no es una baliza en directo"
+          className="shrink-0 rounded-full border border-amber-600/70 bg-amber-950/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300"
+        >
+          demo · {new Date(refNow).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+        </span>
+      )}
       {effectiveActivity && (
         <span
           title={`${ACTIVITY_LABEL[effectiveActivity].label}${activityIsAuto ? ' · detectado automáticamente' : ''}`}

@@ -86,6 +86,31 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-13
 
+### La demo llega también a la baliza
+
+**Web · desplegado.** Además del mapa del evento, ahora se puede rebobinar el
+**seguimiento individual** de cualquiera de los cuatro:
+
+```
+/?demo=canfranc-2026&baliza=JM&en=2026-09-12T07:45
+```
+
+Se ve su baliza como se veía entonces: la traza hasta ese punto, el margen al
+próximo corte, las tarjetas de tramo, el ritmo. Es donde se puede comprobar de
+verdad un cambio del visor, porque la mitad de lo que hace depende de dónde
+estaba esa persona y de qué hora era.
+
+**Todo el reloj queda congelado**, no solo los datos: el margen a los cortes y
+el "visto hace 25 s" se calculan contra el instante de la demo. Con el reloj de
+verdad, una carrera de la semana pasada decía "visto hace 17:41 h" y parecía
+averiada.
+
+Y lleva **chapa de DEMO en ámbar con la fecha y la hora dentro**, porque una
+demo que parece real es peligrosa: basta que alguien comparta el enlace para que
+una familia crea que está viendo a los suyos. La lista del evento lleva además
+un aviso a lo ancho, y el nombre de la carrera sale con "· demo" en las dos
+pantallas.
+
 ### Cada baliza dice qué versión lleva
 
 **Servidor · desplegado.** El ping guarda ahora la versión de la app que lo

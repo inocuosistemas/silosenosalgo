@@ -30,7 +30,53 @@ export function viewerId(): string {
   }
 }
 
+/**
+ * El prefijo de una baliza de DEMO: `demo:<fichero>:<corredor>:<instante>`.
+ *
+ * No es un token de verdad y no llega al servidor. Sirve para mirar el visor de
+ * una baliza como se veía en un momento concreto de una carrera real —la
+ * CanFranc-CanFranc entera está guardada— y comprobar ahí los cambios: la
+ * cuenta al corte, las tarjetas de tramo, la traza. Lo mismo que el mapa del
+ * evento en `?demo=`, pero para el seguimiento individual.
+ */
+const DEMO = 'demo:'
+
+/** Rehace el estado de una baliza tal y como estaba en ese instante. */
+async function estadoDeDemo(token: string): Promise<TrackStateResponse> {
+  const [, fichero, quien, enRaw] = token.split(':')
+  const en = Number(enRaw)
+  const d = await (await fetch(`/demo/${fichero}.json`, { cache: 'force-cache' })).json()
+  const r = (d.runners as { username: string; startedAt: number | null; endedAt: number | null
+    activity: string | null
+    traza: { t: number; lat: number; lon: number; a?: number | null; e?: number | null }[] }[])
+    .find((x) => x.username === quien)
+  if (!r) throw new LiveTrackError('not_found')
+  // Rebobinar es quedarse con lo que se sabía ENTONCES, ni un punto más.
+  const hasta = r.traza.filter((q) => q.t <= en)
+  const ultimo = hasta[hasta.length - 1] ?? null
+  const acabada = r.endedAt != null && r.endedAt <= en
+  return {
+    official: null,
+    status: acabada ? 'ended' : 'active',
+    username: r.username,
+    title: `${d.name} · demo`,
+    startedAt: d.startsAt ?? r.startedAt ?? (hasta[0]?.t ?? en),
+    expiresAt: en + 24 * 3600_000,
+    endedAt: acabada ? r.endedAt : null,
+    planShareId: d.planShareId ?? null,
+    activity: (r.activity ?? null) as TrackStateResponse['activity'],
+    fix: ultimo
+      ? { lat: ultimo.lat, lon: ultimo.lon, trackKm: null, speed: null, heading: null,
+          accuracy: ultimo.a ?? null, altitude: ultimo.e ?? null, fixAt: ultimo.t, updatedAt: ultimo.t }
+      : null,
+    trail: hasta.map((q) => ({ t: q.t, lat: q.lat, lon: q.lon, a: q.a ?? null, e: q.e ?? null })),
+    notes: [],
+    cheers: [],
+  } as TrackStateResponse
+}
+
 export async function fetchTrackState(token: string): Promise<TrackStateResponse> {
+  if (token.startsWith(DEMO)) return estadoDeDemo(token)
   let res: Response
   try {
     res = await fetch(`/api/track/${encodeURIComponent(token)}?v=${viewerId()}`, { cache: 'no-store' })

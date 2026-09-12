@@ -930,6 +930,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               // público no hay sesión y esto va nulo, que es lo correcto: ahí
               // nadie es "yo".
               yoKey={user ? (parrilla.find(({ r }) => r.userId === user.id)?.key ?? null) : null}
+              esDemo={source.kind === 'demo'}
               following={following}
               onFollow={(k) => { setFollowing(k); setSelected(k); setView('mapa') }}
               onPick={(k) => { setSelected(k); setView('mapa') }} />
@@ -1731,7 +1732,7 @@ type Row = {
  * repartidos por un valle no se comparan de un vistazo— y de paso es la
  * clasificación oficiosa del grupo.
  */
-function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onFollow, onPick }: {
+function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, following, onFollow, onPick }: {
   rows: Row[]
   /** Lo que mide la barra de arriba: el contenido empieza justo debajo. */
   totalKm: number | null
@@ -1741,6 +1742,9 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
   /** Mi propia fila, para poder decir a cuánto va cada uno DE MÍ. Nulo sin
    *  sesión iniciada (el enlace público) o si no corro esta carrera. */
   yoKey: string | null
+  /** Carrera rebobinada: se dice bien claro, que una demo que parece real basta
+   *  con que alguien la comparta para que una familia crea que ve a los suyos. */
+  esDemo: boolean
   following: string | null
   onFollow: (key: string) => void
   onPick: (key: string) => void
@@ -1792,6 +1796,16 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
       {/* El buscador es lo que hace usable una carrera de cien: la lista deja
           de recorrerse entera para ir directo al tuyo. Solo cuando hay bastante
           gente como para que buscar sea más rápido que mirar. */}
+      {esDemo && (
+        <div className="mb-2 rounded-lg border border-amber-600/70 bg-amber-950/50 px-3 py-2 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-300">
+            demo · carrera real rebobinada
+          </p>
+          <p className="mt-0.5 text-[11px] text-amber-200/80">
+            No es una carrera en directo: es este momento de una que ya pasó.
+          </p>
+        </div>
+      )}
       {rows.length > 8 && (
         // Pegado arriba: con cien filas, un buscador que se va con el
         // desplazamiento obliga a subir del todo cada vez que se cambia de idea.

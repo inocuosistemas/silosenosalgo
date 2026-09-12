@@ -54,6 +54,9 @@ const isPublicEvent = !isViewer && !isEvent && !isJoin && !!publicEvent && TOKEN
  */
 const demo = params.get('demo')
 const isDemo = !isViewer && !isEvent && !isJoin && !isPublicEvent && !!demo && /^[a-z0-9-]{3,40}$/.test(demo)
+/** `&baliza=<nombre>` abre el seguimiento individual de esa persona en vez del
+ *  mapa del evento: el mismo instante, visto desde su baliza. */
+const demoBaliza = params.get('baliza')
 const demoEn = (() => {
   const raw = params.get('en')
   if (!raw) return Number.POSITIVE_INFINITY
@@ -87,9 +90,13 @@ createRoot(document.getElementById('root')!).render(
               : <EventLobby id={eventId!} />}
           </AuthProvider>
         ) : isDemo ? (
-          <AuthProvider>
-            <EventLiveMap source={{ kind: 'demo', fichero: `/demo/${demo}.json`, enMs: demoEn }} />
-          </AuthProvider>
+          demoBaliza
+            ? <LiveViewer token={`demo:${demo}:${demoBaliza}:${demoEn}`} />
+            : (
+              <AuthProvider>
+                <EventLiveMap source={{ kind: 'demo', fichero: `/demo/${demo}.json`, enMs: demoEn }} />
+              </AuthProvider>
+            )
         ) : isPublicEvent ? (
           // Va dentro de AuthProvider aunque no haga falta sesión: el mapa
           // comparte componente con el de participantes, y ese sí la consulta.
