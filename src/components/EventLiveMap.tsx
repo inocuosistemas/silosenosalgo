@@ -1392,10 +1392,11 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     ? <span className={`text-sm leading-none ${idle ? 'grayscale' : ''}`}>{r.emoji}</span>
                     : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
                   <span className="h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
-                  {/* El dorsal, aquí también: en el mapa de una carrera con
-                      dorsales es como se busca a alguien, y quien mira desde
-                      fuera lo cruza con la clasificación oficial. */}
-                  {r.bib && <Dorsal bib={r.bib} />}
+                  {/* Sin dorsal: esta tira va SOBRE el mapa y compite con él por
+                      el sitio. Aquí se busca a alguien por su cara —el emoji y
+                      el color, que son su marca— y el nombre; el dorsal sale en
+                      su ficha al tocarlo, que es donde se cruza con la
+                      clasificación oficial. */}
                   {r.username}
                   {/* El borde discontinuo ya lo insinúa, pero a un participante
                       que falta en el mapa hay que decírselo con palabras: sin

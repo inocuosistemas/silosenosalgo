@@ -86,6 +86,14 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-13
 
+### El dorsal sale de la tira de chips del mapa
+
+**Web · desplegado.** La tira de participantes que va sobre el mapa ya no lleva
+el dorsal. Ahí se busca a alguien por su cara —el emoji y el color, que son su
+marca— y por el nombre; el dorsal compite por un sitio que el mapa necesita, y
+sale igualmente en su ficha al tocarlo, que es donde se cruza con la
+clasificación oficial. En la lista y en la parrilla sigue estando.
+
 ### La demo llega también a la baliza
 
 **Web · desplegado.** Además del mapa del evento, ahora se puede rebobinar el
