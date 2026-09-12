@@ -92,10 +92,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   //
   // El plazo pasa a contar desde la última posición, no desde la salida: así una
   // baliza viva nunca caduca, y una que deja de emitir sigue expirando sola.
+  // `COALESCE` en el kilómetro, y no un pisotón: un `trackKm` nulo significa
+  // "no he podido calcularlo" —está fuera del trazado, va en un coche, o la app
+  // no tiene el recorrido cargado—, nunca "estoy en el kilómetro ninguno".
+  // Escribiéndolo encima se perdía el último kilómetro conocido, que es justo el
+  // dato que dice DÓNDE se quedó alguien: en la CanFranc, los cuatro acabaron la
+  // carrera con el kilómetro vacío y hubo que reconstruirlo proyectando sus
+  // coordenadas a mano.
   const keepAlive = now + ALIVE_TTL_MS
   await env.DB.prepare(
     `UPDATE tracking_sessions
-        SET lat=?, lon=?, track_km=?, speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
+        SET lat=?, lon=?, track_km=COALESCE(?, track_km), speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(

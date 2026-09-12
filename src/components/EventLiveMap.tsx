@@ -6,7 +6,8 @@ import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
 import { detectaAbandono, motivoTexto, type Paso, type Abandono } from '../lib/abandono'
 import { eventColorHex } from '../../shared/eventColors'
-import type { EventPublicRunner, EventStats } from '../../shared/wireTypes'
+import type { EventPublicRunner, EventStats, BeaconActivity } from '../../shared/wireTypes'
+import { EVENT_TAIL_POINTS } from '../../shared/wireTypes'
 import {
   getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError, EVENT_PHOTO_ASPECT,
 } from '../lib/eventsTransport'
@@ -101,11 +102,39 @@ const ICONO_ACTIVIDAD: Record<string, string> = { walk: '🚶', run: '🏃', bik
 /** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
 type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
 
-type Source = { kind: 'member'; id: string } | { kind: 'public'; token: string }
+/** Una baliza del fichero de demo: con su traza ENTERA, que es lo que permite
+ *  rebobinar a cualquier instante. */
+interface DemoRunner {
+  username: string
+  bib: string | null
+  emoji: string | null
+  color: string | null
+  activity: BeaconActivity | null
+  status: string
+  startedAt: number | null
+  endedAt: number | null
+  traza: { t: number; lat: number; lon: number; a?: number | null; e?: number | null }[]
+}
+
+type Source =
+  | { kind: 'member'; id: string }
+  | { kind: 'public'; token: string }
+  /**
+   * DEMO: la carrera de verdad, rebobinada a un instante.
+   *
+   * No es una maqueta con datos inventados: es la CanFranc-CanFranc del 11 de
+   * septiembre con sus cuatro balizas y sus 1344 posiciones, congelada en la
+   * hora que se pida. Sirve para ver cómo se comporta un cambio ante lo que de
+   * verdad pasa en una carrera —una baliza que calla tres horas, otra que se va
+   * a 174 km, uno que se para hora y media— sin esperar a la siguiente.
+   */
+  | { kind: 'demo'; fichero: string; enMs: number }
 
 export default function EventLiveMap({ source }: { source: Source }) {
   const { user, status } = useAuth()
-  const isPublic = source.kind === 'public'
+  // Todo lo que no es "soy del evento" se mira sin sesión y sin los mandos de
+  // participante: el enlace público y la demo se comportan igual en eso.
+  const isPublic = source.kind !== 'member'
   const [runners, setRunners] = useState<Runner[] | null>(null)
   const [eventName, setEventName] = useState<string | null>(null)
   const [links, setLinks] = useState<{ trackingUrl: string | null; websiteUrl: string | null }>(
@@ -225,6 +254,40 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   const poll = useCallback(async () => {
     try {
+      if (source.kind === 'demo') {
+        const d = await (await fetch(source.fichero, { cache: 'force-cache' })).json()
+        const en = source.enMs
+        // Rebobinar es quedarse con lo que se sabía ENTONCES: de cada baliza, su
+        // última posición anterior a ese instante y los sesenta puntos previos,
+        // que es exactamente lo que le habría llegado al mapa en vivo.
+        setRunners((d.runners as DemoRunner[]).map((r): Runner => {
+          const hasta = r.traza.filter((q) => q.t <= en)
+          const ultimo = hasta[hasta.length - 1] ?? null
+          const empezo = r.startedAt != null && r.startedAt <= en
+          return {
+            username: r.username, bib: r.bib, emoji: r.emoji, color: r.color,
+            activity: r.activity,
+            status: r.endedAt != null && r.endedAt <= en ? 'ended' : empezo ? 'active' : 'idle',
+            startedAt: empezo ? r.startedAt : null,
+            updatedAt: ultimo ? ultimo.t : null,
+            fix: ultimo
+              ? { lat: ultimo.lat, lon: ultimo.lon, trackKm: null, speed: null,
+                  heading: null, accuracy: ultimo.a ?? null, altitude: ultimo.e ?? null,
+                  fixAt: ultimo.t, updatedAt: ultimo.t }
+              : null,
+            tail: hasta.slice(-EVENT_TAIL_POINTS),
+          } as Runner
+        }))
+        setEventName(`${d.name} · demo`)
+        setStartsAt(d.startsAt)
+        setEventId(d.id)
+        setEndedAt(d.endedAt != null && d.endedAt <= en ? d.endedAt : null)
+        setBetsEnabled(false)
+        setActividad(d.activity)
+        await loadPlan(d.planShareId)
+        setError(null)
+        return
+      }
       if (source.kind === 'public') {
         const live = await getEventPublic(source.token)
         setRunners(live.runners)
@@ -267,12 +330,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
     // sabe quién mira no se pide nada.
     if (!isPublic && (status !== 'ready' || !user)) return
     void poll()
+    // La demo no se repite ni avanza el reloj: está congelada a propósito.
+    if (source.kind === 'demo') { setNow(source.enMs); return }
     const t = window.setInterval(() => void poll(), POLL_MS)
     // Un segundo reloj, solo para que "hace 3 min" envejezca a la vista aunque
     // no llegue nada nuevo: sin esto un mapa sin cobertura parece fresco.
     const t2 = window.setInterval(() => setNow(Date.now()), 1000)
     return () => { window.clearInterval(t); window.clearInterval(t2) }
-  }, [poll, status, user, isPublic])
+  }, [poll, status, user, isPublic, source])
 
   const route = useMemo(() => {
     if (!plan) return null
@@ -612,6 +677,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             ahoraMs: now,
             corte: margin ? { km: margin.cutoff.km, atMs: margin.cutoff.at } : null,
             ritmoMinKm,
+            desviadoKm: desviadoM / 1000,
             enMeta: acabo,
           })
       return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
@@ -832,7 +898,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
 
   /** La vista de turno cuando no se está mirando el mapa. */
   const vistaSinMapa = view === 'replay' ? (
-    <EventReplay source={source} route={route?.pts ?? null} onBack={() => setView('mapa')} />
+    source.kind === 'demo'
+      ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
+      : <EventReplay source={source} route={route?.pts ?? null} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
     <ResultsView stats={stats} endedAt={endedAt} onBack={() => setView('mapa')} />
   ) : view === 'porra' && eventId ? (

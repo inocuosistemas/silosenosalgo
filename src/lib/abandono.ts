@@ -23,7 +23,7 @@ export interface Paso {
   km: number
 }
 
-export type MotivoAbandono = 'parado' | 'media-vuelta' | 'salto'
+export type MotivoAbandono = 'fuera-del-entorno' | 'parado' | 'media-vuelta' | 'salto'
 
 export interface Abandono {
   motivo: MotivoAbandono
@@ -44,10 +44,26 @@ export interface DatosAbandono {
   /** Su ritmo DEMOSTRADO (min/km) en lo que lleva de carrera. Es el que decide
    *  si el corte sigue a su alcance: el de otro no le sirve de nada. */
   ritmoMinKm: number | null
+  /** A qué distancia del trazado está su última posición (km). Nulo si no se
+   *  puede medir. */
+  desviadoKm?: number | null
   /** Ya cruzó la meta: entonces no hay abandono que valer. */
   enMeta?: boolean
 }
 
+/**
+ * A partir de qué distancia del trazado ya no se está corriendo la carrera.
+ *
+ * Cinco kilómetros. Una carrera de montaña pasa por valles y collados donde el
+ * GPS se va, y perderse de verdad son cientos de metros; pero a cinco kilómetros
+ * del recorrido no hay error de posición que valga. En la CanFranc la baliza de
+ * quien había abandonado siguió emitiendo desde **174 km** y a 107 km/h — en la
+ * autovía, camino de casa— y el mapa lo colocaba el primero de la carrera.
+ *
+ * Generoso a propósito: esto retira gente de una clasificación, y equivocarse
+ * hacia el lado de esperar un poco más no le hace daño a nadie.
+ */
+export const FUERA_KM = 5
 /** Cuánto hay que llevar sin avanzar para que "parado" signifique algo. Menos
  *  que esto es un avituallamiento, una foto o atarse una bota. */
 export const PARADO_MIN = 25
@@ -78,7 +94,7 @@ export const SALTO_MIN_KMH = 12
  * coinciden dos, manda el más seguro.
  */
 export function detectaAbandono(d: DatosAbandono): Abandono | null {
-  const { pasos, ahoraMs, corte, ritmoMinKm, enMeta } = d
+  const { pasos, ahoraMs, corte, ritmoMinKm, enMeta, desviadoKm } = d
   if (enMeta) return null
   if (pasos.length < 3) return null
 
@@ -88,6 +104,12 @@ export function detectaAbandono(d: DatosAbandono): Abandono | null {
   // que puede cometer esto.
   if (ahoraMs - ultimo.t > PARADO_MIN * 60_000) return null
 
+  // El máximo alcanzado y cuándo: es el kilómetro donde se deja la carrera en
+  // casi todos los motivos, porque es lo último que se hizo corriendo.
+  // ── 0. Fuera del entorno de la carrera ───────────────────────────────────
+  // Lo más seguro de todo, y por eso lo primero: se puede discutir si alguien
+  // está parado o dando media vuelta, pero no si está a cinco kilómetros del
+  // recorrido. Ahí no hay carrera que seguir.
   // ── 1. Media vuelta ──────────────────────────────────────────────────────
   // Se mide contra el máximo alcanzado, no contra el punto anterior: volver
   // sobre tus pasos un kilómetro entero no se hace sin querer.
@@ -96,6 +118,10 @@ export function detectaAbandono(d: DatosAbandono): Abandono | null {
   for (const p of pasos) {
     if (p.km > maxKm) { maxKm = p.km; maxEn = p.t }
   }
+  if (desviadoKm != null && desviadoKm > FUERA_KM) {
+    return { motivo: 'fuera-del-entorno', desdeMs: maxEn, km: maxKm }
+  }
+
   if (maxKm - ultimo.km >= RETROCESO_KM) {
     // Y sostenido: que los últimos puntos vengan BAJANDO. Con eso se descarta
     // el punto suelto que la proyección coloca mal en un tramo de ida y vuelta,
@@ -164,7 +190,8 @@ function inicioDeLaParada(pasos: Paso[]): Paso | null {
 
 /** Cómo se lee en pantalla. */
 export function motivoTexto(m: MotivoAbandono): string {
-  return m === 'parado' ? 'parado sin opción al corte'
+  return m === 'fuera-del-entorno' ? 'fuera del entorno de la carrera'
+    : m === 'parado' ? 'parado sin opción al corte'
     : m === 'media-vuelta' ? 'dio media vuelta'
     : 'avance imposible a pie'
 }

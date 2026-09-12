@@ -91,6 +91,35 @@ describe('detectar un abandono', () => {
     expect(a.desdeMs).toBe(min(10))
   })
 
+  it('a cinco kilómetros del recorrido ya no se está corriendo', () => {
+    // El caso de Malore: su baliza siguió emitiendo desde 174 km, a 107 km/h y
+    // a 341 m de altitud —la autovía, camino de casa— y el mapa lo ponía
+    // primero de la carrera.
+    const a = detectaAbandono({
+      pasos: avanzando(14, 0.05, 8),
+      ahoraMs: min(15),
+      corte: { km: 41.3, atMs: min(600) },
+      ritmoMinKm: 12,
+      desviadoKm: 174,
+    })!
+    expect(a.motivo).toBe('fuera-del-entorno')
+    // Se le deja donde estuvo por última vez corriendo, no donde está el coche.
+    expect(a.km).toBeCloseTo(14.7, 1)
+  })
+
+  it('perderse unos cientos de metros NO saca a nadie de la carrera', () => {
+    // En montaña el GPS se va y uno se despista; el umbral es generoso a
+    // propósito, que esto retira gente de una clasificación.
+    const a = detectaAbandono({
+      pasos: avanzando(14, 0.05, 8),
+      ahoraMs: min(15),
+      corte: { km: 41.3, atMs: min(600) },
+      ritmoMinKm: 12,
+      desviadoKm: 0.8,
+    })
+    expect(a).toBeNull()
+  })
+
   it('SIN COBERTURA no es abandono, por mucho que dure', () => {
     // El error que no se puede cometer: quien lleva dos horas en una zona de
     // sombra sigue corriendo hasta que se demuestre lo contrario.

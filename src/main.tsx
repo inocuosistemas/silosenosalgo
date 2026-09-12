@@ -40,6 +40,27 @@ const isJoin = !isViewer && !isEvent && !!joinCode && INVITE_RE.test(joinCode)
 const publicEvent = params.get('ev')
 const isPublicEvent = !isViewer && !isEvent && !isJoin && !!publicEvent && TOKEN_RE.test(publicEvent)
 
+/**
+ * La DEMO: una carrera de verdad, rebobinada a un instante.
+ *
+ *   /?demo=canfranc-2026&en=2026-09-12T07:45
+ *
+ * `en` es hora local; sin ella se abre en el último momento registrado. No es
+ * una maqueta: son las balizas reales de esa carrera con sus posiciones, así
+ * que sirve para ver cómo se comporta un cambio ante lo que de verdad pasa
+ * —una baliza que calla tres horas, otra que acaba a 174 km— sin esperar a la
+ * siguiente carrera. Solo lee un fichero estático: no toca la API ni pide
+ * sesión.
+ */
+const demo = params.get('demo')
+const isDemo = !isViewer && !isEvent && !isJoin && !isPublicEvent && !!demo && /^[a-z0-9-]{3,40}$/.test(demo)
+const demoEn = (() => {
+  const raw = params.get('en')
+  if (!raw) return Number.POSITIVE_INFINITY
+  const t = Date.parse(raw.length <= 16 && !raw.endsWith('Z') ? `${raw}:00` : raw)
+  return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY
+})()
+
 // El chivato de desbordes solo en desarrollo: en producción manda el recorte
 // de `index.css`, que no cuesta nada. `import.meta.env.DEV` es estático, así
 // que el módulo ni entra en el paquete que se despliega.
@@ -64,6 +85,10 @@ createRoot(document.getElementById('root')!).render(
             {params.get('mapa')
               ? <EventLiveMap source={{ kind: 'member', id: eventId! }} />
               : <EventLobby id={eventId!} />}
+          </AuthProvider>
+        ) : isDemo ? (
+          <AuthProvider>
+            <EventLiveMap source={{ kind: 'demo', fichero: `/demo/${demo}.json`, enMs: demoEn }} />
           </AuthProvider>
         ) : isPublicEvent ? (
           // Va dentro de AuthProvider aunque no haga falta sesión: el mapa

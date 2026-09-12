@@ -84,6 +84,44 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ---
 
+## 2026-09-13
+
+### Un kilómetro conocido ya no se pierde
+
+**Servidor · desplegado.** El ping guardaba el `trackKm` que mandara la app, y
+cuando la app no puede calcularlo —fuera del trazado, dentro de un coche, sin
+recorrido cargado— manda nulo. Se escribía encima y **se perdía el último
+kilómetro conocido**, que es justo el dato que dice dónde se quedó alguien: los
+cuatro de la CanFranc acabaron con el kilómetro vacío y hubo que reconstruirlo
+proyectando sus coordenadas a mano. Ahora es un `COALESCE`: nulo significa "no he
+podido calcularlo", nunca "estoy en el kilómetro ninguno".
+
+### Cinco kilómetros fuera del recorrido ya no es carrera
+
+**Web · desplegado.** La baliza de quien abandonó siguió emitiendo desde **174 km
+de distancia y a 107 km/h** —la autovía, camino de casa— y el mapa lo pintaba
+primero de la carrera. Ahora, a más de 5 km del trazado se da por retirado, en el
+último kilómetro que hizo corriendo.
+
+Cinco es generoso a propósito: en montaña el GPS se va y perderse de verdad son
+cientos de metros. Esto saca gente de una clasificación, y equivocarse por
+esperar de más no le hace daño a nadie.
+
+### La carrera de verdad, rebobinada
+
+**Web · desplegado.** `/?demo=canfranc-2026&en=2026-09-12T07:45` abre el mapa del
+evento con la CanFranc-CanFranc **real** congelada en esa hora: sus cuatro
+balizas, sus 1344 posiciones, su recorrido y sus cortes.
+
+No es una maqueta con datos inventados. Sirve para ver cómo se comporta un cambio
+ante lo que de verdad pasa en una carrera —una baliza que calla tres horas, otra
+que acaba a 174 km, uno que se para hora y media a 2500 m— sin esperar a la
+siguiente. Sin `en` se abre en el último instante registrado.
+
+Los datos del evento quedan guardados en `tests/fixtures/canfranc-2026/`
+(balizas con su traza entera, parrilla, evento y recorrido) para poder seguir
+estudiándolos.
+
 ## 2026-09-12
 
 ### Dar a alguien por retirado, y decir desde cuándo
