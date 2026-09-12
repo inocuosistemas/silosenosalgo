@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMa
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
+import { detectaAbandono, motivoTexto, type Paso, type Abandono } from '../lib/abandono'
 import { eventColorHex } from '../../shared/eventColors'
 import type { EventPublicRunner, EventStats } from '../../shared/wireTypes'
 import {
@@ -308,6 +309,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const kmPrevio = useRef<Map<string, number>>(new Map())
 
   /**
+   * El historial de kilómetros de cada uno, para poder juzgar un abandono: hace
+   * falta saber no dónde está, sino qué ha hecho la última hora. Se siembra una
+   * vez con su cola y luego solo crece con el punto nuevo de cada refresco, que
+   * es gratis; recalcular la cola en cada pintada no aguantaría cien corredores.
+   */
+  const historial = useRef<Map<string, Paso[]>>(new Map())
+
+  /**
    * Quién ya cruzó la meta. Una vez llegado, la carrera se acabó para él y su
    * punto se queda EN la meta: lo que haga después —volver andando al coche, ir
    * a por el que viene detrás— no es la prueba. Sin esto se le ve retroceder
@@ -397,6 +406,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
         if (cerca == null && km == null) {
           for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca)
         }
+        if (!historial.current.has(key)) {
+          // El mismo recorrido de la cola, quedándose con cada kilómetro: el
+          // historial nace con una hora de pasado en vez de vacío, así que quien
+          // abre el mapa a mitad de carrera no espera media hora para saber si
+          // alguien lleva parado.
+          const sembrado: Paso[] = []
+          let c: number | null = null
+          for (const p of r.tail) {
+            c = projectKm(p.lat, p.lon, route, c)
+            if (c != null) sembrado.push({ t: p.t, km: c })
+          }
+          historial.current.set(key, sembrado)
+        }
         let proyectado = projectKm(r.fix.lat, r.fix.lon, route, km ?? cerca, 3, medida)
         // La ventana se ha quedado atrás: se reengancha buscando en todo el
         // recorrido. Ver REENGANCHE_M — sin esto, una sola pausa larga de la
@@ -412,6 +434,16 @@ export default function EventLiveMap({ source }: { source: Source }) {
         km = km ?? proyectado
       }
       if (km != null) kmPrevio.current.set(key, km)
+      // El punto de ahora al historial, si es nuevo. Tope de 400: en una ultra
+      // de dos días son de sobra para juzgar una parada y no crece sin fin.
+      if (km != null && r.updatedAt != null) {
+        const h = historial.current.get(key) ?? []
+        if (h.length === 0 || h[h.length - 1].t < r.updatedAt) {
+          h.push({ t: r.updatedAt, km })
+          if (h.length > 400) h.splice(0, h.length - 400)
+          historial.current.set(key, h)
+        }
+      }
       // Meta: el final del recorrido con un margen en METROS, que el GPS no
       // clava el último metro y el arco nunca cae en el punto exacto del GPX.
       // En metros y no en porcentaje: el 3% de una ultra de 160 km son casi
@@ -559,7 +591,30 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // dos se veían igual, "terminado", y no lo son: una dice que ya está en
       // el coche y la otra que no se sabe nada de él.
       const retirado = !idle && !acabo && r.status === 'ended'
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, fantasma, callado }
+      /**
+       * Y el que abandonó sin apagar la baliza, que es lo normal: nadie se
+       * acuerda del móvil cuando se está bajando de una carrera. La regla vive
+       * en `lib/abandono.ts` con sus pruebas; aquí solo se le dan los datos.
+       *
+       * El ritmo que se le pasa es EL SUYO, medido en lo que lleva hecho: es lo
+       * que decide si el corte sigue a su alcance. Y el corte, el próximo que
+       * tenga por delante.
+       */
+      const pasos = historial.current.get(key) ?? []
+      const minutosEnCarrera = startMs != null ? (now - startMs) / 60_000 : null
+      const ritmoMinKm = km != null && km > 1 && minutosEnCarrera != null && minutosEnCarrera > 0
+        ? minutosEnCarrera / km
+        : null
+      const abandono: Abandono | null = idle || armed || retirado
+        ? null
+        : detectaAbandono({
+            pasos,
+            ahoraMs: now,
+            corte: margin ? { km: margin.cutoff.km, atMs: margin.cutoff.at } : null,
+            ritmoMinKm,
+            enMeta: acabo,
+          })
+      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
     }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
@@ -1584,6 +1639,8 @@ type Row = {
   lost: boolean
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
+  /** Se le da por retirado sin haber apagado la baliza. Ver `lib/abandono.ts`. */
+  abandono: Abandono | null
   /** Cuánto lleva sin moverse (ms). Cero si se mueve o si no hay señal fresca. */
   paradoMs: number
   /** Cerró la baliza sin llegar a meta: se bajó. No es lo mismo que quedarse sin señal. */
@@ -1638,7 +1695,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
    */
   const huecos = useMemo(() => {
     const m = new Map<string, { km: number; min: number | null; quien: string }>()
-    const clasificados = rows.filter((x) => x.km !== null && !x.idle && !x.armed)
+    const clasificados = rows.filter((x) => x.km !== null && !x.idle && !x.armed && !x.retirado && !x.abandono)
     for (let i = 1; i < clasificados.length; i++) {
       const yo = clasificados[i], delante = clasificados[i - 1]
       const dkm = delante.km! - yo.km!
@@ -1691,7 +1748,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado, callado, fantasma }, i) => {
+        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -1720,6 +1777,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                     sin una sola posición no terminó ni abandonó nada: no
                     empezó. */}
                 {retirado && <span className="shrink-0 rounded bg-rose-950/50 px-1.5 py-0.5 text-[10px] text-rose-300">se retiró</span>}
+                {/* Abandonó sin apagar la baliza, que es lo normal: nadie se
+                    acuerda del móvil cuando se está bajando de una carrera. */}
+                {!retirado && abandono && (
+                  <span className="shrink-0 rounded bg-rose-950/50 px-1.5 py-0.5 text-[10px] text-rose-300">abandonó</span>
+                )}
                 {!idle && !retirado && r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">en meta</span>}
                 {armed && <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200">preparado</span>}
                 {idle && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">sin emitir</span>}
@@ -1739,6 +1801,16 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                   Ahora el aviso vive fuera, a lo ancho, y esta línea no envuelve:
                   si no cabe, se desplaza. */}
               <div className="mt-1 flex items-center gap-2.5 overflow-x-auto whitespace-nowrap pl-7 text-[11px] scrollbar-slim">
+                {/* Con un abandono, el renglón deja de hablar de carrera: ni
+                    hueco ni margen al corte significan nada para quien ya no
+                    está. Lo que importa es DÓNDE y DESDE CUÁNDO, que es lo que
+                    hay que contarle a quien pregunte por él. */}
+                {!retirado && abandono ? (
+                  <span className="shrink-0 text-rose-300">
+                    km {abandono.km.toFixed(1)} · desde las {hhmm(abandono.desdeMs)}
+                    <span className="text-slate-500"> · {motivoTexto(abandono.motivo)}</span>
+                  </span>
+                ) : <>
                 {/* El hueco con el de delante, lo primero: es la pregunta con la
                     que se abre esta lista. Al líder se le dice que lo es. */}
                 {km !== null && !idle && !armed && (() => {
@@ -1779,6 +1851,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, following, onF
                   )}
                   </>
                 )}
+                </>}
               </div>
               {/* Segundo renglón: el estado de la baliza y los mandos, aparte
                   del de carrera. Son dos preguntas distintas —"cómo va" y

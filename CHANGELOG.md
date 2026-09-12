@@ -86,6 +86,53 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-12
 
+### Dar a alguien por retirado, y decir desde cuándo
+
+**Web · desplegado.** Una baliza encendida no dice si quien la lleva sigue en
+carrera. En la CanFranc pasaron los tres casos el mismo día: uno se quedó parado
+hora y media a 2500 m, otro volvió al pueblo de salida —y su app lo colocó en
+meta, liderando la carrera—, y un tercero perdió cobertura durante horas **sin
+haber abandonado**. Distinguirlos importa en las dos direcciones: un retirado que
+sigue contando ensucia la clasificación, y dar por retirado a quien sigue vivo es
+mucho peor.
+
+La regla vive en `src/lib/abandono.ts` con nueve pruebas, y da tres señales, de
+más segura a menos:
+
+| Señal | Cuándo se dio por retirado |
+|---|---|
+| **Dio media vuelta** (desanda ≥ 1 km y sigue bajando) | en su kilómetro más lejano |
+| **Avance imposible a pie** (más de 3× su propio ritmo) | en el último punto que hizo andando |
+| **Parado y sin opción al corte** | cuando se paró |
+
+Lo que se busca no es "cuándo nos hemos dado cuenta" sino **cuándo dejó la
+carrera**, que es la hora que vale para la clasificación y la que se le cuenta a
+su gente.
+
+Los casos borde, que son la mitad del trabajo:
+
+- **El silencio nunca es prueba.** Sin puntos frescos no se juzga a nadie: quien
+  está en una zona de sombra sigue corriendo. Es el error que no se puede
+  cometer.
+- **Parado no basta.** En una ultra se duerme, se come y se cambia uno de ropa.
+  Lo que convierte la parada en retirada es que, aunque se levantara ahora mismo
+  y siguiera a SU ritmo, el corte ya no le diera.
+- **Un rodeo corto no es media vuelta**: volver doscientos metros a por un bastón
+  no es retirarse.
+- **Quien ya está en meta** nunca abandona, por mucho que lleve horas quieto.
+- **Sin ritmo demostrado** no se juzga: no hay con qué comparar.
+- **Si vuelve a andar, vuelve a la carrera.** La regla no guarda memoria a
+  propósito: se recalcula con lo que hay.
+
+Y un detalle que costó un fallo: "parado" se mide en **velocidad**, no en metros.
+Con un umbral de 150 m entre puntos, un corredor a 23 min/km —que en dos minutos
+hace 87 m— nunca salía de "parado", y la parada parecía haber empezado horas
+antes de cuando empezó.
+
+En la lista, quien abandona deja de hablar de carrera: ni hueco ni margen al
+corte significan nada para él. Su renglón dice **dónde y desde cuándo**, y sale
+del cálculo de huecos de los demás.
+
 ### La lista se lee como una clasificación, y el tramo se abre a pantalla completa
 
 **Web · desplegado.** Dos cosas encontradas corriendo.
