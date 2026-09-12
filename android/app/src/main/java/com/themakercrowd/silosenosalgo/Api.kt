@@ -305,8 +305,25 @@ class Api(
         f.fixAt?.let { put("fixAt", JsonPrimitive(it)) }
     }
 
+    /**
+     * La versión que lleva esta app, tal cual se lee al pie de la pantalla.
+     *
+     * Sale de `BuildConfig` —el mismo sitio que la pinta— para que lo que se
+     * enseña y lo que se guarda en el servidor no puedan discrepar nunca. El
+     * `versionName` es "1.0" en todas las compilaciones, así que sin el número
+     * de build no distingue nada: es el de build el que contesta a "¿qué
+     * versión llevas?" cuando alguien dice que algo no le sale.
+     */
+    private val versionApp = "Android ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+
     suspend fun ping(token: String, id: String, fix: Fix) {
-        val (body, status) = request("api/track/$id/ping", "POST", token, fixJson(fix))
+        val (body, status) = request(
+            "api/track/$id/ping", "POST", token,
+            buildJsonObject {
+                fixJson(fix).forEach { (k, v) -> put(k, v) }
+                put("appVersion", JsonPrimitive(versionApp))
+            },
+        )
         if (!ok(status)) throw decodeError(body, status)
     }
 
@@ -321,6 +338,7 @@ class Api(
             "api/track/$id/ping", "POST", token,
             buildJsonObject {
                 put("fixes", buildJsonArray { fixes.forEach { add(fixJson(it)) } })
+                put("appVersion", JsonPrimitive(versionApp))
             },
         )
         if (!ok(status)) throw decodeError(body, status)

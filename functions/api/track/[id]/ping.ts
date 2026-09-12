@@ -38,8 +38,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = await readJson<{ fixes?: InFix[] } & Partial<InFix>>(request)
+  const body = await readJson<{ fixes?: InFix[]; appVersion?: unknown } & Partial<InFix>>(request)
   if (!body) return json({ error: 'invalid_request' }, 400)
+  /**
+   * Qué versión de la app manda esto.
+   *
+   * Viaja en el ping y no al crear la sesión por dos razones: las balizas ya
+   * abiertas cuando se actualiza la app también la estrenan, y una app vieja
+   * que no lo mande deja el campo como estaba en vez de borrarlo. Es la
+   * respuesta a "¿qué versión llevas?" cuando alguien dice que algo no le sale
+   * —en la CanFranc hubo que deducirlo de cómo se comportaba la baliza—.
+   */
+  const appVersion = typeof body.appVersion === 'string' && body.appVersion.trim()
+    ? body.appVersion.trim().slice(0, 40)
+    : null
   const raw: InFix[] = Array.isArray(body.fixes) ? body.fixes : [body as InFix]
 
   const now = Date.now()
@@ -103,11 +115,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   await env.DB.prepare(
     `UPDATE tracking_sessions
         SET lat=?, lon=?, track_km=COALESCE(?, track_km), speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
+            app_version=COALESCE(?, app_version),
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
-    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), keepAlive, id,
+    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion, keepAlive, id,
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.

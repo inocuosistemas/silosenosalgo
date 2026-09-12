@@ -86,6 +86,26 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-13
 
+### Cada baliza dice qué versión lleva
+
+**Servidor · desplegado.** El ping guarda ahora la versión de la app que lo
+manda (`app_version` en la sesión, migración 0035).
+
+Es la respuesta a "¿qué versión llevas?" cuando alguien dice que algo no le
+sale. En la CanFranc una baliza Android no mandaba el kilómetro y el mapa tenía
+que adivinarlo proyectando —con lo que un participante apareció en el km 2,7
+estando en el 17—; la causa era un APK viejo, pero **hubo que deducirlo**,
+porque `device` guarda "Pixel 7a" y nada más.
+
+Va en el PING y no al crear la sesión por dos razones: las balizas ya abiertas
+cuando se actualiza la app también lo estrenan, y una app vieja que no lo mande
+deja el campo como estaba en vez de borrarlo (`COALESCE`, como el kilómetro).
+
+**iOS / Android** · la versión sale del mismo sitio que ya la pinta al pie de la
+pantalla —`Bundle` y `BuildConfig`—, para que lo que se enseña y lo que se
+guarda no puedan discrepar nunca. Con el número de compilación, que es el único
+que distingue: el corto es "1.0" en todas.
+
 ### Un kilómetro conocido ya no se pierde
 
 **Servidor · desplegado.** El ping guardaba el `trackKm` que mandara la app, y

@@ -342,8 +342,24 @@ enum API {
         return try JSONDecoder().decode(CreateTrackResponse.self, from: data)
     }
 
+    /**
+     La versión que lleva esta app, la misma que se lee al pie de la pantalla.
+
+     Sale del propio paquete —el mismo sitio que la pinta— para que lo que se
+     enseña y lo que se guarda en el servidor no puedan discrepar. El número
+     corto es "1.0" en todas las compilaciones, así que sin el de build no
+     distingue nada: es el de build el que contesta a "¿qué versión llevas?"
+     cuando alguien dice que algo no le sale. Espejo de `versionApp` en `Api.kt`.
+     */
+    static let appVersion: String = {
+        let info = Bundle.main.infoDictionary
+        let corta = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "iOS \(corta) (\(build))"
+    }()
+
     static func ping(token: String, id: String, fix: Fix) async throws {
-        var body: [String: Any] = ["lat": fix.lat, "lon": fix.lon]
+        var body: [String: Any] = ["lat": fix.lat, "lon": fix.lon, "appVersion": appVersion]
         if let v = fix.trackKm { body["trackKm"] = v }
         if let v = fix.speed { body["speed"] = v }
         if let v = fix.heading { body["heading"] = v }
@@ -370,7 +386,8 @@ enum API {
             if let v = f.fixAt { d["fixAt"] = v }
             return d
         }
-        let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: ["fixes": arr])
+        let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token,
+                                            body: ["fixes": arr, "appVersion": appVersion])
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers
     }

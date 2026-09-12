@@ -1,0 +1,16 @@
+-- Qué versión de la app lleva cada baliza.
+--
+-- Sin esto no hay forma de responder a un "a mí no me sale eso". En la
+-- CanFranc-CanFranc una baliza Android no mandaba el kilómetro y el mapa tenía
+-- que adivinarlo proyectando —con lo que un participante apareció en el km 2,7
+-- estando en el 17—; la causa era un APK viejo, pero eso hubo que deducirlo,
+-- porque el `device` guarda "Pixel 7a" y nada más.
+--
+-- Va en la SESIÓN y no en el usuario: la misma persona puede salir hoy con el
+-- móvil actualizado y mañana con el de repuesto, y lo que explica una traza es
+-- la versión que la grabó.
+--
+-- Se rellena desde el ping, no desde la creación: así también la estrenan las
+-- balizas que ya estaban abiertas cuando se instaló la versión nueva, y una app
+-- vieja —que no manda el campo— simplemente lo deja a NULL sin romper nada.
+ALTER TABLE tracking_sessions ADD COLUMN app_version TEXT;
