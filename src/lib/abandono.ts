@@ -44,6 +44,14 @@ export interface DatosAbandono {
   /** Su ritmo DEMOSTRADO (min/km) en lo que lleva de carrera. Es el que decide
    *  si el corte sigue a su alcance: el de otro no le sirve de nada. */
   ritmoMinKm: number | null
+  /**
+   * El cierre de META, que es el último plazo de todos.
+   *
+   * Se mira aparte del próximo corte porque son preguntas distintas: se puede
+   * llegar de sobra al corte de al lado y no tener ya tiempo material de
+   * terminar la carrera. Quien lleva dos horas parado suele estar justo ahí.
+   */
+  meta?: { km: number; atMs: number } | null
   /** A qué distancia del trazado está su última posición (km). Nulo si no se
    *  puede medir. */
   desviadoKm?: number | null
@@ -64,6 +72,9 @@ export interface DatosAbandono {
  * hacia el lado de esperar un poco más no le hace daño a nadie.
  */
 export const FUERA_KM = 5
+/** Qué parte del recorrido hay que llevar hecha para que el ritmo medio sirva
+ *  para juzgar si la META es alcanzable. Una décima. */
+export const MINIMO_PARA_JUZGAR_META = 0.1
 /** Cuánto hay que llevar sin avanzar para que "parado" signifique algo. Menos
  *  que esto es un avituallamiento, una foto o atarse una bota. */
 export const PARADO_MIN = 25
@@ -94,7 +105,7 @@ export const SALTO_MIN_KMH = 12
  * coinciden dos, manda el más seguro.
  */
 export function detectaAbandono(d: DatosAbandono): Abandono | null {
-  const { pasos, ahoraMs, corte, ritmoMinKm, enMeta, desviadoKm } = d
+  const { pasos, ahoraMs, corte, meta, ritmoMinKm, enMeta, desviadoKm } = d
   if (enMeta) return null
   if (pasos.length < 3) return null
 
@@ -158,10 +169,24 @@ export function detectaAbandono(d: DatosAbandono): Abandono | null {
   // Lo que lo convierte en abandono es que, aunque se levantara ahora mismo y
   // siguiera al ritmo que llevaba, el corte ya no le da.
   const desde = inicioDeLaParada(pasos)
-  if (desde && ahoraMs - desde.t >= PARADO_MIN * 60_000 && corte && ritmoMinKm != null && ritmoMinKm > 0) {
-    const quedan = corte.km - ultimo.km
-    const minutosDisponibles = (corte.atMs - ahoraMs) / 60_000
-    if (quedan > 0 && minutosDisponibles > 0 && quedan * ritmoMinKm > minutosDisponibles) {
+  if (desde && ahoraMs - desde.t >= PARADO_MIN * 60_000 && ritmoMinKm != null && ritmoMinKm > 0) {
+    /** ¿Le da el reloj para llegar ahí, si se levantara ahora y siguiera a su
+     *  ritmo? El ritmo que se usa es el suyo MEDIDO, parones incluidos: es lo
+     *  que de verdad ha demostrado que puede hacer hoy. */
+    const noLlega = (d?: { km: number; atMs: number } | null) => {
+      if (!d) return false
+      const quedan = d.km - ultimo.km
+      const disponibles = (d.atMs - ahoraMs) / 60_000
+      return quedan > 0 && disponibles > 0 && quedan * ritmoMinKm > disponibles
+    }
+    // La meta solo se juzga con carrera hecha. El ritmo medio de los primeros
+    // kilómetros no significa nada —una parada de media hora en el km 5 lo
+    // dispara— y con él cualquiera parecería incapaz de terminar. A partir de
+    // la décima parte del recorrido ya es un ritmo suyo, no una anécdota.
+    const metaJuzgable = meta && ultimo.km >= meta.km * MINIMO_PARA_JUZGAR_META
+    // El próximo corte O la meta: se puede llegar de sobra al corte de al lado
+    // y no tener ya tiempo material de terminar la carrera.
+    if (noLlega(corte) || (metaJuzgable && noLlega(meta))) {
       return { motivo: 'parado', desdeMs: desde.t, km: desde.km }
     }
   }

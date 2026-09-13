@@ -53,6 +53,45 @@ describe('detectar un abandono', () => {
     expect(a).toBeNull()
   })
 
+  it('llega al corte de al lado pero ya no a meta: también es abandono', () => {
+    // La pregunta que faltaba. Dos horas parado en el km 22 de una de cien:
+    // al corte del km 30 llega de sobra, pero a su ritmo —parones incluidos—
+    // no hay reloj que le dé para terminar.
+    const a = detectaAbandono({
+      pasos: Array.from({ length: 45 }, (_, i) => ({ t: min(i * 2), km: 22.1 })),
+      ahoraMs: min(90),
+      corte: { km: 30, atMs: min(600) },      // ocho kilómetros en diez horas: le da
+      meta: { km: 99.5, atMs: min(700) },     // setenta y siete en once y media: no
+      ritmoMinKm: 23,
+    })!
+    expect(a.motivo).toBe('parado')
+    expect(a.km).toBeCloseTo(22.1, 1)
+  })
+
+  it('si le da tiempo a las dos cosas, sigue en carrera', () => {
+    const a = detectaAbandono({
+      pasos: Array.from({ length: 45 }, (_, i) => ({ t: min(i * 2), km: 22.1 })),
+      ahoraMs: min(90),
+      corte: { km: 30, atMs: min(600) },
+      meta: { km: 40, atMs: min(1200) },
+      ritmoMinKm: 23,
+    })
+    expect(a).toBeNull()
+  })
+
+  it('en el kilómetro 5 de una de cien, la meta todavía no se juzga', () => {
+    // Una parada larga al principio destroza el ritmo medio, y con él cualquiera
+    // parecería incapaz de terminar. Ahí no hay carrera hecha que valga.
+    const a = detectaAbandono({
+      pasos: Array.from({ length: 45 }, (_, i) => ({ t: min(i * 2), km: 5 })),
+      ahoraMs: min(90),
+      corte: { km: 30, atMs: min(3000) },
+      meta: { km: 99.5, atMs: min(3000) },
+      ritmoMinKm: 40,
+    })
+    expect(a).toBeNull()
+  })
+
   it('dar media vuelta se detecta, y cuenta desde el punto más lejano', () => {
     const ida = avanzando(30, 0.05, 10)                    // hasta el km 30,9
     const vuelta: Paso[] = [31.0, 30.4, 29.8, 29.2].map((km, i) => ({ t: min(20 + i * 2), km }))

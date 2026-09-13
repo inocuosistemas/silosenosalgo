@@ -676,12 +676,28 @@ export default function EventLiveMap({ source }: { source: Source }) {
             pasos,
             ahoraMs: now,
             corte: margin ? { km: margin.cutoff.km, atMs: margin.cutoff.at } : null,
+            // El último cierre de la carrera es el de meta: se mira aparte
+            // porque se puede llegar de sobra al corte de al lado y no tener ya
+            // tiempo material de terminar.
+            meta: cutoffs.length > 0
+              ? { km: cutoffs[cutoffs.length - 1].km, atMs: cutoffs[cutoffs.length - 1].at }
+              : null,
             ritmoMinKm,
             desviadoKm: desviadoM / 1000,
             enMeta: acabo,
           })
-      return { r, km, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
-    }).sort((a, b) => (b.km ?? -1) - (a.km ?? -1))
+      /**
+       * El kilómetro que VALE: el del momento del abandono, no el de ahora.
+       *
+       * Quien deja la carrera sigue moviéndose —baja al pueblo, sube en coche a
+       * un avituallamiento, se va a casa— y su posición de ahora no dice nada de
+       * lo que corrió. Lo que cuenta, y lo que va a la clasificación, es hasta
+       * dónde llegó. El punto del mapa sigue siendo el de verdad: ahí lo que se
+       * pregunta es dónde está, no qué hizo.
+       */
+      const kmValido = abandono ? abandono.km : km
+      return { r, km, kmValido, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
+    }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
 
   /**
@@ -1707,6 +1723,8 @@ type Row = {
   armed: boolean
   /** Lleva más de veinte minutos sin mandar nada: el punto es su última conocida. */
   lost: boolean
+  /** El kilómetro que cuenta: el del abandono si lo hubo, si no el de ahora. */
+  kmValido: number | null
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
   /** Se le da por retirado sin haber apagado la baliza. Ver `lib/abandono.ts`. */
@@ -1768,10 +1786,10 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
    */
   const huecos = useMemo(() => {
     const m = new Map<string, { km: number; min: number | null; quien: string }>()
-    const clasificados = rows.filter((x) => x.km !== null && !x.idle && !x.armed && !x.retirado && !x.abandono)
+    const clasificados = rows.filter((x) => x.kmValido !== null && !x.idle && !x.armed && !x.retirado && !x.abandono)
     for (let i = 1; i < clasificados.length; i++) {
       const yo = clasificados[i], delante = clasificados[i - 1]
-      const dkm = delante.km! - yo.km!
+      const dkm = delante.kmValido! - yo.kmValido!
       if (dkm < 0) continue
       const kmh = yo.r.fix?.speed != null ? yo.r.fix.speed * 3.6 : 0
       m.set(yo.key, {
@@ -1831,7 +1849,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, km, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
+        {shown.map(({ r, kmValido: km, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
