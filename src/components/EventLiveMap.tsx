@@ -439,6 +439,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * grande y que el corte está justo después. Los que tienen hora de cierre se
    * marcan aparte, que son los que de verdad aprietan.
    */
+  /**
+   * Los CONTROLES de la carrera: los puntos con hora de cierre.
+   *
+   * Son los que la organización cronometra, y por tanto los únicos por los que
+   * puede acreditar a alguien. Si el recorrido no trae cierres, valen todos sus
+   * puntos de paso, que es lo más parecido que hay.
+   */
+  const controles = useMemo(() => {
+    if (!plan) return []
+    const conCierre = new Set(cutoffs.map((c) => c.name))
+    const todos = plan.track.namedWaypoints.map((w) => ({ nombre: w.name, km: w.distanceKm }))
+    const soloCortes = todos.filter((w) => conCierre.has(w.nombre))
+    return soloCortes.length > 0 ? soloCortes : todos
+  }, [plan, cutoffs])
+
   const pois = useMemo(() => {
     if (!plan) return []
     const cierres = new Map(cutoffs.map((c) => [c.name, c.at]))
@@ -1088,7 +1103,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
       : <EventReplay source={source} route={route?.pts ?? null} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
-    <ResultsView stats={stats} endedAt={endedAt} onBack={() => setView('mapa')} />
+    <ResultsView stats={stats} endedAt={endedAt} controles={controles} onBack={() => setView('mapa')} />
   ) : view === 'porra' && eventId ? (
     <EventBets
       eventId={eventId}
@@ -2264,9 +2279,12 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
  * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
  * purgan y esto tiene que seguir contando quién ganó el sábado.
  */
-function ResultsView({ stats, endedAt, onBack }: {
+function ResultsView({ stats, endedAt, controles, onBack }: {
   stats: EventStats
   endedAt: number | null
+  /** Los controles de la carrera: los puntos con hora de cierre, que son los
+   *  que la organización cronometra. */
+  controles: { nombre: string; km: number }[]
   onBack: () => void
 }) {
   return (
@@ -2283,7 +2301,7 @@ function ResultsView({ stats, endedAt, onBack }: {
         </header>
 
         <RecordDeKm stats={stats} />
-        <ListaResultados stats={stats} />
+        <ListaResultados stats={stats} controles={controles} />
 
         <button
           onClick={onBack}

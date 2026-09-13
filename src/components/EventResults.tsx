@@ -48,7 +48,38 @@ export function RecordDeKm({ stats }: { stats: EventStats }) {
 }
 
 /** La clasificación, con sus puestos compartidos y sus márgenes. */
-export function ListaResultados({ stats }: { stats: EventStats }) {
+/**
+ * El último control OFICIAL que pasó alguien.
+ *
+ * Son dos formas distintas de decir dónde lo dejó, y las dos son verdad:
+ *
+ *   · La ORGANIZACIÓN solo puede acreditar lo que ha cronometrado, así que para
+ *     ella el abandono está en el último control que pisó. En la CanFranc,
+ *     Soriano consta en Canfranc Pueblo, km 16.
+ *   · NOSOTROS vemos por dónde iba de verdad, así que decimos hasta dónde llegó:
+ *     km 22, seis más arriba, donde se paró y ya no siguió.
+ *
+ * No hay que elegir: se enseñan las dos, y la segunda explica la primera. Quien
+ * discuta su resultado con la organización necesita justamente eso.
+ */
+export function ultimoControl(
+  km: number | null,
+  controles: { nombre: string; km: number }[],
+): { nombre: string; km: number } | null {
+  if (km == null) return null
+  let ultimo: { nombre: string; km: number } | null = null
+  for (const c of [...controles].sort((a, b) => a.km - b.km)) {
+    if (c.km <= km + 0.05) ultimo = c
+  }
+  return ultimo
+}
+
+export function ListaResultados({ stats, controles = [] }: {
+  stats: EventStats
+  /** Los controles de la carrera, para poder decir por cuál consta cada uno.
+   *  Vacío si el evento no tiene recorrido con puntos de paso. */
+  controles?: { nombre: string; km: number }[]
+}) {
   return (
     <>
       {/* Si hay empates hay que decir por qué: sin esto alguien discute un
@@ -99,6 +130,15 @@ export function ListaResultados({ stats }: { stats: EventStats }) {
             {c.tracked && (
               <p className="mt-0.5 flex flex-wrap gap-x-2 pl-7 text-[11px] tabular-nums text-slate-500">
                 <span>{c.km?.toFixed(1)} km</span>
+                {/* Y por dónde CONSTA, que es otra cosa: la organización solo
+                    acredita lo que cronometra, y entre el último control y donde
+                    se paró de verdad puede haber seis kilómetros. */}
+                {c.abandono && (() => {
+                  const ctrl = ultimoControl(c.km, controles)
+                  return ctrl
+                    ? <span className="text-slate-600">· último control: {ctrl.nombre} (km {ctrl.km.toFixed(1)})</span>
+                    : null
+                })()}
                 {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
                 {c.mejorKmMin != null && (
                   <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>

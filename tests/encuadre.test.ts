@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { losDeLaCarrera } from '../src/lib/encuadre'
 import { reglaDelPerfil } from '../src/lib/perfilTramo'
+import { ultimoControl } from '../src/components/EventResults'
 
 /**
  * Con quién se encuadra el mapa de una carrera.
@@ -79,5 +80,47 @@ describe('la regla del desnivel', () => {
     // Treinta metros de desnivel en todo el recorrido: la escala mínima es de
     // veinticinco, así que el dibujo ocupa lo que le toca y no se estira.
     expect(reglaDelPerfil(30).escalaM).toBe(50)
+  })
+})
+
+/**
+ * Dónde CONSTA que lo dejó, y hasta dónde llegó.
+ *
+ * Son dos formas distintas de decir lo mismo y las dos son verdad: la
+ * organización solo puede acreditar lo que ha cronometrado —el último control
+ * que pisó— y nosotros vemos por dónde iba de verdad. En la CanFranc, Soriano
+ * consta en Canfranc Pueblo (km 16) y se paró en el km 22, seis más arriba.
+ */
+describe('el último control pasado', () => {
+  const controles = [
+    { nombre: 'Paso del Sarrio', km: 6.8 },
+    { nombre: 'Canfranc Pueblo', km: 16.0 },
+    { nombre: 'Collarada', km: 23.3 },
+    { nombre: 'Ibón de Bucuesa', km: 27.2 },
+  ]
+
+  it('el último que queda por debajo de donde llegó', () => {
+    expect(ultimoControl(21.96, controles)?.nombre).toBe('Canfranc Pueblo')
+    expect(ultimoControl(18.85, controles)?.nombre).toBe('Canfranc Pueblo')
+    expect(ultimoControl(27.2, controles)?.nombre).toBe('Ibón de Bucuesa')
+  })
+
+  it('pisar el control cuenta como pasarlo', () => {
+    // Cincuenta metros de margen: el GPS no clava el arco y quedarse a treinta
+    // metros de un control que sí te cronometró sería negarte el paso.
+    expect(ultimoControl(16.03, controles)?.nombre).toBe('Canfranc Pueblo')
+  })
+
+  it('quien no llega al primero no consta en ninguno', () => {
+    expect(ultimoControl(3.2, controles)).toBeNull()
+  })
+
+  it('sin kilómetro conocido no se acredita nada', () => {
+    expect(ultimoControl(null, controles)).toBeNull()
+  })
+
+  it('el orden de la lista da igual: manda el kilómetro', () => {
+    const desordenados = [...controles].reverse()
+    expect(ultimoControl(21.96, desordenados)?.nombre).toBe('Canfranc Pueblo')
   })
 })
