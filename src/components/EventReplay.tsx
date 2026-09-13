@@ -3,7 +3,8 @@ import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet
 import L from 'leaflet'
 import { getEventReplay, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { eventColorHex } from '../../shared/eventColors'
-import type { EventReplay as Datos, EventReplayRunner } from '../../shared/wireTypes'
+import type { EventReplay as Datos } from '../../shared/wireTypes'
+import { preparaCorredor, estadoEn, type Trazado } from '../lib/replayPosicion'
 
 /**
  * El replay: la carrera otra vez, con los iconos moviéndose.
@@ -18,16 +19,17 @@ import type { EventReplay as Datos, EventReplayRunner } from '../../shared/wireT
  * interpola entre sus dos puntos más cercanos, así que el movimiento es
  * continuo aunque uno emitiera cada 20 s y otro cada 2 min.
  *
- * Y quien no estaba emitiendo en ese instante NO SALE. Es la diferencia entre
- * un replay y una animación bonita: dejar el icono clavado donde entró en el
- * túnel de cobertura contaría una carrera que no pasó.
+ * Y nadie desaparece. Quien se queda sin cobertura sigue avanzando POR EL
+ * RECORRIDO entre donde se le perdió y donde reapareció, apagado y con la estela
+ * punteada: es una suposición y se pinta como tal. Ocultarlo, que es lo que se
+ * hacía, convertía a quien emite poco en un fantasma —Malore, en modo ahorro,
+ * no se veía el 80 % de su carrera— y a quien terminaba en alguien que se
+ * esfumaba a los ocho minutos. Terminado, se queda donde acabó: en meta, o
+ * apagado donde lo dejó. La lógica está en `lib/replayPosicion`.
  */
 
 /** Las velocidades: de tiempo real a "toda la carrera en un minuto". */
 const VELOCIDADES = [1, 10, 60, 300] as const
-
-/** Cuánto se tolera sin punto antes de dar a alguien por ausente (ms). */
-const AUSENTE_MS = 8 * 60_000
 
 interface Props {
   source: { kind: 'member'; id: string } | { kind: 'public'; token: string }
@@ -52,6 +54,8 @@ export function EventReplay({ source, route, onBack }: Props) {
     }
     return { pts: route, cum }
   }, [route])
+  /** El trazado con sus kilómetros, en la forma que usa `lib/replayPosicion`. */
+  const trazado = useMemo<Trazado | null>(() => (geo ? { pts: geo.pts, cumKm: geo.cum } : null), [geo])
   /** Imantado por defecto, como en el mapa en directo. */
   const [anclados, setAnclados] = useState(true)
   const [datos, setDatos] = useState<Datos | null>(null)
@@ -91,11 +95,17 @@ export function EventReplay({ source, route, onBack }: Props) {
     return () => cancelAnimationFrame(raf)
   }, [playing, velocidad, datos])
 
+  /** Lo que no cambia en todo el replay, una vez por corredor: sus huecos y sus kilómetros. */
+  const preparados = useMemo(
+    () => (datos ? datos.runners.map((r) => preparaCorredor(r.points, trazado)) : []),
+    [datos, trazado],
+  )
+
   /** Dónde está cada uno en el instante `t`, y por dónde ha pasado ya. */
   const posiciones = useMemo(() => {
     if (!datos) return []
-    return datos.runners.map((r) => {
-      const base = posicionEn(r, t)
+    return datos.runners.map((r, n) => {
+      const base = estadoEn(preparados[n], t, trazado)
       if (!anclados || !geo || !base.pos) return { r, ...base }
       // Imantado: se pinta en su punto del trazado, no donde temblaba el GPS.
       // Fuera de ruta se respeta la posición cruda —a más de cien metros ya no
@@ -103,7 +113,7 @@ export function EventReplay({ source, route, onBack }: Props) {
       const p = pegaAlTrazado(geo, base.pos)
       return { r, ...base, pos: p ?? base.pos }
     })
-  }, [datos, t, anclados, geo])
+  }, [datos, preparados, t, anclados, geo, trazado])
 
   const centro = useMemo<[number, number]>(() => {
     const conPos = posiciones.find((p) => p.pos)
@@ -148,14 +158,25 @@ export function EventReplay({ source, route, onBack }: Props) {
             <Polyline positions={route} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
           </>
         )}
-        {posiciones.map(({ r, pos, recorrido }) => {
+        {posiciones.map(({ r, pos, tramos, estimada, terminado }) => {
           const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+          // Apagado lo que no se está viendo: una posición supuesta, o quien
+          // ya no sigue. Quien llegó a meta, no: ahí se queda con todo el color.
+          const apagada = estimada || (terminado && r.final !== 'meta')
           return (
             <div key={r.username}>
-              {recorrido.length > 1 && (
-                <Polyline positions={recorrido} pathOptions={{ color, weight: 3, opacity: 0.85 }} />
-              )}
-              {pos && <Marker position={pos} icon={iconoCorredor(color, r.emoji)} />}
+              {/* Lo visto, sólido; lo supuesto, punteado y a media tinta, igual
+                  que los huecos de la cola en el mapa en directo. */}
+              {tramos.map((tramo, k) => (
+                <Polyline
+                  key={k}
+                  positions={tramo.pts}
+                  pathOptions={tramo.estimado
+                    ? { color, weight: 3, opacity: 0.6, dashArray: '2 7' }
+                    : { color, weight: 3, opacity: 0.85, dashArray: undefined }}
+                />
+              ))}
+              {pos && <Marker position={pos} icon={iconoCorredor(color, r.emoji)} opacity={apagada ? 0.5 : 1} />}
             </div>
           )
         })}
@@ -224,7 +245,7 @@ export function EventReplay({ source, route, onBack }: Props) {
               </button>
             )}
             <span className="ml-auto text-[11px] text-slate-500">
-              {posiciones.filter((p) => p.pos).length} en carrera
+              {posiciones.filter((p) => p.pos && !p.terminado).length} en carrera
             </span>
             <button onClick={onBack} className="text-[11px] text-sky-400 hover:text-sky-300">← mapa</button>
           </div>
@@ -232,41 +253,6 @@ export function EventReplay({ source, route, onBack }: Props) {
       </div>
     </div>
   )
-}
-
-/**
- * Dónde está un corredor en el instante `t` y qué lleva recorrido.
- *
- * Fuera de su ventana de emisión devuelve `pos: null` — antes de su primer
- * punto todavía no había salido, y después del último ya no se sabe. Y si su
- * hueco entre dos puntos es enorme (sin cobertura), tampoco se le pinta a mitad
- * del hueco: se le da por ausente en vez de inventarle una línea recta de tres
- * kilómetros por el monte.
- */
-function posicionEn(r: EventReplayRunner, t: number): { pos: [number, number] | null; recorrido: [number, number][] } {
-  const pts = r.points
-  const recorrido: [number, number][] = []
-  if (pts.length === 0 || t < pts[0].t) return { pos: null, recorrido }
-
-  let i = 0
-  while (i + 1 < pts.length && pts[i + 1].t <= t) {
-    recorrido.push([pts[i].lat, pts[i].lon])
-    i++
-  }
-  recorrido.push([pts[i].lat, pts[i].lon])
-
-  // Último punto: ya terminó (o dejó de emitir). Se queda donde acabó durante
-  // un rato y luego desaparece.
-  if (i === pts.length - 1) {
-    return { pos: t - pts[i].t > AUSENTE_MS ? null : [pts[i].lat, pts[i].lon], recorrido }
-  }
-
-  const a = pts[i]
-  const b = pts[i + 1]
-  const hueco = b.t - a.t
-  if (hueco > AUSENTE_MS) return { pos: null, recorrido }
-  const f = hueco > 0 ? (t - a.t) / hueco : 0
-  return { pos: [a.lat + f * (b.lat - a.lat), a.lon + f * (b.lon - a.lon)], recorrido }
 }
 
 /** Metros entre dos posiciones. */

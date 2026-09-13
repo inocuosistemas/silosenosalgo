@@ -804,10 +804,15 @@ export interface EventReplayRunner {
   emoji: string | null
   color: string | null
   points: EventReplayPoint[]
+  /**
+   * Cómo acabó: en meta, retirado o sin saberse. Con su último punto el replay
+   * lo deja quieto donde terminó, y esto dice cómo pintarlo ahí.
+   */
+  final?: 'meta' | 'abandono' | null
 }
 
 export interface EventReplay {
-  /** Primer y último instante con posición de alguien (epoch ms). */
+  /** De la salida al cierre de la carrera (epoch ms). */
   from: number
   to: number
   runners: EventReplayRunner[]

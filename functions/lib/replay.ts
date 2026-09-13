@@ -205,6 +205,7 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
       // Solo lo que hace falta para moverse por el mapa: hora y posición. La
       // precisión de cada punto no pinta nada a 60×.
       points: remuestrea(pts, MAX_PUNTOS).map((p) => ({ t: p.t, lat: p.lat, lon: p.lon })),
+      final: metaDe.has(r.username) ? 'meta' : abandonoDe.has(r.username) ? 'abandono' : null,
     })
   }
 
