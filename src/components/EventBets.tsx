@@ -520,7 +520,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
 
       {/* ── Cómo está la porra ───────────────────────────────────────────── */}
       {data && data.bets.length > 0 && (
-        <BetsPulse bets={data.bets} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin}
+        <BetsPulse bets={data.bets} me={data.me} players={data.players} runners={runners} startsAt={data.startsAt} limitMin={limitMin}
                    eventName={eventName} photoUrl={photoUrl} proyecciones={proyecciones} />
       )}
 
@@ -949,9 +949,12 @@ const C_SI = '#0284c7'
 const C_NO = '#ea580c'
 const C_VOTO = '#7c3aed'
 const C_TIEMPO = '#a78bfa'
+const C_RAPIDO = '#f59e0b'
 
-function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, photoUrl, proyecciones }: {
+function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, photoUrl, proyecciones, me }: {
   bets: EventBetsResponse['bets']
+  /** Quién mira, si tiene sesión: para señalarle lo suyo. */
+  me: string | null
   players: number
   runners: BetRunner[]
   startsAt: number | null
@@ -1053,6 +1056,43 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   })).filter((v) => v.n > 0).sort((a, b) => b.n - a.n)
   const maxVotos = Math.max(1, ...votos.map((v) => v.n))
 
+  // Quién firma el kilómetro más rápido, según la porra.
+  const rapidos = runners.map((r) => ({
+    name: r.username,
+    n: bets.filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length,
+  })).filter((v) => v.n > 0).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+  const maxRapidos = Math.max(1, ...rapidos.map((v) => v.n))
+
+  // En qué kilómetro lo deja quien la porra ve bajándose.
+  const abandonos = runners.map((r) => ({
+    name: r.username,
+    kms: bets
+      .filter((b) => b.target === r.username && b.kind === 'abandon_km')
+      .map((b) => Number(b.value))
+      .filter((k) => Number.isFinite(k) && k >= 0)
+      .sort((a, b) => a - b),
+  })).filter((a) => a.kms.length > 0)
+  const fmtKm = (k: number) => k.toFixed(Number.isInteger(k) ? 0 : 1)
+
+  /**
+   * Lo que ha dicho QUIEN MIRA, para señalárselo.
+   *
+   * La porra se enseña en conjunto y sin firmas —circula por grupos—, así que
+   * tus votos están dentro de las cuentas pero no hay forma de encontrarlos: se
+   * vota, se vuelve a mirar y parece que no se ha guardado nada. Con sesión, lo
+   * tuyo lleva su "tú" al lado.
+   */
+  const mias = me ? bets.filter((b) => b.author === me) : []
+  const miPrimero = mias.find((b) => b.kind === 'order' && b.value === '1')?.target
+    ?? mias.find((b) => b.kind === 'winner')?.value ?? null
+  const miAcaba = new Map(mias.filter((b) => b.kind === 'finish').map((b) => [b.target, b.value === 'si']))
+  const miTiempo = new Map(startsAt === null ? [] : mias
+    .filter((b) => b.kind === 'finish_time')
+    .map((b) => [b.target, (Number(b.value) - startsAt) / 60_000] as [string, number])
+    .filter(([, m]) => Number.isFinite(m) && m > 0))
+  const miRapido = (() => { const b = mias.find((x) => x.kind === 'fastest_km'); return b ? (b.target || b.value) : null })()
+  const miAbandono = new Map(mias.filter((b) => b.kind === 'abandon_km').map((b) => [b.target, Number(b.value)]))
+
   // ¿Acaba? Sí y no, por participante.
   const acabar = runners.map((r) => {
     const suyas = bets.filter((b) => b.target === r.username && b.kind === 'finish')
@@ -1125,7 +1165,8 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
    *  En la tarjeta van con el marcador delante, así que mandan sus números. */
   const nombresConPorra = [...new Set([...acabarOrdenado.map((a) => a.name), ...tiemposOrdenado.map((t) => t.name)])]
 
-  if (votos.length === 0 && acabar.length === 0 && tiempos.length === 0) return null
+  if (votos.length === 0 && acabar.length === 0 && tiempos.length === 0
+    && rapidos.length === 0 && abandonos.length === 0) return null
 
   return (
     <section className="mb-4 overflow-hidden rounded-xl border border-violet-900/50 bg-gradient-to-b from-violet-950/30 to-slate-900/60">
@@ -1179,6 +1220,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                     <span className="block h-full rounded-full transition-all"
                           style={{ width: `${(v.n / maxVotos) * 100}%`, background: C_VOTO }} />
                   </span>
+                  {miPrimero === v.name && <Tu />}
                   <span className="w-5 shrink-0 text-right text-xs font-bold tabular-nums text-slate-200">{v.n}</span>
                 </li>
               ))}
@@ -1212,6 +1254,7 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                             unanimidad
                           </span>
                         )}
+                        {miAcaba.has(a.name) && <Tu texto={miAcaba.get(a.name) ? 'tú: sí' : 'tú: no'} />}
                       </span>
                       <Marcador si={a.si} no={a.no} />
                     </div>
@@ -1247,6 +1290,9 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                   <li key={t.name}>
                     <div className="flex items-baseline justify-between gap-2">
                       <Corredor r={dame(t.name)} name={t.name} ancho="auto" />
+                      {miTiempo.has(t.name) && (
+                        <span className="shrink-0 text-[10px] text-sky-300">tú {durationLabel(miTiempo.get(t.name)! * 60_000)}</span>
+                      )}
                       <span className="shrink-0 text-[11px] tabular-nums text-slate-300">
                         {t.mins.length > 1
                           ? <>{durationLabel(min * 60_000)} <span className="text-slate-600">–</span> {durationLabel(max * 60_000)}</>
@@ -1275,6 +1321,14 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                           style={{ left: enCarril(m, techo), background: C_TIEMPO }}
                         />
                       ))}
+                      {/* El tuyo, con su aro: entre cinco puntos iguales no se sabe cuál es. */}
+                      {miTiempo.has(t.name) && (
+                        <span
+                          title="tu pronóstico"
+                          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-300"
+                          style={{ left: enCarril(miTiempo.get(t.name)!, techo) }}
+                        />
+                      )}
                       {/* Dónde va a acabar DE VERDAD si mantiene el ritmo: es
                           lo que dice de un vistazo si esos pronósticos van a
                           entrar o se han quedado cortos. En verde y como línea,
@@ -1300,6 +1354,50 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
                   : durationLabel(techo * 60_000)}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* ── El kilómetro más rápido ───────────────────────────────────────
+            Se apuesta desde que existe, pero aquí no salía: quien lo votaba no
+            lo encontraba en ningún sitio hasta el final. */}
+        {rapidos.length > 0 && (
+          <div>
+            <Titulo color={C_RAPIDO}>⚡ Km más rápido</Titulo>
+            <ul className="mt-2 space-y-1.5">
+              {rapidos.map((v) => (
+                <li key={v.name} className="flex items-center gap-2" title={`${v.name}: ${v.n} de ${jugadores}`}>
+                  <Corredor r={dame(v.name)} name={v.name} />
+                  <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-800/80">
+                    <span className="block h-full rounded-full transition-all"
+                          style={{ width: `${(v.n / maxRapidos) * 100}%`, background: C_RAPIDO }} />
+                  </span>
+                  {miRapido === v.name && <Tu />}
+                  <span className="w-5 shrink-0 text-right text-xs font-bold tabular-nums text-slate-200">{v.n}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ── Dónde lo deja ─────────────────────────────────────────────── */}
+        {abandonos.length > 0 && (
+          <div>
+            <Titulo color={C_NO}>Dónde lo deja</Titulo>
+            <ul className="mt-2 space-y-1.5">
+              {abandonos.map((a) => (
+                <li key={a.name} className="flex items-center gap-2">
+                  <Corredor r={dame(a.name)} name={a.name} ancho="auto" />
+                  <span className="flex-1" />
+                  {miAbandono.has(a.name) && (
+                    <span className="shrink-0 text-[10px] text-sky-300">tú km {fmtKm(miAbandono.get(a.name)!)}</span>
+                  )}
+                  <span className="shrink-0 text-[11px] tabular-nums text-slate-300">
+                    km {fmtKm(a.kms[0])}
+                    {a.kms.length > 1 && <> <span className="text-slate-600">–</span> {fmtKm(a.kms[a.kms.length - 1])}</>}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
@@ -1346,6 +1444,15 @@ function Casilla({ n, etiqueta, color, apagada }: {
     >
       <span className="text-xl font-black leading-none tabular-nums text-slate-50">{n}</span>
       <span className="text-[9px] uppercase tracking-wider text-slate-400">{etiqueta}</span>
+    </span>
+  )
+}
+
+/** Lo tuyo, señalado: la porra se enseña sin firmas y sin esto no hay forma de encontrarse. */
+function Tu({ texto = 'tú' }: { texto?: string }) {
+  return (
+    <span className="shrink-0 rounded bg-sky-950/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-sky-300">
+      {texto}
     </span>
   )
 }
