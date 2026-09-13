@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { calculaEstadisticas, horaDeCierre, type Polilinea } from '../functions/lib/eventStats'
 import real from './fixtures/carrera-real.json'
+import { readFileSync } from 'node:fs'
+import { gunzipSync } from 'node:zlib'
 
 /**
  * Los resultados de una carrera: llegadas, tiempos, mejor kilómetro y puestos.
@@ -252,6 +254,132 @@ describe('quien no llega a meta', () => {
   })
 })
 
+// ── Dónde se le acabó la carrera a cada uno ─────────────────────────────
+
+/**
+ * El kilómetro que vale es el del abandono.
+ *
+ * Todo esto pasó en la CanFranc-CanFranc, y los resultados publicados decían
+ * cosas que no habían ocurrido: a quien se retiró en el km 22 le contaban 54,8
+ * —los que hizo en coche por la carretera del valle—, su "kilómetro más
+ * rápido" era el del viaje de vuelta a 24 km/h, y le cobraban doce horas y
+ * media por veintidós kilómetros porque la baliza siguió encendida hasta la
+ * tarde. Y al revés: a quien se salió del trazado publicado media hora y volvió
+ * a él más adelante se le congelaba la carrera en el punto donde se le perdió
+ * la pista.
+ *
+ * La diferencia entre los dos casos no es el hueco: es si lo que habría que
+ * haber avanzado cabe a la marcha que lleva demostrada.
+ */
+describe('cuando alguien deja la carrera', () => {
+  const linea = recorridoRecto(100, 25)
+  const HORA = 3_600_000
+  /** Quieto en el kilómetro `km`, una lectura cada dos minutos. */
+  const parado = (km: number, t0: number, minutos: number) =>
+    Array.from({ length: Math.floor(minutos / 2) + 1 }, (_, i) => enKm(km, t0 + i * 120_000))
+
+  it('la carrera acaba donde se paró, no donde apagó la baliza', () => {
+    // El caso de Soriano: cuatro horas hasta el km 20 y la baliza emitiendo
+    // otras cinco desde el mismo sitio. Ni el tiempo ni el ritmo son de nueve
+    // horas: son de las cuatro que estuvo corriendo.
+    const corre = corriendo(0, 20, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...parado(20, fin + 120_000, 300)])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeGreaterThan(19.7)
+    expect(c.km!).toBeLessThanOrEqual(20.01)
+    expect(c.minutos!).toBeGreaterThan(230)
+    expect(c.minutos!).toBeLessThan(245)
+    expect(c.abandono).toBe(true)
+  })
+
+  it('sigue retirado aunque no apague la baliza: nadie está obligado a apagarla', () => {
+    const corre = corriendo(0, 20, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const fila = {
+      ...corredor('A', [...corre, ...parado(20, fin + 120_000, 300)]),
+      status: 'active',
+    }
+    expect(calculaEstadisticas([fila], 100, linea, 0, 'run').corredores[0].abandono).toBe(true)
+  })
+
+  it('pero dormir dos horas en el km 10 y seguir NO es retirarse', () => {
+    // En una ultra se duerme, se come y se cambia uno de ropa. Lo que convierte
+    // la parada en retirada es que ya no se vuelva a avanzar.
+    const ida = corriendo(0, 10, 5, 120)
+    const t1 = ida[ida.length - 1].t
+    const siesta = parado(10, t1 + 120_000, 120)
+    const sigue = corriendo(10, 20, 5, 120, t1 + 2 * HORA + 240_000)
+    const c = calculaEstadisticas(
+      [corredor('A', [...ida, ...siesta, ...sigue])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeCloseTo(20, 1)
+    // Las dos horas de siesta CUENTAN: estuvo en carrera todo el rato.
+    expect(c.minutos!).toBeGreaterThan(350)
+  })
+
+  it('el coche que va pegado al recorrido no suma kilómetros', () => {
+    // La carretera del valle va al lado del trazado, así que el coche cae
+    // dentro de la tolerancia y se proyecta igual de bien que un corredor. Lo
+    // que lo delata es la velocidad.
+    const corre = corriendo(0, 10, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const coche = corriendo(10, 60, 60, 60, fin + 60_000)
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...coche])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeLessThan(10.5)
+  })
+
+  it('salirse del trazado y volver a él más adelante no congela la carrera', () => {
+    // El caso de JM: la organización cambió un tramo por unos trabajos
+    // forestales y el GPX publicado no lo recogía. Cuarenta minutos fuera de la
+    // tolerancia y, al volver, la ventana ya no le alcanzaba: los resultados lo
+    // dejaban dieciocho kilómetros por detrás de donde estaba.
+    const corre = corriendo(0, 10, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const desvio = Array.from({ length: 20 }, (_, i) => ({
+      ...enKm(10 + i * 0.15, fin + (i + 1) * 120_000), lon: LON0 + 0.02,
+    }))
+    const vuelve = corriendo(13, 20, 5, 120, fin + 42 * 60_000)
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...desvio, ...vuelve])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeCloseTo(20, 1)
+  })
+
+  it('pero el que reaparece en meta después de irse a casa, no vuelve', () => {
+    // El caso de Malore: se retiró en el km 18 y su baliza reapareció seis
+    // horas después en el pueblo de la salida, que en un circuito es también la
+    // meta. Para ser él tendría que haber hecho ochenta kilómetros a trece por
+    // hora, y lleva toda la carrera a cuatro.
+    const corre = corriendo(0, 10, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const enCasa = Array.from({ length: 30 }, (_, i) => ({
+      ...enKm(60, fin + 3 * HORA + i * 120_000), lon: LON0 + 0.05,
+    }))
+    const reaparece = parado(90, fin + 6 * HORA, 30)
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...enCasa, ...reaparece])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeLessThan(10.5)
+    expect(c.finished).toBe(false)
+  })
+
+  it('una lectura que no sabe dónde está no mueve a nadie', () => {
+    // Una posición con kilómetro y medio de incertidumbre no dice nada, y sin
+    // embargo arrastraba el kilómetro, la traza y la hora de salida.
+    const corre = corriendo(0, 10, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const bruma = { ...enKm(14, fin + 120_000), a: 1500 }
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, bruma])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeLessThan(10.5)
+  })
+})
+
 // ── Cuándo se da por terminada ──────────────────────────────────────────
 
 /**
@@ -333,5 +461,82 @@ describe('una carrera real, de punta a punta', () => {
   it('la distancia es la del recorrido y no la que suma el GPS temblando', () => {
     // Medida sobre la traza cruda daba 8,69 km en una carrera de 7,46.
     for (const c of r.corredores) expect(c.km!).toBeCloseTo(real.totalKm, 1)
+  })
+})
+
+// ── La CanFranc-CanFranc, tal cual ocurrió ──────────────────────────────
+
+/**
+ * Los resultados de la CanFranc-CanFranc 2026, con las cuatro trazas de verdad.
+ *
+ * Se publicaron mal, y así es como se vio que esto estaba roto: a Soriano, que
+ * se retiró en el km 22, la clasificación le daba 54,8 km y el récord de
+ * kilómetro más rápido de la carrera —2:28, o sea 24 km/h, el coche de vuelta
+ * por la carretera del valle—. La causa de fondo era que el evento no tenía
+ * trazado guardado (una consulta con un parámetro de más que fallaba en
+ * silencio desde siempre), así que los kilómetros se medían sumando la traza,
+ * que cuenta también lo que se anda en coche.
+ *
+ * Con el trazado y las reglas de esta casa, las cuatro carreras salen como
+ * fueron: Malore se retiró en el 18, Soriano en el 22, jie en el 32 y JM llegó
+ * al 50 —después de salirse del trazado publicado y volver a él, que es lo que
+ * antes le congelaba la carrera—.
+ */
+describe('la CanFranc-CanFranc, con sus cuatro balizas', () => {
+  const dir = new URL('./fixtures/canfranc-2026/', import.meta.url)
+  const balizas = JSON.parse(readFileSync(new URL('balizas.json', dir), 'utf8')) as {
+    username: string; status: string; started_at: number; updated_at: number
+    track_km: number | null; trail: unknown
+  }[]
+  const rec = JSON.parse(
+    gunzipSync(readFileSync(new URL('recorrido.json.gz', dir))).toString(),
+  ) as { track: { points: { lat: number; lon: number }[]; cumKm: number[]; totalDistanceKm: number } }
+
+  // El mismo resumen del recorrido que manda el cliente: un vértice cada 25 m.
+  const { points, cumKm } = rec.track
+  const paso = Math.max(0.025, cumKm[cumKm.length - 1] / 6000)
+  const linea: Polilinea = []
+  let ultimo = -Infinity
+  for (let i = 0; i < points.length; i++) {
+    if (cumKm[i] - ultimo < paso) continue
+    linea.push([+points[i].lat.toFixed(6), +points[i].lon.toFixed(6), +cumKm[i].toFixed(3)])
+    ultimo = cumKm[i]
+  }
+
+  const r = calculaEstadisticas(
+    balizas.map((s) => ({
+      username: s.username, bib: null, emoji: null, color: null,
+      status: s.status, startedAt: s.started_at, updatedAt: s.updated_at,
+      trackKm: s.track_km, trail: JSON.stringify(s.trail),
+    })),
+    rec.track.totalDistanceKm, linea, Date.parse('2026-09-11T20:00:00Z'), 'run',
+  )
+  const de = (u: string) => r.corredores.find((c) => c.username === u)!
+
+  it('Soriano se queda en el kilómetro donde se paró, no donde llegó el coche', () => {
+    expect(de('Soriano').km!).toBeGreaterThan(21)
+    expect(de('Soriano').km!).toBeLessThan(23)
+  })
+
+  it('y su tiempo es el de la carrera que hizo, no el de la baliza encendida', () => {
+    // Estuvo emitiendo hasta las 18:29, veintidós horas y media después de la
+    // salida. Correr, corrió siete.
+    expect(de('Soriano').minutos!).toBeLessThan(8 * 60)
+  })
+
+  it('JM llega al kilómetro 50 aunque el trazado publicado no fuera por donde él', () => {
+    expect(de('JM').km!).toBeGreaterThan(49)
+  })
+
+  it('nadie llega a meta, y los cuatro constan como retirados', () => {
+    expect(r.finishers).toBe(0)
+    expect(r.corredores.every((c) => c.abandono)).toBe(true)
+  })
+
+  it('el kilómetro más rápido de la carrera lo hizo alguien corriendo', () => {
+    // El récord publicado eran 2:28 —24 km/h— en el km 46,5 de quien ya se
+    // había retirado en el 22. A pie, en una de cien y de noche, no baja de
+    // cinco minutos.
+    expect(r.fastestKm!.minutos).toBeGreaterThan(5)
   })
 })

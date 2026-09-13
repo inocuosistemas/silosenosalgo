@@ -60,6 +60,13 @@ export function sinSaltos(pts: TrailPoint[], actividad: string | null | undefine
   const lim = limitesDe(actividad)
   const out: TrailPoint[] = []
   for (const p of pts) {
+    // Y fuera también lo que el propio receptor declara que no sabe. Una
+    // lectura con un kilómetro y medio de incertidumbre no dice dónde está
+    // nadie —la primera de jie en la CanFranc traía 1447 m—, y sin embargo
+    // arrastra la traza, el kilómetro y la hora de salida. El umbral es alto a
+    // propósito: en un valle cerrado se emite con cien metros de error y esa
+    // lectura sigue valiendo.
+    if (p.a != null && p.a > 300) continue
     const ant = out[out.length - 1]
     if (ant) {
       const dt = (p.t - ant.t) / 1000
@@ -157,6 +164,54 @@ function kmMasRapido(pts: TrailPoint[], acumulado: number[]): { minutos: number;
   return mejor
 }
 
+/**
+ * Cuánto se puede uno mover sin estar avanzando en la carrera: doscientos
+ * cincuenta metros. Es el tamaño de un avituallamiento con su bolsa, su baño y
+ * su silla, y también el vaivén que la proyección le echa a quien está parado.
+ */
+const PARADA_KM = 0.25
+/**
+ * Y cuánto tiene que durar para que sea el final y no un descanso. Veinticinco
+ * minutos, los mismos que usa la detección en directo: menos que eso es comer.
+ */
+const PARADA_MIN = 25
+
+/**
+ * Dónde y cuándo se le acabó la carrera a quien no llegó a meta.
+ *
+ * Mirado DESPUÉS, esto es mucho más fácil que en directo: no hay que adivinar
+ * si el que lleva dos horas parado va a seguir, porque ya se sabe si siguió. Si
+ * la traza se acaba sin que vuelva a avanzar, la carrera terminó cuando se
+ * paró, y no cuando apagó la baliza cuatro horas después en su casa.
+ *
+ * Importa para todo lo que se publica: Soriano se retiró en el km 22 de la
+ * CanFranc y su baliza siguió encendida hasta la tarde, así que los resultados
+ * le cobraban doce horas y media por veintidós kilómetros —y su "kilómetro más
+ * rápido" era el del viaje de vuelta—.
+ *
+ * Se busca el llano final: desde el punto más lejano que alcanzó, hacia atrás
+ * mientras no se haya movido más que dentro de un avituallamiento. Si ese llano
+ * dura más de veinticinco minutos, ahí dejó la carrera. Puede dejar fuera hasta
+ * doscientos cincuenta metros de los que sí hizo, y es a propósito: la hora y
+ * el kilómetro que se publican son los de un punto real de su traza, y no una
+ * mezcla de dos momentos distintos.
+ */
+function paradaFinal(serie: [number, number, number][]): { ms: number; km: number } | null {
+  if (serie.length < 2) return null
+  let iMax = 0
+  for (let i = 1; i < serie.length; i++) if (serie[i][1] > serie[iMax][1]) iMax = i
+  const kmMax = serie[iMax][1]
+  let j = iMax
+  while (j > 0 && kmMax - serie[j - 1][1] <= PARADA_KM) j--
+  // El llano se mide hasta el ÚLTIMO punto que sigue dentro de él, no hasta el
+  // más lejano: quien se para a las ocho y sigue emitiendo hasta las once lleva
+  // tres horas parado, aunque el punto más lejano lo tocara al principio.
+  let fin = iMax
+  while (fin + 1 < serie.length && kmMax - serie[fin + 1][1] <= PARADA_KM) fin++
+  const quieto = (serie[fin][0] - serie[j][0]) / 60_000
+  return quieto >= PARADA_MIN ? { ms: serie[j][0], km: serie[j][1] } : null
+}
+
 /** El trazado guardado del evento: [lat, lon, kmAcumulado] por punto. */
 export type Polilinea = [number, number, number][]
 
@@ -252,7 +307,37 @@ function toleranciaMeta(linea: Polilinea): number {
  */
 const FUERA_DE_RUTA_M = 400
 
-function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = FUERA_DE_RUTA_M): Avance | null {
+/**
+ * Lo cerca que hay que pasar del trazado para RECOLOCAR a alguien que se había
+ * perdido. Ciento cincuenta metros, mucho más estricto que los cuatrocientos de
+ * andar por casa: recolocar es afirmar "estaba aquí" sin haber visto el camino,
+ * y eso solo se dice cuando la lectura cae encima del recorrido.
+ */
+const RECOLOCA_M = 150
+/**
+ * Cuánto puede haber avanzado mientras no se le veía: el doble de la marcha que
+ * lleva demostrada en lo que va de carrera.
+ *
+ * Esto es lo que permite que la ventana de ±3 km VUELVA A ENGANCHAR. La ventana
+ * es lo que hace que un circuito se mida bien, pero tiene un precio: quien se
+ * sale del trazado publicado —un desvío señalizado, un tramo cortado, media
+ * hora sin cobertura— reaparece más adelante, la ventana ya no le alcanza y su
+ * carrera se queda congelada donde se le perdió la pista. Le pasó a JM en la
+ * CanFranc: los resultados lo dejaban en el km 32 cuando iba por el 50.
+ *
+ * Y su propia marcha es la única vara honesta para decidir si el reenganche es
+ * creíble. El techo de la actividad no sirve —25 km/h dejan pasar un coche si
+ * el hueco es de horas— y el doble de su media da margen de sobra: nadie
+ * duplica su ritmo de ultra justo en el tramo que no se vio. Con esta regla,
+ * quien se fue a casa no vuelve a la clasificación: la baliza de Malore
+ * reapareció en Canfranc seis horas después de retirarse en el km 18, y para
+ * ser él tendría que haber hecho 80 km a 13 km/h.
+ */
+const SOSTENIDO_FACTOR = 2
+
+function avanceSobreRuta(
+  linea: Polilinea, pts: TrailPoint[], maxKmh = Infinity, toleranciaM = FUERA_DE_RUTA_M,
+): Avance | null {
   if (linea.length < 2 || pts.length === 0) return null
   let previo: number | null = null
   let max = 0
@@ -261,6 +346,18 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = FUER
   let dentro = 0
   const serie: [number, number, number][] = []
   let anterior: TrailPoint | null = null
+  /** El último punto ACEPTADO: de él sale la velocidad con la que se juzga. */
+  let ultimoMs = 0
+  /** Busca el vértice más cercano entre dos índices. */
+  const masCerca = (p: TrailPoint, desde: number, hasta: number) => {
+    let mejor = -1
+    let mejorD = Infinity
+    for (let i = desde; i <= hasta; i++) {
+      const d = metros({ t: 0, lat: p.lat, lon: p.lon }, { t: 0, lat: linea[i][0], lon: linea[i][1] })
+      if (d < mejorD) { mejorD = d; mejor = i }
+    }
+    return { mejor, mejorD }
+  }
   for (const p of pts) {
     let desde = 0
     let hasta = linea.length - 1
@@ -270,13 +367,29 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = FUER
       while (hasta + 1 < linea.length && linea[hasta + 1][2] <= previo + 3) hasta++
       if (desde > hasta) desde = hasta
     }
-    let mejor = -1
-    let mejorD = Infinity
-    for (let i = desde; i <= hasta; i++) {
-      const d = metros({ t: 0, lat: p.lat, lon: p.lon }, { t: 0, lat: linea[i][0], lon: linea[i][1] })
-      if (d < mejorD) { mejorD = d; mejor = i }
+    let { mejor, mejorD } = masCerca(p, desde, hasta)
+    let tolerancia = toleranciaM
+    if ((mejor < 0 || mejorD > toleranciaM) && previo !== null && p.t > ultimoMs) {
+      // No encaja donde se le esperaba: puede haber reaparecido más adelante.
+      // Se busca en TODO el recorrido, pero solo hacia delante —una carrera no
+      // se desanda—, solo si cae ENCIMA del trazado, y solo si lo que tendría
+      // que haber avanzado desde la última lectura buena cabe a su marcha.
+      const horas = (p.t - ultimoMs) / 3_600_000
+      const hechas = (ultimoMs - (desdeMs ?? ultimoMs)) / 3_600_000
+      const suya = hechas > 0 ? max / hechas : 0
+      const techo = Math.min(maxKmh, Math.max(suya * SOSTENIDO_FACTOR, 1))
+      const lejos = masCerca(p, 0, linea.length - 1)
+      if (
+        lejos.mejor >= 0 && lejos.mejorD <= RECOLOCA_M
+        && linea[lejos.mejor][2] > previo
+        && linea[lejos.mejor][2] - previo <= horas * techo
+      ) {
+        mejor = lejos.mejor
+        mejorD = lejos.mejorD
+        tolerancia = RECOLOCA_M
+      }
     }
-    if (mejor < 0 || mejorD > toleranciaM) continue
+    if (mejor < 0 || mejorD > tolerancia) continue
     // Afinar sobre los dos segmentos que salen de ese vértice: el punto casi
     // nunca cae justo encima de uno, y quedarse en el vértice redondea el
     // kilómetro a la resolución del trazado.
@@ -287,7 +400,17 @@ function avanceSobreRuta(linea: Polilinea, pts: TrailPoint[], toleranciaM = FUER
       const r = enSegmento(p, linea[i], linea[j])
       if (r.d < dMin) { dMin = r.d; km = r.km }
     }
+    // Y un avance que no se puede hacer con las piernas no es un avance: es un
+    // coche que va por la carretera del valle, pegado al recorrido y por tanto
+    // dentro de la tolerancia. Se descarta el punto sin mover la ventana, así
+    // que el viaje entero se queda fuera y quien lo hizo conserva el kilómetro
+    // en el que se bajó.
+    if (previo !== null && ultimoMs > 0 && p.t > ultimoMs) {
+      const kmh = (km - previo) / ((p.t - ultimoMs) / 3_600_000)
+      if (kmh > maxKmh) continue
+    }
     previo = km
+    ultimoMs = p.t
     dentro++
     if (desdeMs === null) desdeMs = p.t
     serie.push([p.t, previo, anterior ? metros(anterior, p) : 0])
@@ -372,14 +495,11 @@ export function calculaEstadisticas(
     const acumulado: number[] = [0]
     for (let i = 1; i < pts.length; i++) acumulado.push(acumulado[i - 1] + metros(pts[i - 1], pts[i]))
 
-    // Lo que vale es el AVANCE SOBRE EL RECORRIDO, y por este orden: el
-    // proyectado contra el trazado guardado (lo mejor: no lo infla el ruido ni
-    // lo acorta perder cobertura al final), el que reportó la baliza, y solo
-    // como último recurso la suma de la traza — que mide otra cosa y es lo que
-    // daba 8,69 km en una carrera de 7,46.
+    // La suma de la traza: el último recurso, porque mide otra cosa —es lo que
+    // daba 8,69 km en una carrera de 7,46— y porque cuenta igual de bien lo que
+    // se anda que lo que se hace en coche.
     const kmTraza = acumulado[acumulado.length - 1] / 1000
-    const avance = linea ? avanceSobreRuta(linea, pts) : null
-    const km = avance?.km ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
+    const avance = linea ? avanceSobreRuta(linea, pts, lim.maxKmh) : null
 
     // El crono empieza en la SALIDA OFICIAL, como en cualquier carrera. Es lo
     // único que hace comparables los tiempos de gente que fue junta: la hora a
@@ -400,7 +520,18 @@ export function calculaEstadisticas(
     // andando por el último tramo ya está en el 97% antes de empezar —a JM le
     // pasó, y su meta habría quedado fijada a las 05:31—.
     const cruce = crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
-    const hasta = cruce?.ms ?? avance?.enMs ?? pts[pts.length - 1].t
+    // Y si no llegó, la carrera se le acabó cuando dejó de avanzar: ahí está el
+    // abandono, y ese es el kilómetro que vale.
+    const parada = cruce ? null : paradaFinal(avance?.serie ?? [])
+    const hasta = cruce?.ms ?? parada?.ms ?? avance?.enMs ?? pts[pts.length - 1].t
+    // El kilómetro que se publica, por este orden: donde dejó la carrera, el
+    // punto más lejano que alcanzó SOBRE EL RECORRIDO, el que reportó su propia
+    // baliza y, si no hay trazado guardado, la suma de la traza. Sin trazado no
+    // hay forma de descontar lo que no se hizo corriendo, así que a los eventos
+    // sin recorrido publicado les sigue pasando: es el precio de no tenerlo.
+    const km = parada?.km
+      ?? avance?.km
+      ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
     // andando al coche, dar la vuelta a por el que viene detrás o irse a
@@ -432,9 +563,11 @@ export function calculaEstadisticas(
       margenMs: cruce ? Math.round(cruce.margenMs) : null,
       puesto: null,
       tracked: true,
-      // Paró la baliza sin cruzar: se retiró. Apagarla es decir "para mí se ha
-      // acabado", y si no pasó por meta, la única lectura posible es esa.
-      abandono: cruce === null && f.status === 'ended',
+      // Se retiró: o paró la baliza sin cruzar —apagarla es decir "para mí se
+      // ha acabado"— o dejó de avanzar y ya no volvió a hacerlo. Lo segundo
+      // hace falta porque hay quien no la apaga nunca: la de Soriano siguió
+      // emitiendo desde el coche hasta la tarde siguiente.
+      abandono: cruce === null && (f.status === 'ended' || parada !== null),
     })
   }
 
