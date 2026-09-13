@@ -205,7 +205,10 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       if (!p) return { ...o, settled: true }
       return { ...o, finished: p.llega, finishedAt: p.llega ? p.acabaEn : null, settled: true }
     })
-    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt, limitMin ?? null, { totalKm })
+    // Con el kilómetro más rápido de momento: sin él, esos pronósticos no
+    // sumaban ni en provisional.
+    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt, limitMin ?? null,
+      { totalKm, recordKm: data.recordVivo?.username ?? null })
     return new Map(tabla.map((s) => [s.author, s]))
   }, [data, outcomes, proyecciones])
 
@@ -559,6 +562,24 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
               </li>
             ))}
           </ul>
+          {/* Quién lleva el kilómetro más rápido, que también se apuesta y hasta
+              ahora solo se sabía al cerrar. */}
+          {data?.recordVivo && (() => {
+            const r = data.recordVivo
+            const loDijeron = data.bets.filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length
+            return (
+              <p className="flex items-center gap-1.5 border-t border-slate-800/70 px-3.5 py-2 text-[11px] text-amber-100">
+                <span aria-hidden>⚡</span>
+                <span className="min-w-0 flex-1">
+                  Km más rápido, de momento: <b>{r.username}</b>
+                  <span className="text-amber-200/60"> · {fmtRitmo(r.minutos)} desde el km {r.desdeKm.toFixed(1)}</span>
+                </span>
+                {loDijeron > 0 && (
+                  <span className="shrink-0 text-amber-300/80">{loDijeron === 1 ? '1 lo dijo' : `${loDijeron} lo dijeron`}</span>
+                )}
+              </p>
+            )
+          })()}
           <p className="border-t border-slate-800/70 px-3.5 py-2 text-[10px] leading-snug text-slate-500">
             Contado con el ritmo que lleva cada uno ahora mismo: cambia con cada
             posición que llega, y no vale nada hasta que crucen la meta de verdad.

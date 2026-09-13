@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import { recordVivo, tocaRecordVivo } from '../../../lib/recordVivo'
 import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
@@ -39,17 +40,18 @@ const FINISH_WINDOW_MS = 3 * 24 * 3600_000
 
 interface EventRow {
   id: string; startsAt: number | null; betsEnabled: number; planTotalKm: number | null
+  endedAt: number | null
 }
 
 async function loadEvent(env: Env, id: string): Promise<EventRow | null> {
   return env.DB.prepare(
     `SELECT id, starts_at AS startsAt, bets_enabled AS betsEnabled,
-            plan_total_km AS planTotalKm
+            plan_total_km AS planTotalKm, ended_at AS endedAt
        FROM events WHERE id = ?`,
   ).bind(id).first<EventRow>()
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env, params, waitUntil }) => {
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
   const ev = await loadEvent(env, id)
@@ -88,6 +90,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   else if (!abierta) whyNot = 'cerrada'
   else canBet = true
 
+  // El kilómetro más rápido de momento, para que el "cómo va" pueda decir quién
+  // lo lleva y sumar esos pronósticos en provisional. Si falla, la porra se
+  // enseña igual sin él. Ver `lib/recordVivo`.
+  const recordAhora = tocaRecordVivo(ev, Date.now())
+    ? await recordVivo(env, id, ev.planTotalKm ?? null, new URL(request.url).origin, waitUntil).catch(() => null)
+    : null
+
   const res: EventBetsResponse = {
     enabled,
     startsAt: ev.startsAt,
@@ -95,6 +104,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     me: user?.username ?? null,
     canBet,
     ...(canBet ? {} : { whyNot }),
+    ...(recordAhora ? { recordVivo: recordAhora } : {}),
     players,
     bets,
   }

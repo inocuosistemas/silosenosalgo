@@ -674,6 +674,11 @@ export interface EventBetsResponse {
   /** Cuántos han jugado. Va aparte porque sin nombres no se puede contar. */
   players: number
   bets: EventBet[]
+  /**
+   * El kilómetro más rápido HASTA AHORA, solo mientras se corre. Con la carrera
+   * cerrada manda el de los resultados congelados.
+   */
+  recordVivo?: { username: string; minutos: number; desdeKm: number } | null
 }
 
 /** POST /api/events/:id/bets — la porra de quien la manda, entera. */

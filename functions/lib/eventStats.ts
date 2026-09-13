@@ -845,7 +845,7 @@ export async function leePolilinea(env: Env, eventId: string): Promise<Polilinea
 
 /** Cierra el evento a la hora dada y guarda los resultados. */
 /** Los resultados tal como están AHORA, sin guardarlos ni cerrar nada. */
-async function calculaAhora(env: Env, eventId: string, totalKm: number | null): Promise<EventStats> {
+export async function calculaAhora(env: Env, eventId: string, totalKm: number | null): Promise<EventStats> {
   const linea = await leePolilinea(env, eventId)
   const ev = await env.DB.prepare('SELECT starts_at AS startsAt, activity FROM events WHERE id = ?')
     .bind(eventId).first<{ startsAt: number | null; activity: string | null }>()
