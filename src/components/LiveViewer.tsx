@@ -159,11 +159,20 @@ function freshness(updatedAt: number, staleMs: number, ahora?: number): { label:
 }
 
 /** Format a minutes magnitude as H:MM h (or "M min" under an hour). */
+/**
+ * Una DURACIÓN en palabras: "15 h 24 min", "18 min".
+ *
+ * Con dos puntos —"15:24 h"— se lee como una hora del reloj, y en esta pantalla
+ * conviven las dos cosas: al lado de "Meta estimada → 13:11" un "15:24 h por
+ * detrás" no se sabe si son las tres y veinticuatro o quince horas y pico. Es
+ * más largo escrito así, y se entiende a la primera.
+ */
 function hhmm(min: number): string {
   const a = Math.abs(Math.round(min))
   const h = Math.floor(a / 60)
   const m = a % 60
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`
+  if (h === 0) return `${m} min`
+  return m === 0 ? `${h} h` : `${h} h ${m} min`
 }
 
 /** Sampling interval as a short "cada N s / N min" cadence. */
@@ -1430,6 +1439,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     }
   }
 
+  /**
+   * La hora a la que cierra la META: el último cierre del recorrido.
+   *
+   * Hace falta para poder decir lo único que de verdad importa de una
+   * estimación de llegada: si llega DENTRO DE CONTROL. Sin esto, la pantalla
+   * anunciaba "meta estimada 13:11" tan tranquila con el cierre a las 13:00, y
+   * quien lo leía tenía que ir a buscar la otra hora para entenderlo.
+   */
+  let cierreMeta: Date | null = null
+  for (const r of planRows ?? []) {
+    const c = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon))
+    if (c && (!cierreMeta || c.getTime() > cierreMeta.getTime())) cierreMeta = c
+  }
+
   // Elapsed since the session start, and overall average speed (covered distance
   // / elapsed, stops included). Uses on-route km when available, else trail km.
   const elapsedMin = !preStart ? (refNow - sessionStart.getTime()) / 60_000 : 0
@@ -1968,7 +1991,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Runner-only: surface the detected form change and let the runner CONFIRM the
   // new forecast (they know if the slowdown was circumstantial). The card shows
   // the detected % and its consequences (new finish, next cut-off margin).
-  const recalibrationCard = embedded && suggestFactor && detectedFactor != null ? (() => {
+  //
+  // Y solo MIENTRAS SE CORRE. Preguntarle a alguien "¿tu nuevo estado de forma,
+  // o algo puntual?" un día después de haber terminado —o de haberlo dejado— no
+  // tiene respuesta posible: no hay previsión que actualizar porque ya no queda
+  // carrera por delante.
+  const recalibrationCard = embedded && suggestFactor && detectedFactor != null
+    && !ended && !reachedGoal ? (() => {
     const pctNum = Math.round((detectedFactor - 1) * 100)
     const slower = pctNum >= 0
     const newFinish = projectedETAAt(totalKm, detectedFactor)
@@ -1979,13 +2008,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <p className="text-sm font-semibold">
           {slower ? '📉' : '📈'} Ritmo detectado: {slower ? '+' : '−'}{Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
         </p>
-        {newFinish && (
-          <p className="mt-0.5 text-xs opacity-95">
-            Meta estimada → <span className="font-semibold">{clockDay(newFinish, sessionStart)}</span>
-            {vsPlanMin != null && <> · {deltaLabel(vsPlanMin)}</>}
-            {suggMargin != null && nextCutoff && <> · corte {nextCutoff.name} {suggMargin < 0 ? '−' : '+'}{hhmm(suggMargin)}{suggMargin < 15 ? ' ⚠️' : ''}</>}
-          </p>
-        )}
+        {newFinish && (() => {
+          // Lo que de verdad se pregunta quien va con el reloj encima: ¿llego
+          // dentro de control? Si la estimación se pasa del cierre de meta, eso
+          // manda sobre cualquier otra cosa que diga la tarjeta.
+          const fuera = cierreMeta != null && newFinish.getTime() > cierreMeta.getTime()
+          return (
+            <>
+              <p className="mt-0.5 text-xs opacity-95">
+                Meta estimada → <span className="font-semibold">{clockDay(newFinish, sessionStart)}</span>
+                {vsPlanMin != null && <> · llegarías {deltaLabel(vsPlanMin)}</>}
+                {suggMargin != null && nextCutoff && <> · corte {nextCutoff.name} {suggMargin < 0 ? '−' : '+'}{hhmm(suggMargin)}{suggMargin < 15 ? ' ⚠️' : ''}</>}
+              </p>
+              {fuera && (
+                <p className="mt-0.5 text-xs font-semibold text-rose-300">
+                  ⛔ Fuera de control: la meta cierra a las {clockDay(cierreMeta!, sessionStart)}
+                </p>
+              )}
+            </>
+          )
+        })()}
         <p className="mt-1 text-[11px] opacity-70">¿Tu nuevo estado de forma, o algo puntual (niebla, pérdida…)?</p>
         <div className="mt-2 flex gap-2">
           <button onClick={approveFactor} className="flex-1 rounded-lg bg-sky-600 py-1.5 text-xs font-semibold text-white">Actualizar previsión</button>

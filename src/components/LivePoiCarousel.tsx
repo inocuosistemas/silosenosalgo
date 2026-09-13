@@ -154,13 +154,24 @@ export function LivePoiCarousel(props: Props) {
             tabIndex={0}
             aria-label={`Ampliar ${card.name}`}
             onPointerDown={(e) => { tocoEn.current = { x: e.clientX, y: e.clientY } }}
-            onClick={(e) => {
-              // Arrastrar el carrusel termina en un "click" que abriría el zoom
-              // sin querer. Diez píxeles separan las dos intenciones.
+            // Se abre en el `pointerup` y NO en el `click`, y esto no es un
+            // capricho: en el Safari del iPhone —o sea, dentro de la app— un
+            // `div` que no es un control de verdad NO recibe `click` al tocarlo
+            // con el dedo salvo que lleve `cursor: pointer`, y este lleva
+            // `zoom-in`. En el ordenador funcionaba y en el móvil, que es donde
+            // se usa, tocar un tramo no hacía nada.
+            //
+            // El `pointerup` llega siempre. Y arrastrar el carrusel no lo
+            // dispara: al empezar a desplazarse, el navegador manda
+            // `pointercancel` en vez de `pointerup`. Los diez píxeles se quedan
+            // igualmente, para el dedo que se mueve sin llegar a arrastrar.
+            onPointerUp={(e) => {
               const p = tocoEn.current
+              tocoEn.current = null
               if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) return
               setZoom(i)
             }}
+            onPointerCancel={() => { tocoEn.current = null }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoom(i) } }}
           >
             <LivePoiCard

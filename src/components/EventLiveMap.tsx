@@ -1211,6 +1211,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             />
           )}
           <FitAll points={posiciones} route={route?.pts} />
+          <VerTodo points={posiciones} route={route?.pts} />
         </MapContainer>
       ) : (
         // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
@@ -2305,17 +2306,73 @@ function FitAll({ points, route }: { points: [number, number][]; route?: [number
   const hecho = useRef<'nada' | 'puntos' | 'ruta'>('nada')
   useEffect(() => {
     if (hecho.current === 'ruta') return
-    if (route && route.length > 1) {
-      hecho.current = 'ruta'
-      map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
-      return
+    /**
+     * Devuelve si ha podido encuadrar de verdad.
+     *
+     * Porque puede no poder: si el contenedor todavía no tiene su alto —el
+     * `100dvh` de un móvil se asienta después de la primera pintada, y el mapa
+     * se monta antes—, Leaflet calcula el zoom contra un lienzo de cero y se va
+     * al mínimo, o sea a ver el continente. Y como el encuadre se da por hecho
+     * una sola vez, esa vista se quedaba puesta para siempre. Así que si no hay
+     * tamaño, no se encuadra: se vuelve a intentar.
+     */
+    const encuadra = (): boolean => {
+      map.invalidateSize()
+      const tam = map.getSize()
+      if (tam.y < 80 || tam.x < 80) return false
+      if (route && route.length > 1) {
+        hecho.current = 'ruta'
+        map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
+        return true
+      }
+      if (hecho.current === 'puntos' || points.length === 0) return true
+      hecho.current = 'puntos'
+      if (points.length === 1) { map.setView(points[0], 14); return true }
+      map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
+      return true
     }
-    if (hecho.current === 'puntos' || points.length === 0) return
-    hecho.current = 'puntos'
-    if (points.length === 1) { map.setView(points[0], 14); return }
-    map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
+    if (encuadra()) return
+    const t = window.setTimeout(encuadra, 300)
+    return () => window.clearTimeout(t)
   }, [points, route, map])
   return null
+}
+
+/**
+ * El mando de "ver toda la carrera".
+ *
+ * El mapa se encuadra solo al abrirlo, pero después se arrastra, se hace zoom
+ * para mirar a alguien y se acaba perdido a treinta kilómetros — y volver
+ * significaba recargar la página. Un botón que devuelve el recorrido entero a la
+ * pantalla es de las cosas que se usan cada dos minutos y que no estaban.
+ */
+function VerTodo({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
+  const map = useMap()
+  if ((!route || route.length < 2) && points.length === 0) return null
+  return (
+    <button
+      // El botón vive DENTRO del mapa, así que sus clics y su rueda son clics y
+      // rueda del mapa si no se cortan aquí: sin esto, pulsarlo arrastra el mapa
+      // y girar la rueda encima hace zoom en vez de nada.
+      ref={(el) => {
+        if (!el) return
+        L.DomEvent.disableClickPropagation(el)
+        L.DomEvent.disableScrollPropagation(el)
+      }}
+      onClick={() => {
+        map.invalidateSize()
+        if (route && route.length > 1) map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
+        else if (points.length === 1) map.setView(points[0], 14)
+        else map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
+      }}
+      title="Ver toda la carrera"
+      aria-label="Ver toda la carrera"
+      className="absolute right-2 z-[500] rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1.5 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
+      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 120px)' }}
+    >
+      ⤢
+    </button>
+  )
 }
 
 /**
