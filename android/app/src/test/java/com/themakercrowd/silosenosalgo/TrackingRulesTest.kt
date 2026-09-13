@@ -327,6 +327,27 @@ class TrackingRulesTest {
         assertEquals(15_000L, andando)
     }
 
+    @Test fun `ahorro enciende el GPS menos a menudo que equilibrado`() {
+        // En Android el GPS se enciende al ritmo del tiempo minimo, no al de la
+        // distancia: con el mismo reloj, Ahorro solo se ahorraba los envios.
+        val ahorro = TrackingRules.ajusteGps(TrackingRules.ritmoDe(TrackingRules.Perfil.AHORRO), BeaconActivity.WALK)
+        val equilibrado = TrackingRules.ajusteGps(TrackingRules.ritmoDe(TrackingRules.Perfil.EQUILIBRADO), BeaconActivity.WALK)
+        assertEquals(15_000L, equilibrado.tiempoMinimoMs)
+        assertEquals(60_000L, ahorro.tiempoMinimoMs)
+    }
+
+    @Test fun `ahorro no pierde su resolucion yendo rapido`() {
+        // El reloj se estira con la distancia, pero a paso rapido de cada
+        // actividad sigue saliendo un punto cada 150 m.
+        fun metrosEntreLecturas(actividad: BeaconActivity, kmh: Double): Double =
+            TrackingRules.intervaloMinimoDistancia(actividad, 150.0) / 1000.0 * kmh / 3.6
+        assertTrue(metrosEntreLecturas(BeaconActivity.WALK, 9.0) <= 151.0)
+        assertTrue(metrosEntreLecturas(BeaconActivity.RUN, 15.0) <= 151.0)
+        assertTrue(metrosEntreLecturas(BeaconActivity.BIKE, 40.0) <= 151.0)
+        // En coche manda el suelo de siempre, que ya es corto.
+        assertEquals(5_000L, TrackingRules.intervaloMinimoDistancia(BeaconActivity.TRANSPORT, 150.0))
+    }
+
     @Test fun `el ajuste del GPS respeta la actividad`() {
         val ritmo = TrackingRules.Ritmo(TrackingRules.Modo.DISTANCIA, 15.0, 100.0)
         val coche = TrackingRules.ajusteGps(ritmo, BeaconActivity.TRANSPORT)

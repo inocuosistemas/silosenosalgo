@@ -205,7 +205,7 @@ object TrackingRules {
         // bici son ~18 s y se detecta el tramo con un retraso de una lectura.
         Modo.DISTANCIA -> AjusteGps(
             Proveedor.GPS,
-            intervaloMinimoDistancia(actividad),
+            intervaloMinimoDistancia(actividad, ritmo.distanciaMetros),
             ritmo.distanciaMetros.toFloat(),
         )
     }
@@ -224,11 +224,28 @@ object TrackingRules {
      * y en coche 100 m se hacen en 6 s. En "Automático" se toma el punto medio,
      * porque no se sabe.
      */
-    fun intervaloMinimoDistancia(actividad: BeaconActivity?): Long = when (actividad) {
-        BeaconActivity.WALK, BeaconActivity.RUN -> 15_000L
-        BeaconActivity.BIKE -> 10_000L
-        BeaconActivity.TRANSPORT -> 5_000L
-        null -> 10_000L
+    fun intervaloMinimoDistancia(actividad: BeaconActivity?, distanciaMetros: Double = 100.0): Long {
+        val base = when (actividad) {
+            BeaconActivity.WALK, BeaconActivity.RUN -> 15_000L
+            BeaconActivity.BIKE -> 10_000L
+            BeaconActivity.TRANSPORT -> 5_000L
+            null -> 10_000L
+        }
+        if (distanciaMetros <= 100.0) return base
+        // Por encima de 100 m —Ahorro, o un "cada 250 m" a mano— el reloj se
+        // estira con la distancia pedida. Con el de siempre, Ahorro encendía el
+        // GPS cada 15 s igual que Equilibrado, y solo se ahorraba los envíos:
+        // unos pocos puntos de batería en un día. Ahora el GPS se enciende cada
+        // lo que se tarda en recorrer esa distancia yendo RÁPIDO para esa
+        // actividad, así que a ese ritmo sigue saliendo un punto cada tanto y
+        // yendo más despacio sobra: andando con 150 m, una vez por minuto.
+        val rapidoMs = when (actividad) {
+            BeaconActivity.WALK -> 2.5        // 9 km/h: trotando cuesta abajo
+            BeaconActivity.RUN, null -> 4.2   // 15 km/h
+            BeaconActivity.BIKE -> 11.1       // 40 km/h
+            BeaconActivity.TRANSPORT -> 33.0  // 120 km/h
+        }
+        return maxOf(base, (distanciaMetros / rapidoMs * 1000).toLong())
     }
 
     /**
