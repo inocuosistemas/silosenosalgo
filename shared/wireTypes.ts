@@ -706,6 +706,15 @@ export interface EventRunnerStats {
    * significa dar por retirado a alguien que sigue en el monte.
    */
   abandono: boolean
+  /**
+   * CUÁNDO dejó la carrera (epoch ms), que no es cuándo apagó la baliza.
+   *
+   * Lo calcula el servidor con la traza entera, y por eso vale también en el
+   * mapa: ahí la cola son las últimas sesenta posiciones, que en alguien que se
+   * retiró son las del viaje de vuelta. Con esta hora, su marca se congela
+   * donde dejó la carrera en vez de seguirle al coche.
+   */
+  abandonoAt: number | null
 }
 
 export interface EventStats {

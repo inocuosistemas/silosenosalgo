@@ -409,6 +409,25 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [stats])
 
   /**
+   * Y dónde dejó la carrera el que se retiró, también de los resultados
+   * congelados.
+   *
+   * Hace falta por lo mismo, pero al revés: aquí la cola son las ÚLTIMAS
+   * sesenta posiciones, y en alguien que abandonó esas son las del viaje de
+   * vuelta. Con ellas, esta pantalla ponía a quien se retiró en el km 22 en el
+   * kilómetro 0 —su pueblo— y a otro en el 27 desde la autovía, a 173 km del
+   * recorrido. El servidor sí tiene la traza entera, así que el kilómetro y la
+   * hora del abandono los dice él.
+   */
+  const abandonoOficial = useMemo(() => {
+    const m = new Map<string, { km: number; at: number | null }>()
+    for (const c of stats?.corredores ?? []) {
+      if (c.abandono && c.km != null) m.set(c.username, { km: c.km, at: c.abandonoAt ?? null })
+    }
+    return m
+  }, [stats])
+
+  /**
    * El recorrido en el formato que quiere la estimación de tiempos.
    *
    * El plan llega con las horas de cada punto como texto —así viaja por la
@@ -687,18 +706,29 @@ export default function EventLiveMap({ source }: { source: Source }) {
             enMeta: acabo,
           })
       /**
-       * El kilómetro que VALE: el del momento del abandono, no el de ahora.
+       * DONDE SE QUEDÓ, y todo lo suyo congelado ahí.
        *
        * Quien deja la carrera sigue moviéndose —baja al pueblo, sube en coche a
        * un avituallamiento, se va a casa— y su posición de ahora no dice nada de
-       * lo que corrió. Lo que cuenta, y lo que va a la clasificación, es hasta
-       * dónde llegó. El punto del mapa sigue siendo el de verdad: ahí lo que se
-       * pregunta es dónde está, no qué hizo.
+       * lo que corrió. Así que su marca no le sigue: se queda en el punto del
+       * abandono, que es la respuesta a lo que se pregunta de él. Lo mismo la
+       * cola, el kilómetro y el ritmo; si no, la lista acaba diciendo que quien
+       * se retiró en el 22 va a 0:34 el kilómetro, que es la velocidad de la
+       * autovía.
+       *
+       * De los resultados congelados cuando los hay —el servidor tiene la traza
+       * entera y aquí solo llegan sesenta puntos— y de la regla en directo
+       * mientras la carrera no ha cerrado.
        */
-      const kmValido = abandono ? abandono.km : km
-      return { r, km, kmValido, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
+      const oficial = abandonoOficial.get(r.username)
+      const congelado = oficial ?? (abandono ? { km: abandono.km, at: abandono.desdeMs } : null)
+      const kmValido = congelado?.km ?? km
+      // La cola se corta donde se acabó su carrera: lo de después es el viaje de
+      // vuelta, y dibujarlo es contar una carrera que no hizo.
+      if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
+      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial, startMs, plan, pista])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista])
 
   /**
    * La parrilla de la cuenta atrás, BARAJADA hasta que se sale.
@@ -1016,16 +1046,24 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key, km, desviadoM, tail, acabo, fantasma }) => {
+          {withFix.map(({ r, stale, key, km, kmValido, congelado, desviadoM, tail, acabo, fantasma }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
             // Quien terminó va EN la meta, se esté imantando o no: su última
             // posición conocida es donde estaba media hora después de llegar, y
             // pintarlo ahí es decir que no acabó. Sin recorrido descargado no
             // hay meta que enseñar, así que se le deja donde dice su GPS.
+            //
+            // Y quien se retiró se queda CLAVADO en el punto del abandono,
+            // pase lo que pase con su baliza después. Es la misma idea que la
+            // meta: lo que se enseña de él ya no es dónde está, es hasta dónde
+            // llegó — y su baliza puede estar en la autovía, a 173 km de aquí.
             const enMeta = acabo && route !== null && km !== null
-            const suelto = !enMeta && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
-            const punto: [number, number] = (!suelto && coordsAtKm(route!, km!)) || [r.fix!.lat, r.fix!.lon]
+            const parado = congelado != null && route !== null
+            const suelto = !enMeta && !parado
+              && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
+            const anclaKm = parado ? kmValido! : km!
+            const punto: [number, number] = (!suelto && coordsAtKm(route!, anclaKm)) || [r.fix!.lat, r.fix!.lon]
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
             return (
@@ -1725,6 +1763,8 @@ type Row = {
   lost: boolean
   /** El kilómetro que cuenta: el del abandono si lo hubo, si no el de ahora. */
   kmValido: number | null
+  /** Dónde y cuándo dejó la carrera, si la dejó. Su marca se congela ahí. */
+  congelado: { km: number; at: number | null } | null
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
   /** Se le da por retirado sin haber apagado la baliza. Ver `lib/abandono.ts`. */
@@ -1784,6 +1824,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
    * alguien por su nombre le cambiaría el hueco, y el hueco no depende de a
    * quién estés mirando.
    */
+  /** Cuántos siguen en carrera: sin al menos dos, no hay a quién sacarle nada. */
+  const clasificados = useMemo(
+    () => rows.filter((x) => x.kmValido !== null && !x.idle && !x.armed && !x.retirado && !x.abandono).length,
+    [rows],
+  )
   const huecos = useMemo(() => {
     const m = new Map<string, { km: number; min: number | null; quien: string }>()
     const clasificados = rows.filter((x) => x.kmValido !== null && !x.idle && !x.armed && !x.retirado && !x.abandono)
@@ -1849,7 +1894,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, kmValido: km, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
+        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -1906,17 +1951,24 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                     hueco ni margen al corte significan nada para quien ya no
                     está. Lo que importa es DÓNDE y DESDE CUÁNDO, que es lo que
                     hay que contarle a quien pregunte por él. */}
-                {!retirado && abandono ? (
+                {congelado ? (
                   <span className="shrink-0 text-rose-300">
-                    km {abandono.km.toFixed(1)} · desde las {hhmm(abandono.desdeMs)}
-                    <span className="text-slate-500"> · {motivoTexto(abandono.motivo)}</span>
+                    km {congelado.km.toFixed(1)}
+                    {congelado.at != null && ` · desde las ${hhmm(congelado.at)}`}
+                    {abandono && <span className="text-slate-500"> · {motivoTexto(abandono.motivo)}</span>}
                   </span>
                 ) : <>
                 {/* El hueco con el de delante, lo primero: es la pregunta con la
                     que se abre esta lista. Al líder se le dice que lo es. */}
-                {km !== null && !idle && !armed && (() => {
+                {km !== null && !idle && !armed && !retirado && (() => {
                   const h = huecos.get(key)
-                  if (!h) return <span className="shrink-0 font-semibold text-amber-300">🥇 líder</span>
+                  // "Líder" solo al que de verdad va primero. Sin este filtro,
+                  // una carrera en la que todos se retiraron dejaba a los cuatro
+                  // con su medalla de oro: nadie estaba clasificado, así que
+                  // nadie tenía a nadie por delante.
+                  if (!h) return clasificados > 1
+                    ? <span className="shrink-0 font-semibold text-amber-300">🥇 líder</span>
+                    : null
                   return (
                     <span
                       className={`shrink-0 ${key === yoKey ? 'font-semibold text-sky-300' : 'text-slate-300'}`}
@@ -1942,8 +1994,12 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                   </span>
                 ) : (
                   <>
+                  {/* El ritmo, solo de quien sigue en carrera. La velocidad que
+                      manda la baliza de un retirado es la del coche de vuelta:
+                      0:34 el kilómetro son ciento siete por hora. */}
                   <span className="shrink-0 text-slate-400">
-                    {r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
+                    {retirado ? 'se retiró'
+                      : r.fix?.speed != null ? `${paceOrSpeed(r.fix.speed, r.activity)} ${isFoot(r.activity) ? 'min/km' : 'km/h'}` : 'sin ritmo'}
                   </span>
                   {margin && (
                     <span className={`shrink-0 ${marginClass(margin.minutes)}`}>
@@ -1969,7 +2025,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                       // quien miraba solo veía un punto que no se movía. Decirlo
                       // es la mitad de quitarle la sensación de que esto falla.
                       : callado ? `📡 sin señal · hace ${agoLabel(now - r.updatedAt)}`
-                      : desviadoM > DESVIADO_M ? `↯ fuera del recorrido · ${Math.round(desviadoM)} m`
+                      // "Fuera del recorrido" es un aviso para quien está
+                      // corriendo: mira, que te has salido. A quien ya se retiró
+                      // no le dice nada —claro que está fuera, está en su casa—
+                      // y encima da un número absurdo: 173 km.
+                      : !congelado && desviadoM > DESVIADO_M ? `↯ fuera del recorrido · ${Math.round(desviadoM)} m`
                       : `hace ${agoLabel(now - r.updatedAt)}`}
                   </span>
                   {r.fix && (

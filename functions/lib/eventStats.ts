@@ -487,7 +487,7 @@ export function calculaEstadisticas(
         username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
         km: null, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
         finished: false, finishedAt: null, margenMs: null, puesto: null, tracked: false,
-        abandono: false,
+        abandono: false, abandonoAt: null,
       })
       continue
     }
@@ -568,6 +568,10 @@ export function calculaEstadisticas(
       // hace falta porque hay quien no la apaga nunca: la de Soriano siguió
       // emitiendo desde el coche hasta la tarde siguiente.
       abandono: cruce === null && (f.status === 'ended' || parada !== null),
+      // Y cuándo la dejó: el momento en que se paró si se paró, y si no el
+      // último en que estuvo avanzando. Nunca la hora de apagar la baliza, que
+      // puede ser la tarde siguiente y desde su casa.
+      abandonoAt: cruce !== null ? null : (parada?.ms ?? avance?.enMs ?? null),
     })
   }
 
