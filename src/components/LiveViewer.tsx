@@ -402,7 +402,14 @@ function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[]
 }
 
 /** Mini elevation profile of a segment with a live position marker. */
-function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm: number | null }) {
+function SegmentProfile({ profile, posKm, alto }: {
+  profile: SegProfile | null
+  posKm: number | null
+  /** Alto en píxeles. El de la lista es una miniatura para una ojeada; el del
+   *  tramo ampliado se estira, que ahí sobra pantalla y lo que se ha venido a
+   *  mirar es justo la forma de la subida. */
+  alto?: number
+}) {
   if (!profile) return null
   const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
   // The SVG stretches with preserveAspectRatio="none", which would deform an SVG
@@ -410,7 +417,7 @@ function SegmentProfile({ profile, posKm }: { profile: SegProfile | null; posKm:
   // the dot stays perfectly round regardless of the horizontal scaling.
   const leftPct = inSeg ? ((posKm! - profile.fromKm) / profile.span) * 100 : null
   return (
-    <div className="relative mt-1.5 w-full h-8">
+    <div className="relative mt-1.5 w-full" style={{ height: alto ?? 32 }}>
       <svg viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" className="block w-full h-full">
         <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
         <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
@@ -730,6 +737,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
   // Adaptive staleness: learn the reporting cadence from gaps between distinct
   // updatedAt values; the stale threshold = clamp(maxRecentGap × K + margin).
+  /** Qué tramo se está mirando a pantalla completa, y el dedo que lo abrió. */
+  const [tramoZoom, setTramoZoom] = useState<number | null>(null)
+  const [anchoPantalla, setAnchoPantalla] = useState(() => (typeof window === 'undefined' ? 360 : window.innerWidth))
+  useEffect(() => {
+    const mide = () => setAnchoPantalla(window.innerWidth)
+    window.addEventListener('resize', mide)
+    return () => window.removeEventListener('resize', mide)
+  }, [])
+  // Escape cierra, y las flechas pasan de tramo: en el ordenador es lo que se
+  // espera, y no estorba en el móvil.
+  useEffect(() => {
+    if (tramoZoom === null) return
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTramoZoom(null)
+      else if (e.key === 'ArrowRight') setTramoZoom((i) => (i === null ? i : i + 1))
+      else if (e.key === 'ArrowLeft') setTramoZoom((i) => (i === null || i === 0 ? i : i - 1))
+    }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [tramoZoom])
+  const tocoTramo = useRef<{ x: number; y: number } | null>(null)
   const lastUpdatedAtRef = useRef<number | null>(null)
   const intervalsRef = useRef<number[]>([])
   const staleMsRef = useRef(STALE_DEFAULT_MS)
@@ -1921,8 +1949,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <p className="text-3xl font-extrabold leading-tight">
         {endedAtMs != null ? hhmm((endedAtMs - sessionStart.getTime()) / 60_000) : '—'}
       </p>
+      {/* El kilómetro del RECORRIDO, el mismo que la casilla de progreso y el
+          mismo que los resultados. Aquí salía la suma de la traza y en la
+          casilla de debajo el del recorrido: dos números distintos para la
+          misma persona a dos centímetros uno del otro —41,8 y 49,8— sin nada
+          que dijera cuál era cuál. Miden cosas distintas, sí, pero la que se
+          publica es una sola. Sin recorrido enganchado no hay más que la traza,
+          y entonces manda ella. */}
       <p className="text-xs opacity-90">
-        {distanceKm.toFixed(1)} km
+        {(progressKm ?? distanceKm).toFixed(1)} km
         {endedAtMs != null && <> · terminó {clockDay(new Date(endedAtMs), sessionStart)}</>}
       </p>
     </div>
@@ -2154,6 +2189,61 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
 
+  /**
+   * La ficha de un tramo. Vive en una función porque se pinta DOS veces: en la
+   * lista y, al tocarla, a pantalla completa y ampliada. Es la misma —no hay dos
+   * verdades que mantener— y lo único que cambia es el tamaño de la letra, que
+   * lo pone el `zoom` de CSS de la capa de arriba.
+   */
+  const tarjetaTramo = (c: typeof cards[number], i: number, grande = false) => (
+    <div
+        className={`rounded-xl border p-3 ${i === nextIdx ? 'border-sky-600 bg-sky-950/30' : c.passed ? 'border-slate-800 bg-slate-900/40 opacity-60' : 'border-slate-700 bg-slate-900'}`}
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="font-semibold truncate">
+            {i === nextIdx && <ChevronRight size={12} className="mr-0.5 inline text-sky-400" />}
+            {poiIcon(c.w)}{c.band ? ` ${bandIcon(c.band)}` : ''} {c.w.name}
+          </p>
+          <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
+        </div>
+        {c.w.desc && <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{c.w.desc}</p>}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
+          {c.cutoff && (
+            <span className={marginTone(c.marginMin)}>
+              Corte {clockDay(c.cutoff, sessionStart)}
+              {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
+              {c.reqPace != null && <> · {c.reqPace === Infinity ? 'vencido' : `necesitas ${paceLabel(c.reqPace)}`}</>}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+          {/* Lo que queda, DELANTE y destacado: es lo que se viene a
+              mirar cuando ya se está dentro del tramo. El tramo entero
+              baja a segunda línea, en gris, que sigue valiendo para
+              hacerse una idea de lo que es. */}
+          {c.queda && (
+            <span className="font-medium text-sky-300">
+              quedan {c.queda.distanceKm.toFixed(1)} km · ↑{Math.round(c.queda.elevGainM)} ↓{Math.round(c.queda.elevLossM)} m · ~{Math.round(c.queda.estimatedMinutes)} min
+            </span>
+          )}
+          <span className={c.queda ? 'text-slate-500' : undefined}>
+            {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min
+          </span>
+          {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
+          {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
+        </div>
+        <SegmentProfile profile={c.profile} posKm={progressKm} alto={grande ? 150 : undefined} />
+        {c.wx && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
+            <span>🌡️ {Math.round(c.wx.temp)}°</span>
+            <span>💧 {Math.round(c.wx.precip)}%</span>
+            <span>💨 {Math.round(c.wx.wind)} km/h</span>
+          </div>
+        )}
+      </div>
+  )
+
     return (
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
         <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
@@ -2199,54 +2289,71 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {cards.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-4">Esta previsión no tiene puntos de control.</p>
           ) : cards.map((c, i) => (
+            /* Tocar un tramo lo amplía. Se abre en el `pointerup` y no en el
+               `click`: en el Safari del iPhone —o sea, dentro de la app— un
+               `div` que no es un control de verdad no recibe `click` al tocarlo
+               con el dedo, y esta lista se mira justo ahí. */
             <div
               key={`${c.w.distanceKm}-${i}`}
-              className={`rounded-xl border p-3 ${i === nextIdx ? 'border-sky-600 bg-sky-950/30' : c.passed ? 'border-slate-800 bg-slate-900/40 opacity-60' : 'border-slate-700 bg-slate-900'}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`Ampliar ${c.w.name}`}
+              className="cursor-zoom-in"
+              onPointerDown={(e) => { tocoTramo.current = { x: e.clientX, y: e.clientY } }}
+              onPointerUp={(e) => {
+                const t = tocoTramo.current
+                tocoTramo.current = null
+                if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) return
+                setTramoZoom(i)
+              }}
+              onPointerCancel={() => { tocoTramo.current = null }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTramoZoom(i) } }}
             >
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold truncate">
-                  {i === nextIdx && <ChevronRight size={12} className="mr-0.5 inline text-sky-400" />}
-                  {poiIcon(c.w)}{c.band ? ` ${bandIcon(c.band)}` : ''} {c.w.name}
-                </p>
-                <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
-              </div>
-              {c.w.desc && <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{c.w.desc}</p>}
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
-                {c.cutoff && (
-                  <span className={marginTone(c.marginMin)}>
-                    Corte {clockDay(c.cutoff, sessionStart)}
-                    {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
-                    {c.reqPace != null && <> · {c.reqPace === Infinity ? 'vencido' : `necesitas ${paceLabel(c.reqPace)}`}</>}
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                {/* Lo que queda, DELANTE y destacado: es lo que se viene a
-                    mirar cuando ya se está dentro del tramo. El tramo entero
-                    baja a segunda línea, en gris, que sigue valiendo para
-                    hacerse una idea de lo que es. */}
-                {c.queda && (
-                  <span className="font-medium text-sky-300">
-                    quedan {c.queda.distanceKm.toFixed(1)} km · ↑{Math.round(c.queda.elevGainM)} ↓{Math.round(c.queda.elevLossM)} m · ~{Math.round(c.queda.estimatedMinutes)} min
-                  </span>
-                )}
-                <span className={c.queda ? 'text-slate-500' : undefined}>
-                  {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min
-                </span>
-                {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
-                {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
-              </div>
-              <SegmentProfile profile={c.profile} posKm={progressKm} />
-              {c.wx && (
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
-                  <span>🌡️ {Math.round(c.wx.temp)}°</span>
-                  <span>💧 {Math.round(c.wx.precip)}%</span>
-                  <span>💨 {Math.round(c.wx.wind)} km/h</span>
-                </div>
-              )}
+              {tarjetaTramo(c, i)}
             </div>
           ))}
+          {/* El tramo, a pantalla completa.
+              La ficha de la lista está hecha para una ojeada entre zancada y
+              zancada; esta es para pararse a mirarla, con el móvil en la mano y
+              a contraluz. Es la MISMA ficha ampliada con `zoom` de CSS —que
+              agranda letra y dibujos a la vez y respeta la maquetación— en vez
+              de una segunda pantalla con sus propios tamaños que mantener. */}
+          {tramoZoom !== null && cards[Math.min(tramoZoom, cards.length - 1)] && (
+            <div className="fixed inset-0 z-[1200] flex flex-col bg-slate-950/95 backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+                <span className="min-w-0 truncate text-sm font-semibold text-slate-200">
+                  {cards[tramoZoom].w.name}
+                </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => setTramoZoom(Math.max(0, tramoZoom - 1))}
+                    disabled={tramoZoom === 0}
+                    aria-label="Tramo anterior"
+                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300 disabled:opacity-30"
+                  >‹</button>
+                  <button
+                    onClick={() => setTramoZoom(Math.min(cards.length - 1, tramoZoom + 1))}
+                    disabled={tramoZoom === cards.length - 1}
+                    aria-label="Tramo siguiente"
+                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300 disabled:opacity-30"
+                  >›</button>
+                  <button
+                    onClick={() => setTramoZoom(null)}
+                    aria-label="Cerrar"
+                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300"
+                  >✕</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-3">
+                {/* El factor sale del ancho de la pantalla: la ficha está
+                    diseñada para unos 280 px, así que en un móvil de 400 se
+                    agranda vez y media y en una tableta, el doble. */}
+                <div style={{ zoom: Math.min(2, Math.max(1, (anchoPantalla - 24) / 300)) }}>
+                  {tarjetaTramo(cards[tramoZoom], tramoZoom, true)}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )

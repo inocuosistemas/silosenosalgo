@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { X, ChevronRight, Share2, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { dibujaPorra, dibujaResultadoPorra, cargaImagen } from '../lib/porraCard'
-import { comparteImagen } from '../lib/compartirImagen'
+import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
   scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
@@ -761,6 +761,8 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
   recordKm: { username: string; minutos: number; desdeKm: number } | null
 }) {
   const [compartiendo, setCompartiendo] = useState(false)
+  /** Qué pasó al compartir: copiar al portapapeles no se ve, y hay que decirlo. */
+  const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
   const dame = (n: string) => runners.find((r) => r.username === n)
   const podio = ranking.slice(0, 3)
   /** Quién ganó la CARRERA: el primero en cruzar, si cruzó alguien. */
@@ -808,7 +810,11 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
           desdeKm: recordKm.desdeKm,
         },
       })
-      await comparteImagen(url, 'porra.png', `La porra de ${eventName ?? 'la carrera'}`)
+      const fue = await comparteImagen(url, 'porra.png', `La porra de ${eventName ?? 'la carrera'}`)
+      if (fue !== 'cancelada') {
+        setComoFue(fue)
+        window.setTimeout(() => setComoFue(null), 4000)
+      }
     } catch { /* si el navegador no deja compartir, no pasa nada */ }
     finally { setCompartiendo(false) }
   }
@@ -870,7 +876,11 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
         disabled={compartiendo}
         className="mt-3 w-full rounded-lg border border-emerald-700/70 bg-emerald-950/40 py-2 text-xs font-semibold text-emerald-300 transition-colors hover:bg-emerald-900/40 disabled:opacity-50"
       >
-        {compartiendo ? 'Preparando…' : '📤 Compartir el resultado'}
+        {compartiendo ? 'Preparando…'
+          : comoFue === 'copiada' ? '✓ Copiada — pégala en el grupo'
+          : comoFue === 'descargada' ? '✓ Descargada'
+          : comoFue === 'compartida' ? '✓ Compartida'
+          : '📤 Compartir el resultado'}
       </button>
     </section>
   )
