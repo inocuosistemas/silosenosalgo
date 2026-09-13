@@ -898,13 +898,37 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // hay que preguntar cuando alguien dice que algo no le funciona, y sin
         // esto no había forma de saberlo —`versionName` es "1.0" en todas—.
         Spacer(Modifier.height(24.dp))
-        Text(
-            "SiLoSeNoSalgo ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            style = MaterialTheme.typography.bodySmall,
-            color = Paleta.slate400,
+        // Y al lado, si ha salido otra: el APK no pasa por ninguna tienda y nada
+        // más avisa. Ver `Actualizacion`.
+        var nuevaVersion by remember { mutableStateOf<Int?>(null) }
+        LaunchedEffect(Unit) {
+            nuevaVersion = Actualizacion.nuevaQue(BuildConfig.VERSION_CODE, Actualizacion.ultimaPublicada())
+        }
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "SiLoSeNoSalgo ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+            nuevaVersion?.let { v ->
+                Text(
+                    " · Descargar la $v",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.sky500,
+                    modifier = Modifier
+                        .clickable {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Actualizacion.APK_URL)))
+                            }
+                        }
+                        .padding(vertical = 8.dp),
+                )
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
     }
