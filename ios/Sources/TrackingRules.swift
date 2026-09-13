@@ -11,6 +11,21 @@ enum TrackingRules {
     /// readings, so above that the filter would confuse walking with standing.
     static let reliableAccuracyM = 10.0
 
+    /**
+     Cuánto antes de la salida arranca sola una baliza armada.
+
+     Cinco minutos, y no dos: el GPS recién despertado tarda en enganchar y sus
+     primeras lecturas son las malas —las de cientos de metros—. Con dos
+     minutos, la primera posición que veía la carrera era todavía una posición de
+     antena; con cinco, para cuando suena el disparo la baliza lleva un rato
+     dando metros de precisión y la salida sale afinada.
+
+     Lo que se emite en esos cinco minutos es la línea de salida, que no estorba:
+     lo que había que evitar es emitir desde el aparcamiento una hora antes, y
+     eso lo sigue evitando. Espejo de `ANTELACION_SALIDA_SEGUNDOS` en Android.
+     */
+    static let startLeadSeconds: TimeInterval = 300
+
     /// La carrera que se corre HOY, si la hay: la que la baliza deja puesta
     /// sola al abrirla. Espejo de `TrackingRules.eventoDeHoy` en Android, donde
     /// está la explicación larga y las pruebas.
@@ -67,14 +82,53 @@ enum TrackingRules {
             .distance(from: CLLocation(latitude: lat2, longitude: lon2))
     }
 
+    /**
+     Por encima de este error, una lectura ya no sirve NI PARA MEDIR.
+
+     Es el tope de la vara, y sin él pasó esto en la CanFranc: la primera
+     lectura de una baliza traía ±1447 m —una posición de antena, del modo
+     espera— y el umbral de movimiento salía a 1447 × 1,5 = **2,17 km**. Hasta
+     que su dueño no se alejó dos kilómetros de aquel punto inventado, todas sus
+     lecturas buenas —de dos y tres metros— se descartaron y en su lugar se
+     grabó el ancla: una hora entera clavado en un sitio donde no estaba,
+     mientras cruzaba el primer control.
+
+     Cien metros es generoso para lo que tiene que dejar pasar (un valle
+     cerrado, un bosque) y corta en seco lo que no puede medirse.
+     */
+    static let anchorMaxAccuracyM = 100.0
+
     /// How far you must move before we believe it: **1.5× the WORSE of the two
     /// declared errors**, not their sum. The sum was too harsh at the start of a
     /// route (a warming-up GPS at ±50 m demanded 100 m before the first point);
     /// the worst error responds sooner when one reading is good, and the 1.5
     /// factor keeps out the noise measured with bad signal (jumps of up to
     /// 118 m between ±99 m readings: 1.5 × 99 = 148, still out).
+    ///
+    /// Y con TOPE: un error de un kilómetro no es una vara de medir, es una
+    /// lectura que no sabe dónde está. Ver `anchorMaxAccuracyM`.
     static func movementThreshold(_ accuracyA: Double?, _ accuracyB: Double?) -> Double {
-        max(accuracyA ?? 0, accuracyB ?? 0) * 1.5
+        min(max(accuracyA ?? 0, accuracyB ?? 0), anchorMaxAccuracyM) * 1.5
+    }
+
+    /**
+     ¿Hay que rehacer el ancla porque ha llegado algo mucho mejor?
+
+     El ancla es la posición que se da por buena, y todo lo demás se mide contra
+     ella. Si se fija con una lectura mala —y se fija, porque al principio "un
+     punto malo es mejor que ninguno"— arrastra el error hasta que alguien la
+     sustituya. Nadie lo hacía: solo se cambiaba al detectar movimiento, y el
+     movimiento se medía contra ella misma.
+
+     Así que en cuanto llega una lectura FIABLE y el ancla no lo era, manda la
+     nueva. Sin discutir y sin mirar la distancia: no es que se haya movido, es
+     que ahora sí se sabe dónde está.
+     */
+    static func shouldReanchor(anchor: Fix?, new: Fix) -> Bool {
+        guard let anchor else { return false }
+        guard let nueva = new.accuracy, nueva <= anchorMaxAccuracyM else { return false }
+        let vieja = anchor.accuracy ?? 0
+        return vieja > anchorMaxAccuracyM
     }
 
     /// Did we really move relative to the ANCHOR — the last position taken as

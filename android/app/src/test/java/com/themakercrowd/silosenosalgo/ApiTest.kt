@@ -114,7 +114,28 @@ class ApiTest {
         val req = server.takeRequest()
         assertEquals("/api/track/s1/ping", req.path)
         val cuerpo = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
-        assertEquals(setOf("lat", "lon", "accuracy"), cuerpo.keys)
+        // De la POSICION va solo lo que trae: nada de campos a null rellenando
+        // hueco. Aparte viajan los datos de la baliza —quien la manda y cada
+        // cuanto habla—, que no son de la posicion y van siempre.
+        assertEquals(setOf("lat", "lon", "accuracy"), cuerpo.keys - DE_LA_BALIZA)
+    }
+
+    /** Lo que la baliza cuenta de si misma, no de la posicion: version y
+     *  cadencia. Viaja en todos los pings y no es parte de la lectura. */
+    private val DE_LA_BALIZA = setOf("appVersion", "cadencia")
+
+    @Test fun `un ping dice que version y que cadencia lleva la baliza`() = runBlocking {
+        // Sin esto no hay forma de responder a "a mi no me sale eso": en la
+        // CanFranc hubo que deducir de como se comportaba una baliza que su APK
+        // era viejo. Y la cadencia es lo que le dice al mapa cuanto silencio es
+        // normal en ESTA baliza.
+        Api.cadencia = "d500"
+        server.enqueue(MockResponse().setResponseCode(204))
+        api.ping("tok", "s1", Fix(lat = 43.1, lon = -7.5))
+        val cuerpo = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("d500", cuerpo["cadencia"]!!.jsonPrimitive.content)
+        assertTrue(cuerpo["appVersion"]!!.jsonPrimitive.content.startsWith("Android "))
+        Api.cadencia = null
     }
 
     @Test fun `el envio por lotes agrupa las posiciones bajo fixes`() = runBlocking {

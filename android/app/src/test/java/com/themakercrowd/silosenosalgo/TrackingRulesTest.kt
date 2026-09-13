@@ -30,9 +30,13 @@ class TrackingRulesTest {
         assertEquals(TrackingRules.Modo.DISTANCIA, equilibrado.modo)
         assertEquals(100.0, equilibrado.distanciaMetros, 0.0)
 
+        // Ahorro ya no manda cada 500 m: lo que ahorra bateria es no tener el
+        // receptor afinado, no cuantas veces te entrega la posicion. Con 500 m,
+        // una baliza mando 35 posiciones en catorce horas y su ultimo punto
+        // quedo casi un kilometro por detras de donde dio la vuelta.
         val ahorro = TrackingRules.ritmoDe(TrackingRules.Perfil.AHORRO)
         assertEquals(TrackingRules.Modo.DISTANCIA, ahorro.modo)
-        assertEquals(500.0, ahorro.distanciaMetros, 0.0)
+        assertEquals(150.0, ahorro.distanciaMetros, 0.0)
 
         val precision = TrackingRules.ritmoDe(TrackingRules.Perfil.PRECISION)
         assertEquals(TrackingRules.Modo.TIEMPO, precision.modo)
@@ -127,9 +131,13 @@ class TrackingRulesTest {
     }
 
     @Test fun `se empieza con antelacion a la salida prevista`() {
+        // Cinco minutos, no dos: el GPS recien despertado tarda en enganchar y
+        // sus primeras lecturas son las malas —las de cientos de metros—. Con
+        // dos minutos, la primera posicion que veia la carrera era todavia una
+        // posicion de antena.
         val salida = 1_000_000.0
-        assertFalse(TrackingRules.tocaEmpezar(salida - 180_000, salida))
-        assertTrue(TrackingRules.tocaEmpezar(salida - 119_000, salida))
+        assertFalse(TrackingRules.tocaEmpezar(salida - 301_000, salida))
+        assertTrue(TrackingRules.tocaEmpezar(salida - 299_000, salida))
         assertTrue(TrackingRules.tocaEmpezar(salida + 1, salida))
     }
 
@@ -280,6 +288,30 @@ class TrackingRulesTest {
         // Y sigue dejando fuera el ruido medido con señal mala: saltos de hasta
         // 118 m con lecturas de +-99.
         assertTrue(TrackingRules.umbralMovimiento(76.0, 99.0) > 118)
+    }
+
+    @Test fun `una lectura de antena no congela la baliza una hora`() {
+        // El caso de jie en la CanFranc: su primera lectura traia +-1447 m —una
+        // posicion de antena, del modo espera— y el umbral salia a 1447 x 1,5 =
+        // 2,17 km. Hasta que no se alejo dos kilometros, todas sus lecturas
+        // buenas se descartaron y en su lugar se grabo el ancla: una hora
+        // clavado donde no estaba, mientras cruzaba el primer control.
+        assertEquals(2170.5, 1447.0 * 1.5, 0.001)          // lo que salia antes
+        assertEquals(150.0, TrackingRules.umbralMovimiento(1447.0, 4.0), 0.001)
+    }
+
+    @Test fun `en cuanto llega una lectura fiable, el ancla se rehace`() {
+        // Y no hace falta ni que se haya movido: no es que se mueva, es que
+        // ahora si se sabe donde esta.
+        val antena = fixCon(42.7379, -7.4000, 1447.0, 0.0)
+        val buena = fixCon(42.7379, -7.4000, 4.0, 1_000.0)
+        assertTrue(TrackingRules.tocaReanclar(antena, buena))
+        // Al reves no: un ancla buena no la sustituye una lectura peor.
+        assertFalse(TrackingRules.tocaReanclar(buena, antena))
+        // Ni dos buenas entre si, que de eso ya se encarga `hayMovimiento`.
+        assertFalse(TrackingRules.tocaReanclar(buena, fixCon(42.7380, -7.4000, 5.0, 2_000.0)))
+        // Sin ancla no hay nada que rehacer.
+        assertFalse(TrackingRules.tocaReanclar(null, buena))
     }
 
     @Test fun `a 60 por hora no se puede marcar cada 100 m con 15 s`() {

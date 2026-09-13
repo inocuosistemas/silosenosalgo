@@ -2057,6 +2057,19 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                       : !congelado && desviadoM > DESVIADO_M ? `↯ fuera del recorrido · ${Math.round(desviadoM)} m`
                       : `hace ${agoLabel(now - r.updatedAt)}`}
                   </span>
+                  {/* La batería, cuando la manda y cuando empieza a ser noticia.
+                      "Va por el km 60" y "le queda un 8%" son la misma pregunta
+                      con dos respuestas, y la segunda dice si vas a seguir
+                      viéndole. Por encima de la mitad no se enseña: ahí no
+                      preocupa a nadie y el renglón ya va lleno. */}
+                  {!congelado && r.bateria != null && r.bateria <= 50 && (
+                    <span
+                      className={`shrink-0 tabular-nums ${r.bateria <= 15 ? 'text-rose-400' : 'text-slate-500'}`}
+                      title={`Le queda un ${r.bateria}% de batería`}
+                    >
+                      🔋{r.bateria}%
+                    </span>
+                  )}
                   {r.fix && (
                     <button
                       onClick={() => onFollow(key)}

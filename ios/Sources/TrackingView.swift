@@ -42,7 +42,7 @@ struct TrackingView: View {
     @State private var recordingOpen = false
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
-    private let distanceSteps: [Double] = [25, 50, 100, 250, 500]
+    private let distanceSteps: [Double] = [25, 50, 100, 150, 250, 500]
 
     /// Maps the linear slider position (0…n) to/from the chosen interval.
     private var modeBinding: Binding<SendMode> {
@@ -522,7 +522,7 @@ struct TrackingView: View {
                                    detail: "Por distancia (~100 m). Buena precisión y batería.",
                                    autonomy: "Buena autonomía", color: .green, recommended: true)
                         profileRow(.saver, title: "Ahorro · ultra",
-                                   detail: "Por distancia (~500 m). Parado no gasta batería.",
+                                   detail: "Por distancia (~150 m), con el GPS a media potencia. Parado no gasta batería.",
                                    autonomy: "Máxima autonomía", color: .green)
                         profileRow(.precision, title: "Alta precisión",
                                    detail: "Por tiempo (cada 10 s). Máximo detalle.",
@@ -896,6 +896,10 @@ struct TrackingView: View {
                 // Cheer alerts need permission; asked here, on opening the
                 // portal (like Android's POST_NOTIFICATIONS), not mid-route.
                 CheerNotifier.shared.requestAuthorization()
+                // El mismo permiso sirve para los avisos de salida; se pide
+                // aquí y no cinco minutos antes del disparo, que es tarde para
+                // contestar a un diálogo. Ver `AvisosDeCarrera`.
+                AvisosDeCarrera.pideDerechoAAvisar()
                 await store.loadPlans()
                 await store.loadEvents()
                 await store.loadSessions()

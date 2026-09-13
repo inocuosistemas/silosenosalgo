@@ -36,6 +36,32 @@ class Api(
     companion object {
         private val JSON_MEDIA = "application/json".toMediaType()
 
+        /**
+         * Cada cuánto promete hablar esta baliza: `t15` = cada quince segundos,
+         * `d500` = cada quinientos metros.
+         *
+         * Va en el ping para que el mapa sepa cuánto silencio es normal en ESTA.
+         * Sin ella, a una baliza en modo ahorro —que no manda nada mientras su dueño
+         * está parado— se la anunciaba como "sin cobertura" cada pocos minutos
+         * estando perfecta. La pone el servicio de seguimiento al arrancar y cada
+         * vez que se cambia el perfil, que es algo que se toca a mitad de ruta.
+         * Espejo de `shared/cadencia.ts` y de `API.cadencia` en Swift.
+         */
+        @Volatile
+        var cadencia: String? = null
+
+        /**
+         * Batería que le queda a la baliza, de 0 a 100, o null si no se sabe.
+         *
+         * Para quien mira, "le queda un 8%" contesta a si va a seguir viéndole,
+         * que en una ultra de dos días es de lo primero que se pregunta. Y para
+         * nosotros es la única forma de saber qué cuesta de verdad cada perfil:
+         * lo que la app calcula en pantalla se queda en el móvil. Espejo de
+         * `API.bateria` en Swift.
+         */
+        @Volatile
+        var bateria: Int? = null
+
         val json = Json {
             ignoreUnknownKeys = true      // un backend más nuevo no puede tumbar al cliente
             explicitNulls = false
@@ -316,20 +342,6 @@ class Api(
      */
     private val versionApp = "Android ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
-    /**
-     * Cada cuánto promete hablar esta baliza: `t15` = cada quince segundos,
-     * `d500` = cada quinientos metros.
-     *
-     * Va en el ping para que el mapa sepa cuánto silencio es normal en ESTA. Sin
-     * ella, a una baliza en modo ahorro —que no manda nada mientras su dueño
-     * está parado— se la anunciaba como "sin cobertura" cada pocos minutos
-     * estando perfecta. La pone el servicio de seguimiento al arrancar y cada
-     * vez que se cambia el perfil, que es algo que se toca a mitad de ruta.
-     * Espejo de `shared/cadencia.ts` y de `API.cadencia` en Swift.
-     */
-    @Volatile
-    var cadencia: String? = null
-
     suspend fun ping(token: String, id: String, fix: Fix) {
         val (body, status) = request(
             "api/track/$id/ping", "POST", token,
@@ -337,6 +349,7 @@ class Api(
                 fixJson(fix).forEach { (k, v) -> put(k, v) }
                 put("appVersion", JsonPrimitive(versionApp))
                 cadencia?.let { put("cadencia", JsonPrimitive(it)) }
+                bateria?.let { put("bateria", JsonPrimitive(it)) }
             },
         )
         if (!ok(status)) throw decodeError(body, status)
@@ -355,6 +368,7 @@ class Api(
                 put("fixes", buildJsonArray { fixes.forEach { add(fixJson(it)) } })
                 put("appVersion", JsonPrimitive(versionApp))
                 cadencia?.let { put("cadencia", JsonPrimitive(it)) }
+                bateria?.let { put("bateria", JsonPrimitive(it)) }
             },
         )
         if (!ok(status)) throw decodeError(body, status)

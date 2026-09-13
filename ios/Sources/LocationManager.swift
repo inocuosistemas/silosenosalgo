@@ -51,6 +51,12 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     /// Distance-based mode: only deliver a fix after moving `meters`. Accuracy
     /// relaxes with distance to save battery.
+    ///
+    /// Aquí está el ahorro de verdad —`HundredMeters` deja al sistema apoyarse
+    /// en antenas y wifi y dosificar el GPS— y por eso el umbral está en 100 y
+    /// no más arriba: el perfil de ahorro pide 150 m justamente para caer de
+    /// este lado sin destrozar la traza. El `distanceFilter` por sí solo no
+    /// apaga nada, solo decide cuándo se entrega la posición.
     func configureDistance(_ meters: Double) {
         manager.distanceFilter = meters
         manager.desiredAccuracy = meters <= 100 ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyHundredMeters

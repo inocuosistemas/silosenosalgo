@@ -1037,6 +1037,23 @@ object TrackingStore {
      *  notificar; aquí solo se sabe cuándo hace falta. */
     var avisadorDeAnimos: ((nick: String?, texto: String, cuantos: Int) -> Unit)? = null
 
+    /**
+     * Avisa de la salida: "quedan cinco minutos" y "¡ya!".
+     *
+     * Una baliza armada arranca sola a su hora, pero eso depende de que el
+     * sistema deje vivo al proceso mientras espera, y no siempre lo deja: en la
+     * CanFranc una armada para las 22:00 no dio su primera posición hasta las
+     * 23:14. El arranque automático sigue siendo lo primero; esto es la red
+     * debajo, y la red es una persona — si el aviso salta y la baliza no ha
+     * arrancado, basta con abrir la app.
+     *
+     * Lo pone el servicio, que es quien puede notificar. Espejo de
+     * `AvisosDeCarrera` en iOS, donde por limitaciones del sistema hay que
+     * programarlos por adelantado; aquí el servicio en primer plano sigue vivo y
+     * basta con mirar el reloj en cada tic.
+     */
+    var avisadorDeSalida: ((titulo: String, texto: String) -> Unit)? = null
+
     /** Recupera del disco los ánimos de una sesión que se retoma. */
     private fun cargaAnimosDe(id: String) {
         animosEnMemoria = almacen.leeAnimos(id)
@@ -1166,7 +1183,14 @@ object TrackingStore {
         // no es que te hayas movido, es el GPS paseándose. Se registra la
         // posición del ancla con la hora nueva —"sigo aquí, y sigo vivo"— en vez
         // de dibujarle a quien te sigue un paseo que no has dado.
-        val aRegistrar = if (TrackingRules.hayMovimiento(anclaPosicion, fix)) {
+        val aRegistrar = if (TrackingRules.tocaReanclar(anclaPosicion, fix)) {
+            // Manda la nueva por ser mucho mejor. Un ancla puesta con una
+            // lectura de antena congela la baliza hasta que su dueño está a dos
+            // kilómetros: en la CanFranc eso fue una hora de punto clavado donde
+            // no estaba. Ver `TrackingRules.tocaReanclar`.
+            anclaPosicion = fix
+            fix
+        } else if (TrackingRules.hayMovimiento(anclaPosicion, fix)) {
             anclaPosicion = fix
             fix
         } else {
@@ -1249,6 +1273,9 @@ object TrackingStore {
         ultimaMuestraMs = ahoraMs
         val (nivel, cargando) = leer()
 
+        // La batería viaja en el ping: en el móvil solo sirve para mirarla, y la
+        // pregunta "¿le va a durar?" se la hace quien sigue la carrera.
+        Api.bateria = if (nivel >= 0) kotlin.math.round(nivel * 100).toInt() else null
         if (cargando || nivel < 0) {
             // Enchufado la medida no significa nada: se tira la ventana para que
             // al desenchufar se empiece a medir limpio.
@@ -1280,6 +1307,31 @@ object TrackingStore {
         )
     }
 
+    /** Cuál de los dos avisos de salida se ha dado ya (0 = ninguno). */
+    private var avisoSalidaDado = 0
+
+    /**
+     * Los dos avisos de la salida, cada uno una sola vez.
+     *
+     * El primero cinco minutos antes —lo justo para sacar el móvil y comprobar
+     * que emite— y el segundo al sonar el disparo. El segundo lo da
+     * `quizaEmpieza` al arrancar de verdad, no este: así dice lo que ha pasado y
+     * no lo que debería.
+     */
+    private fun quizaAvisaDeLaSalida(e: Estado) {
+        if (e.salidaMs <= 0) return
+        val faltan = e.salidaMs - ahoraMs
+        if (avisoSalidaDado == 0 && faltan in 0.0..(TrackingRules.AVISO_SALIDA_SEGUNDOS * 1000)) {
+            avisoSalidaDado = 1
+            avisadorDeSalida?.invoke(
+                "⏳ ${(TrackingRules.AVISO_SALIDA_SEGUNDOS / 60).toInt()} minutos para la salida",
+                e.titulo?.takeIf { it.isNotBlank() }
+                    ?.let { "$it: la baliza arranca sola. Ábrela si quieres verla emitir." }
+                    ?: "La baliza arranca sola. Ábrela si quieres verla emitir.",
+            )
+        }
+    }
+
     /** Sale del modo espera cuando llega la hora: aplica el perfil de verdad y
      *  manda una primera posición sin esperar al siguiente intervalo. */
     private fun quizaEmpieza() {
@@ -1290,6 +1342,14 @@ object TrackingStore {
         anclaPosicion = null
         aplicaGps()
         guardaActivo()
+        if (avisoSalidaDado < 2) {
+            avisoSalidaDado = 2
+            avisadorDeSalida?.invoke(
+                "🏁 ¡Salida!",
+                e.titulo?.takeIf { it.isNotBlank() }?.let { "$it en marcha. Ya te están siguiendo." }
+                    ?: "En marcha. Ya te están siguiendo.",
+            )
+        }
         motor.pideUnaLectura()
     }
 
@@ -1525,6 +1585,7 @@ object TrackingStore {
         val e = _estado.value
         if (!e.compartiendo) return
         if (e.enEspera) {
+            quizaAvisaDeLaSalida(e)
             quizaEmpieza()
             // Armada y esperando la hora de salida NO significa incomunicada:
             // el enlace ya está compartido y la gente empieza a mandar ánimos

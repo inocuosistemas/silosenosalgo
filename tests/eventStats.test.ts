@@ -432,7 +432,17 @@ describe('la hora a la que termina una carrera', () => {
       username: `c${i}`, bib: null, emoji: null, color: null,
       km: 10, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
       finished: t !== null, finishedAt: t, margenMs: null, puesto: null,
-      tracked: true, abandono: false,
+      tracked: true, abandono: false, abandonoAt: null,
+    })),
+  })
+  /** Una carrera en la que nadie llegó: solo horas de abandono. */
+  const conAbandonos = (...horas: number[]) => ({
+    ...conMetas(...horas.map(() => null)),
+    corredores: horas.map((t, i) => ({
+      username: `c${i}`, bib: null, emoji: null, color: null,
+      km: 10, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
+      finished: false, finishedAt: null, margenMs: null, puesto: null,
+      tracked: true, abandono: true, abandonoAt: t,
     })),
   })
 
@@ -448,8 +458,18 @@ describe('la hora a la que termina una carrera', () => {
     expect(horaDeCierre(conMetas(16.5 * 60 * 60_000), corte)).toBe(16.5 * 60 * 60_000)
   })
 
-  it('sin nadie que llegue, la que se proponga', () => {
-    // Todos retirados, o una prueba desierta: no hay última llegada.
+  it('sin nadie que llegue, a la hora del último que se retiró', () => {
+    // Una carrera en la que se bajan los cuatro se acabó cuando se bajó el
+    // último, no cuando alguien abrió la pantalla al día siguiente y el sistema
+    // se dio cuenta: la CanFranc decía "cerrada a las 20:31" y para entonces
+    // llevaba horas sin nadie en el monte.
+    const corte = 16 * 60 * 60_000
+    expect(horaDeCierre(conAbandonos(9 * 60 * 60_000, 11 * 60 * 60_000), corte))
+      .toBe(11 * 60 * 60_000)
+  })
+
+  it('y sin abandonos tampoco, la que se proponga', () => {
+    // Una prueba desierta, o una en la que nadie llegó a emitir.
     const corte = 16 * 60 * 60_000
     expect(horaDeCierre(conMetas(null, null), corte)).toBe(corte)
     expect(horaDeCierre(conMetas(), corte)).toBe(corte)

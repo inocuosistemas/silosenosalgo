@@ -735,13 +735,17 @@ final class TrackingStore: ObservableObject {
             // If the planned start is still ahead (beyond the lead margin), arm
             // in low-power standby: keep the app alive with coarse location but
             // upload nothing until ~2 min before the start, to save battery.
-            if start.timeIntervalSinceNow > startLeadSeconds {
+            if start.timeIntervalSinceNow > TrackingRules.startLeadSeconds {
                 isStandby = true
                 location.configureStandby()
             } else {
                 isStandby = false
                 applyLocationConfig()
             }
+            // Y los avisos de la salida, que son la red debajo del arranque
+            // automático: si el sistema durmió la app y no arrancó sola, el de
+            // las 5 min avisa a tiempo de abrirla. Ver `AvisosDeCarrera`.
+            AvisosDeCarrera.programaSalida(start, carrera: title)
             location.start()
             startFlushTimer()
             persistActive() // remember the "last known state" so a relaunch resumes it
@@ -751,6 +755,8 @@ final class TrackingStore: ObservableObject {
     }
 
     func stopSharing() async {
+        // Se acabó: los avisos de una salida que ya no va a ocurrir sobran.
+        AvisosDeCarrera.borra()
         flushTimer?.invalidate()
         flushTimer = nil
         location.stop()
@@ -829,6 +835,16 @@ final class TrackingStore: ObservableObject {
         if TrackingRules.impossibleJump(previous: lastRecordedFix, new: fix,
                                         activity: effectiveActivity, declared: activity != nil) { return }
         let toRecord: Fix
+        // Primero, ¿manda la nueva por ser mucho mejor? Un ancla puesta con una
+        // lectura de antena congela la baliza hasta que su dueño está a dos
+        // kilómetros: en la CanFranc eso fue una hora de punto clavado donde no
+        // estaba. Ver `TrackingRules.shouldReanchor`.
+        if TrackingRules.shouldReanchor(anchor: anchorFix, new: fix) {
+            anchorFix = fix
+            recordFix(fix)
+            Task { await flush() }
+            return
+        }
         if TrackingRules.hasMovement(anchor: anchorFix, new: fix) {
             anchorFix = fix
             toRecord = fix
@@ -1356,9 +1372,13 @@ final class TrackingStore: ObservableObject {
         loadRouteGeometry(for: s.token)
 
         // Re-arm standby if the planned start is still ahead; else resume live.
-        if startAt.timeIntervalSinceNow > startLeadSeconds {
+        if startAt.timeIntervalSinceNow > TrackingRules.startLeadSeconds {
             isStandby = true
             location.configureStandby()
+            // Reanudar tras un cierre de la app rehace también los avisos: los
+            // programados antes siguen en pie —son del sistema— pero volver a
+            // ponerlos es idempotente y cubre el caso de que se cambiara la hora.
+            AvisosDeCarrera.programaSalida(startAt, carrera: s.title)
         } else {
             isStandby = false
             applyLocationConfig()
@@ -1514,18 +1534,25 @@ final class TrackingStore: ObservableObject {
 
     /// How early (before the planned start) standby switches to live tracking.
     /// A small margin absorbs clock drift between the phone and the organisation.
-    private let startLeadSeconds: TimeInterval = 120
 
     /// While armed, switch to live tracking once we're within the lead margin of
     /// the planned start: apply the real profile and push an immediate first fix.
     private func maybeBeginFromStandby() {
         guard isStandby else { return }
-        guard Date() >= startAt.addingTimeInterval(-startLeadSeconds) else { return }
+        guard Date() >= startAt.addingTimeInterval(-TrackingRules.startLeadSeconds) else { return }
         isStandby = false
         applyLocationConfig()           // full profile (GPS + interval/distance)
         lastSendAttempt = .distantPast  // don't throttle the first live fix
         anchorFix = nil                 // the standby fix is coarse; re-anchor live
-        if let loc = lastLocation {
+        // Y la de espera NO se ingiere si es basta, que es lo normal: el modo
+        // espera posiciona por antena y entrega errores de cientos de metros o
+        // de kilómetros. Ingerirla aquí deshacía el `anchorFix = nil` de la
+        // línea de arriba —volvía a anclar con ella— y dejaba la baliza
+        // congelada justo en la salida. Si es buena, se aprovecha: adelanta la
+        // primera posición sin esperar al GPS.
+        if let loc = lastLocation,
+           loc.horizontalAccuracy >= 0,
+           loc.horizontalAccuracy <= TrackingRules.anchorMaxAccuracyM {
             ingest(loc)
         }
     }
@@ -1548,6 +1575,9 @@ final class TrackingStore: ObservableObject {
         let charging = device.batteryState == .charging || device.batteryState == .full
         batteryLevel = level
         isCharging = charging
+        // Y viaja en el ping: en el móvil solo sirve para mirarla, y la pregunta
+        // "¿le va a durar?" se la hace quien sigue la carrera, no quien corre.
+        API.bateria = level >= 0 ? Int((level * 100).rounded()) : nil
         guard level >= 0 else { batteryDrainPerHour = nil; estimatedHoursRemaining = nil; return }
         let now = Date()
         if charging {
@@ -1570,12 +1600,31 @@ final class TrackingStore: ObservableObject {
         estimatedHoursRemaining = smoothed > 0 ? (level * 100) / smoothed : nil
     }
 
-    /// Apply a user-facing preset; `.custom` leaves the manual values untouched.
+    /**
+     Los perfiles, y por qué el de ahorro ya no manda cada quinientos metros.
+
+     Lo que gasta batería es **tener el receptor encendido y afinado**, no
+     cuántas veces te entrega una posición: el `distanceFilter` solo decide
+     cuándo te avisa, no apaga el GPS. El ahorro de verdad está en la PRECISIÓN
+     pedida —con `HundredMeters` el sistema se apoya en antenas y wifi y dosifica
+     el GPS—, y eso lo decide `configureDistance` a partir de los metros.
+
+     Los dos ajustes iban juntos en el mismo botón sin necesidad, y el resultado
+     se vio en la CanFranc: una baliza en ahorro mandó 35 posiciones en catorce
+     horas, con 501 m de mediana entre ellas. Con eso no se sabe por dónde va
+     nadie —su último punto quedó casi un kilómetro por detrás de donde dio la
+     vuelta— y encima el mapa la daba por perdida cada rato.
+
+     Ciento cincuenta metros conserva TODO el ahorro (misma precisión pedida,
+     misma dosificación del GPS) y multiplica por tres la traza: a 4 km/h son
+     poco más de dos minutos entre lecturas. Lo que cuesta son unos cientos de
+     peticiones más en una ultra, que al lado del receptor es calderilla.
+     */
     func selectProfile(_ p: SendProfile) {
         profile = p
         switch p {
         case .balanced: sendMode = .distance; distanceMeters = 100
-        case .saver: sendMode = .distance; distanceMeters = 500
+        case .saver: sendMode = .distance; distanceMeters = 150
         case .precision: sendMode = .time; intervalSeconds = 10
         case .custom: break
         }

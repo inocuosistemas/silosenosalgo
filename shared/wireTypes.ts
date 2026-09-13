@@ -546,6 +546,8 @@ export interface EventPublicRunner {
   updatedAt: number | null
   /** Cada cuánto promete hablar su baliza (`t15`, `d500`). Ver `shared/cadencia.ts`. */
   cadencia?: string | null
+  /** Batería que le queda, 0-100. Null si su baliza no lo manda. */
+  bateria?: number | null
 }
 
 export interface EventPublicResponse {
@@ -832,6 +834,10 @@ export interface EventLiveRunner {
    * Ver `shared/cadencia.ts`.
    */
   cadencia?: string | null
+  /** Batería que le queda, 0-100. "Va por el km 60" y "le queda un 8%" son la
+   *  misma pregunta con dos respuestas, y la segunda dice si vas a seguir
+   *  viéndole. Null en la web y en las balizas que no lo mandan. */
+  bateria?: number | null
 }
 
 /** GET /api/events/:id/live — todos los participantes, de una vez. */

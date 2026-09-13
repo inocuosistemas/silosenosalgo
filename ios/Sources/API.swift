@@ -371,9 +371,21 @@ enum API {
      */
     static var cadencia: String?
 
+    /**
+     Batería que le queda a la baliza, de 0 a 100, o nil si no se sabe.
+
+     Para quien mira, "le queda un 8%" contesta a si va a seguir viéndole, que
+     en una ultra de dos días es de lo primero que se pregunta. Y para nosotros
+     es la única forma de saber qué cuesta de verdad cada perfil de emisión: lo
+     que la app calcula en pantalla se queda en el móvil. La pone
+     `TrackingStore` con cada muestreo. Espejo de `Api.bateria` en Kotlin.
+     */
+    static var bateria: Int?
+
     static func ping(token: String, id: String, fix: Fix) async throws {
         var body: [String: Any] = ["lat": fix.lat, "lon": fix.lon, "appVersion": appVersion]
         if let c = cadencia { body["cadencia"] = c }
+        if let b = bateria { body["bateria"] = b }
         if let v = fix.trackKm { body["trackKm"] = v }
         if let v = fix.speed { body["speed"] = v }
         if let v = fix.heading { body["heading"] = v }
@@ -402,6 +414,7 @@ enum API {
         }
         var body: [String: Any] = ["fixes": arr, "appVersion": appVersion]
         if let c = cadencia { body["cadencia"] = c }
+        if let b = bateria { body["bateria"] = b }
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers

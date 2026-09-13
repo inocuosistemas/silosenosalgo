@@ -807,15 +807,25 @@ async function congelaPorra(
  * decir que terminó a las 16:30, que es cuando cerraba el control. Con la meta
  * recogida hora y media antes.
  *
- * `propuesta` es el respaldo para cuando no llegó nadie —todos retirados, o una
- * prueba desierta—: ahí no hay última llegada y lo único que se sabe es la hora
- * a la que se está cerrando.
+ * Y si no llegó NADIE, a la hora del último que dejó la carrera: una prueba en
+ * la que se retiran los cuatro se acabó cuando se bajó el último, no cuando
+ * alguien abrió la pantalla a la noche siguiente y el sistema se dio cuenta. La
+ * CanFranc decía "cerrada el 12 de septiembre a las 20:31" y para entonces
+ * llevaba horas sin nadie en el monte.
+ *
+ * `propuesta` queda como último respaldo: una prueba desierta, o una en la que
+ * nadie llegó a emitir. Ahí no hay nada que saber más que la hora a la que se
+ * está cerrando.
  */
 export function horaDeCierre(stats: EventStats, propuesta: number): number {
   const llegadas = stats.corredores
     .map((c) => c.finishedAt)
     .filter((t): t is number => t !== null)
-  return llegadas.length > 0 ? Math.max(...llegadas) : propuesta
+  if (llegadas.length > 0) return Math.max(...llegadas)
+  const abandonos = stats.corredores
+    .map((c) => c.abandonoAt)
+    .filter((t): t is number => t != null)
+  return abandonos.length > 0 ? Math.max(...abandonos) : propuesta
 }
 
 export async function cierraEvento(

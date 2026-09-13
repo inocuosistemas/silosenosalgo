@@ -55,7 +55,29 @@ object TrackingRules {
 
     /** Cuánto antes de la salida prevista se pasa de espera a seguimiento real.
      *  El margen absorbe el desfase de reloj entre el móvil y la organización. */
-    const val ANTELACION_SALIDA_SEGUNDOS = 120.0
+    /**
+     * Cuánto antes de la salida arranca sola una baliza armada.
+     *
+     * Cinco minutos, y no dos: el GPS recién despertado tarda en enganchar y sus
+     * primeras lecturas son las malas —las de cientos de metros—. Con dos
+     * minutos, la primera posición que veía la carrera era todavía una posición
+     * de antena; con cinco, para cuando suena el disparo la baliza lleva un rato
+     * dando metros de precisión y la salida sale afinada.
+     *
+     * Lo que se emite en esos cinco minutos es la línea de salida, que no
+     * estorba: lo que había que evitar es emitir desde el aparcamiento una hora
+     * antes, y eso lo sigue evitando.
+     */
+    const val ANTELACION_SALIDA_SEGUNDOS = 300.0
+
+    /**
+     * Cuánto antes se avisa de que la carrera va a empezar.
+     *
+     * Cinco minutos: lo justo para sacar el móvil del bolsillo y comprobar que
+     * está emitiendo, sin ser tan pronto como para que se olvide. Espejo de
+     * `AvisosDeCarrera.antelacionMin` en iOS.
+     */
+    const val AVISO_SALIDA_SEGUNDOS = 300.0
 
     /** Cada cuánto despierta el bucle de reintento: vacía el atasco cuando
      *  vuelve la cobertura aunque quien camina esté parado. Es una ayuda, no el
@@ -74,17 +96,27 @@ object TrackingRules {
      * El ritmo de cada perfil. Los tres apuntan a lo mismo: el gasto de batería
      * lo manda el GPS, no la frecuencia de subida, así que ahorrar es pedirle
      * menos al GPS —y por distancia, parado, no pide nada.
+     *
+     * Y AHORRO ya no manda cada quinientos metros. Lo que ahorra es no tener el
+     * receptor encendido y afinado; el umbral de distancia solo decide cuándo se
+     * entrega la posición, no apaga nada. Los dos ajustes iban juntos en el
+     * mismo botón sin necesidad, y el resultado se vio en la CanFranc: una
+     * baliza en ahorro mandó 35 posiciones en catorce horas, con 501 m de
+     * mediana. Con eso no se sabe por dónde va nadie —su último punto quedó casi
+     * un kilómetro por detrás de donde dio la vuelta—. Ciento cincuenta metros
+     * conserva el ahorro y multiplica por tres la traza: a 4 km/h son poco más
+     * de dos minutos entre lecturas.
      */
     fun ritmoDe(perfil: Perfil, actual: Ritmo = Ritmo()): Ritmo = when (perfil) {
         Perfil.EQUILIBRADO -> Ritmo(Modo.DISTANCIA, actual.intervaloSegundos, 100.0)
-        Perfil.AHORRO -> Ritmo(Modo.DISTANCIA, actual.intervaloSegundos, 500.0)
+        Perfil.AHORRO -> Ritmo(Modo.DISTANCIA, actual.intervaloSegundos, 150.0)
         Perfil.PRECISION -> Ritmo(Modo.TIEMPO, 10.0, actual.distanciaMetros)
         Perfil.PERSONALIZADO -> actual
     }
 
     /** Los pasos de los mandos manuales (espejo de los sliders de iOS). */
     val PASOS_INTERVALO = listOf(5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0)
-    val PASOS_DISTANCIA = listOf(25.0, 50.0, 100.0, 250.0, 500.0)
+    val PASOS_DISTANCIA = listOf(25.0, 50.0, 100.0, 150.0, 250.0, 500.0)
 
     /** Cuánto gasta el ritmo elegido. Espejo de `batteryLabel` en iOS: los
      *  mismos cortes, para que las dos apps no digan cosas distintas del mismo
@@ -493,7 +525,43 @@ object TrackingRules {
      */
     fun umbralMovimiento(precisionA: Double?, precisionB: Double?): Double {
         val peor = maxOf(precisionA ?: 0.0, precisionB ?: 0.0)
-        return peor * 1.5
+        return minOf(peor, PRECISION_MAX_ANCLA_M) * 1.5
+    }
+
+    /**
+     * Por encima de este error, una lectura ya no sirve NI PARA MEDIR.
+     *
+     * Es el tope de la vara, y sin él pasó esto en la CanFranc: la primera
+     * lectura de una baliza traía ±1447 m —una posición de antena, del modo
+     * espera— y el umbral de movimiento salía a 1447 × 1,5 = **2,17 km**. Hasta
+     * que su dueño no se alejó dos kilómetros de aquel punto inventado, todas
+     * sus lecturas buenas —de dos y tres metros— se descartaron y en su lugar se
+     * grabó el ancla: una hora clavado en un sitio donde no estaba, mientras
+     * cruzaba el primer control de la carrera.
+     *
+     * Cien metros es generoso para lo que tiene que dejar pasar (un valle
+     * cerrado, un bosque) y corta en seco lo que no puede medirse.
+     */
+    const val PRECISION_MAX_ANCLA_M = 100.0
+
+    /**
+     * ¿Hay que rehacer el ancla porque ha llegado algo mucho mejor?
+     *
+     * El ancla es la posición que se da por buena, y todo lo demás se mide
+     * contra ella. Si se fija con una lectura mala —y se fija, porque al
+     * principio "un punto malo es mejor que ninguno"— arrastra el error hasta
+     * que alguien la sustituya. Nadie lo hacía: solo se cambiaba al detectar
+     * movimiento, y el movimiento se medía contra ella misma.
+     *
+     * Así que en cuanto llega una lectura FIABLE y el ancla no lo era, manda la
+     * nueva. Sin discutir y sin mirar la distancia: no es que se haya movido, es
+     * que ahora sí se sabe dónde está.
+     */
+    fun tocaReanclar(ancla: Fix?, nueva: Fix): Boolean {
+        if (ancla == null) return false
+        val precisionNueva = nueva.accuracy ?: return false
+        if (precisionNueva > PRECISION_MAX_ANCLA_M) return false
+        return (ancla.accuracy ?: 0.0) > PRECISION_MAX_ANCLA_M
     }
 
     /**

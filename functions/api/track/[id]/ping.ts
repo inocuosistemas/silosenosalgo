@@ -39,7 +39,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = await readJson<{ fixes?: InFix[]; appVersion?: unknown; cadencia?: unknown } & Partial<InFix>>(request)
+  const body = await readJson<{
+    fixes?: InFix[]; appVersion?: unknown; cadencia?: unknown; bateria?: unknown
+  } & Partial<InFix>>(request)
   if (!body) return json({ error: 'invalid_request' }, 400)
   /**
    * Qué versión de la app manda esto.
@@ -61,6 +63,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
    * porque el perfil se cambia a mitad de ruta, que es cuando se ve la batería.
    */
   const cadencia = leeCadencia(typeof body.cadencia === 'string' ? body.cadencia : null)
+  /**
+   * Cuánta batería le queda a la baliza, de 0 a 100.
+   *
+   * Para quien mira, "le queda un 8%" contesta a si va a seguir viéndole, que
+   * en una ultra de dos días es de lo primero que se pregunta. Y para nosotros
+   * es la única forma de saber qué cuesta de verdad cada perfil de emisión: el
+   * de ahorro promete máxima autonomía a cambio de una traza mucho peor, y esa
+   * cuenta no se puede hacer sin el dato.
+   */
+  const bateria = typeof body.bateria === 'number' && Number.isFinite(body.bateria)
+    ? Math.max(0, Math.min(100, Math.round(body.bateria)))
+    : null
   const raw: InFix[] = Array.isArray(body.fixes) ? body.fixes : [body as InFix]
 
   const now = Date.now()
@@ -126,12 +140,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
         SET lat=?, lon=?, track_km=COALESCE(?, track_km), speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
             app_version=COALESCE(?, app_version),
             send_cadence=COALESCE(?, send_cadence),
+            battery_pct=COALESCE(?, battery_pct),
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
     latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion,
-    cadencia ? escribeCadencia(cadencia) : null, keepAlive, id,
+    cadencia ? escribeCadencia(cadencia) : null, bateria, keepAlive, id,
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.

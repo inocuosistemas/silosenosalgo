@@ -69,6 +69,7 @@ class TrackingService : Service() {
         TrackingStore.despertador = { ms -> runCatching { bloqueoCpu?.acquire(ms) } }
         TrackingStore.lectorBateria = ::leeBateria
         TrackingStore.avisadorDeAnimos = ::avisaDeAnimo
+        TrackingStore.avisadorDeSalida = ::avisaDeSalida
         creaCanal()
         // La notificación se mantiene al día con el estado: posiciones subidas,
         // atasco pendiente y hueco con los seguidores. Es la única ventana al
@@ -207,6 +208,35 @@ class TrackingService : Service() {
         runCatching { nm?.notify(ID_ANIMO, aviso) }
     }
 
+    /**
+     * Los avisos de la salida: "faltan cinco minutos" y "¡ya!".
+     *
+     * En el canal de los ánimos y no en el del seguimiento: aquel es una
+     * pastilla de estado que no debe molestar, y estos SÍ tienen que
+     * interrumpir — el móvil va en el bolsillo con el dorsal puesto. Cada uno
+     * reemplaza al anterior (mismo id), que dos banderines seguidos no aportan.
+     */
+    private fun avisaDeSalida(titulo: String, texto: String) {
+        val abrir = PendingIntent.getActivity(
+            this, 3,
+            Intent(this, MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val aviso = NotificationCompat.Builder(this, CANAL_ANIMOS)
+            .setContentTitle(titulo)
+            .setContentText(texto)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(texto))
+            .setSmallIcon(R.drawable.ic_notificacion)
+            .setContentIntent(abrir)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        val nm = ContextCompat.getSystemService(this, NotificationManager::class.java)
+        runCatching { nm?.notify(ID_SALIDA, aviso) }
+    }
+
     private fun notifica(n: Notification) {
         val nm = ContextCompat.getSystemService(this, NotificationManager::class.java)
         runCatching { nm?.notify(ID_NOTIFICACION, n) }
@@ -291,6 +321,8 @@ class TrackingService : Service() {
     companion object {
         private const val CANAL = "seguimiento"
         private const val CANAL_ANIMOS = "animos"
+        /** El aviso de salida: uno solo, el nuevo reemplaza al viejo. */
+        private const val ID_SALIDA = 4
         private const val ID_NOTIFICACION = 1
         private const val ID_ANIMO = 2
         const val ACCION_PARAR = "com.themakercrowd.silosenosalgo.PARAR"

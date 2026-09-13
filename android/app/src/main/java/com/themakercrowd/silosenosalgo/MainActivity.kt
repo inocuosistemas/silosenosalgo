@@ -1115,7 +1115,7 @@ private fun SelectorPerfil(actual: TrackingRules.Perfil, onElige: (TrackingRules
     )
     FilaPerfil(
         TrackingRules.Perfil.AHORRO, actual, onElige,
-        "Ahorro · ultra", "Por distancia (~500 m). Parado no gasta batería.",
+        "Ahorro · ultra", "Por distancia (~150 m), con el GPS a media potencia. Parado no gasta batería.",
         "Máxima autonomía", Paleta.verde,
     )
     FilaPerfil(

@@ -96,4 +96,41 @@ final class TrackingRulesTests: XCTestCase {
         XCTAssertNil(deHoy([evento("cero", salida: 0)], ahora))
         XCTAssertNil(deHoy([], ahora))
     }
+
+    // MARK: El ancla envenenada
+
+    private func fixCon(_ lat: Double, _ lon: Double, _ precision: Double, _ t: Double) -> Fix {
+        Fix(lat: lat, lon: lon, trackKm: nil, speed: 3, heading: 90,
+            accuracy: precision, altitude: nil, fixAt: t)
+    }
+
+    func testUnaLecturaDeAntenaNoCongelaLaBalizaUnaHora() {
+        // El caso de jie en la CanFranc: su primera lectura traía ±1447 m —una
+        // posición de antena, del modo espera— y el umbral salía a 1447 × 1,5 =
+        // 2,17 km. Hasta que no se alejó dos kilómetros, todas sus lecturas
+        // buenas se descartaron y en su lugar se grabó el ancla: una hora
+        // clavado donde no estaba, mientras cruzaba el primer control.
+        XCTAssertEqual(TrackingRules.movementThreshold(1447, 4), 150, accuracy: 0.001)
+        XCTAssertEqual(TrackingRules.movementThreshold(50, 50), 75, accuracy: 0.001)
+    }
+
+    func testEnCuantoLlegaUnaLecturaFiableElAnclaSeRehace() {
+        // Y no hace falta ni que se haya movido: no es que se mueva, es que
+        // ahora sí se sabe dónde está.
+        let antena = fixCon(42.7379, -0.5192, 1447, 0)
+        let buena = fixCon(42.7379, -0.5192, 4, 1_000)
+        XCTAssertTrue(TrackingRules.shouldReanchor(anchor: antena, new: buena))
+        // Al revés no: un ancla buena no la sustituye una lectura peor.
+        XCTAssertFalse(TrackingRules.shouldReanchor(anchor: buena, new: antena))
+        // Ni dos buenas entre sí, que de eso ya se encarga `hasMovement`.
+        XCTAssertFalse(TrackingRules.shouldReanchor(anchor: buena, new: fixCon(42.7380, -0.5192, 5, 2_000)))
+        // Sin ancla no hay nada que rehacer.
+        XCTAssertFalse(TrackingRules.shouldReanchor(anchor: nil, new: buena))
+    }
+
+    func testLaBalizaArmadaArrancaCincoMinutosAntes() {
+        // Dos minutos no daban: el GPS recién despertado tarda en enganchar y
+        // sus primeras lecturas son las malas. Espejo de Android.
+        XCTAssertEqual(TrackingRules.startLeadSeconds, 300)
+    }
 }

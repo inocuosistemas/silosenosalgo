@@ -1,0 +1,16 @@
+-- Cuánta batería le queda a la baliza.
+--
+-- Dos razones, y la segunda es la que más se va a usar:
+--
+-- 1. Para saber de verdad qué cuesta cada perfil. "Ahorro · ultra" promete
+--    máxima autonomía y destroza la traza —500 m entre lecturas—, y hasta ahora
+--    nadie podía decir cuánta batería ahorraba de verdad, porque el dato se
+--    quedaba en el móvil. Con una carrera de datos se compara.
+--
+-- 2. Para quien mira. "Va por el km 60" y "le queda un 8%" son la misma
+--    pregunta con dos respuestas distintas: la segunda dice si vas a seguir
+--    viéndole. En una ultra de dos días es de lo primero que se pregunta.
+--
+-- Un entero de 0 a 100, o NULL en las balizas que no lo mandan (las anteriores
+-- a esto, y la web, que no puede leerlo).
+ALTER TABLE tracking_sessions ADD COLUMN battery_pct INTEGER;
