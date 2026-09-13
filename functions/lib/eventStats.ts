@@ -790,7 +790,7 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
  * nunca llegó a ese punto.
  */
 export async function cuandoPasoPorKm(
-  env: Env, eventId: string, userId: string, km: number,
+  env: Env, eventId: string, userId: string, km: number | null,
 ): Promise<number | null> {
   const linea = await leePolilinea(env, eventId)
   if (!linea) return null
@@ -810,10 +810,26 @@ export async function cuandoPasoPorKm(
   const limpios = sinSaltos(pts, row.activity)
   const avance = avanceSobreRuta(linea, limpios.length >= 2 ? limpios : pts, limitesDe(row.activity).maxKmh)
   if (!avance) return null
-  // La PRIMERA vez que lo alcanzó: lo que se busca es cuándo llegó ahí, no la
-  // última vez que lo rozó de vuelta.
-  for (const [t, kmEn] of avance.serie) if (kmEn >= km) return t
-  return null
+  return momentoEnLaTraza(avance.serie, avance.enMs, km)
+}
+
+/**
+ * Cuándo lo dejó, según su traza.
+ *
+ * Con sitio, la PRIMERA vez que alcanzó ese kilómetro: lo que se busca es
+ * cuándo llegó ahí, no la última vez que lo rozó de vuelta.
+ *
+ * Sin sitio, o con uno al que la traza no llega, cuando llegó MÁS LEJOS. Lo
+ * segundo pasa más de lo que parece: se señala el control donde se retiró
+ * —Formigal, km 49,85— y el GPS lo deja a unos metros de él. Eso no encontraba
+ * hora, se ponía la del momento de marcarlo —al día siguiente— y con ella se
+ * iban el cierre de la carrera y el final del replay. El punto más lejano es
+ * donde se le acabó la carrera, esté a treinta metros del control o a tres
+ * kilómetros porque se le murió el móvil.
+ */
+export function momentoEnLaTraza(serie: [number, number, number][], enMs: number, km: number | null): number {
+  if (km != null) for (const [t, kmEn] of serie) if (kmEn >= km) return t
+  return enMs
 }
 
 /** El trazado simplificado del evento, si lo tiene. */

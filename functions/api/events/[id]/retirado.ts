@@ -19,14 +19,17 @@ import { cierraEvento, cuandoPasoPorKm } from '../../../lib/eventStats'
  * visto subir a la furgoneta. Esto es esa vía. Manda sobre la traza.
  *
  * Body: `{ username, at? , km? }` para marcarlo —`at` en epoch ms, y si no
- * viene, la hora de ahora— y `{ username, at: null }` para deshacerlo. Lo
+ * viene, la que diga su traza— y `{ username, at: null }` para deshacerlo. Lo
  * segundo importa tanto como lo primero: alguien se marca por error y tiene que
  * poder volver a la carrera sin que quede rastro.
  *
  * `km` es el sitio: lo normal es señalar un punto del recorrido —"lo dejó en
  * Canfranc Pueblo"— en vez de teclear un número, y de ahí sale el kilómetro. Si
  * viene `km` y no viene `at`, la hora se deduce de CUÁNDO PASÓ SU TRAZA por ese
- * kilómetro, que es mejor dato que el reloj de quien lo marca.
+ * kilómetro, que es mejor dato que el reloj de quien lo marca. Y sin sitio,
+ * de cuándo llegó más lejos. El reloj de ahora solo vale para quien no tiene
+ * traza: marcado al día siguiente, movía el cierre de toda la carrera a ese
+ * día —y con él el final del replay, que duraba 48 horas—.
  *
  * También puede MARCARSE UNO MISMO. Es la forma más honesta de bajarse: la
  * baliza se apaga cuando uno se acuerda —en el coche, al día siguiente— y esto
@@ -45,7 +48,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // ahí el nombre lo sabe el servidor mejor que la app.
   const username = typeof body.username === 'string' ? body.username.trim() : user.username
 
-  // `at` ausente = ahora. `at: null` = deshacerlo. Un número = esa hora, que es
+  // `at` ausente = la de su traza, o ahora si no tiene. `at: null` = deshacerlo. Un número = esa hora, que es
   // lo que permite decir "se bajó a las once" tres horas después.
   const quitar = body.at === null
   let at: number | null = null
@@ -83,12 +86,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     return json({ error: 'forbidden' }, 403)
   }
 
-  // Con el sitio señalado y sin hora, la hora la dice su traza: cuándo pasó por
-  // ese kilómetro. Es mejor dato que el reloj de quien lo marca, que puede
-  // estar anotándolo dos horas después.
-  if (km != null && body.at === undefined) {
+  // Sin hora, la dice su traza: cuándo pasó por el sitio señalado o, sin sitio,
+  // cuándo llegó más lejos. Es mejor dato que el reloj de quien lo marca, que
+  // puede estar anotándolo al día siguiente. Nunca antes de la salida ni
+  // después de ahora.
+  if (!quitar && body.at === undefined) {
     const cuando = await cuandoPasoPorKm(env, id, fila.userId, km)
-    if (cuando != null) at = cuando
+    if (cuando != null) at = Math.min(Date.now(), Math.max(ev.startsAt ?? cuando, cuando))
   }
 
   await env.DB.prepare('UPDATE event_members SET retired_at = ?, retired_km = ? WHERE event_id = ? AND user_id = ?')
