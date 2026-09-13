@@ -1192,21 +1192,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {route && trazado && (
             <>
               <Polyline positions={route.pts} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
-              {/* Lo que QUEDA, en el violeta de siempre; lo ya hecho, apagado.
-                  El color fuerte se reserva para lo que todavía importa —por
-                  dónde hay que ir— y el gris cuenta lo que ya pasó sin competir
-                  con él. Se dibuja lo hecho DESPUÉS para que el corte quede
-                  limpio justo donde va el corredor.
+              {/* Lo que QUEDA, en el violeta de siempre; lo ya hecho, en
+                  pizarra oscura. Se dibuja lo hecho DESPUÉS para que el corte
+                  quede limpio justo donde va el corredor.
 
-                  El gris es CLARO y no medio: medido con el validador de
-                  paletas sobre el verde del mapa, este se separa del violeta en
-                  30,7 donde el gris medio anterior se quedaba en 21,9 — y con
-                  tritanopía la diferencia era de 23,7 contra 9,3, o sea que los
-                  dos tramos casi se confundían. Que salga "sin color" es a
-                  propósito: lo andado ya no es una opción, es historia. */}
+                  Lo hecho iba en gris claro, pensado para separarse del violeta,
+                  y lo conseguía, pero a costa del mapa: sobre el verde y el beige
+                  de OSM se deshacía (ΔE 23 con visión normal, 18 con tritanopía)
+                  y a mitad de carrera, que es cuando más se mira, media carrera
+                  parecía no tener recorrido. La pizarra oscura se separa del
+                  mapa tres veces más (ΔE 75, 72 con tritanopía) y del violeta lo
+                  suficiente para cualquier visión (24–26): sigue sin color
+                  —lo andado es historia, no una opción— pero se lee entero. */}
               <Polyline positions={trazado.queda} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
               {trazado.hecho.length > 1 && (
-                <Polyline positions={trazado.hecho} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.95 }} />
+                <Polyline positions={trazado.hecho} pathOptions={{ color: '#1e293b', weight: 4, opacity: 1 }} />
               )}
             </>
           )}
