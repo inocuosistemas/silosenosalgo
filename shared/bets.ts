@@ -33,6 +33,26 @@ const PTS_ORDER_WINNER_BONUS = 10
 const PTS_FINISH = 15
 /** La hora de meta: 40 puntos que se van perdiendo con el error. */
 const PTS_TIME_MAX = 40
+/**
+ * El kilómetro del abandono, la otra mitad fina: los mismos 40.
+ *
+ * Las dos apuestas de cada participante van en pareja y no se suman por
+ * casualidad: "¿acaba?" es cara o cruz y vale poco —es con la que entra quien
+ * no sabe nada de la carrera—, y la segunda pide precisión de verdad. Quien
+ * dice que sí acaba, dice a qué hora; quien dice que no, dice dónde se baja.
+ * Las dos pagan igual porque las dos son igual de difíciles: adivinar el
+ * kilómetro en el que alguien se rompe no es más fácil que su hora de meta.
+ */
+const PTS_KM_MAX = 40
+/**
+ * Y quién firma el kilómetro más rápido de la carrera.
+ *
+ * Vale más que "acaba" y menos que el ganador: no hace falta saber quién corre
+ * más —el kilómetro suelto más rápido lo hace a menudo quien se vacía en una
+ * bajada y luego se hunde— pero hay que conocer a la gente. Es la apuesta de
+ * los que van de listos, y por eso gusta tanto acertarla.
+ */
+const PTS_FASTEST = 25
 /** Clavarla tiene premio aparte: es la jugada de la tarde. */
 const PTS_BULLSEYE = 15
 
@@ -58,6 +78,28 @@ const CLAVADA_PCT = 0.005
 const TOLERANCIA_MIN_MIN = 10
 const CLAVADA_MIN_MIN = 2
 
+/**
+ * Y el margen del KILÓMETRO de abandono, con la misma idea: un porcentaje del
+ * recorrido, no una distancia fija.
+ *
+ * Cinco kilómetros de error son casi nada en una de cien y una barbaridad en un
+ * 10K. Con suelo para las cortas, que el 5% de diez kilómetros son quinientos
+ * metros y ahí nadie acierta.
+ */
+const TOLERANCIA_KM_PCT = 0.08
+const CLAVADA_KM_PCT = 0.015
+const TOLERANCIA_KM_MIN = 2
+const CLAVADA_KM_MIN = 0.5
+
+/** El margen del kilómetro en esta carrera, a partir de lo que mide. */
+export function margenDeKm(totalKm: number | null): { tolerancia: number; clavada: number } {
+  const t = totalKm !== null && totalKm > 0 ? totalKm : 0
+  return {
+    tolerancia: Math.max(TOLERANCIA_KM_MIN, t * TOLERANCIA_KM_PCT),
+    clavada: Math.max(CLAVADA_KM_MIN, t * CLAVADA_KM_PCT),
+  }
+}
+
 /** El margen de esta carrera, en minutos, a partir de lo que dura. */
 export function margenDeTiempo(referenciaMin: number | null): { tolerancia: number; clavada: number } {
   const ref = referenciaMin !== null && referenciaMin > 0 ? referenciaMin : 0
@@ -82,6 +124,15 @@ export interface RunnerOutcome {
   finishedAt: number | null
   /** Su carrera ya está decidida para la porra: llegó, o cerró la baliza sin llegar. */
   settled: boolean
+  /**
+   * Dónde dejó la carrera quien no llegó (km del recorrido), o null.
+   *
+   * Es el kilómetro del ABANDONO y no el último que se le vio: quien se retira
+   * sigue moviéndose —baja al pueblo, se va a casa— y lo que se pronosticó es
+   * hasta dónde llegó. Lo calcula el servidor con la traza entera; ver
+   * `paradaFinal` en `functions/lib/eventStats.ts`.
+   */
+  kmAbandono?: number | null
 }
 
 /**
@@ -163,6 +214,13 @@ export function scoreBets(
    * de larga es la prueba cuando no hay límite puesto.
    */
   referenciaMin?: number | null,
+  /**
+   * Lo que hace falta para las apuestas de la CARRERA, no de un participante:
+   * cuánto mide el recorrido —la escala del error del kilómetro de abandono— y
+   * quién firmó el kilómetro más rápido. Lo segundo solo se sabe al cerrar, y
+   * mientras no se sepa esa apuesta se queda sin resolver.
+   */
+  carrera?: { totalKm?: number | null; recordKm?: string | null },
 ): BetScore[] {
   const porNombre = new Map(outcomes.map((o) => [o.username, o]))
 
@@ -205,7 +263,9 @@ export function scoreBets(
     const s = dame(b.author)
     // La hora del más reciente de sus pronósticos: es la que ordena la lista.
     if (b.createdAt > s.lastAt) s.lastAt = b.createdAt
-    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme, startsAt ?? null, margen)
+    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme,
+      startsAt ?? null, margen, margenDeKm(carrera?.totalKm ?? null),
+      carrera?.recordKm ?? null, ordenFirme)
     s.bets.push(scored)
     s.points += scored.points
     if (scored.state === 'ok') s.hits++
@@ -240,6 +300,9 @@ function scoreOne(
   ordenFirme: boolean,
   startsAt: number | null,
   margen: { tolerancia: number; clavada: number },
+  margenKm: { tolerancia: number; clavada: number },
+  recordKm: string | null,
+  recordFirme: boolean,
 ): ScoredBet {
   if (b.kind === 'order') {
     const dicho = Number(b.value)
@@ -284,6 +347,47 @@ function scoreOne(
     return acabo === dijoSi
       ? { kind: b.kind, target: b.target, said, points: PTS_FINISH, state: 'ok' }
       : { kind: b.kind, target: b.target, said, points: 0, state: 'ko' }
+  }
+
+  if (b.kind === 'abandon_km') {
+    const dicho = Number(b.value)
+    const said = Number.isFinite(dicho) ? `km ${dicho.toFixed(1)}` : '—'
+    // Igual que con la hora de meta: retirarse se sabe cuando se sabe. Y si
+    // acabó llegando, el pronóstico se cae entero —no había abandono— pero no
+    // resta: bastante castigo es haberse equivocado en lo de antes.
+    if (!o || (!o.finished && !o.settled)) {
+      return { kind: b.kind, target: b.target, said, points: 0, state: 'pending' }
+    }
+    if (o.finished) {
+      return { kind: b.kind, target: b.target, said, points: 0, state: 'ko', note: 'llegó a meta' }
+    }
+    const real = o.kmAbandono
+    if (real == null) {
+      return { kind: b.kind, target: b.target, said, points: 0, state: 'ko', note: 'sin datos de dónde lo dejó' }
+    }
+    const err = Math.abs(real - dicho)
+    const base = Math.max(0, Math.round(PTS_KM_MAX * (1 - err / margenKm.tolerancia)))
+    const bull = err <= margenKm.clavada ? PTS_BULLSEYE : 0
+    const points = base + bull
+    return {
+      kind: b.kind, target: b.target, said, points,
+      state: points > 0 ? 'ok' : 'ko',
+      note: bull ? `¡clavado! lo dejó en el ${real.toFixed(1)}` : `lo dejó en el km ${real.toFixed(1)}`,
+    }
+  }
+
+  if (b.kind === 'fastest_km') {
+    // Quién, en `target`: así el nombre lo resuelve la consulta y por el cable
+    // no viaja ningún id de cuenta.
+    const said = b.target
+    // Se sabe al cerrar la carrera, con la traza entera: hasta entonces, el
+    // kilómetro más rápido puede hacerlo cualquiera que aún esté corriendo.
+    if (!recordFirme || recordKm === null) {
+      return { kind: b.kind, target: b.target, said, points: 0, state: 'pending' }
+    }
+    return said === recordKm
+      ? { kind: b.kind, target: b.target, said, points: PTS_FASTEST, state: 'ok', note: 'el más rápido' }
+      : { kind: b.kind, target: b.target, said, points: 0, state: 'ko', note: `lo hizo ${recordKm}` }
   }
 
   // finish_time

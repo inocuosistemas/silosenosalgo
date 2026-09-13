@@ -37,11 +37,15 @@ const MAX_BETS = 300
 /** Ventana admisible para una hora de meta: de la salida a tres días después. */
 const FINISH_WINDOW_MS = 3 * 24 * 3600_000
 
-interface EventRow { id: string; startsAt: number | null; betsEnabled: number }
+interface EventRow {
+  id: string; startsAt: number | null; betsEnabled: number; planTotalKm: number | null
+}
 
 async function loadEvent(env: Env, id: string): Promise<EventRow | null> {
   return env.DB.prepare(
-    'SELECT id, starts_at AS startsAt, bets_enabled AS betsEnabled FROM events WHERE id = ?',
+    `SELECT id, starts_at AS startsAt, bets_enabled AS betsEnabled,
+            plan_total_km AS planTotalKm
+       FROM events WHERE id = ?`,
   ).bind(id).first<EventRow>()
 }
 
@@ -156,6 +160,35 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const ms = Math.round(at)
     if (ms <= ev.startsAt || ms > ev.startsAt + FINISH_WINDOW_MS) return json({ error: 'invalid_request' }, 400)
     filas.push({ target, kind: 'finish_time', value: String(ms) })
+  }
+
+  /**
+   * El kilómetro del abandono: la otra mitad de "no acaba".
+   *
+   * Se valida contra lo que mide el recorrido cuando se sabe —no se puede
+   * abandonar en el km 300 de una de cien— y se guarda con un decimal, que es
+   * la precisión con la que se elige y con la que se puntúa.
+   */
+  for (const [nombre, km] of Object.entries(body.abandonKm ?? {})) {
+    const target = idPorNombre.get(nombre)
+    if (!target) return json({ error: 'invalid_request' }, 400)
+    if (typeof km !== 'number' || !Number.isFinite(km) || km < 0) return json({ error: 'invalid_request' }, 400)
+    if (ev.planTotalKm != null && km > ev.planTotalKm) return json({ error: 'invalid_request' }, 400)
+    filas.push({ target, kind: 'abandon_km', value: String(Math.round(km * 10) / 10) })
+  }
+
+  /**
+   * Quién firma el kilómetro más rápido de la carrera.
+   *
+   * Va con `target_id` puesto y no con el nombre en el valor —como hacía la
+   * apuesta vieja del ganador—, porque el `target_id` lo resuelve a nombre el
+   * SELECT del GET. Con el id en el valor, el enlace público de la porra
+   * repartiría ids de cuenta a cualquiera que lo abra.
+   */
+  if (typeof body.fastestKm === 'string' && body.fastestKm) {
+    const target = idPorNombre.get(body.fastestKm)
+    if (!target) return json({ error: 'invalid_request' }, 400)
+    filas.push({ target, kind: 'fastest_km', value: '1' })
   }
 
   if (filas.length > MAX_BETS) return json({ error: 'too_large' }, 413)

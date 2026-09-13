@@ -789,8 +789,14 @@ async function congelaPorra(
     finished: c.finished,
     finishedAt: c.finishedAt,
     settled: c.finished || c.abandono,
+    // Dónde lo dejó quien no llegó: es contra lo que se puntúa el kilómetro de
+    // abandono, y sale del mismo cálculo que la clasificación.
+    kmAbandono: c.abandono ? c.km : null,
   }))
-  return scoreBets(apuestas, outcomes, ev.startsAt, ev.limitMin)
+  return scoreBets(apuestas, outcomes, ev.startsAt, ev.limitMin, {
+    totalKm: stats.totalKm,
+    recordKm: stats.fastestKm?.username ?? null,
+  })
 }
 
 /**

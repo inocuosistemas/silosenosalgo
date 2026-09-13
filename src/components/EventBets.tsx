@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { X, ChevronRight, Share2, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
-import { dibujaPorra, cargaImagen } from '../lib/porraCard'
+import { dibujaPorra, dibujaResultadoPorra, cargaImagen } from '../lib/porraCard'
 import { comparteImagen } from '../lib/compartirImagen'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
@@ -9,6 +9,7 @@ import {
   type RunnerOutcome, type Proyeccion, type BetScore,
 } from '../../shared/bets'
 import { MarkBadge } from './MarkPicker'
+import { fmtRitmo } from './EventResults'
 import { Dorsal } from './Dorsal'
 import { useAuth } from '../lib/AuthContext'
 import { Modal, LoginForm } from './AuthMenu'
@@ -52,7 +53,7 @@ function cuando(ms: number): string {
   return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
 }
 
-export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, porraCongelada, proyecciones, onBack }: {
+export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, totalKm, recordKm, porraCongelada, proyecciones, onBack }: {
   eventId: string
   /** Para la tarjeta que se comparte: la carrera tiene que decir cuál es. */
   eventName: string | null
@@ -71,6 +72,13 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   startsAt: number | null
   /** El tiempo límite de la carrera (minutos): el último cierre menos la salida. */
   limitMin: number | null
+  /** Lo que mide el recorrido: la escala del error del kilómetro de abandono, y
+   *  el tope del selector. Null si el evento no lo sabe. */
+  totalKm: number | null
+  /** El kilómetro más rápido de la carrera, de los resultados congelados: es
+   *  contra lo que se puntúa esa apuesta y lo que remata la tarjeta que se
+   *  comparte. Null mientras la carrera no ha cerrado. */
+  recordKm: { username: string; minutos: number; desdeKm: number } | null
   /** Cómo acabaría cada uno al ritmo que lleva. Vacío fuera de carrera. */
   proyecciones: Proyeccion[]
   onBack: () => void
@@ -99,6 +107,10 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   /** Lo que se pronostica: cuánto TARDA, en horas y minutos sueltos. */
   const [durH, setDurH] = useState<Record<string, string>>({})
   const [durM, setDurM] = useState<Record<string, string>>({})
+  /** La otra mitad: en qué kilómetro se baja el que dices que no acaba. */
+  const [kmAbandono, setKmAbandono] = useState<Record<string, string>>({})
+  /** A quién apuesto que firma el kilómetro más rápido de la carrera. */
+  const [miRecord, setMiRecord] = useState<string | null>(null)
   /**
    * Si el formulario está abierto.
    *
@@ -121,10 +133,14 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
         const f: Record<string, boolean> = {}
         const hh: Record<string, string> = {}
         const mm: Record<string, string> = {}
+        const km: Record<string, string> = {}
+        let rapido: string | null = null
         const puestos: { name: string; pos: number }[] = []
         for (const b of mias) {
           if (b.kind === 'order') puestos.push({ name: b.target, pos: Number(b.value) })
           if (b.kind === 'finish') f[b.target] = b.value === 'si'
+          if (b.kind === 'abandon_km') km[b.target] = b.value
+          if (b.kind === 'fastest_km') rapido = b.target || b.value
           if (b.kind === 'finish_time') {
             const ms = Number(b.value)
             if (Number.isFinite(ms) && d.startsAt) {
@@ -136,7 +152,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
         }
         puestos.sort((a, b) => a.pos - b.pos)
         setOrder(puestos.map((p) => p.name))
-        setFinish(f); setDurH(hh); setDurM(mm)
+        setFinish(f); setDurH(hh); setDurM(mm); setKmAbandono(km); setMiRecord(rapido)
         // Quien todavía no ha jugado se encuentra el formulario abierto: es a
         // lo que viene. Quien ya jugó, cerrado.
         if (mias.length === 0) setFormAbierto(true)
@@ -159,8 +175,11 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   }, [eventId, user?.username])
 
   const ranking = useMemo(
-    () => porraCongelada ?? (data ? scoreBets(data.bets, outcomes, data.startsAt, limitMin ?? null) : []),
-    [porraCongelada, data, outcomes, limitMin],
+    () => porraCongelada ?? (data
+      ? scoreBets(data.bets, outcomes, data.startsAt, limitMin ?? null,
+        { totalKm, recordKm: recordKm?.username ?? null })
+      : []),
+    [porraCongelada, data, outcomes, limitMin, totalKm, recordKm],
   )
 
   /**
@@ -186,7 +205,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       if (!p) return { ...o, settled: true }
       return { ...o, finished: p.llega, finishedAt: p.llega ? p.acabaEn : null, settled: true }
     })
-    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt, limitMin ?? null)
+    const tabla = scoreBets(data.bets, comoAcabaria, data.startsAt, limitMin ?? null, { totalKm })
     return new Map(tabla.map((s) => [s.author, s]))
   }, [data, outcomes, proyecciones])
 
@@ -207,13 +226,21 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
     setSaving(true)
     try {
       const finishTime: Record<string, number> = {}
+      const abandonKm: Record<string, number> = {}
       for (const r of runners) {
-        if (finish[r.username] === false) continue
+        // Cada mitad solo vale con su mitad: la hora es de quien dices que
+        // acaba y el kilómetro de quien dices que no. Mandar las dos sería
+        // apostar a las dos cosas a la vez.
+        if (finish[r.username] === false) {
+          const km = Number(String(kmAbandono[r.username] ?? '').replace(',', '.'))
+          if (Number.isFinite(km) && km > 0) abandonKm[r.username] = km
+          continue
+        }
         const min = minutosDe(durH[r.username], durM[r.username])
         if (min === null || min <= 0) continue
         finishTime[r.username] = startsAt + min * 60_000
       }
-      await putEventBets(eventId, { order, finish, finishTime })
+      await putEventBets(eventId, { order, finish, finishTime, abandonKm, fastestKm: miRecord })
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2500)
       await cargar()
@@ -285,7 +312,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
             <span className="shrink-0 text-[11px] uppercase tracking-wider text-slate-500">Tu porra</span>
             {!formAbierto && (
               <span className="ml-auto min-w-0 truncate text-xs text-slate-300">
-                {mios > 0 ? resumenPorra(order, finish, durH, durM) : 'sin echar'}
+                {mios > 0 ? resumenPorra(order, finish, durH, durM, kmAbandono, miRecord) : 'sin echar'}
               </span>
             )}
             <ChevronRight
@@ -403,10 +430,55 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                         : <span className="text-slate-600">clavarlo da premio</span>}
                     </div>
                   )}
+                  {/* Y la otra mitad: si dices que NO acaba, dónde se baja.
+                      Las dos pagan igual porque las dos son igual de difíciles
+                      —adivinar dónde se rompe alguien no es más fácil que su
+                      hora de meta—, y son las que separan al que conoce la
+                      carrera del que ha dicho "acaba" y a otra cosa. */}
+                  {acaba === false && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7 text-[11px] text-slate-400">
+                      <span>Lo deja en el km</span>
+                      <input
+                        type="number" inputMode="decimal" min={0} max={totalKm ?? undefined} step="0.5"
+                        value={kmAbandono[r.username] ?? ''}
+                        onChange={(e) => setKmAbandono({ ...kmAbandono, [r.username]: e.target.value })}
+                        placeholder="km"
+                        className="w-16 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-center tabular-nums text-slate-100 focus:border-rose-600 focus:outline-none"
+                      />
+                      {totalKm != null && <span className="text-slate-600">de {totalKm.toFixed(0)}</span>}
+                      <span className="text-slate-600">· clavarlo da premio</span>
+                    </div>
+                  )}
                 </li>
               )
             })}
           </ul>
+
+          {/* La apuesta de la carrera entera, y la que más se discute: el
+              kilómetro suelto más rápido no lo firma el que gana, sino el que se
+              vacía en una bajada y luego se hunde. Hay que conocer a la gente,
+              no saber quién corre más. */}
+          <div className="mt-3 rounded-lg border border-amber-900/40 bg-amber-950/10 p-2">
+            <p className="text-[11px] font-semibold text-amber-300">
+              ⚡ ¿Quién hará el kilómetro más rápido de la carrera?
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {runners.map((r) => (
+                <button
+                  key={r.username}
+                  onClick={() => setMiRecord(miRecord === r.username ? null : r.username)}
+                  className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                    miRecord === r.username
+                      ? 'border-amber-500 bg-amber-500/15 text-amber-200'
+                      : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  <MarkBadge emoji={r.emoji} color={r.color} size={14} />
+                  {r.username}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <button
             onClick={() => void guardar()}
@@ -494,6 +566,23 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
         </section>
       )}
 
+      {/* LA PORRA, RESUELTA. Cuando la carrera cerró y hay puntos repartidos,
+          esto es lo primero y lo único que se viene a ver: quién ganó. Un podio
+          que se lee de un vistazo y un botón para soltarlo en el grupo. */}
+      {porraCongelada && porraCongelada.length > 0 && (
+        <ResultadoPorra
+          ranking={porraCongelada}
+          puestos={puestosDePorra(porraCongelada)}
+          yo={data?.me ?? null}
+          eventName={eventName}
+          photoUrl={photoUrl}
+          runners={runners}
+          outcomes={outcomes}
+          startsAt={startsAt}
+          recordKm={recordKm}
+        />
+      )}
+
       {user && (
       <section className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
         {/* Antes de la salida, plegada.
@@ -578,7 +667,9 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                         {b.state === 'ok' ? '✓' : b.state === 'ko' ? '✗' : '·'}
                       </span>
                       <span className="min-w-0 truncate text-slate-400">
-                        {b.kind === 'winner' ? `gana ${b.said}` : `${b.target}: ${b.said}`}
+                        {b.kind === 'winner' ? `gana ${b.said}`
+                          : b.kind === 'fastest_km' ? `⚡ ${b.said}`
+                          : `${b.target}: ${b.said}`}
                       </span>
                       {b.note && <span className="shrink-0 text-slate-600">{b.note}</span>}
                       {b.points > 0 && <span className="ml-auto shrink-0 tabular-nums text-emerald-400">+{b.points}</span>}
@@ -644,6 +735,144 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
       </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * LA PORRA, RESUELTA: el podio y el botón para soltarlo en el grupo.
+ *
+ * Se enseña solo con la carrera cerrada, y entonces manda: hasta ahora el final
+ * de una porra era la misma lista de siempre con otros números, y el final de
+ * una porra es una noticia —alguien ha ganado— que se cuenta en el grupo. Así
+ * que oro en grande, plata y bronce al lado, y un botón que manda la imagen por
+ * donde el móvil ofrezca.
+ *
+ * La imagen se dibuja aparte, no se fotografía la pantalla: ver `porraCard.ts`.
+ */
+function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, outcomes, startsAt, recordKm }: {
+  ranking: BetScore[]
+  puestos: number[]
+  yo: string | null
+  eventName: string | null
+  photoUrl: string | null
+  runners: BetRunner[]
+  outcomes: RunnerOutcome[]
+  startsAt: number | null
+  recordKm: { username: string; minutos: number; desdeKm: number } | null
+}) {
+  const [compartiendo, setCompartiendo] = useState(false)
+  const dame = (n: string) => runners.find((r) => r.username === n)
+  const podio = ranking.slice(0, 3)
+  /** Quién ganó la CARRERA: el primero en cruzar, si cruzó alguien. */
+  const ganador = outcomes
+    .filter((o) => o.finished && o.finishedAt !== null)
+    .sort((a, b) => a.finishedAt! - b.finishedAt!)[0] ?? null
+
+  /** La jugada que mejor le salió a cada uno: es lo que se discute luego. */
+  const mejorJugada = (s: BetScore): string | null => {
+    const mejor = s.bets.filter((b) => b.points > 0).sort((a, b) => b.points - a.points)[0]
+    if (!mejor) return null
+    const quien = mejor.kind === 'fastest_km' ? `⚡ ${mejor.said}`
+      : mejor.target ? `${mejor.target}: ${mejor.said}` : mejor.said
+    return mejor.note ? `${quien} · ${mejor.note}` : quien
+  }
+
+  async function compartir() {
+    if (compartiendo) return
+    setCompartiendo(true)
+    try {
+      const foto = photoUrl ? await cargaImagen(photoUrl) : null
+      const url = dibujaResultadoPorra({
+        evento: eventName ?? 'La carrera',
+        foto,
+        oraculos: ranking.map((s, i) => ({
+          nombre: s.author,
+          puesto: puestos[i],
+          puntos: s.points,
+          aciertos: s.hits,
+          jugada: mejorJugada(s),
+        })),
+        // Y lo que pasó en la carrera, que es la otra mitad de la historia:
+        // una tarjeta que solo dice quién ganó la porra no se entiende fuera
+        // del grupo que la jugó.
+        ganador: ganador && {
+          nombre: ganador.username,
+          emoji: dame(ganador.username)?.emoji ?? null,
+          color: dame(ganador.username)?.color ?? null,
+          marca: startsAt !== null && ganador.finishedAt !== null
+            ? durationLabel(ganador.finishedAt - startsAt) : 'en meta',
+        },
+        record: recordKm && {
+          nombre: recordKm.username,
+          ritmo: fmtRitmo(recordKm.minutos),
+          desdeKm: recordKm.desdeKm,
+        },
+      })
+      await comparteImagen(url, 'porra.png', `La porra de ${eventName ?? 'la carrera'}`)
+    } catch { /* si el navegador no deja compartir, no pasa nada */ }
+    finally { setCompartiendo(false) }
+  }
+
+  return (
+    <section className="mb-4 rounded-xl border border-amber-800/50 bg-gradient-to-b from-amber-950/30 to-slate-900/60 p-3.5">
+      <h2 className="text-center text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+        🔮 La porra, resuelta
+      </h2>
+      {/* El podio: el oro en medio y más alto, como en uno de verdad. Con dos
+          jugadores no hay bronce y con uno no hay podio, solo un ganador. */}
+      <div className="mt-2.5 flex items-end justify-center gap-2">
+        {(podio.length >= 3 ? [1, 0, 2] : podio.map((_, i) => i)).map((idx) => {
+          const s = podio[idx]
+          if (!s) return null
+          const oro = puestos[idx] === 0
+          return (
+            <div
+              key={s.author}
+              className={`flex min-w-0 flex-1 flex-col items-center rounded-xl border px-2 py-2 ${
+                oro ? 'border-amber-600/70 bg-amber-500/10 pb-3.5' : 'border-slate-700/70 bg-slate-950/50'
+              }`}
+            >
+              <span className={oro ? 'text-2xl' : 'text-lg'}>{betMedal(puestos[idx], s.points)}</span>
+              <span className={`mt-0.5 w-full truncate text-center font-semibold ${oro ? 'text-sm text-slate-50' : 'text-xs text-slate-200'}`}>
+                {s.author}
+                {s.author === yo && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
+              </span>
+              <span className={`tabular-nums font-black ${oro ? 'text-2xl text-amber-300' : 'text-lg text-slate-100'}`}>
+                {s.points}
+              </span>
+              <span className="text-[9px] uppercase tracking-wider text-slate-500">puntos</span>
+            </div>
+          )
+        })}
+      </div>
+      {/* Con qué lo ganó: sin esto el podio es un número y no una historia. */}
+      {podio[0] && mejorJugada(podio[0]) && (
+        <p className="mt-2 text-center text-[11px] text-amber-200/80">
+          {ORACULO}: <span className="text-slate-300">{mejorJugada(podio[0])}</span>
+        </p>
+      )}
+      {ranking.length > 3 && (
+        <ul className="mt-2 space-y-0.5 border-t border-slate-800 pt-2">
+          {ranking.slice(3).map((s, i) => (
+            <li key={s.author} className="flex items-center gap-2 text-[11px]">
+              <span className="w-4 shrink-0 text-right tabular-nums text-slate-600">{puestos[i + 3] + 1}.</span>
+              <span className="min-w-0 flex-1 truncate text-slate-300">
+                {s.author}
+                {s.author === yo && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
+              </span>
+              <span className="shrink-0 tabular-nums font-semibold text-slate-200">{s.points}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        onClick={() => void compartir()}
+        disabled={compartiendo}
+        className="mt-3 w-full rounded-lg border border-emerald-700/70 bg-emerald-950/40 py-2 text-xs font-semibold text-emerald-300 transition-colors hover:bg-emerald-900/40 disabled:opacity-50"
+      >
+        {compartiendo ? 'Preparando…' : '📤 Compartir el resultado'}
+      </button>
+    </section>
   )
 }
 
@@ -1117,16 +1346,25 @@ function resumenPorra(
   finish: Record<string, boolean>,
   durH: Record<string, string>,
   durM: Record<string, string>,
+  kmAbandono: Record<string, string>,
+  recordKm: string | null,
 ): string {
   const trozos: string[] = []
   order.slice(0, 3).forEach((n, i) => trozos.push(`${n} ${i + 1}º`))
   const conTiempo = Object.keys(durH).filter((n) => durH[n] || durM[n])
   for (const n of conTiempo.slice(0, 2)) {
+    if (finish[n] === false) continue
     const h = Number(durH[n] || 0), m = Number(durM[n] || 0)
     if (!Number.isFinite(h) || !Number.isFinite(m)) continue
-    const dice = finish[n] === false ? 'no acaba' : `${h}h${String(m).padStart(2, '0')}`
+    const dice = `${h}h${String(m).padStart(2, '0')}`
     trozos.push(order.includes(n) ? dice : `${n} ${dice}`)
   }
+  // Los que dijiste que no acaban, con su kilómetro: es media porra y sin esto
+  // el resumen decía solo "no acaba", que es la mitad barata.
+  for (const n of Object.keys(kmAbandono).filter((n) => finish[n] === false && kmAbandono[n]).slice(0, 2)) {
+    trozos.push(`${n} km ${kmAbandono[n]}`)
+  }
+  if (recordKm) trozos.push(`⚡ ${recordKm}`)
   return trozos.length > 0 ? trozos.join(' · ') : 'echada'
 }
 

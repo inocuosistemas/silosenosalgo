@@ -422,6 +422,165 @@ function etiquetaDuracion(min: number): string {
 }
 
 /** Trae una imagen y espera a que esté lista; null si no se pudo. */
+/** Un oráculo en la tarjeta del resultado. */
+export interface FilaOraculo {
+  nombre: string
+  puesto: number
+  puntos: number
+  aciertos: number
+  /** Su mejor jugada, ya escrita ("clavó a Soriano: km 22"). */
+  jugada: string | null
+}
+
+/**
+ * La tarjeta del RESULTADO: quién ganó la porra.
+ *
+ * Es distinta de la del pulso, que enseña opiniones: esta enseña un marcador
+ * terminado, así que el podio manda —el oro ocupa el doble que los demás— y
+ * todo lo demás es fondo. Se comparte al acabar la carrera, que es cuando el
+ * grupo quiere ver el estropicio.
+ */
+export function dibujaResultadoPorra(datos: {
+  evento: string
+  foto: HTMLImageElement | null
+  oraculos: FilaOraculo[]
+  /** Quién ganó la CARRERA, para que la tarjeta cuente las dos cosas. */
+  ganador: { nombre: string; emoji: string | null; color: string | null; marca: string } | null
+  /** El kilómetro más rápido, si se sabe. */
+  record: { nombre: string; ritmo: string; desdeKm: number } | null
+}): string {
+  const { evento, foto, oraculos, ganador, record } = datos
+  const ALTO_FOTO = foto ? 150 : 0
+  const ALTO_PODIO = oraculos.length > 0 ? 118 : 0
+  const RESTO = Math.max(0, oraculos.length - 3)
+  const ALTO_RESTO = RESTO > 0 ? 14 + RESTO * 30 : 0
+  const ALTO_CARRERA = (ganador ? 56 : 0) + (record ? 44 : 0)
+  const alto = ALTO_FOTO + 22 + 58 + ALTO_PODIO + ALTO_RESTO + ALTO_CARRERA + 34
+
+  const lienzo = document.createElement('canvas')
+  lienzo.width = ANCHO * ESCALA
+  lienzo.height = alto * ESCALA
+  const ctx = lienzo.getContext('2d')!
+  ctx.scale(ESCALA, ESCALA)
+  ctx.fillStyle = FONDO
+  ctx.fillRect(0, 0, ANCHO, alto)
+
+  let y = 0
+  if (foto) {
+    // Recortada al ancho y oscurecida por abajo, para que el título se lea
+    // encima sin una banda negra que parta la tarjeta.
+    const escala = Math.max(ANCHO / foto.width, ALTO_FOTO / foto.height)
+    const an = foto.width * escala, al = foto.height * escala
+    ctx.save()
+    ctx.beginPath(); ctx.rect(0, 0, ANCHO, ALTO_FOTO); ctx.clip()
+    ctx.drawImage(foto, (ANCHO - an) / 2, (ALTO_FOTO - al) / 2, an, al)
+    const velo = ctx.createLinearGradient(0, ALTO_FOTO * 0.35, 0, ALTO_FOTO)
+    velo.addColorStop(0, 'rgba(11,17,32,0)')
+    velo.addColorStop(1, FONDO)
+    ctx.fillStyle = velo
+    ctx.fillRect(0, 0, ANCHO, ALTO_FOTO)
+    ctx.restore()
+    y = ALTO_FOTO
+  }
+
+  y += 22
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.font = fuente(13, 700)
+  ctx.fillStyle = '#fbbf24'
+  ctx.fillText('🔮  LA PORRA, RESUELTA', ANCHO / 2, y)
+  y += 26
+  ctx.font = fuente(24, 800)
+  ctx.fillStyle = TINTA
+  ctx.fillText(recorta(ctx, evento, ANCHO - 48), ANCHO / 2, y)
+  y += 26
+
+  // ── El podio ──────────────────────────────────────────────────────────
+  const podio = oraculos.slice(0, 3)
+  if (podio.length > 0) {
+    const M = 20
+    const AN = (ANCHO - M * 2 - 16) / 3
+    // El oro en medio y más alto, como en un podio de verdad: el orden de
+    // lectura da igual cuando la forma ya dice quién ganó.
+    const sitios = podio.length === 1 ? [0] : podio.length === 2 ? [0, 1] : [1, 0, 2]
+    podio.forEach((o, i) => {
+      const col = sitios[i]
+      const x = M + col * (AN + 8)
+      const oro = o.puesto === 0
+      const alturaCaja = oro ? 104 : 86
+      const cajaY = y + (oro ? 0 : 18)
+      pastilla(ctx, x, cajaY, AN, alturaCaja, 14,
+        oro ? 'rgba(251,191,36,0.12)' : 'rgba(30,41,59,0.6)',
+        oro ? '#f59e0b' : '#1e293b')
+      ctx.textAlign = 'center'
+      ctx.font = fuente(oro ? 26 : 20)
+      ctx.fillText(o.puesto === 0 ? '🔮' : o.puesto === 1 ? '🥈' : '🥉', x + AN / 2, cajaY + (oro ? 34 : 30))
+      ctx.font = fuente(oro ? 15 : 13, 700)
+      ctx.fillStyle = TINTA
+      ctx.fillText(recorta(ctx, o.nombre, AN - 12), x + AN / 2, cajaY + (oro ? 58 : 50))
+      ctx.font = fuente(oro ? 30 : 24, 900)
+      ctx.fillStyle = oro ? '#fbbf24' : TINTA
+      ctx.fillText(String(o.puntos), x + AN / 2, cajaY + (oro ? 90 : 78))
+      ctx.font = fuente(9, 600)
+      ctx.fillStyle = TINTA_MUY_FLOJA
+      ctx.fillText('PUNTOS', x + AN / 2, cajaY + (oro ? 100 : 86) - 2)
+    })
+    y += ALTO_PODIO
+  }
+
+  // ── Y los demás, en una línea cada uno ────────────────────────────────
+  if (RESTO > 0) {
+    y += 14
+    for (const o of oraculos.slice(3)) {
+      ctx.textAlign = 'left'
+      ctx.font = fuente(12, 600)
+      ctx.fillStyle = TINTA_FLOJA
+      ctx.fillText(`${o.puesto + 1}.`, 22, y + 8)
+      ctx.fillStyle = TINTA
+      ctx.fillText(recorta(ctx, o.nombre, ANCHO - 120), 46, y + 8)
+      ctx.textAlign = 'right'
+      ctx.font = fuente(13, 800)
+      ctx.fillText(String(o.puntos), ANCHO - 22, y + 8)
+      y += 30
+    }
+  }
+
+  // ── Lo que pasó en la carrera ─────────────────────────────────────────
+  if (ganador) {
+    y += 14
+    pastilla(ctx, 20, y, ANCHO - 40, 42, 12, 'rgba(30,41,59,0.5)', '#1e293b')
+    marca(ctx, 44, y + 21, 26, ganador.emoji, ganador.color)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.font = fuente(13, 700)
+    ctx.fillStyle = TINTA
+    ctx.fillText(recorta(ctx, `🏁 ${ganador.nombre}`, ANCHO - 200), 64, y + 21)
+    ctx.textAlign = 'right'
+    ctx.font = fuente(12, 600)
+    ctx.fillStyle = TINTA_FLOJA
+    ctx.fillText(ganador.marca, ANCHO - 34, y + 21)
+    ctx.textBaseline = 'alphabetic'
+    y += 56 - 14
+  }
+  if (record) {
+    y += 14
+    ctx.textAlign = 'center'
+    ctx.font = fuente(12, 600)
+    ctx.fillStyle = '#fbbf24'
+    ctx.fillText(
+      `⚡ Kilómetro más rápido: ${record.ritmo} — ${record.nombre}, desde el km ${record.desdeKm.toFixed(1)}`,
+      ANCHO / 2, y + 14,
+    )
+    y += 44 - 14
+  }
+
+  ctx.textAlign = 'center'
+  ctx.font = fuente(11, 600)
+  ctx.fillStyle = TINTA_MUY_FLOJA
+  ctx.fillText('silosenosalgo.com', ANCHO / 2, alto - 14)
+  return lienzo.toDataURL('image/png')
+}
+
 export function cargaImagen(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image()

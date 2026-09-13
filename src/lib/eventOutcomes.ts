@@ -31,6 +31,9 @@ export interface FilaDeMeta {
   metaEn: number | null
   /** Cerró la baliza sin llegar: se retiró, y eso también decide su carrera. */
   retirado: boolean
+  /** Dónde dejó la carrera quien no llegó (km del recorrido). Es contra lo que
+   *  se puntúa el pronóstico del kilómetro de abandono. */
+  kmAbandono?: number | null
 }
 
 export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
@@ -43,5 +46,6 @@ export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
     // decide nada es una baliza que nunca mandó una posición: quien la armó
     // para probar y la apagó puede estar corriendo con el móvil en el bolsillo.
     settled: f.acabo || f.retirado,
+    kmAbandono: f.acabo ? null : (f.kmAbandono ?? null),
   }))
 }

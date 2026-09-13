@@ -817,12 +817,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * `lib/eventOutcomes.ts`.
    */
   const outcomes = useMemo<RunnerOutcome[]>(
-    () => resultadosDeCarrera(rows.map(({ r, acabo, metaEn, retirado }) => ({
+    () => resultadosDeCarrera(rows.map(({ r, acabo, metaEn, retirado, kmValido, congelado }) => ({
       username: r.username,
       emitiendo: r.fix !== null,
       acabo,
       metaEn,
       retirado,
+      // Dónde lo dejó: el del abandono si se sabe, y si no el último que se le
+      // vio. Es contra lo que se puntúa quien apostó a que no acababa.
+      kmAbandono: congelado?.km ?? kmValido,
     }))),
     [rows],
   )
@@ -974,6 +977,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
       outcomes={outcomes}
       startsAt={startsAt}
       limitMin={raceStats?.limitMin ?? null}
+      totalKm={route?.totalKm ?? raceStats?.km ?? null}
+      recordKm={stats?.fastestKm ?? null}
       // La porra congelada al cerrar, si la hay: manda sobre cualquier cuenta
       // que se pueda rehacer aquí.
       porraCongelada={stats?.porra ?? null}

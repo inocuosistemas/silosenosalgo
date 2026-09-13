@@ -89,3 +89,97 @@ describe('el orden de los oráculos', () => {
     expect(medallas[1]).toBe('·')
   })
 })
+
+/**
+ * Las dos mitades de cada pronóstico.
+ *
+ * "¿Acaba?" es cara o cruz y vale poco: es la apuesta con la que entra quien no
+ * sabe nada de la carrera. La segunda mitad es la que pide saber: quien dice
+ * que sí acaba, dice a qué hora; quien dice que no, dice en qué kilómetro se
+ * baja. Las dos pagan igual porque las dos son igual de difíciles — adivinar
+ * dónde se rompe alguien no es más fácil que su hora de meta.
+ */
+describe('el kilómetro del abandono', () => {
+  const apuesta = (author: string, km: string): EventBet =>
+    ({ author, target: 'Soriano', kind: 'abandon_km', value: km, createdAt: 1_000 })
+  /** Se retiró en el km 22 de una de cien. */
+  const seRetiro: RunnerOutcome[] = [
+    { username: 'Soriano', tracked: true, finished: false, finishedAt: null, settled: true, kmAbandono: 22 },
+  ]
+  const cien = { totalKm: 100 }
+
+  it('clavarlo vale más que acertar el binario de "acaba"', () => {
+    const [clavada] = scoreBets([apuesta('a', '22')], seRetiro, null, null, cien)
+    const [binaria] = scoreBets(
+      [{ author: 'b', target: 'Soriano', kind: 'finish', value: 'no', createdAt: 1_000 }],
+      seRetiro,
+    )
+    expect(clavada.points).toBeGreaterThan(binaria.points * 2)
+    expect(clavada.bets[0].note).toContain('clavado')
+  })
+
+  it('se puntúa lo cerca que se quedó, no el sí o no', () => {
+    const cerca = scoreBets([apuesta('a', '25')], seRetiro, null, null, cien)[0].points
+    const lejos = scoreBets([apuesta('a', '35')], seRetiro, null, null, cien)[0].points
+    expect(cerca).toBeGreaterThan(lejos)
+    expect(lejos).toBe(0)
+  })
+
+  it('el margen es del RECORRIDO: tres kilómetros no valen igual en un 10K', () => {
+    const enCien = scoreBets([apuesta('a', '25')], seRetiro, null, null, cien)[0].points
+    const enDiez = scoreBets([apuesta('a', '25')], seRetiro, null, null, { totalKm: 10 })[0].points
+    expect(enCien).toBeGreaterThan(0)
+    expect(enDiez).toBe(0)
+  })
+
+  it('si acabó llegando, el pronóstico se cae pero no resta', () => {
+    const llego: RunnerOutcome[] = [
+      { username: 'Soriano', tracked: true, finished: true, finishedAt: 9_000, settled: true },
+    ]
+    const s = scoreBets([apuesta('a', '22')], llego, null, null, cien)[0]
+    expect(s.points).toBe(0)
+    expect(s.bets[0].state).toBe('ko')
+    expect(s.bets[0].note).toBe('llegó a meta')
+  })
+
+  it('mientras no se sepa, ni suma ni resta: queda pendiente', () => {
+    const corriendo: RunnerOutcome[] = [
+      { username: 'Soriano', tracked: true, finished: false, finishedAt: null, settled: false },
+    ]
+    const s = scoreBets([apuesta('a', '22')], corriendo, null, null, cien)[0]
+    expect(s.bets[0].state).toBe('pending')
+    expect(s.pending).toBe(1)
+  })
+})
+
+describe('el kilómetro más rápido de la carrera', () => {
+  // Quién, en `target`: por el cable no viaja ningún id de cuenta.
+  const apuesta = (author: string, quien: string): EventBet =>
+    ({ author, target: quien, kind: 'fastest_km', value: '1', createdAt: 1_000 })
+  const decidida: RunnerOutcome[] = [
+    { username: 'JM', tracked: true, finished: true, finishedAt: 5_000, settled: true },
+    { username: 'Soriano', tracked: true, finished: false, finishedAt: null, settled: true, kmAbandono: 22 },
+  ]
+
+  it('acertarlo vale más que el binario y menos que el ganador', () => {
+    const s = scoreBets([apuesta('a', 'JM')], decidida, null, null, { recordKm: 'JM' })[0]
+    expect(s.points).toBe(25)
+    expect(s.bets[0].note).toBe('el más rápido')
+  })
+
+  it('fallarlo dice quién lo hizo, que es medio chiste de la porra', () => {
+    const s = scoreBets([apuesta('a', 'Soriano')], decidida, null, null, { recordKm: 'JM' })[0]
+    expect(s.points).toBe(0)
+    expect(s.bets[0].note).toBe('lo hizo JM')
+  })
+
+  it('no se resuelve hasta que la carrera está decidida', () => {
+    // Mientras quede alguien corriendo, el kilómetro más rápido puede hacerlo
+    // cualquiera: anunciarlo antes es contar el final a media película.
+    const enCarrera: RunnerOutcome[] = [
+      { username: 'JM', tracked: true, finished: false, finishedAt: null, settled: false },
+    ]
+    const s = scoreBets([apuesta('a', 'JM')], enCarrera, null, null, { recordKm: 'JM' })[0]
+    expect(s.bets[0].state).toBe('pending')
+  })
+})

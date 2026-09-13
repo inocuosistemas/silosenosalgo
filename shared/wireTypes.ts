@@ -602,8 +602,16 @@ export type BetKind =
   | 'order'
   /** A un participante: si acaba o no. `value` = 'si' | 'no'. */
   | 'finish'
-  /** A un participante: a qué hora cruza meta. `value` = epoch ms en texto. */
+  /** A un participante: a qué hora cruza meta. `value` = epoch ms en texto.
+   *  La mitad fina de "acaba": quien dice que sí, dice cuándo. */
   | 'finish_time'
+  /** A un participante: en qué kilómetro se retira. `value` = km en texto.
+   *  La mitad fina de "no acaba": quien dice que no, dice dónde. */
+  | 'abandon_km'
+  /** A la carrera entera: quién firma el kilómetro más rápido. `value` = el
+   *  nombre. No es el ganador: el kilómetro suelto más rápido lo hace a menudo
+   *  quien se vacía en una bajada y luego se hunde, y ahí está la gracia. */
+  | 'fastest_km'
 
 export interface EventBet {
   /**
@@ -655,6 +663,10 @@ export interface EventBetsInput {
   finish?: Record<string, boolean>
   /** Por participante: hora de meta (epoch ms). */
   finishTime?: Record<string, number>
+  /** Por participante: kilómetro en el que se retira. */
+  abandonKm?: Record<string, number>
+  /** Quién firma el kilómetro más rápido de la carrera, o null. */
+  fastestKm?: string | null
 }
 
 /**
