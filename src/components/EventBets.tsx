@@ -792,6 +792,10 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
           puesto: puestos[i],
           puntos: s.points,
           aciertos: s.hits,
+          // La misma medalla que la pantalla, no una calculada aparte: con cero
+          // puntos no hay medalla, y la tarjeta repartía bronces que en la
+          // pantalla eran un punto gris.
+          medalla: betMedal(puestos[i], s.points),
           jugada: mejorJugada(s),
         })),
         // Y lo que pasó en la carrera, que es la otra mitad de la historia:

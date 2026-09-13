@@ -30,6 +30,7 @@ import type { RunnerOutcome } from '../../shared/bets'
 import { resultadosDeCarrera } from '../lib/eventOutcomes'
 import { buildPlannedCurve } from '../lib/ghostPacer'
 import { proyeccionFantasma, type Fantasma } from '../lib/proyeccionFantasma'
+import { losDeLaCarrera } from '../lib/encuadre'
 import { leeCadencia, plazosDe, silencioTexto } from '../../shared/cadencia'
 
 /**
@@ -253,6 +254,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
   // La ruta se descarga UNA vez: son cientos de KB y no cambia en toda la
   // carrera, al revés que las posiciones.
   const planLoaded = useRef<string | null>(null)
+  /**
+   * Esta carrera TIENE recorrido, aunque todavía no haya llegado.
+   *
+   * Con esto el mapa sabe que merece la pena esperarlo en vez de encuadrar con
+   * lo primero que tenga: son cientos de kilobytes y tardan un segundo largo,
+   * y encuadrar dos veces se ve —la carrera aparece torcida y de pronto pega un
+   * salto—. Lo que se enseña ese segundo es la vista de partida, quieta.
+   */
+  const [hayRuta, setHayRuta] = useState(false)
 
   const poll = useCallback(async () => {
     try {
@@ -321,6 +331,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     }
     async function loadPlan(shareId: string | null) {
+      if (shareId) setHayRuta(true)
       if (!shareId || planLoaded.current === shareId) return
       planLoaded.current = shareId
       try { setPlan(await getEventPlan(shareId)) } catch { /* sin ruta se pinta igual */ }
@@ -1210,7 +1221,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onRelease={() => setFollowing(null)}
             />
           )}
-          <Encuadre points={posiciones} route={route?.pts} />
+          <Encuadre points={posiciones} route={route?.pts} esperaRuta={hayRuta && !route} />
         </MapContainer>
       ) : (
         // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
@@ -2305,7 +2316,12 @@ function marginBox(min: number): string {
  * Y el botón ⤢ hace las dos cosas: devuelve la carrera entera y vuelve a
  * encender el automático.
  */
-function Encuadre({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
+function Encuadre({ points, route, esperaRuta }: {
+  points: [number, number][]
+  route?: [number, number][]
+  /** Hay recorrido y aún no ha llegado: mejor esperarlo que encuadrar dos veces. */
+  esperaRuta?: boolean
+}) {
   const map = useMap()
   /** Nadie lo ha tocado: mientras siga así, el encuadre es nuestro. */
   const libre = useRef(true)
@@ -2319,14 +2335,25 @@ function Encuadre({ points, route }: { points: [number, number][]; route?: [numb
     map.invalidateSize()
     const tam = map.getSize()
     if (tam.y < 80 || tam.x < 80) return false
-    propio.current = true
-    map.once('moveend', () => { propio.current = false })
-    if (route && route.length > 1) map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
-    else if (points.length === 1) map.setView(points[0], 14)
-    else if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
-    else { propio.current = false; return false }
-    return true
-  }, [map, points, route])
+    // Lo que se mueva a partir de aquí lo movemos nosotros, no un dedo: la
+    // marca se levanta cuando el mapa termina de colocarse.
+    const mueve = (que: () => void) => {
+      propio.current = true
+      map.once('moveend', () => { propio.current = false })
+      que()
+      return true
+    }
+    if (route && route.length > 1) {
+      return mueve(() => map.fitBounds(L.latLngBounds(route), { padding: [28, 28] }))
+    }
+    // Sin recorrido —y sin uno de camino— se encuadra por las posiciones, pero
+    // solo por las que están en la carrera.
+    if (esperaRuta) return false
+    const suyos = losDeLaCarrera(points)
+    if (suyos.length === 1) return mueve(() => map.setView(suyos[0], 14))
+    if (suyos.length > 1) return mueve(() => map.fitBounds(L.latLngBounds(suyos), { padding: [48, 48] }))
+    return false
+  }, [map, points, route, esperaRuta])
 
   useEffect(() => {
     const usuario = () => { if (!propio.current) libre.current = false }

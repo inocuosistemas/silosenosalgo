@@ -428,6 +428,15 @@ export interface FilaOraculo {
   puesto: number
   puntos: number
   aciertos: number
+  /**
+   * La medalla, YA DECIDIDA por quien pinta la pantalla.
+   *
+   * No se calcula aquí a partir del puesto: con cero puntos no hay medalla
+   * —el bronce no es un premio de asistencia— y esa regla vive en `bets.ts`
+   * con sus pruebas. Calculándola otra vez, la tarjeta que se manda al grupo
+   * daba un bronce a quien en la pantalla salía con un punto gris.
+   */
+  medalla: string
   /** Su mejor jugada, ya escrita ("clavó a Soriano: km 22"). */
   jugada: string | null
 }
@@ -506,24 +515,33 @@ export function dibujaResultadoPorra(datos: {
     podio.forEach((o, i) => {
       const col = sitios[i]
       const x = M + col * (AN + 8)
-      const oro = o.puesto === 0
-      const alturaCaja = oro ? 104 : 86
+      const oro = o.puesto === 0 && o.puntos > 0
+      // Las medidas van una debajo de otra a mano, así que se escriben aquí
+      // juntas: la medalla, el nombre, el número y la palabra. Antes el número
+      // y la palabra estaban a seis píxeles —con el número a 24— y se pisaban;
+      // se veía solo en la imagen compartida, porque en pantalla lo coloca el
+      // navegador y aquí lo colocamos nosotros.
+      const alturaCaja = oro ? 104 : 90
       const cajaY = y + (oro ? 0 : 18)
+      const yMedalla = cajaY + (oro ? 34 : 30)
+      const yNombre = cajaY + (oro ? 58 : 50)
+      const yPuntos = cajaY + (oro ? 88 : 76)
+      const yPalabra = cajaY + (oro ? 100 : 87)
       pastilla(ctx, x, cajaY, AN, alturaCaja, 14,
         oro ? 'rgba(251,191,36,0.12)' : 'rgba(30,41,59,0.6)',
         oro ? '#f59e0b' : '#1e293b')
       ctx.textAlign = 'center'
       ctx.font = fuente(oro ? 26 : 20)
-      ctx.fillText(o.puesto === 0 ? '🔮' : o.puesto === 1 ? '🥈' : '🥉', x + AN / 2, cajaY + (oro ? 34 : 30))
+      ctx.fillText(o.medalla, x + AN / 2, yMedalla)
       ctx.font = fuente(oro ? 15 : 13, 700)
       ctx.fillStyle = TINTA
-      ctx.fillText(recorta(ctx, o.nombre, AN - 12), x + AN / 2, cajaY + (oro ? 58 : 50))
+      ctx.fillText(recorta(ctx, o.nombre, AN - 12), x + AN / 2, yNombre)
       ctx.font = fuente(oro ? 30 : 24, 900)
       ctx.fillStyle = oro ? '#fbbf24' : TINTA
-      ctx.fillText(String(o.puntos), x + AN / 2, cajaY + (oro ? 90 : 78))
+      ctx.fillText(String(o.puntos), x + AN / 2, yPuntos)
       ctx.font = fuente(9, 600)
       ctx.fillStyle = TINTA_MUY_FLOJA
-      ctx.fillText('PUNTOS', x + AN / 2, cajaY + (oro ? 100 : 86) - 2)
+      ctx.fillText('PUNTOS', x + AN / 2, yPalabra)
     })
     y += ALTO_PODIO
   }

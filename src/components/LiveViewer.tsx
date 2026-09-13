@@ -2342,36 +2342,50 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               agranda letra y dibujos a la vez y respeta la maquetación— en vez
               de una segunda pantalla con sus propios tamaños que mantener. */}
           {tramoZoom !== null && cards[Math.min(tramoZoom, cards.length - 1)] && (
-            <div className="fixed inset-0 z-[1200] flex flex-col bg-slate-950">
-              {/* La ficha primero y los mandos ABAJO: esto se toca con el
-                  pulgar de la mano que sujeta el móvil mientras se anda, y
-                  arriba del todo no llega. Grandes, además, que se pulsan con
-                  el guante puesto. */}
+            <div
+              className="fixed inset-0 z-[1200] flex flex-col bg-slate-950"
+              /* Un toque en cualquier sitio cierra. No hay nada que tocar aquí
+                 dentro salvo pasar de tramo, así que un botón de cerrar sería
+                 un blanco pequeño para una mano que va corriendo: la pantalla
+                 entera es el botón. Los diez píxeles separan el toque del
+                 arrastre, que al desplazar la ficha no se cierra. */
+              onPointerDown={(e) => { tocoTramo.current = { x: e.clientX, y: e.clientY } }}
+              onPointerUp={(e) => {
+                const t = tocoTramo.current
+                tocoTramo.current = null
+                // Lo que se toca dentro de un botón es del botón.
+                if ((e.target as HTMLElement).closest('button')) return
+                if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) return
+                setTramoZoom(null)
+              }}
+              onPointerCancel={() => { tocoTramo.current = null }}
+            >
               <div className="min-h-0 flex-1 overflow-auto px-2 pt-2">
                 <div style={{ zoom: ampliado.factor }}>
                   {tarjetaTramo(cards[tramoZoom], tramoZoom, true)}
                 </div>
               </div>
+              {/* Solo adelante y atrás, y abajo: es donde llega el pulgar de la
+                  mano que sujeta el móvil mientras se anda. */}
               <div className="flex shrink-0 items-stretch gap-2 border-t border-slate-800 bg-slate-950 px-2 py-2"
                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}>
                 <button
                   onClick={() => setTramoZoom(Math.max(0, tramoZoom - 1))}
                   disabled={tramoZoom === 0}
                   aria-label="Tramo anterior"
-                  className="flex-1 rounded-xl border border-slate-700 py-3 text-xl font-semibold text-slate-200 disabled:opacity-30"
+                  className="flex-1 rounded-xl border border-slate-700 py-3.5 text-2xl font-semibold text-slate-200 disabled:opacity-30"
                 >‹</button>
-                <button
-                  onClick={() => setTramoZoom(null)}
-                  aria-label="Cerrar"
-                  className="flex-[2] rounded-xl border border-slate-600 bg-slate-800 py-3 text-base font-semibold text-slate-100"
-                >Cerrar</button>
                 <button
                   onClick={() => setTramoZoom(Math.min(cards.length - 1, tramoZoom + 1))}
                   disabled={tramoZoom === cards.length - 1}
                   aria-label="Tramo siguiente"
-                  className="flex-1 rounded-xl border border-slate-700 py-3 text-xl font-semibold text-slate-200 disabled:opacity-30"
+                  className="flex-1 rounded-xl border border-slate-700 py-3.5 text-2xl font-semibold text-slate-200 disabled:opacity-30"
                 >›</button>
               </div>
+              <p className="pb-2 text-center text-[11px] text-slate-500"
+                 style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6px)' }}>
+                toca la pantalla para volver
+              </p>
             </div>
           )}
         </div>
