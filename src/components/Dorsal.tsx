@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Share2 } from 'lucide-react'
 import { eventColorHex } from '../../shared/eventColors'
 import type { SharePayloadV1 } from '../lib/sharePayload'
-import { comparteImagen } from '../lib/compartirImagen'
+import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
 
 /**
  * El dorsal de la carrera, dibujado como lo que es.
@@ -203,6 +203,8 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
   onClose: () => void
 }) {
   const [compartiendo, setCompartiendo] = useState(false)
+  /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
+  const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -222,7 +224,7 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
     setCompartiendo(true)
     try {
       const { dibujaDorsal } = await import('../lib/dorsalCard')
-      await comparteImagen(
+      const fue = await comparteImagen(
         dibujaDorsal({
           bib,
           nombre: username,
@@ -240,6 +242,10 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
         `dorsal-${bib.replace(/[^A-Za-z0-9-]/g, '')}.png`,
         `${username} · dorsal ${bib}`,
       )
+      if (fue !== 'cancelada') {
+        setComoFue(fue)
+        window.setTimeout(() => setComoFue(null), 4000)
+      }
     } catch {
       // Sin imagen no hay nada que ofrecer ni remedio que sugerir.
     } finally {
@@ -370,7 +376,11 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
               disabled={compartiendo || !carrera}
               className="flex items-center gap-1.5 rounded-full border border-sky-800 bg-sky-950/60 px-4 py-1.5 text-xs font-semibold text-sky-300 transition-colors hover:border-sky-600 hover:text-sky-100 disabled:opacity-50"
             >
-              <Share2 size={13} /> {compartiendo ? 'Preparando…' : 'Compartir'}
+              <Share2 size={13} /> {compartiendo ? 'Preparando…'
+                : comoFue === 'copiada' ? 'Copiado · pégalo'
+                : comoFue === 'descargada' ? 'Descargado'
+                : comoFue === 'compartida' ? 'Compartido'
+                : 'Compartir'}
             </button>
             {onEditar && (
               <button

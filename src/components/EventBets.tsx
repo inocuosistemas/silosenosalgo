@@ -927,6 +927,8 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
   const jugadores = players
   const dame = (n: string) => runners.find((r) => r.username === n)
   const [compartiendo, setCompartiendo] = useState(false)
+  /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
+  const [comoFuePulso, setComoFuePulso] = useState<ComoSeFue | null>(null)
 
   /**
    * Convierte la tarjeta en una imagen y la manda por donde el móvil ofrezca.
@@ -995,7 +997,11 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
         limiteMin: limitMin ?? null,
       }, C_SI, C_NO)
 
-      await comparteImagen(url, 'porra.png', eventName ?? 'La porra')
+      const fue = await comparteImagen(url, 'porra.png', eventName ?? 'La porra')
+      if (fue !== 'cancelada') {
+        setComoFuePulso(fue)
+        window.setTimeout(() => setComoFuePulso(null), 4000)
+      }
     } catch {
       // Sin imagen no hay nada que ofrecer ni remedio que sugerir.
     } finally {
@@ -1100,7 +1106,11 @@ function BetsPulse({ bets, players, runners, startsAt, limitMin, eventName, phot
             disabled={compartiendo}
             className="flex items-center gap-1 rounded-lg border border-violet-800 bg-violet-950/50 px-2 py-1 text-[11px] font-semibold text-violet-200 transition-colors hover:border-violet-600 disabled:opacity-50"
           >
-            <Share2 size={13} /> {compartiendo ? 'Preparando…' : 'Compartir'}
+            <Share2 size={13} /> {compartiendo ? 'Preparando…'
+              : comoFuePulso === 'copiada' ? 'Copiada · pégala'
+              : comoFuePulso === 'descargada' ? 'Descargada'
+              : comoFuePulso === 'compartida' ? 'Compartida'
+              : 'Compartir'}
           </button>
         </div>
       </header>

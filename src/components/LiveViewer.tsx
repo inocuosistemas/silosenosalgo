@@ -739,12 +739,35 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // updatedAt values; the stale threshold = clamp(maxRecentGap × K + margin).
   /** Qué tramo se está mirando a pantalla completa, y el dedo que lo abrió. */
   const [tramoZoom, setTramoZoom] = useState<number | null>(null)
-  const [anchoPantalla, setAnchoPantalla] = useState(() => (typeof window === 'undefined' ? 360 : window.innerWidth))
+  const [pantalla, setPantalla] = useState(() => (typeof window === 'undefined'
+    ? { an: 360, al: 720 }
+    : { an: window.innerWidth, al: window.innerHeight }))
   useEffect(() => {
-    const mide = () => setAnchoPantalla(window.innerWidth)
+    const mide = () => setPantalla({ an: window.innerWidth, al: window.innerHeight })
     window.addEventListener('resize', mide)
     return () => window.removeEventListener('resize', mide)
   }, [])
+  /**
+   * Cuánto se agranda el tramo, y cuánto perfil cabe debajo.
+   *
+   * Esto se mira EN CARRERA: con el móvil en una mano, a contraluz, con el
+   * pulso a ciento sesenta y a lo mejor de noche. Así que la ficha ocupa la
+   * pantalla entera —no una tarjeta en medio con medio dedo de aire alrededor—
+   * y el perfil se estira hasta llenar lo que sobra, que es lo que se ha venido
+   * a mirar: la forma de lo que queda.
+   *
+   * La ficha está maquetada para unos 240 px de ancho útil; el factor sale de
+   * ahí y se topa en 2,4 para que en una tableta no se vuelva un cartel. Como
+   * el `zoom` de CSS multiplica TODO, el alto del perfil se pide en las
+   * unidades de antes de ampliar: de ahí la división.
+   */
+  const ampliado = (() => {
+    const factor = Math.min(2.4, Math.max(1.3, (pantalla.an - 16) / 240))
+    // Lo que queda de alto tras la barra de arriba y el texto de la ficha,
+    // devuelto a unidades sin ampliar.
+    const libre = (pantalla.al - 90) / factor - 195
+    return { factor, perfil: Math.max(150, Math.min(420, libre)) }
+  })()
   // Escape cierra, y las flechas pasan de tramo: en el ordenador es lo que se
   // espera, y no estorba en el móvil.
   useEffect(() => {
@@ -2233,7 +2256,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
           {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
         </div>
-        <SegmentProfile profile={c.profile} posKm={progressKm} alto={grande ? 150 : undefined} />
+        <SegmentProfile profile={c.profile} posKm={progressKm} alto={grande ? ampliado.perfil : undefined} />
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
             <span>🌡️ {Math.round(c.wx.temp)}°</span>
@@ -2319,38 +2342,35 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               agranda letra y dibujos a la vez y respeta la maquetación— en vez
               de una segunda pantalla con sus propios tamaños que mantener. */}
           {tramoZoom !== null && cards[Math.min(tramoZoom, cards.length - 1)] && (
-            <div className="fixed inset-0 z-[1200] flex flex-col bg-slate-950/95 backdrop-blur-sm">
-              <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
-                <span className="min-w-0 truncate text-sm font-semibold text-slate-200">
-                  {cards[tramoZoom].w.name}
-                </span>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    onClick={() => setTramoZoom(Math.max(0, tramoZoom - 1))}
-                    disabled={tramoZoom === 0}
-                    aria-label="Tramo anterior"
-                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300 disabled:opacity-30"
-                  >‹</button>
-                  <button
-                    onClick={() => setTramoZoom(Math.min(cards.length - 1, tramoZoom + 1))}
-                    disabled={tramoZoom === cards.length - 1}
-                    aria-label="Tramo siguiente"
-                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300 disabled:opacity-30"
-                  >›</button>
-                  <button
-                    onClick={() => setTramoZoom(null)}
-                    aria-label="Cerrar"
-                    className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-300"
-                  >✕</button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-auto p-3">
-                {/* El factor sale del ancho de la pantalla: la ficha está
-                    diseñada para unos 280 px, así que en un móvil de 400 se
-                    agranda vez y media y en una tableta, el doble. */}
-                <div style={{ zoom: Math.min(2, Math.max(1, (anchoPantalla - 24) / 300)) }}>
+            <div className="fixed inset-0 z-[1200] flex flex-col bg-slate-950">
+              {/* La ficha primero y los mandos ABAJO: esto se toca con el
+                  pulgar de la mano que sujeta el móvil mientras se anda, y
+                  arriba del todo no llega. Grandes, además, que se pulsan con
+                  el guante puesto. */}
+              <div className="min-h-0 flex-1 overflow-auto px-2 pt-2">
+                <div style={{ zoom: ampliado.factor }}>
                   {tarjetaTramo(cards[tramoZoom], tramoZoom, true)}
                 </div>
+              </div>
+              <div className="flex shrink-0 items-stretch gap-2 border-t border-slate-800 bg-slate-950 px-2 py-2"
+                   style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}>
+                <button
+                  onClick={() => setTramoZoom(Math.max(0, tramoZoom - 1))}
+                  disabled={tramoZoom === 0}
+                  aria-label="Tramo anterior"
+                  className="flex-1 rounded-xl border border-slate-700 py-3 text-xl font-semibold text-slate-200 disabled:opacity-30"
+                >‹</button>
+                <button
+                  onClick={() => setTramoZoom(null)}
+                  aria-label="Cerrar"
+                  className="flex-[2] rounded-xl border border-slate-600 bg-slate-800 py-3 text-base font-semibold text-slate-100"
+                >Cerrar</button>
+                <button
+                  onClick={() => setTramoZoom(Math.min(cards.length - 1, tramoZoom + 1))}
+                  disabled={tramoZoom === cards.length - 1}
+                  aria-label="Tramo siguiente"
+                  className="flex-1 rounded-xl border border-slate-700 py-3 text-xl font-semibold text-slate-200 disabled:opacity-30"
+                >›</button>
               </div>
             </div>
           )}

@@ -1210,8 +1210,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onRelease={() => setFollowing(null)}
             />
           )}
-          <FitAll points={posiciones} route={route?.pts} />
-          <VerTodo points={posiciones} route={route?.pts} />
+          <Encuadre points={posiciones} route={route?.pts} />
         </MapContainer>
       ) : (
         // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
@@ -2290,81 +2289,70 @@ function marginBox(min: number): string {
  * como antes. Después de ese primer encuadre el mapa es del usuario —o de
  * FollowRunner— y esto no vuelve a tocarlo.
  */
-function FitAll({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
-  const map = useMap()
-  /**
-   * Qué se ha llegado a encuadrar: nada, los puntos, o el recorrido.
-   *
-   * Importa la diferencia. El recorrido tarda en bajarse —son cientos de
-   * kilobytes— y el mapa se pinta antes con lo único que hay, las posiciones. Si
-   * ese primer encuadre cerrara el asunto, la carrera se quedaba enmarcada por
-   * el punto más lejano de alguien: en la CanFranc, una baliza que siguió
-   * emitiendo desde la autovía a 173 km dejaba el circuito del tamaño de un
-   * sello en una esquina, con medio Aragón alrededor. Así que el encuadre por
-   * puntos es provisional y el recorrido, cuando llega, manda.
-   */
-  const hecho = useRef<'nada' | 'puntos' | 'ruta'>('nada')
-  useEffect(() => {
-    if (hecho.current === 'ruta') return
-    /**
-     * Devuelve si ha podido encuadrar de verdad.
-     *
-     * Porque puede no poder: si el contenedor todavía no tiene su alto —el
-     * `100dvh` de un móvil se asienta después de la primera pintada, y el mapa
-     * se monta antes—, Leaflet calcula el zoom contra un lienzo de cero y se va
-     * al mínimo, o sea a ver el continente. Y como el encuadre se da por hecho
-     * una sola vez, esa vista se quedaba puesta para siempre. Así que si no hay
-     * tamaño, no se encuadra: se vuelve a intentar.
-     */
-    const encuadra = (): boolean => {
-      map.invalidateSize()
-      const tam = map.getSize()
-      if (tam.y < 80 || tam.x < 80) return false
-      if (route && route.length > 1) {
-        hecho.current = 'ruta'
-        map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
-        return true
-      }
-      if (hecho.current === 'puntos' || points.length === 0) return true
-      hecho.current = 'puntos'
-      if (points.length === 1) { map.setView(points[0], 14); return true }
-      map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
-      return true
-    }
-    if (encuadra()) return
-    const t = window.setTimeout(encuadra, 300)
-    return () => window.clearTimeout(t)
-  }, [points, route, map])
-  return null
-}
-
 /**
- * El mando de "ver toda la carrera".
+ * El encuadre del mapa: la carrera entera en pantalla, y el mando para volver.
  *
- * El mapa se encuadra solo al abrirlo, pero después se arrastra, se hace zoom
- * para mirar a alguien y se acaba perdido a treinta kilómetros — y volver
- * significaba recargar la página. Un botón que devuelve el recorrido entero a la
- * pantalla es de las cosas que se usan cada dos minutos y que no estaban.
+ * Encuadra SOLO y SIGUE encuadrando mientras nadie toque el mapa, en vez de
+ * hacerlo una vez al abrirlo y desentenderse. Es la diferencia entre que
+ * funcione y que funcione casi siempre: el recorrido tarda en bajarse, las
+ * posiciones llegan cada diez segundos, el contenedor asienta su alto cuando le
+ * parece, y con un solo intento cualquiera de esas tres cosas deja la carrera
+ * enmarcada por donde estuviera el primer punto —en la CanFranc, media
+ * comunidad autónoma, porque una baliza seguía emitiendo desde la autovía—.
+ *
+ * En cuanto se arrastra o se hace zoom, deja de mandar: quien está mirando un
+ * tramo de cerca no quiere que la pantalla le dé un tirón cada diez segundos.
+ * Y el botón ⤢ hace las dos cosas: devuelve la carrera entera y vuelve a
+ * encender el automático.
  */
-function VerTodo({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
+function Encuadre({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
   const map = useMap()
+  /** Nadie lo ha tocado: mientras siga así, el encuadre es nuestro. */
+  const libre = useRef(true)
+  /** El movimiento que está ocurriendo lo hemos hecho nosotros, no un dedo. */
+  const propio = useRef(false)
+
+  const encuadra = useCallback((): boolean => {
+    // El contenedor puede no tener su alto todavía —el `100dvh` de un móvil se
+    // asienta después de la primera pintada—, y Leaflet mediría un lienzo de
+    // cero y se iría al zoom mínimo, o sea a ver el continente.
+    map.invalidateSize()
+    const tam = map.getSize()
+    if (tam.y < 80 || tam.x < 80) return false
+    propio.current = true
+    map.once('moveend', () => { propio.current = false })
+    if (route && route.length > 1) map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
+    else if (points.length === 1) map.setView(points[0], 14)
+    else if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
+    else { propio.current = false; return false }
+    return true
+  }, [map, points, route])
+
+  useEffect(() => {
+    const usuario = () => { if (!propio.current) libre.current = false }
+    map.on('dragstart', usuario)
+    map.on('zoomstart', usuario)
+    return () => { map.off('dragstart', usuario); map.off('zoomstart', usuario) }
+  }, [map])
+
+  useEffect(() => {
+    if (!libre.current) return
+    if (encuadra()) return
+    const t = window.setTimeout(() => { if (libre.current) encuadra() }, 300)
+    return () => window.clearTimeout(t)
+  }, [encuadra])
+
   if ((!route || route.length < 2) && points.length === 0) return null
   return (
     <button
       // El botón vive DENTRO del mapa, así que sus clics y su rueda son clics y
-      // rueda del mapa si no se cortan aquí: sin esto, pulsarlo arrastra el mapa
-      // y girar la rueda encima hace zoom en vez de nada.
+      // rueda del mapa si no se cortan aquí.
       ref={(el) => {
         if (!el) return
         L.DomEvent.disableClickPropagation(el)
         L.DomEvent.disableScrollPropagation(el)
       }}
-      onClick={() => {
-        map.invalidateSize()
-        if (route && route.length > 1) map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
-        else if (points.length === 1) map.setView(points[0], 14)
-        else map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
-      }}
+      onClick={() => { libre.current = true; encuadra() }}
       title="Ver toda la carrera"
       aria-label="Ver toda la carrera"
       className="absolute right-2 z-[500] rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1.5 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
