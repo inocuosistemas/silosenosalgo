@@ -1,0 +1,17 @@
+-- El abandono que marca QUIEN ORGANIZA.
+--
+-- Detectarlo solo se puede hacer con lo que llega, y lo que llega miente a
+-- veces: una baliza sin cobertura tres horas se parece mucho a una que se ha
+-- bajado, y dar por retirado a quien sigue en el monte es el peor error que
+-- puede cometer esto —su gente lo lee—. Por eso la regla automática es
+-- prudente y se calla en cuanto hay duda.
+--
+-- Pero quien organiza SÍ lo sabe: se lo ha dicho el corredor por teléfono, o lo
+-- ha visto subir a la furgoneta de la organización. Esto es esa vía: un dato
+-- que no se deduce, se afirma, y que manda sobre cualquier cosa que diga la
+-- traza.
+--
+-- Guarda CUÁNDO dejó la carrera (epoch ms), no un simple sí: la hora es lo que
+-- decide su kilómetro válido y lo que se le cuenta a quien pregunta. NULL =
+-- nadie lo ha marcado.
+ALTER TABLE event_members ADD COLUMN retired_at INTEGER;

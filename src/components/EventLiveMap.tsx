@@ -19,6 +19,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { paradoDesde } from '../lib/parado'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { ACTIVITY_MAX_SPEED_KMH, haversineKm } from '../lib/timing'
+import { pathBetweenKm } from '../lib/speedHeat'
 import { MarkBadge } from './MarkPicker'
 import { Dorsal } from './Dorsal'
 import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
@@ -48,6 +49,74 @@ import { leeCadencia, plazosDe, silencioTexto } from '../../shared/cadencia'
  *    reparte el organizador. Ve lo mismo en el mapa, sin ids ni enlaces a las
  *    balizas individuales — publicar el evento no publica la baliza de cada uno.
  */
+
+/**
+ * Hasta qué kilómetro había llegado alguien a una hora dada, según lo que se ha
+ * ido viendo. El más lejano hasta ese instante: quien se retira no des-corre lo
+ * que ya subió.
+ */
+function kmEnElHistorial(pasos: { t: number; km: number }[], ms: number): number | null {
+  let max: number | null = null
+  for (const p of pasos) {
+    if (p.t > ms) break
+    if (max === null || p.km > max) max = p.km
+  }
+  return max
+}
+
+/**
+ * A partir de cuánto, entre dos posiciones seguidas, ya no se sabe por dónde
+ * fue. Trescientos metros: con una baliza que habla cada cien, eso son al menos
+ * dos lecturas que no llegaron.
+ */
+const HUECO_M = 300
+
+/**
+ * La cola partida en lo que SE VIO y lo que no.
+ *
+ * Cuando una baliza se calla un rato —un valle, un bosque, una cara norte—, el
+ * mapa unía los dos extremos con una recta, y esa recta se lee como un camino:
+ * en la CanFranc, tres corredores juntos perdieron cobertura en el mismo tramo
+ * y el mapa les dibujó tres rayas larguísimas campo a través, en paralelo, que
+ * es lo que sus familias vieron.
+ *
+ * Ahora el hueco se dibuja de puntos y a media tinta —"por aquí no le vimos"— y,
+ * si hay recorrido y los dos extremos caen sobre él, se rellena CON EL PROPIO
+ * RECORRIDO, que es por donde fue de verdad. No se inventa nada: se dice lo que
+ * se sabe con la línea sólida y lo que se supone, punteado.
+ */
+function tramosDeCola(
+  tail: { lat: number; lon: number }[],
+  route: { pts: [number, number][]; cumKm: number[]; totalKm: number } | null,
+): { pts: [number, number][]; hueco: boolean }[] {
+  if (tail.length < 2) return []
+  const salida: { pts: [number, number][]; hueco: boolean }[] = []
+  let visto: [number, number][] = [[tail[0].lat, tail[0].lon]]
+  for (let i = 1; i < tail.length; i++) {
+    const a = tail[i - 1], b = tail[i]
+    const metros = haversineKm(a, b) * 1000
+    if (metros <= HUECO_M) {
+      visto.push([b.lat, b.lon])
+      continue
+    }
+    if (visto.length > 1) salida.push({ pts: visto, hueco: false })
+    // El hueco: por el recorrido si se puede, y si no, en línea recta.
+    const kmA = route ? projectKm(a.lat, a.lon, route, null) : null
+    const kmB = route ? projectKm(b.lat, b.lon, route, kmA) : null
+    const porLaRuta = route && kmA != null && kmB != null && kmB > kmA
+      ? pathBetweenKm({ points: route.pts.map(([lat, lon]) => ({ lat, lon, ele: 0 })), cumKm: route.cumKm } as never, kmA, kmB)
+      : []
+    salida.push({
+      pts: porLaRuta.length > 1
+        ? [[a.lat, a.lon], ...porLaRuta, [b.lat, b.lon]]
+        : [[a.lat, a.lon], [b.lat, b.lon]],
+      hueco: true,
+    })
+    visto = [[b.lat, b.lon]]
+  }
+  if (visto.length > 1) salida.push({ pts: visto, hueco: false })
+  return salida
+}
 
 const POLL_MS = 10_000
 /** Pasado esto sin noticias, el punto se apaga: quieto no es lo mismo que sin señal. */
@@ -744,8 +813,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
        * entera y aquí solo llegan sesenta puntos— y de la regla en directo
        * mientras la carrera no ha cerrado.
        */
+      /**
+       * Y por encima de todo, el abandono MARCADO A MANO.
+       *
+       * Lo pone quien organiza —o el propio corredor— y no se discute: la regla
+       * automática se calla en cuanto hay duda, y quien organiza a veces no
+       * tiene ninguna porque se lo han dicho por teléfono. Se le congela donde
+       * estuviera en ese momento.
+       */
+      const aMano = r.retiradoAt != null
+        ? { km: kmEnElHistorial(pasos, r.retiradoAt) ?? km, at: r.retiradoAt }
+        : null
       const oficial = abandonoOficial.get(r.username)
-      const congelado = oficial ?? (abandono ? { km: abandono.km, at: abandono.desdeMs } : null)
+      const congelado = aMano ?? oficial ?? (abandono ? { km: abandono.km, at: abandono.desdeMs } : null)
       const kmValido = congelado?.km ?? km
       // La cola se corta donde se acabó su carrera: lo de después es el viaje de
       // vuelta, y dibujarlo es contar una carrera que no hizo.
@@ -1094,7 +1174,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
-          {withFix.map(({ r, stale, key, km, kmValido, congelado, desviadoM, tail, acabo, fantasma }) => {
+          {withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
             // Quien terminó va EN la meta, se esté imantando o no: su última
@@ -1107,10 +1187,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
             // meta: lo que se enseña de él ya no es dónde está, es hasta dónde
             // llegó — y su baliza puede estar en la autovía, a 173 km de aquí.
             const enMeta = acabo && route !== null && km !== null
-            const parado = congelado != null && route !== null
+            // Congelado Y con kilómetro: si a alguien lo marcaron retirado sin
+            // que su baliza hubiera dicho nunca por dónde iba, no hay sitio del
+            // recorrido donde clavarlo y se queda donde dice su GPS.
+            const parado = congelado != null && congelado.km != null && route !== null
             const suelto = !enMeta && !parado
               && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
-            const anclaKm = parado ? kmValido! : km!
+            const anclaKm = parado ? congelado!.km! : km!
             const punto: [number, number] = (!suelto && coordsAtKm(route!, anclaKm)) || [r.fix!.lat, r.fix!.lon]
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
@@ -1120,18 +1203,29 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     colores claros —lima, ámbar— que sobre un mapa de fondo claro
                     casi desaparecen; la sombra los levanta sin tocarles el tono,
                     que es lo que identifica a cada corredor. */}
-                {tail.length > 1 && (
-                  <>
+                {/* Y partida por donde no se le vio: ver `tramosDeCola`. Lo
+                    que se sabe va sólido; lo que se supone, de puntos. */}
+                {tramosDeCola(tail, route).map((t, n) => (
+                  <div key={`cola-${n}`}>
                     <Polyline
-                      positions={tail.map((p) => [p.lat, p.lon] as [number, number])}
-                      pathOptions={{ color: '#020617', weight: isSel ? 8 : 6, opacity: stale ? 0.12 : 0.25 }}
+                      positions={t.pts}
+                      pathOptions={{
+                        color: '#020617',
+                        weight: isSel ? 8 : 6,
+                        opacity: (stale ? 0.12 : 0.25) * (t.hueco ? 0.6 : 1),
+                      }}
                     />
                     <Polyline
-                      positions={tail.map((p) => [p.lat, p.lon] as [number, number])}
-                      pathOptions={{ color, weight: isSel ? 5 : 3, opacity: stale ? 0.4 : 0.95 }}
+                      positions={t.pts}
+                      pathOptions={{
+                        color,
+                        weight: t.hueco ? (isSel ? 4 : 2.5) : (isSel ? 5 : 3),
+                        opacity: (stale ? 0.4 : 0.95) * (t.hueco ? 0.55 : 1),
+                        dashArray: t.hueco ? '2 7' : undefined,
+                      }}
                     />
-                  </>
-                )}
+                  </div>
+                ))}
                 {/* La proyección: la banda de recorrido donde tiene que
                     estar, y el aro hueco en su extremo optimista. El punto de
                     verdad se queda donde está, sin moverse, porque es lo único
@@ -1819,7 +1913,7 @@ type Row = {
   /** El kilómetro que cuenta: el del abandono si lo hubo, si no el de ahora. */
   kmValido: number | null
   /** Dónde y cuándo dejó la carrera, si la dejó. Su marca se congela ahí. */
-  congelado: { km: number; at: number | null } | null
+  congelado: { km: number | null; at: number | null } | null
   /** Cada cuánto promete hablar su baliza: de ahí salen SUS plazos de silencio. */
   cadencia: ReturnType<typeof leeCadencia>
   /** A cuántos metros del trazado está su última posición. */
@@ -2010,7 +2104,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                     hay que contarle a quien pregunte por él. */}
                 {congelado ? (
                   <span className="shrink-0 text-rose-300">
-                    km {congelado.km.toFixed(1)}
+                    {congelado.km != null ? `km ${congelado.km.toFixed(1)}` : 'se retiró'}
                     {congelado.at != null && ` · desde las ${hhmm(congelado.at)}`}
                     {abandono && <span className="text-slate-500"> · {motivoTexto(abandono.motivo)}</span>}
                   </span>

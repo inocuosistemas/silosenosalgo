@@ -183,6 +183,22 @@ export async function recomputeEventStats(id: string): Promise<void> {
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Dar a alguien por retirado, o deshacerlo.
+ *
+ * `at` en epoch ms para decir a qué hora dejó la carrera; sin él, ahora; `null`
+ * para devolverlo a la carrera. Lo puede hacer quien organiza con cualquiera y
+ * cualquiera consigo mismo.
+ */
+export async function marcaRetirado(id: string, username: string, at?: number | null): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/retirado`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(at === undefined ? { username } : { username, at }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 /** La hora a la que cierra meta (epoch ms), o null para quitarla. */
 export async function setEventEnd(id: string, endsAt: number | null): Promise<void> {
   return setEventSettings(id, { endsAt })

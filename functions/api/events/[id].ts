@@ -85,7 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const rows = await env.DB.prepare(
     `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
             m.emoji AS emoji, m.emoji_key AS emojiKey, m.joined_at AS joinedAt, m.last_seen AS lastSeen,
-            m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer,
+            m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer, m.retired_at AS retiredAt,
             (SELECT t.id FROM tracking_sessions t
               WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
                 AND t.status = 'active' AND t.expires_at > ?
@@ -96,7 +96,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   ).bind(now, id).all<{
     userId: string; username: string; color: string | null; bib: string | null
     emoji: string | null; emojiKey: string | null
-    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null
+    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null
     organizer: number
   }>()
 
@@ -114,6 +114,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     joinedAt: r.joinedAt,
     lastSeen: r.lastSeen,
     hasPlan: !!r.hasPlan,
+    retiredAt: r.retiredAt,
     sessionId: r.sessionId,
   }))
 

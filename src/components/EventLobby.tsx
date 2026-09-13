@@ -9,7 +9,7 @@ import {
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan, marcaRetirado,
   expulsaDelEvento, setEventOrganizer, getEventBets,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -495,6 +495,23 @@ export default function EventLobby({ id }: { id: string }) {
     finally { setBusy(false) }
   }
 
+  /**
+   * Dar a alguien por retirado, o devolverlo a la carrera.
+   *
+   * Es la vía para lo que la traza no puede saber: quien organiza tiene la
+   * llamada del corredor o lo ha visto subir a la furgoneta. Manda sobre la
+   * detección automática, que es prudente a propósito.
+   */
+  async function marcaAbandono(username: string, retirado: boolean) {
+    setBusy(true); setError(null)
+    try {
+      await marcaRetirado(id, username, retirado ? undefined : null)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   async function recalcular() {
     setBusy(true); setError(null)
     try {
@@ -757,6 +774,11 @@ export default function EventLobby({ id }: { id: string }) {
               // nadie sabe quién dio qué a quién.
               canName={(event.isOwner || user.isAdmin) && !m.isOwner}
               onOrganizer={(v) => void nombraOrganizador(m.userId, v)}
+              // Marcar el abandono: quien organiza, de cualquiera; y cualquiera,
+              // de sí mismo — que es la forma honesta de bajarse, porque la
+              // baliza se apaga cuando uno se acuerda.
+              canRetire={event.canOrganize || m.userId === user.id}
+              onRetire={(v) => void marcaAbandono(m.username, v)}
             />
           ))}
         </ul>
@@ -1589,6 +1611,7 @@ function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib, onDorsal,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
+  canRetire, onRetire,
 }: {
   m: EventMember
   now: number
@@ -1615,6 +1638,9 @@ function MemberRow({
   /** Nombrarle organizador: solo el dueño del evento y quien administra. */
   canName: boolean
   onOrganizer: (organizer: boolean) => void
+  /** Marcar su abandono: quien organiza, de cualquiera; cualquiera, de sí mismo. */
+  canRetire: boolean
+  onRetire: (retirado: boolean) => void
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
@@ -1672,7 +1698,11 @@ function MemberRow({
       )}
       {m.hasPlan && <span className="text-[10px] text-slate-500 shrink-0">plan propio</span>}
       <span className="ml-auto shrink-0 text-[11px]">
-        {live ? (
+        {/* Retirado manda sobre todo lo demás: quien se ha bajado no está
+            "emitiendo" aunque su móvil siga hablando desde el coche. */}
+        {m.retiredAt !== null ? (
+          <span className="text-rose-400">⊘ se retiró</span>
+        ) : live ? (
           <span className="text-emerald-400">● emitiendo</span>
         ) : online ? (
           <span className="text-slate-400">en la parrilla</span>
@@ -1680,6 +1710,25 @@ function MemberRow({
           <span className="text-slate-600">desconectado</span>
         )}
       </span>
+      {/* Marcar el abandono. Lo que la traza no puede saber —una llamada, una
+          furgoneta— lo sabe quien organiza, y esto es su vía. Se deshace igual
+          de fácil: alguien se marca por error y tiene que poder volver a la
+          carrera sin dejar rastro. */}
+      {canRetire && (
+        <button
+          onClick={() => onRetire(m.retiredAt === null)}
+          disabled={busy}
+          title={m.retiredAt !== null
+            ? `Devolver a ${m.username} a la carrera`
+            : `Dar a ${m.username} por retirado`}
+          aria-label={m.retiredAt !== null ? 'Devolver a la carrera' : 'Dar por retirado'}
+          className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
+            m.retiredAt !== null ? 'text-rose-400 hover:text-emerald-400' : 'text-slate-600 hover:text-rose-400'
+          }`}
+        >
+          ⊘
+        </button>
+      )}
       {/* La baliza completa de cada uno sigue siendo su visor de siempre: ahí
           están su traza entera, sus notas y sus ánimos. */}
       {live && (

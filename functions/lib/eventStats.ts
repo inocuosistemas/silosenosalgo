@@ -247,6 +247,22 @@ function paradaFinal(serie: [number, number, number][]): { ms: number; km: numbe
   return quieto >= PARADA_MIN ? { ms: serie[j][0], km: lejos[j] } : null
 }
 
+/**
+ * Hasta qué kilómetro había llegado alguien a una hora dada.
+ *
+ * El MÁS LEJANO hasta ese instante, no el de ese instante: quien se retira a
+ * las once después de haber bajado media hora andando no des-corre lo que
+ * subió. Nulo si a esa hora todavía no se le había visto.
+ */
+function kmAlcanzadoEn(serie: [number, number, number][], ms: number): number | null {
+  let max: number | null = null
+  for (const [t, km] of serie) {
+    if (t > ms) break
+    if (max === null || km > max) max = km
+  }
+  return max
+}
+
 /** El trazado guardado del evento: [lat, lon, kmAcumulado] por punto. */
 export type Polilinea = [number, number, number][]
 
@@ -459,6 +475,14 @@ function avanceSobreRuta(
 
 interface FilaSesion {
   username: string
+  /**
+   * Cuándo lo dio por retirado QUIEN ORGANIZA (o él mismo), epoch ms.
+   *
+   * Manda sobre todo lo demás: sobre la traza, sobre el paso por meta y sobre
+   * la detección automática. Es un dato que no se deduce, se afirma — y quien
+   * lo afirma tiene delante al corredor o su llamada.
+   */
+  retiredAt?: number | null
   bib: string | null
   emoji: string | null
   color: string | null
@@ -522,7 +546,10 @@ export function calculaEstadisticas(
         username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
         km: null, minutos: null, ritmoMinKm: null, mejorKmMin: null, mejorKmDesde: null,
         finished: false, finishedAt: null, margenMs: null, puesto: null, tracked: false,
-        abandono: false, abandonoAt: null,
+        // Sin una sola posición no hay carrera que juzgar, pero si alguien lo
+        // marcó como retirado eso sigue siendo verdad: salió y se bajó, aunque
+        // su baliza no llegara a contar nada.
+        abandono: f.retiredAt != null, abandonoAt: f.retiredAt ?? null,
       })
       continue
     }
@@ -554,10 +581,21 @@ export function calculaEstadisticas(
     // circuito la meta es el mismo sitio que la salida, así que quien llega
     // andando por el último tramo ya está en el 97% antes de empezar —a JM le
     // pasó, y su meta habría quedado fijada a las 05:31—.
-    const cruce = crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
+    /**
+     * El abandono marcado a mano, si lo hay: manda sobre todo.
+     *
+     * Se le cuenta el kilómetro más lejano que había alcanzado a esa hora, que
+     * es lo que hizo antes de bajarse. Y anula el paso por meta: si quien
+     * organiza dice que se retiró, no llegó —por mucho que su baliza pasara por
+     * allí en el coche de vuelta—.
+     */
+    const marcado = f.retiredAt != null
+      ? { ms: f.retiredAt, km: kmAlcanzadoEn(avance?.serie ?? [], f.retiredAt) ?? avance?.km ?? kmTraza }
+      : null
+    const cruce = marcado ? null : crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
     // Y si no llegó, la carrera se le acabó cuando dejó de avanzar: ahí está el
     // abandono, y ese es el kilómetro que vale.
-    const parada = cruce ? null : paradaFinal(avance?.serie ?? [])
+    const parada = marcado ?? (cruce ? null : paradaFinal(avance?.serie ?? []))
     const hasta = cruce?.ms ?? parada?.ms ?? avance?.enMs ?? pts[pts.length - 1].t
     // El kilómetro que se publica, por este orden: donde dejó la carrera, el
     // punto más lejano que alcanzó SOBRE EL RECORRIDO, el que reportó su propia
@@ -569,7 +607,7 @@ export function calculaEstadisticas(
       ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
     const minutos = Math.max(0, (hasta - desde) / 60_000)
     /** Se bajó: no cruzó, y o apagó la baliza o dejó de avanzar para siempre. */
-    const seRetiro = cruce === null && (f.status === 'ended' || parada !== null)
+    const seRetiro = cruce === null && (marcado !== null || f.status === 'ended' || parada !== null)
     // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
     // andando al coche, dar la vuelta a por el que viene detrás o irse a
     // desayunar no son parte de la prueba, y medir ahí regala o roba marcas —el
@@ -680,6 +718,7 @@ export function calculaEstadisticas(
 export async function sesionesDelEvento(env: Env, eventId: string): Promise<FilaSesion[]> {
   const rows = await env.DB.prepare(
     `SELECT u.username AS username, m.bib AS bib, m.emoji AS emoji, m.color AS color,
+            m.retired_at AS retiredAt,
             t.status AS status, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.track_km AS trackKm, t.trail AS trail
        FROM event_members m

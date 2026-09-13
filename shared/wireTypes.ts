@@ -438,6 +438,14 @@ export interface EventMember {
   /** Id de su sesión de seguimiento emitiendo en este evento, o null si no está
    *  emitiendo. Es el token público: con él se abre su baliza completa. */
   sessionId: string | null
+  /**
+   * Cuándo lo dieron por retirado A MANO (epoch ms), o null.
+   *
+   * Lo marca quien organiza —o el propio corredor—, y manda sobre lo que diga
+   * la traza: la detección automática se calla en cuanto hay duda, y quien
+   * organiza a veces no tiene ninguna porque se lo han dicho por teléfono.
+   */
+  retiredAt: number | null
 }
 
 export interface EventInfo {
@@ -548,6 +556,8 @@ export interface EventPublicRunner {
   cadencia?: string | null
   /** Batería que le queda, 0-100. Null si su baliza no lo manda. */
   bateria?: number | null
+  /** Cuándo lo dieron por retirado a mano (epoch ms), o null. */
+  retiradoAt?: number | null
 }
 
 export interface EventPublicResponse {
@@ -850,6 +860,14 @@ export interface EventLiveRunner {
    *  misma pregunta con dos respuestas, y la segunda dice si vas a seguir
    *  viéndole. Null en la web y en las balizas que no lo mandan. */
   bateria?: number | null
+  /**
+   * Cuándo lo dieron por retirado A MANO (epoch ms), o null.
+   *
+   * Lo marca quien organiza —o el propio corredor— y manda sobre lo que diga la
+   * traza: la detección automática se calla en cuanto hay duda, y quien
+   * organiza a veces no tiene ninguna porque se lo ha dicho por teléfono.
+   */
+  retiradoAt?: number | null
 }
 
 /** GET /api/events/:id/live — todos los participantes, de una vez. */

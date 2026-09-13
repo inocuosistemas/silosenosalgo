@@ -91,7 +91,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // otra "preparado"—. Terminada también vale: quien ya llegó a meta sigue
   // siendo parte de la carrera y su último punto es lo que quieren ver.
   const rows = await env.DB.prepare(
-    `SELECT t.id, m.user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
+    `SELECT t.id, m.user_id AS userId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, m.retired_at AS retiradoAt,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail, t.send_cadence AS cadencia, t.battery_pct AS bateria
@@ -112,7 +112,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     status: string | null; activity: string | null; startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
-    fixAt: number | null; trail: string | null; cadencia: string | null; bateria: number | null
+    fixAt: number | null; trail: string | null; cadencia: string | null; bateria: number | null; retiradoAt: number | null
   }>()
 
   const runners: EventLiveRunner[] = (rows.results ?? []).map((r) => {
@@ -148,6 +148,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       updatedAt: r.updatedAt,
       cadencia: r.cadencia,
       bateria: r.bateria,
+      retiradoAt: r.retiradoAt,
     }
   })
 

@@ -401,6 +401,43 @@ describe('cuando alguien deja la carrera', () => {
     expect(c.finished).toBe(false)
   })
 
+  it('lo que dice quien organiza manda sobre la traza', () => {
+    // La regla automática es prudente a propósito: sin pruebas, se calla. Quien
+    // organiza no siempre necesita pruebas —se lo ha dicho el corredor por
+    // teléfono— y cuando lo marca, se acabó la discusión.
+    const corre = corriendo(0, 30, 6, 120)
+    const c = calculaEstadisticas(
+      [{ ...corredor('A', corre), status: 'active', retiredAt: corre[Math.floor(corre.length / 2)].t }],
+      100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.abandono).toBe(true)
+    expect(c.km!).toBeCloseTo(15, 0)      // donde estaba cuando lo marcaron
+    expect(c.finished).toBe(false)
+  })
+
+  it('y deshacerlo lo devuelve a la carrera', () => {
+    const corre = corriendo(0, 30, 6, 120)
+    const c = calculaEstadisticas(
+      [{ ...corredor('A', corre), status: 'active', retiredAt: null }], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.abandono).toBe(false)
+    expect(c.km!).toBeCloseTo(30, 0)
+  })
+
+  it('marcar a quien cruzó la meta le quita la meta: no llegó', () => {
+    // Pasa de verdad: la baliza sigue encendida y vuelve al pueblo de salida,
+    // que en un circuito es la meta. Si quien organiza dice que se bajó en el
+    // km 20, no llegó por mucho que su GPS pasara por allí.
+    const linea100 = recorridoRecto(30)
+    const corre = corriendo(0, 30, 6, 120)
+    const c = calculaEstadisticas(
+      [{ ...corredor('A', corre), retiredAt: corre[Math.floor(corre.length / 3)].t }],
+      30, linea100, 0, 'run',
+    ).corredores[0]
+    expect(c.finished).toBe(false)
+    expect(c.abandono).toBe(true)
+  })
+
   it('una lectura que no sabe dónde está no mueve a nadie', () => {
     // Una posición con kilómetro y medio de incertidumbre no dice nada, y sin
     // embargo arrastraba el kilómetro, la traza y la hora de salida.
