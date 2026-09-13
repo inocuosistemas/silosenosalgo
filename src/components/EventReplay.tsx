@@ -28,8 +28,12 @@ import { preparaCorredor, estadoEn, type Trazado } from '../lib/replayPosicion'
  * apagado donde lo dejó. La lógica está en `lib/replayPosicion`.
  */
 
-/** Las velocidades: de tiempo real a "toda la carrera en un minuto". */
-const VELOCIDADES = [1, 10, 60, 300] as const
+/**
+ * Las velocidades: de tiempo real a una carrera de un día en dos minutos y
+ * medio. El ×600 es para las largas: a ×300 un ultra de veinte horas se lleva
+ * cuatro minutos de mirar la pantalla.
+ */
+const VELOCIDADES = [1, 10, 60, 300, 600] as const
 
 interface Props {
   source: { kind: 'member'; id: string } | { kind: 'public'; token: string }
@@ -217,7 +221,10 @@ export function EventReplay({ source, route, onBack }: Props) {
             </div>
           </div>
 
-          <div className="mt-2 flex items-center gap-1.5">
+          {/* Envuelve: en un móvil las cinco velocidades y el imán llenan la
+              fila, y el contador y el volver bajan juntos a la derecha en vez
+              de partirse en dos renglones cada uno. */}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {VELOCIDADES.map((v) => (
               <button
                 key={v}
@@ -244,10 +251,12 @@ export function EventReplay({ source, route, onBack }: Props) {
                 {anclados ? '🧲' : '📍'}
               </button>
             )}
-            <span className="ml-auto text-[11px] text-slate-500">
-              {posiciones.filter((p) => p.pos && !p.terminado).length} en carrera
-            </span>
-            <button onClick={onBack} className="text-[11px] text-sky-400 hover:text-sky-300">← mapa</button>
+            <div className="ml-auto flex items-center gap-3 whitespace-nowrap text-[11px]">
+              <span className="text-slate-500">
+                {posiciones.filter((p) => p.pos && !p.terminado).length} en carrera
+              </span>
+              <button onClick={onBack} className="text-sky-400 hover:text-sky-300">← mapa</button>
+            </div>
           </div>
         </div>
       </div>
