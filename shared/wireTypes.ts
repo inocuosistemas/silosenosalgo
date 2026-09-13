@@ -544,6 +544,8 @@ export interface EventPublicRunner {
   /** Cuándo abrió su baliza; null en quien todavía no ha emitido (`idle`). */
   startedAt: number | null
   updatedAt: number | null
+  /** Cada cuánto promete hablar su baliza (`t15`, `d500`). Ver `shared/cadencia.ts`. */
+  cadencia?: string | null
 }
 
 export interface EventPublicResponse {
@@ -823,6 +825,13 @@ export interface EventLiveRunner {
   startedAt: number | null
   /** Cuándo llegó su última posición al servidor (frescura). */
   updatedAt: number | null
+  /**
+   * Cada cuánto promete hablar SU baliza: `t15` cada quince segundos, `d500`
+   * cada quinientos metros. Con ella el mapa sabe cuánto silencio es normal en
+   * esta y no en general. Null en las balizas anteriores a que existiera.
+   * Ver `shared/cadencia.ts`.
+   */
+  cadencia?: string | null
 }
 
 /** GET /api/events/:id/live — todos los participantes, de una vez. */

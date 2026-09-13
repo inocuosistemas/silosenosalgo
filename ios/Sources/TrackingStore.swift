@@ -1629,6 +1629,13 @@ final class TrackingStore: ObservableObject {
         } else {
             location.configureDistance(distanceMeters)
         }
+        // Y se le dice al servidor cada cuánto promete hablar esta baliza, para
+        // que el mapa sepa cuánto silencio es normal en ella: una que manda cada
+        // 500 m no manda nada mientras su dueño está parado, y con el plazo de
+        // todos salía "sin cobertura" estando perfecta. Ver `shared/cadencia.ts`.
+        API.cadencia = sendMode == .time
+            ? "t\(Int(intervalSeconds.rounded()))"
+            : "d\(Int(distanceMeters.rounded()))"
     }
 
     /// In distance mode, force a FRESH fix if we've been still longer than the

@@ -5,6 +5,7 @@ import { getSessionUser } from '../../../lib/session'
 import { countViewers } from '../../../lib/presence'
 import { TOKEN_RE } from '../../../../shared/validate'
 import type { TrailPoint, PingResponse } from '../../../../shared/wireTypes'
+import { leeCadencia, escribeCadencia } from '../../../../shared/cadencia'
 
 /**
  * POST /api/track/:id/ping — owner pushes GPS fixes. Accepts a single fix
@@ -38,7 +39,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const body = await readJson<{ fixes?: InFix[]; appVersion?: unknown } & Partial<InFix>>(request)
+  const body = await readJson<{ fixes?: InFix[]; appVersion?: unknown; cadencia?: unknown } & Partial<InFix>>(request)
   if (!body) return json({ error: 'invalid_request' }, 400)
   /**
    * Qué versión de la app manda esto.
@@ -52,6 +53,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const appVersion = typeof body.appVersion === 'string' && body.appVersion.trim()
     ? body.appVersion.trim().slice(0, 40)
     : null
+  /**
+   * Cada cuánto promete hablar esta baliza: `t15` cada quince segundos, `d500`
+   * cada quinientos metros. Con ella el mapa sabe cuánto silencio es normal en
+   * ESTA y deja de anunciar "sin cobertura" a quien emite por distancia y está
+   * parado —ver `shared/cadencia.ts`—. Viaja en el ping y no al crear la sesión
+   * porque el perfil se cambia a mitad de ruta, que es cuando se ve la batería.
+   */
+  const cadencia = leeCadencia(typeof body.cadencia === 'string' ? body.cadencia : null)
   const raw: InFix[] = Array.isArray(body.fixes) ? body.fixes : [body as InFix]
 
   const now = Date.now()
@@ -116,11 +125,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     `UPDATE tracking_sessions
         SET lat=?, lon=?, track_km=COALESCE(?, track_km), speed=?, heading=?, accuracy=?, altitude=?, fix_at=?, updated_at=?, trail=?,
             app_version=COALESCE(?, app_version),
+            send_cadence=COALESCE(?, send_cadence),
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
-    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion, keepAlive, id,
+    latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion,
+    cadencia ? escribeCadencia(cadencia) : null, keepAlive, id,
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.

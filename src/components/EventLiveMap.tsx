@@ -29,7 +29,8 @@ import { Confeti } from './Confeti'
 import type { RunnerOutcome } from '../../shared/bets'
 import { resultadosDeCarrera } from '../lib/eventOutcomes'
 import { buildPlannedCurve } from '../lib/ghostPacer'
-import { proyeccionFantasma, SILENCIO_MIN_MS, type Fantasma } from '../lib/proyeccionFantasma'
+import { proyeccionFantasma, type Fantasma } from '../lib/proyeccionFantasma'
+import { leeCadencia, plazosDe, silencioTexto } from '../../shared/cadencia'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -50,16 +51,17 @@ import { proyeccionFantasma, SILENCIO_MIN_MS, type Fantasma } from '../lib/proye
 const POLL_MS = 10_000
 /** Pasado esto sin noticias, el punto se apaga: quieto no es lo mismo que sin señal. */
 const STALE_MS = 6 * 60_000
-/**
- * Y pasado ESTO ya no es un hueco, es un agujero de cobertura.
+/*
+ * Y pasado un rato más largo ya no es un hueco, es un agujero de cobertura: en
+ * montaña lo normal es quedarse sin red un buen rato —un valle, un bosque, una
+ * cara norte— y el punto se queda clavado donde entró. A los seis minutos basta
+ * con apagarlo; pasado el plazo de SU baliza hay que DECIRLO, porque quien mira
+ * lleva un rato viendo a alguien parado en el mismo sitio y la conclusión
+ * natural —"le ha pasado algo"— es casi siempre la equivocada.
  *
- * En montaña lo normal es quedarse sin red un rato largo —un valle, un bosque,
- * una cara norte— y el punto se queda clavado donde entró. A los seis minutos
- * basta con apagarlo; a los veinte hay que DECIRLO, porque quien mira lleva un
- * rato viendo a alguien parado en el mismo sitio y la conclusión natural
- * —"le ha pasado algo"— es casi siempre la equivocada.
+ * Cuánto es "un rato" depende de cada baliza y lo dice ella: ver
+ * `shared/cadencia.ts` y `plazosDe`.
  */
-const LOST_MS = 20 * 60_000
 
 /**
  * A partir de aquí ya no es el temblor del GPS: es que va por otro sitio.
@@ -556,10 +558,21 @@ export default function EventLiveMap({ source }: { source: Source }) {
           ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig)
           : marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now))
         : null
-      const stale = r.status === 'ended' || (r.updatedAt !== null && now - r.updatedAt > STALE_MS)
+      /**
+       * Y cuánto silencio es normal EN SU BALIZA, no en general.
+       *
+       * Una que emite cada 500 m —el modo ahorro de las ultras— no manda nada
+       * mientras su dueño está parado, y con los plazos de todos salía "sin
+       * cobertura" cada rato estando perfecta. Ver `shared/cadencia.ts`; sin
+       * cadencia declarada, los de siempre.
+       */
+      const cadencia = leeCadencia(r.cadencia)
+      const plazos = plazosDe(cadencia)
+      const stale = r.status === 'ended'
+        || (r.updatedAt !== null && now - r.updatedAt > Math.max(STALE_MS, plazos.callado))
       // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
       // última posición conocida, no donde está.
-      const lost = r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > LOST_MS
+      const lost = r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > plazos.perdido
       // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
       // ABIERTA con la hora de salida por delante y no manda una sola posición
       // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
@@ -668,7 +681,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // minutos— pero ya no es el pulso de la baliza, y decirlo es la mitad de
       // quitarle a quien mira la impresión de que esto no funciona.
       const callado = r.status === 'active' && r.fix !== null && r.updatedAt !== null
-        && now - r.updatedAt >= SILENCIO_MIN_MS
+        && now - r.updatedAt >= plazos.callado
       // RETIRADO: apagó la baliza sin cruzar la meta. Es lo que hace alguien
       // que se baja, y es una noticia distinta de un teléfono que se queda sin
       // batería o sin cobertura —ahí la baliza sigue abierta y callada—. Las
@@ -726,7 +739,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // La cola se corta donde se acabó su carrera: lo de después es el viaje de
       // vuelta, y dibujarlo es contar una carrera que no hizo.
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
-      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado }
+      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado, cadencia }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista])
 
@@ -1775,6 +1788,8 @@ type Row = {
   kmValido: number | null
   /** Dónde y cuándo dejó la carrera, si la dejó. Su marca se congela ahí. */
   congelado: { km: number; at: number | null } | null
+  /** Cada cuánto promete hablar su baliza: de ahí salen SUS plazos de silencio. */
+  cadencia: ReturnType<typeof leeCadencia>
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
   /** Se le da por retirado sin haber apagado la baliza. Ver `lib/abandono.ts`. */
@@ -1904,7 +1919,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma }, i) => {
+        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -2029,7 +2044,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                 <div className="mt-1 flex items-center gap-2.5 overflow-hidden whitespace-nowrap pl-7 text-[11px]">
                   <span className={`min-w-0 truncate ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
                     {r.updatedAt === null ? 'sin señal'
-                      : lost ? `📡 sin cobertura · hace ${agoLabel(now - r.updatedAt)}`
+                      : lost ? `📡 ${silencioTexto(cadencia)} · hace ${agoLabel(now - r.updatedAt)}`
                       // Entre el pulso normal y la avería hay un rato largo que
                       // antes no se decía: el número envejecía en gris claro y
                       // quien miraba solo veía un punto que no se movía. Decirlo
@@ -2174,7 +2189,7 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
           ? <Dato valor={hhmm(congelado.at)} unidad="dejó la carrera" tono="text-rose-300" />
           : <Dato
               valor={ago ?? '—'}
-              unidad={row.lost ? 'sin cobertura' : 'última señal'}
+              unidad={row.lost ? silencioTexto(row.cadencia) : 'última señal'}
               tono={stale ? 'text-amber-400' : 'text-slate-100'}
             />}
       </div>

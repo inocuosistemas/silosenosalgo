@@ -358,8 +358,22 @@ enum API {
         return "iOS \(corta) (\(build))"
     }()
 
+    /**
+     Cada cuánto promete hablar esta baliza: `t15` = cada quince segundos,
+     `d500` = cada quinientos metros.
+
+     Va en el ping para que el mapa sepa cuánto silencio es normal en ESTA. Sin
+     ella, a una baliza en "Ahorro · ultra" —que no manda nada mientras su dueño
+     está parado— se la anunciaba como "sin cobertura" cada pocos minutos
+     estando perfecta. La pone `TrackingStore` al arrancar y cada vez que se
+     cambia el perfil, que es algo que se toca a mitad de ruta. Espejo de
+     `shared/cadencia.ts` y de `cadencia` en `Api.kt`.
+     */
+    static var cadencia: String?
+
     static func ping(token: String, id: String, fix: Fix) async throws {
         var body: [String: Any] = ["lat": fix.lat, "lon": fix.lon, "appVersion": appVersion]
+        if let c = cadencia { body["cadencia"] = c }
         if let v = fix.trackKm { body["trackKm"] = v }
         if let v = fix.speed { body["speed"] = v }
         if let v = fix.heading { body["heading"] = v }
@@ -386,8 +400,9 @@ enum API {
             if let v = f.fixAt { d["fixAt"] = v }
             return d
         }
-        let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token,
-                                            body: ["fixes": arr, "appVersion": appVersion])
+        var body: [String: Any] = ["fixes": arr, "appVersion": appVersion]
+        if let c = cadencia { body["cadencia"] = c }
+        let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers
     }

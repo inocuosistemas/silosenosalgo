@@ -60,7 +60,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
-            t.altitude, t.fix_at AS fixAt, t.trail
+            t.altitude, t.fix_at AS fixAt, t.trail, t.send_cadence AS cadencia
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
@@ -80,7 +80,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
-    fixAt: number | null; trail: string | null
+    fixAt: number | null; trail: string | null; cadencia: string | null
   }>()
 
   const runners: EventPublicRunner[] = (rows.results ?? []).map((r) => {
@@ -110,6 +110,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       tail,
       startedAt: r.startedAt,
       updatedAt: r.updatedAt,
+      cadencia: r.cadencia,
     }
   })
 

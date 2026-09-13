@@ -1,0 +1,19 @@
+-- Cada cuánto promete hablar cada baliza.
+--
+-- Sin esto, el mapa le da a todo el mundo los mismos plazos de silencio: a los
+-- seis minutos apaga el punto y a los veinte anuncia "sin cobertura". Eso vale
+-- para una baliza que emite por tiempo y es falso para una que emite por
+-- DISTANCIA, que es el modo de las ultras: ahí no mandar nada es exactamente lo
+-- que hace un móvil cuyo dueño está parado.
+--
+-- En la CanFranc-CanFranc una baliza en "Ahorro · ultra" mandó 35 posiciones en
+-- catorce horas —separadas 501 m de mediana, que es su umbral— y el mapa la dio
+-- por perdida una y otra vez. No le pasaba nada: su dueño subía despacio.
+--
+-- Va en la SESIÓN y se rellena desde el ping, como la versión de la app: el
+-- perfil se cambia a mitad de ruta —es de las cosas que se tocan cuando ves
+-- cómo va la batería— y lo que vale es el que está emitiendo ahora.
+--
+-- Formato: una letra y un número. `t15` = cada quince segundos, `d500` = cada
+-- quinientos metros. Ver `shared/cadencia.ts`.
+ALTER TABLE tracking_sessions ADD COLUMN send_cadence TEXT;

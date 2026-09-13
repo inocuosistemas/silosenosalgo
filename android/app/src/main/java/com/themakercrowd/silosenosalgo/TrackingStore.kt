@@ -1093,6 +1093,15 @@ object TrackingStore {
 
     private fun aplicaGps() {
         val e = _estado.value
+        // Cada cuánto promete hablar esta baliza, para que el mapa sepa cuánto
+        // silencio es normal en ella: una que manda cada 500 m no manda nada
+        // mientras su dueño está parado, y con el plazo de todos salía "sin
+        // cobertura" estando perfecta. Ver `shared/cadencia.ts`.
+        Api.cadencia = if (e.ritmo.modo == TrackingRules.Modo.TIEMPO) {
+            "t${kotlin.math.round(e.ritmo.intervaloSegundos).toInt()}"
+        } else {
+            "d${kotlin.math.round(e.ritmo.distanciaMetros).toInt()}"
+        }
         if (!e.compartiendo) { motor.para(); return }
         motor.aplica(
             if (e.enEspera) {
