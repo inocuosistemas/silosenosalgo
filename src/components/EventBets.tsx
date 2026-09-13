@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, ChevronRight, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
-import { dibujaResultadoPorra, cargaImagen } from '../lib/porraCard'
+import { dibujaResultadoPorra, cargaImagen, tituloParaCompartir } from '../lib/porraCard'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
@@ -847,7 +847,7 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
           desdeKm: recordKm.desdeKm,
         },
       })
-      const fue = await comparteImagen(url, 'porra.png', `La porra de ${eventName ?? 'la carrera'}`)
+      const fue = await comparteImagen(url, 'porra.png', tituloParaCompartir(eventName))
       if (fue !== 'cancelada') {
         setComoFue(fue)
         window.setTimeout(() => setComoFue(null), 4000)

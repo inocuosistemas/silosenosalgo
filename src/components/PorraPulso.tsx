@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Share2 } from 'lucide-react'
-import { dibujaPorra, cargaImagen } from '../lib/porraCard'
+import { dibujaPorra, cargaImagen, tituloParaCompartir } from '../lib/porraCard'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
 import { MarkBadge } from './MarkPicker'
 import { durationLabel, type Proyeccion } from '../../shared/bets'
@@ -86,7 +86,7 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
         { evento: eventName ?? 'La carrera', foto, pulso, corredores: runners, autor: conMisVotos ? me : null },
         C_SI, C_NO,
       )
-      const fue = await comparteImagen(url, 'porra.png', eventName ?? 'La porra')
+      const fue = await comparteImagen(url, 'porra.png', tituloParaCompartir(eventName))
       if (fue !== 'cancelada') {
         setComoFuePulso(fue)
         window.setTimeout(() => setComoFuePulso(null), 4000)

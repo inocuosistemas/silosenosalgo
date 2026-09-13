@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PorraPulso } from '../src/components/PorraPulso'
-import { pintaPorra, altoPorra, type DatosPorra } from '../src/lib/porraCard'
+import { pintaPorra, altoPorra, tituloParaCompartir, type DatosPorra } from '../src/lib/porraCard'
 import {
   calculaPulso, seccionesVisibles, marcasDe, rangoTiempo, rangoKm,
   SECCIONES_PULSO, TITULOS_PULSO, type PulsoPorra, type SeccionPulso,
@@ -152,6 +152,13 @@ describe('arnés: lo que sale en "Cómo está la porra" sale al compartir', () =
     for (const m of marcasDe(pulso, QUIEN)) expect(textos).not.toContain(m.texto)
     expect(textos.some((t) => t.includes(QUIEN))).toBe(false)
     expect(hecho.usado).toBeLessThanOrEqual(altoPorra(datos))
+  })
+
+  it('lo que acompaña a la imagen dice que es la porra', () => {
+    expect(tituloParaCompartir('UP26 100K')).toBe('UP26 100K - La Porra')
+    expect(tituloParaCompartir('  UP26 100K ')).toBe('UP26 100K - La Porra')
+    expect(tituloParaCompartir(null)).toBe('La Porra')
+    expect(tituloParaCompartir('')).toBe('La Porra')
   })
 
   it('la tarjeta cabe en el alto que calcula', () => {

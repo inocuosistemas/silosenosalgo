@@ -471,6 +471,18 @@ export function pintaPorra(
   return { secciones, usado: y + ALTO_PIE - 18 }
 }
 
+/**
+ * El texto que acompaña a la imagen al compartirla: "UP26 100K - La Porra".
+ *
+ * Es lo que sale junto a la foto en el menú de compartir y en el chat. Con el
+ * nombre del evento a secas no se sabía qué era aquello hasta abrir la imagen.
+ * Lo usan la porra en marcha y la resuelta, para que digan lo mismo.
+ */
+export function tituloParaCompartir(evento: string | null): string {
+  const nombre = evento?.trim()
+  return nombre ? `${nombre} - La Porra` : 'La Porra'
+}
+
 /** Pinta la tarjeta y devuelve el PNG, a 1080 de ancho. */
 export function dibujaPorra(d: DatosPorra, colorSi: string, colorNo: string): string {
   const alto = altoPorra(d)
