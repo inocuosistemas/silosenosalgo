@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { losDeLaCarrera } from '../src/lib/encuadre'
+import { reglaDelPerfil } from '../src/lib/perfilTramo'
 
 /**
  * Con quién se encuadra el mapa de una carrera.
@@ -41,5 +42,42 @@ describe('a quién se mira para encuadrar', () => {
   it('si al filtrar no queda nadie, se devuelven todos', () => {
     // Un encuadre raro es mejor que un mapa sin encuadrar.
     expect(losDeLaCarrera([])).toHaveLength(0)
+  })
+})
+
+/**
+ * La regla del perfil de un tramo.
+ *
+ * Sin ella cada tramo se estira hasta llenar su caja, y una subida de 300 m
+ * impacta igual que una de 1400: el dibujo es idéntico y solo cambia el número
+ * de al lado. Con una escala común a toda la carrera, el de 300 ocupa un quinto
+ * de lo que ocupa el de 1400, y las rayas dicen cuánto es eso en metros.
+ */
+describe('la regla del desnivel', () => {
+  it('redondea hacia arriba a un número que se pueda leer', () => {
+    // Una regla marcada cada 347 m no se lee.
+    expect(reglaDelPerfil(1478)).toEqual({ escalaM: 1500, pasoM: 500 })
+    expect(reglaDelPerfil(300)).toEqual({ escalaM: 300, pasoM: 100 })
+    expect(reglaDelPerfil(90)).toEqual({ escalaM: 100, pasoM: 25 })
+  })
+
+  it('deja entre tres y cinco rayas, ni rejilla ni nada', () => {
+    for (const rango of [80, 300, 740, 1478, 2600]) {
+      const { escalaM, pasoM } = reglaDelPerfil(rango)
+      expect(escalaM / pasoM).toBeGreaterThanOrEqual(2)
+      expect(escalaM / pasoM).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('la caja nunca es más pequeña que el tramo que tiene que caber', () => {
+    for (const rango of [10, 137, 499, 1478, 3000]) {
+      expect(reglaDelPerfil(rango).escalaM).toBeGreaterThanOrEqual(rango)
+    }
+  })
+
+  it('una carrera llana no se dibuja como una montaña', () => {
+    // Treinta metros de desnivel en todo el recorrido: la escala mínima es de
+    // veinticinco, así que el dibujo ocupa lo que le toca y no se estira.
+    expect(reglaDelPerfil(30).escalaM).toBe(50)
   })
 })

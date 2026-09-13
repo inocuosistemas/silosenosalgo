@@ -18,6 +18,7 @@ import {
 import { poiEmoji, poiTypeFor, guessPoiType, isPoiType } from '../../shared/poiTypes'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import { downloadGpx } from '../lib/gpxSerialize'
+import { reglaDelPerfil } from '../lib/perfilTramo'
 import { withNoteWaypoints } from '../lib/notesToGpx'
 import { fetchTrackState, haversineKm, viewerId, LiveTrackError } from '../lib/liveTrack'
 import { paradoDesde } from '../lib/parado'
@@ -366,10 +367,31 @@ function formatCountdown(ms: number): string {
 
 const PROFILE_W = 100
 const PROFILE_H = 28
-interface SegProfile { line: string; area: string; fromKm: number; span: number }
+interface SegProfile {
+  line: string
+  area: string
+  fromKm: number
+  span: number
+  /** Lo que sube y baja ESTE tramo, en metros: el desnivel de su dibujo. */
+  rangoM: number
+  /** Los metros que representa el alto de la caja. Con el mismo valor en todos
+   *  los tramos, sus dibujos se pueden comparar de un vistazo. */
+  escalaM: number
+}
 
-/** Build an SVG elevation sparkline for the segment [fromKm, toKm]. Computed once. */
-function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[] }, fromKm: number, toKm: number, minSpanM = 0): SegProfile | null {
+/**
+ * El perfil de un tramo, en SVG.
+ *
+ * `escalaM` es lo que convierte esto en un gráfico y no en un adorno: sin él,
+ * cada tramo se estira hasta llenar su caja y una subida de 300 m impacta igual
+ * que una de 1400 —el dibujo es idéntico y solo cambia el número de al lado—.
+ * Dándole a todos los tramos de la carrera la misma escala, el de 300 ocupa un
+ * quinto de lo que ocupa el de 1400, que es justo lo que se quiere ver.
+ */
+function buildSegmentProfile(
+  track: { points: { ele: number }[]; cumKm: number[] },
+  fromKm: number, toKm: number, minSpanM = 0, escalaM = 0,
+): SegProfile | null {
   const { points, cumKm } = track
   const idx: number[] = []
   for (let i = 0; i < points.length; i++) {
@@ -389,7 +411,10 @@ function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[]
     maxE = mid + minSpanM / 2
   }
   const span = toKm - fromKm || 1
-  const eleSpan = maxE - minE || 1
+  const rangoM = Math.max(0, maxE - minE)
+  // Con escala común, la caja son `escalaM` metros contados desde el suelo del
+  // tramo; sin ella, cada uno se estira lo suyo (el dibujo de siempre).
+  const eleSpan = (escalaM > 0 ? escalaM : rangoM) || 1
   const x = (km: number) => ((km - fromKm) / span) * PROFILE_W
   const y = (ele: number) => PROFILE_H - 1 - ((ele - minE) / eleSpan) * (PROFILE_H - 2)
   const coords = sel.map((i) => `${x(cumKm[i]).toFixed(1)},${y(points[i].ele).toFixed(1)}`)
@@ -398,17 +423,22 @@ function buildSegmentProfile(track: { points: { ele: number }[]; cumKm: number[]
     area: `M${x(cumKm[sel[0]]).toFixed(1)},${PROFILE_H}L${coords.join('L')}L${x(cumKm[sel[sel.length - 1]]).toFixed(1)},${PROFILE_H}Z`,
     fromKm,
     span,
+    rangoM,
+    escalaM: eleSpan,
   }
 }
 
+
 /** Mini elevation profile of a segment with a live position marker. */
-function SegmentProfile({ profile, posKm, alto }: {
+function SegmentProfile({ profile, posKm, alto, pasoM }: {
   profile: SegProfile | null
   posKm: number | null
   /** Alto en píxeles. El de la lista es una miniatura para una ojeada; el del
    *  tramo ampliado se estira, que ahí sobra pantalla y lo que se ha venido a
    *  mirar es justo la forma de la subida. */
   alto?: number
+  /** Cada cuántos metros se raya la regla. Sin él no se dibuja ninguna. */
+  pasoM?: number
 }) {
   if (!profile) return null
   const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
@@ -416,8 +446,33 @@ function SegmentProfile({ profile, posKm, alto }: {
   // <circle> into an oval. Draw the position marker as an HTML overlay instead so
   // the dot stays perfectly round regardless of the horizontal scaling.
   const leftPct = inSeg ? ((posKm! - profile.fromKm) / profile.span) * 100 : null
+  const altoPx = alto ?? 32
+  /**
+   * Las rayas de la regla, en porcentaje desde abajo.
+   *
+   * Son las que convierten el dibujo en una medida: la caja vale lo mismo en
+   * todos los tramos de la carrera, así que ver dónde llega la montaña respecto
+   * a las rayas dice cuánto sube de verdad. Los metros escritos solo caben en el
+   * tramo ampliado; en la miniatura van las rayas solas, que ya dan la
+   * proporción.
+   */
+  const rayas = pasoM && pasoM > 0 && profile.escalaM > 0
+    ? Array.from({ length: Math.floor(profile.escalaM / pasoM) }, (_, k) => (k + 1) * pasoM)
+      .filter((m) => m < profile.escalaM * 0.98)
+      .map((m) => ({ m, pct: (m / profile.escalaM) * 100 }))
+    : []
   return (
-    <div className="relative mt-1.5 w-full" style={{ height: alto ?? 32 }}>
+    <div className="relative mt-1.5 w-full" style={{ height: altoPx }}>
+      {rayas.map((r) => (
+        <div key={r.m} className="pointer-events-none absolute inset-x-0 border-t border-dashed border-slate-600/40"
+             style={{ bottom: `${r.pct}%` }}>
+          {altoPx >= 90 && (
+            <span className="absolute -top-3.5 right-0 bg-slate-900/70 px-1 text-[9px] tabular-nums text-slate-500">
+              {r.m >= 1000 ? `${(r.m / 1000).toFixed(1)} km` : `${r.m} m`}
+            </span>
+          )}
+        </div>
+      ))}
       <svg viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" className="block w-full h-full">
         <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
         <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
@@ -1180,14 +1235,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     if (!plan) return null
     const epoch = new Date(0)
     const sorted = plan.track.namedWaypoints.slice().sort((a, b) => a.distanceKm - b.distanceKm)
+    /**
+     * La regla, común a todos los tramos de ESTA carrera.
+     *
+     * Se mide primero el tramo más montañoso y de ahí sale la escala; luego se
+     * dibujan todos con ella. Es la diferencia entre un dibujo y un gráfico: sin
+     * esto, cada tramo se estiraba hasta llenar su caja y una subida de 300 m
+     * impactaba igual que una de 1400.
+     */
+    const mayor = sorted.reduce((m, w, i) => {
+      const p = buildSegmentProfile(plan.track, i > 0 ? sorted[i - 1].distanceKm : 0, w.distanceKm)
+      return p ? Math.max(m, p.rangoM) : m
+    }, 0)
+    const regla = reglaDelPerfil(mayor)
     let cumGainM = 0
     return sorted.map((w, i) => {
       const prevKm = i > 0 ? sorted[i - 1].distanceKm : 0
       const seg = elevationStatsForSegment(plan.track, prevKm, w.distanceKm, plan.paceConfig)
       cumGainM += seg.elevGainM
-      const profile = buildSegmentProfile(plan.track, prevKm, w.distanceKm)
+      const profile = buildSegmentProfile(plan.track, prevKm, w.distanceKm, 0, regla.escalaM)
       const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
-      return { w, seg, cumGainM, profile, plannedElapsedMs: eta0 ? eta0.getTime() : null }
+      return { w, seg, cumGainM, profile, regla, plannedElapsedMs: eta0 ? eta0.getTime() : null }
     })
   }, [plan, pauses])
 
@@ -2208,7 +2276,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const queda = dentro
         ? elevationStatsForSegment(plan.track, progressKm!, r.w.distanceKm, plan.paceConfig)
         : null
-      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
+      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, regla: r.regla, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
 
@@ -2256,7 +2324,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
           {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
         </div>
-        <SegmentProfile profile={c.profile} posKm={progressKm} alto={grande ? ampliado.perfil : undefined} />
+        <SegmentProfile
+          profile={c.profile}
+          posKm={progressKm}
+          alto={grande ? ampliado.perfil : undefined}
+          pasoM={c.regla?.pasoM}
+        />
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
             <span>🌡️ {Math.round(c.wx.temp)}°</span>
