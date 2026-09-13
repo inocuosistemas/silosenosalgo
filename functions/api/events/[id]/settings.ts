@@ -175,9 +175,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     const linea = Array.isArray(body.polyline) && body.polyline.length > 1
       ? JSON.stringify(body.polyline).slice(0, 400_000)
       : null
+    // Tres interrogantes, tres valores. Había un cuarto —el usuario— de una
+    // versión anterior de la consulta, y D1 rechaza la sentencia entera cuando
+    // sobran parámetros: "Wrong number of parameter bindings". O sea que ESTA
+    // escritura llevaba fallando siempre, en silencio, porque quien la llama la
+    // envuelve en un try vacío confiando en que la parrilla lo rehaga —y la
+    // parrilla llamaba aquí, y volvía a fallar—. Resultado: ningún evento tenía
+    // trazado guardado, y sin trazado los resultados no se miden sobre el
+    // recorrido sino sumando la traza, que cuenta también lo que se anda en
+    // coche: en la CanFranc daba 54,8 km a quien se retiró en el 22.
     await env.DB.prepare(
       'UPDATE events SET plan_total_km = ?, plan_polyline = COALESCE(?, plan_polyline) WHERE id = ?',
-    ).bind(body.totalKm as number, linea, id, user.id).run()
+    ).bind(body.totalKm as number, linea, id).run()
     // Si la carrera YA está cerrada, sus resultados se congelaron sin este dato
     // —y por eso decían que no llegó nadie—. Se recalculan con él.
     const cerrado = await env.DB.prepare('SELECT ended_at AS endedAt FROM events WHERE id = ?')
