@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from './db'
-import type { TrailPoint, EventReplay, EventReplayRunner } from '../../shared/wireTypes'
-import { sinSaltos, leeStats, leePolilinea, type Polilinea } from './eventStats'
+import type { TrailPoint, EventReplay, EventReplayRunner, EventStats } from '../../shared/wireTypes'
+import { sinSaltos, leeStats, leePolilinea, horaDeCierre, type Polilinea } from './eventStats'
 
 /**
  * lib/replay.ts — la carrera entera, para volver a verla.
@@ -60,6 +60,36 @@ function cierraEnMeta(pts: TrailPoint[], linea: Polilinea, metaMs: number): Trai
   })))
 }
 
+/**
+ * Cuándo termina el replay: cuando terminó la carrera para nosotros.
+ *
+ * Es la MISMA hora de cierre de los resultados —la llegada del último y, si no
+ * llegó nadie, el último abandono—. Terminaba con la última lectura de
+ * cualquiera, y la última lectura de un retirado es la del coche de vuelta: en
+ * la CanFranc el reloj del replay seguía corriendo tres horas después del
+ * último abandono, con los puntos paseando por la carretera.
+ *
+ * Sin resultados congelados manda la hora a la que se cerró el evento, y sin
+ * evento cerrado no hay fin que imponer.
+ */
+export function finDelReplay(stats: EventStats | null, endedAt: number | null): number | null {
+  if (endedAt == null) return null
+  return stats ? horaDeCierre(stats, endedAt) : endedAt
+}
+
+/**
+ * La traza hasta un instante y ni un punto más.
+ *
+ * Si al cortar no quedan dos puntos se devuelve entera: es mejor un replay con
+ * lo que sobra que una fila que no se mueve —una hora mal registrada no puede
+ * dejar a alguien fuera—.
+ */
+export function recortaTraza(pts: TrailPoint[], limite: number | null | undefined): TrailPoint[] {
+  if (limite == null) return pts
+  const antes = pts.filter((p) => p.t <= limite)
+  return antes.length >= 2 ? antes : pts
+}
+
 /** Uno de cada n, conservando siempre el primero y el último. */
 function remuestrea(pts: TrailPoint[], max: number): TrailPoint[] {
   if (pts.length <= max) return pts
@@ -105,9 +135,12 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
   // El trazado, para poder cerrar el último tramo de quien llegó.
   const linea = stats ? await leePolilinea(env, eventId) : null
   const metaDe = new Map<string, number>()
+  const abandonoDe = new Map<string, number>()
   for (const c of stats?.corredores ?? []) {
     if (c.finishedAt != null) metaDe.set(c.username, c.finishedAt)
+    else if (c.abandonoAt != null) abandonoDe.set(c.username, c.abandonoAt)
   }
+  const fin = finDelReplay(stats, ev?.endedAt ?? null)
 
   const runners: EventReplayRunner[] = []
   let desde = Infinity
@@ -152,6 +185,13 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
       const enCarrera = pts.filter((p) => p.t <= meta)
       if (enCarrera.length >= 2) pts = linea ? cierraEnMeta(enCarrera, linea, meta) : enCarrera
     }
+    // Quien se retiró, hasta donde lo dejó. Lo de después es volver en coche, y
+    // en el replay se veía como una carrera a 80 km/h por la carretera que
+    // luego no cuadraba con el kilómetro de sus resultados. El mapa del evento
+    // ya lo congela ahí; el replay cuenta lo mismo.
+    pts = recortaTraza(pts, abandonoDe.get(r.username))
+    // Y nadie más allá del cierre: pasado, la carrera ya no existe.
+    pts = recortaTraza(pts, fin)
     // Quien no llegó a emitir no sale en el replay: una fila vacía moviéndose
     // por ningún sitio no cuenta nada.
     if (pts.length < 2) continue
@@ -178,7 +218,10 @@ export async function construyeReplay(env: Env, eventId: string): Promise<EventR
 
   return {
     from: Number.isFinite(arranque) ? arranque : 0,
-    to: Number.isFinite(hasta) ? hasta : 0,
+    // Termina con la carrera, no con la última lectura: si el último abandono
+    // fue a las 17:16, ahí se para el reloj aunque su punto anterior sea de
+    // unos segundos antes.
+    to: Number.isFinite(hasta) ? (fin != null ? Math.max(fin, arranque) : hasta) : 0,
     runners,
   }
 }
