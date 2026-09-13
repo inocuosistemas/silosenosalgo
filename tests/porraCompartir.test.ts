@@ -141,6 +141,19 @@ describe('arnés: lo que sale en "Cómo está la porra" sale al compartir', () =
     expect(card.textos.filter((t) => t === QUIEN).length).toBe(enTarjeta.filter((m) => m.texto === QUIEN).length)
   })
 
+  it('compartir SIN mis votos: las mismas secciones que la pantalla y ninguna marca', () => {
+    const { ctx, textos } = lienzoFalso()
+    const datos: DatosPorra = { evento: 'UP26 100K', foto: null, pulso, corredores: runners, autor: null }
+    const hecho = pintaPorra(ctx, datos, { si: '#0284c7', no: '#ea580c' })
+    expect(hecho.secciones).toEqual(vista.secciones)
+    for (const s of SECCIONES_PULSO) {
+      expect(textos.map((t) => t.toLowerCase())).toContain(TITULOS_PULSO[s].toLowerCase())
+    }
+    for (const m of marcasDe(pulso, QUIEN)) expect(textos).not.toContain(m.texto)
+    expect(textos.some((t) => t.includes(QUIEN))).toBe(false)
+    expect(hecho.usado).toBeLessThanOrEqual(altoPorra(datos))
+  })
+
   it('la tarjeta cabe en el alto que calcula', () => {
     expect(card.usado).toBeLessThanOrEqual(card.alto)
   })

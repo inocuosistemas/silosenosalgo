@@ -56,6 +56,8 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
   const [compartiendo, setCompartiendo] = useState(false)
   /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
   const [comoFuePulso, setComoFuePulso] = useState<ComoSeFue | null>(null)
+  /** Si está abierto el menú de "con o sin mis votos". */
+  const [eligiendo, setEligiendo] = useState(false)
 
   const pulso = calculaPulso({ bets, players, runners, startsAt, limitMin, proyecciones, me })
   const visibles = seccionesVisibles(pulso)
@@ -63,20 +65,27 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
   const marcaEn = (s: SeccionPulso, nombre: string) =>
     marcas.find((m) => m.seccion === s && m.name === nombre)?.texto ?? null
   const dame = (n: string) => runners.find((r) => r.username === n)
+  /** Hay algo tuyo que marcar: solo entonces tiene sentido elegir. */
+  const hayMarcas = marcas.length > 0
 
   /**
    * Convierte la porra en una imagen y la manda por donde el móvil ofrezca.
    *
-   * La tarjeta se pinta desde el mismo `pulso` que esta pantalla, con lo tuyo a
-   * tu nombre. En el móvil sale el menú de compartir de siempre y en un
-   * ordenador se copia o se descarga.
+   * La tarjeta se pinta desde el mismo `pulso` que esta pantalla. CON tus votos
+   * van marcados en azul y a tu nombre; SIN ellos es la porra de todos, que es
+   * lo que se quiere mandar cuando no se trata de presumir de lo propio —o de
+   * no enseñar que se ha apostado contra alguien del grupo—. En el móvil sale el
+   * menú de compartir de siempre y en un ordenador se copia o se descarga.
    */
-  async function compartir() {
+  async function compartir(conMisVotos: boolean) {
     if (compartiendo) return
     setCompartiendo(true)
     try {
       const foto = photoUrl ? await cargaImagen(photoUrl) : null
-      const url = dibujaPorra({ evento: eventName ?? 'La carrera', foto, pulso, corredores: runners, autor: me }, C_SI, C_NO)
+      const url = dibujaPorra(
+        { evento: eventName ?? 'La carrera', foto, pulso, corredores: runners, autor: conMisVotos ? me : null },
+        C_SI, C_NO,
+      )
       const fue = await comparteImagen(url, 'porra.png', eventName ?? 'La porra')
       if (fue !== 'cancelada') {
         setComoFuePulso(fue)
@@ -282,13 +291,16 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-violet-300">
           Cómo está la porra
         </h2>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="relative flex shrink-0 items-center gap-2">
           <span className="text-[11px] tabular-nums text-slate-400">
             {pulso.jugadores} {pulso.jugadores === 1 ? 'jugador' : 'jugadores'}
           </span>
           <button
-            onClick={() => void compartir()}
+            // Con algo tuyo que marcar, se elige; sin nada, se comparte ya.
+            onClick={() => (hayMarcas ? setEligiendo((v) => !v) : void compartir(false))}
             disabled={compartiendo}
+            aria-haspopup={hayMarcas ? 'menu' : undefined}
+            aria-expanded={hayMarcas ? eligiendo : undefined}
             className="flex items-center gap-1 rounded-lg border border-violet-800 bg-violet-950/50 px-2 py-1 text-[11px] font-semibold text-violet-200 transition-colors hover:border-violet-600 disabled:opacity-50"
           >
             <Share2 size={13} /> {compartiendo ? 'Preparando…'
@@ -297,6 +309,37 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
               : comoFuePulso === 'compartida' ? 'Compartida'
               : 'Compartir'}
           </button>
+          {eligiendo && (
+            <>
+              {/* Tocar fuera cierra el menú. */}
+              <button
+                aria-label="Cerrar"
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setEligiendo(false)}
+              />
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-lg border border-violet-800/70 bg-slate-900 shadow-xl shadow-black/40"
+              >
+                <button
+                  role="menuitem"
+                  onClick={() => { setEligiendo(false); void compartir(true) }}
+                  className="block w-full px-3 py-2 text-left transition-colors hover:bg-violet-950/60"
+                >
+                  <span className="block text-[12px] font-semibold text-slate-100">Con mis votos</span>
+                  <span className="block text-[10px] text-slate-400">lo tuyo en azul, con tu nombre</span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => { setEligiendo(false); void compartir(false) }}
+                  className="block w-full border-t border-slate-800 px-3 py-2 text-left transition-colors hover:bg-violet-950/60"
+                >
+                  <span className="block text-[12px] font-semibold text-slate-100">Sin mis votos</span>
+                  <span className="block text-[10px] text-slate-400">solo cómo está la porra</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
