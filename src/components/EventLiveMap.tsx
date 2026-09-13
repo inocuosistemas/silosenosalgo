@@ -835,7 +835,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
     const total = route?.totalKm ?? null
     if (startMs === null || total === null || endedAt !== null) return []
     const limiteMs = raceStats?.limitMin != null ? raceStats.limitMin * 60_000 : null
-    return rows.flatMap(({ r, km, lost }) => {
+    return rows.flatMap(({ r, km, lost, congelado }) => {
+      // Quien dejó la carrera no va a cruzar meta a ningún ritmo: proyectarle
+      // una hora de llegada es contar con alguien que ya está en su casa.
+      if (congelado) return []
       if (km === null || km < 0.5 || r.fix === null) return []
       const transcurrido = (r.updatedAt ?? now) - startMs
       if (transcurrido < 5 * 60_000) return []
@@ -1422,7 +1425,10 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs }) => {
+            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo }) => {
+              // Su carrera ya terminó —en meta o donde la dejó— y su marca está
+              // clavada ahí: los avisos de baliza dejan de tener sentido.
+              const fijado = acabo || congelado !== null
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -1456,16 +1462,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
                       que falta en el mapa hay que decírselo con palabras: sin
                       esto se lee como un fallo de la aplicación. */}
                   {armed && <span className="text-[10px] text-amber-400/80">preparado</span>}
-                  {lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
-                  {desviadoM > DESVIADO_M && (
+                  {/* Los avisos de baliza son para quien está corriendo. Al que
+                      ya se retiró no le corresponde ninguno: claro que está sin
+                      cobertura y fuera del recorrido, está en su casa. */}
+                  {!fijado && lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
+                  {!fijado && desviadoM > DESVIADO_M && (
                     <span className="text-[10px] text-amber-400/80" title={`Fuera del recorrido: a unos ${Math.round(desviadoM)} m`}>↯</span>
                   )}
+                  {congelado && <span className="text-[10px] text-rose-400/80" title="Se retiró: su marca se queda donde dejó la carrera">⊘</span>}
                   {idle && <span className="text-[10px] text-slate-500">sin emitir</span>}
                   {/* Parado, y desde cuándo. Discreto —un símbolo y los minutos—
                       porque pararse es normal: en un avituallamiento se para
                       todo el mundo. Solo a partir de tres minutos, que menos que
                       eso es esperar a que cambie un semáforo. */}
-                  {paradoMs >= PARADO_MIN_MS && (
+                  {!fijado && paradoMs >= PARADO_MIN_MS && (
                     <span
                       className="text-[10px] tabular-nums text-amber-400/80"
                       title={`Sin moverse desde hace ${Math.round(paradoMs / 60_000)} min`}
@@ -2124,7 +2134,9 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
   onFollow: () => void
   onClose: () => void
 }) {
-  const { r, km, margin, stale } = row
+  // El kilómetro del abandono en quien se retiró, igual que en el mapa, la
+  // lista y el perfil: una sola respuesta a "hasta dónde llegó".
+  const { r, kmValido: km, congelado, margin, stale } = row
   const ago = r.updatedAt !== null ? agoLabel(now - r.updatedAt) : null
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
@@ -2153,14 +2165,18 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
         {/* Parado, en el sitio del ritmo: un ritmo instantáneo de cero no
             explica nada y "lleva 6 min parado" lo explica todo. Vuelve el ritmo
             en cuanto se mueva. */}
-        {row.paradoMs >= PARADO_MIN_MS
+        {congelado
+          ? <Dato valor="⊘" unidad="se retiró" tono="text-rose-300" />
+          : row.paradoMs >= PARADO_MIN_MS
           ? <Dato valor={`⏸ ${Math.round(row.paradoMs / 60_000)}`} unidad="min parado" tono="text-amber-300" />
           : <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />}
-        <Dato
-          valor={ago ?? '—'}
-          unidad={row.lost ? 'sin cobertura' : 'última señal'}
-          tono={stale ? 'text-amber-400' : 'text-slate-100'}
-        />
+        {congelado?.at != null
+          ? <Dato valor={hhmm(congelado.at)} unidad="dejó la carrera" tono="text-rose-300" />
+          : <Dato
+              valor={ago ?? '—'}
+              unidad={row.lost ? 'sin cobertura' : 'última señal'}
+              tono={stale ? 'text-amber-400' : 'text-slate-100'}
+            />}
       </div>
       {/* El margen sobre el cierre: en una carrera con cortes, es LA pregunta.
           Proyectado con el ritmo que lleva, no con el planificado (ver
@@ -2596,7 +2612,10 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
   onHoverKey: (key: string | null) => void
 }) {
   const { totalKm } = profile
-  const señalado = rows.find((x) => x.key === hoverKey && x.km !== null) ?? null
+  // El kilómetro que se pinta es el que VALE: el del abandono en quien se
+  // retiró. Si no, su punto del perfil se iba al km 0 —el pueblo de salida, que
+  // es donde acabó la tarde— mientras su marca del mapa estaba en el 22.
+  const señalado = rows.find((x) => x.key === hoverKey && x.kmValido !== null) ?? null
   return (
     <div className="pointer-events-auto border-t border-slate-800 bg-slate-950/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
@@ -2605,8 +2624,8 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
             punto alto se subía por encima del mapa. */}
         {señalado ? (
           <span className="truncate normal-case tracking-normal text-slate-200">
-            {señalado.r.emoji ?? ''} {señalado.r.username} · km {señalado.km!.toFixed(1)} ·{' '}
-            {Math.round(profile.eleAtKm(señalado.km!))} m
+            {señalado.r.emoji ?? ''} {señalado.r.username} · km {señalado.kmValido!.toFixed(1)} ·{' '}
+            {Math.round(profile.eleAtKm(señalado.kmValido!))} m
           </span>
         ) : (
           <span>Perfil · {Math.round(profile.minE)}–{Math.round(profile.maxE)} m</span>
@@ -2680,7 +2699,7 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
           )}
           {/* Los corredores van como HTML encima y no como <circle>: el SVG se
               estira a lo ancho y un círculo dentro saldría ovalado. */}
-          {rows.map(({ r, km, key }) => {
+          {rows.map(({ r, kmValido: km, key }) => {
             if (km === null) return null
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected

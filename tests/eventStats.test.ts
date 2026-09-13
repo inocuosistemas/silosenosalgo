@@ -304,6 +304,40 @@ describe('cuando alguien deja la carrera', () => {
     expect(calculaEstadisticas([fila], 100, linea, 0, 'run').corredores[0].abandono).toBe(true)
   })
 
+  it('arrastrarse cuatrocientos metros en dos horas y media es estar parado', () => {
+    // El que se queda en un control no se queda QUIETO: se mueve por el
+    // avituallamiento, se tapa, da vueltas. Con una banda fija de metros esto
+    // se colaba como carrera; lo que lo delata es la velocidad —cuatrocientos
+    // metros en dos horas y media son 0,16 km/h— y que ya no volvió a avanzar.
+    const corre = corriendo(0, 20, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const arrastre = Array.from({ length: 75 }, (_, i) => enKm(20 + i * 0.0053, fin + (i + 1) * 120_000))
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...arrastre])], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km!).toBeCloseTo(20, 1)
+    expect(c.minutos!).toBeLessThan(255)   // las cuatro horas de carrera, no seis y media
+  })
+
+  it('y dar vueltas arriba de un puerto durante horas, también', () => {
+    // El caso de Soriano, que es el que rompía la regla anterior: esperó siete
+    // horas a 2500 m bajando a resguardarse y volviendo a subir. Medido con el
+    // kilómetro crudo, cada vaivén parecía un avance de kilómetro y medio.
+    const corre = corriendo(0, 22, 5, 120)
+    const fin = corre[corre.length - 1].t
+    const vueltas = Array.from({ length: 120 }, (_, i) =>
+      enKm(22 - (i % 12 < 6 ? i % 12 : 12 - (i % 12)) * 0.25, fin + (i + 1) * 180_000))
+    const c = calculaEstadisticas(
+      [corredor('A', [...corre, ...vueltas])], 100, linea, 0, 'run',
+    ).corredores[0]
+    // Hasta ciento cincuenta metros por debajo de donde llegó: es la holgura de
+    // la regla —velocidad de parado por ventana de medida— y cae siempre del
+    // lado prudente, que es el que no regala carrera.
+    expect(c.km!).toBeGreaterThan(21.8)
+    expect(c.km!).toBeLessThanOrEqual(22.01)
+    expect(c.minutos!).toBeLessThan(280)   // 4h24 de carrera, no las diez de después
+  })
+
   it('pero dormir dos horas en el km 10 y seguir NO es retirarse', () => {
     // En una ultra se duerme, se come y se cambia uno de ropa. Lo que convierte
     // la parada en retirada es que ya no se vuelva a avanzar.

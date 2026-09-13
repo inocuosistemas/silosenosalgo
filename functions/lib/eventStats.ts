@@ -165,16 +165,28 @@ function kmMasRapido(pts: TrailPoint[], acumulado: number[]): { minutos: number;
 }
 
 /**
- * Cuánto se puede uno mover sin estar avanzando en la carrera: doscientos
- * cincuenta metros. Es el tamaño de un avituallamiento con su bolsa, su baño y
- * su silla, y también el vaivén que la proyección le echa a quien está parado.
+ * A qué velocidad se deja de estar parado: seis décimas de kilómetro por hora.
+ *
+ * El mismo número que usa la detección en directo, y por la misma razón: medio
+ * km/h separa el GPS bailando encima de una mesa de alguien que camina, por
+ * despacio que vaya. Va en VELOCIDAD y no en metros a propósito —una banda fija
+ * de doscientos cincuenta metros daba por bueno el que en dos horas y media
+ * avanzó cuatrocientos, que es estar parado con todas las letras—.
  */
-const PARADA_KM = 0.25
+const PARADA_KMH = 0.6
 /**
  * Y cuánto tiene que durar para que sea el final y no un descanso. Veinticinco
  * minutos, los mismos que usa la detección en directo: menos que eso es comer.
  */
 const PARADA_MIN = 25
+/**
+ * Y el paso mínimo con el que se mide esa velocidad: un cuarto de hora.
+ *
+ * Entre dos lecturas seguidas cualquier cosa es rápida —veinte metros en un
+ * minuto ya son 1,2 km/h— así que sin un intervalo decente el temblor del GPS
+ * se lee como ponerse a andar.
+ */
+const VENTANA_MIN = 15
 
 /**
  * Dónde y cuándo se le acabó la carrera a quien no llegó a meta.
@@ -189,27 +201,50 @@ const PARADA_MIN = 25
  * le cobraban doce horas y media por veintidós kilómetros —y su "kilómetro más
  * rápido" era el del viaje de vuelta—.
  *
- * Se busca el llano final: desde el punto más lejano que alcanzó, hacia atrás
- * mientras no se haya movido más que dentro de un avituallamiento. Si ese llano
- * dura más de veinticinco minutos, ahí dejó la carrera. Puede dejar fuera hasta
- * doscientos cincuenta metros de los que sí hizo, y es a propósito: la hora y
- * el kilómetro que se publican son los de un punto real de su traza, y no una
- * mezcla de dos momentos distintos.
+ * Se busca EL INSTANTE A PARTIR DEL CUAL YA NO VOLVIÓ A AVANZAR: el primero
+ * desde el que, mirando todo lo que queda de traza, nunca más se movió por
+ * encima del ritmo de estar parado. Dicho al revés, se va hacia atrás desde el
+ * final mientras se cumpla eso, y se para en cuanto aparece un tramo en el que
+ * sí iba andando.
+ *
+ * Vale igual para el que se sienta y no se levanta y para el que da media
+ * vuelta: en los dos casos el punto que se devuelve es el último en que la
+ * carrera seguía hacia delante. Y solo cuenta si dura más de veinticinco
+ * minutos, que menos que eso es un avituallamiento.
  */
 function paradaFinal(serie: [number, number, number][]): { ms: number; km: number } | null {
   if (serie.length < 2) return null
-  let iMax = 0
-  for (let i = 1; i < serie.length; i++) if (serie[i][1] > serie[iMax][1]) iMax = i
-  const kmMax = serie[iMax][1]
-  let j = iMax
-  while (j > 0 && kmMax - serie[j - 1][1] <= PARADA_KM) j--
-  // El llano se mide hasta el ÚLTIMO punto que sigue dentro de él, no hasta el
-  // más lejano: quien se para a las ocho y sigue emitiendo hasta las once lleva
-  // tres horas parado, aunque el punto más lejano lo tocara al principio.
-  let fin = iMax
-  while (fin + 1 < serie.length && kmMax - serie[fin + 1][1] <= PARADA_KM) fin++
+  const fin = serie.length - 1
+  // Y se mira LO MÁS LEJOS QUE HABÍA LLEGADO en cada momento, no el kilómetro
+  // de cada lectura. Quien espera arriba de un puerto no se queda quieto: baja
+  // a resguardarse, sube otra vez, se acerca al avituallamiento. Con el
+  // kilómetro crudo esos vaivenes son avances de kilómetro y medio y la parada
+  // no se ve; con el máximo alcanzado, volver por donde se vino no suma y
+  // volver a pisar lo ya pisado tampoco, que es justo lo que hay que medir.
+  const lejos: number[] = []
+  for (let i = 0; i <= fin; i++) lejos.push(Math.max(i > 0 ? lejos[i - 1] : 0, serie[i][1]))
+  // El truco para no comparar cada punto con todos los que le siguen: avanzar a
+  // más de PARADA_KMH desde `i` hasta `k` es exactamente que `km - v·t` sea
+  // mayor en `k` que en `i`. Así basta con arrastrar ese máximo hacia atrás.
+  const g = (i: number) => lejos[i] - PARADA_KMH * (serie[i][0] / 3_600_000)
+  // Y se compara solo con lo que pasó AL MENOS UN CUARTO DE HORA después. Sin
+  // esa ventana la regla no sirve de nada: veinte metros ganados entre dos
+  // lecturas seguidas ya son 1,2 km/h, así que cualquier temblor del GPS
+  // parecería haberse puesto a andar y la parada más larga se cortaba en el
+  // primer punto.
+  let desde = fin + 1
+  let techo = -Infinity
+  let j = fin
+  for (let i = fin; i >= 0; i--) {
+    while (desde - 1 > i && serie[desde - 1][0] - serie[i][0] >= VENTANA_MIN * 60_000) {
+      desde--
+      techo = Math.max(techo, g(desde))
+    }
+    if (techo > g(i)) break
+    j = i
+  }
   const quieto = (serie[fin][0] - serie[j][0]) / 60_000
-  return quieto >= PARADA_MIN ? { ms: serie[j][0], km: serie[j][1] } : null
+  return quieto >= PARADA_MIN ? { ms: serie[j][0], km: lejos[j] } : null
 }
 
 /** El trazado guardado del evento: [lat, lon, kmAcumulado] por punto. */
