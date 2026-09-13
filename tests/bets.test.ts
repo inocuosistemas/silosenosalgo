@@ -183,3 +183,34 @@ describe('el kilómetro más rápido de la carrera', () => {
     expect(s.bets[0].state).toBe('pending')
   })
 })
+
+/**
+ * El empate: con los mismos puntos se comparte el puesto, pero alguien tiene
+ * que ir primero en la lista.
+ */
+describe('quién va delante con los mismos puntos', () => {
+  const acierta = (author: string, createdAt: number): EventBet =>
+    ({ author, target: 'Soriano', kind: 'finish', value: 'si', createdAt })
+  const acabo: RunnerOutcome[] = [
+    { username: 'Soriano', tracked: true, finished: true, finishedAt: 5_000, settled: true },
+  ]
+
+  it('el que se mojó ANTES, que se arriesgó con menos información', () => {
+    // La porra cierra en la salida: quien la echó una semana antes apostó a
+    // ciegas y quien la echó diez minutos antes ya había visto el parte, a los
+    // rivales calentando y quién no se había presentado.
+    const tabla = scoreBets([acierta('tarde', 9_000), acierta('pronto', 1_000)], acabo)
+    expect(tabla.map((s) => s.author)).toEqual(['pronto', 'tarde'])
+    // Pero el PUESTO lo comparten: ir delante en la lista no es ganar.
+    expect(puestosDePorra(tabla)).toEqual([0, 0])
+  })
+
+  it('mientras nadie tiene puntos, manda el último que se mojó', () => {
+    // Ahí la lista no es una clasificación: es quién acaba de apuntarse.
+    const enCarrera: RunnerOutcome[] = [
+      { username: 'Soriano', tracked: true, finished: false, finishedAt: null, settled: false },
+    ]
+    const tabla = scoreBets([acierta('pronto', 1_000), acierta('tarde', 9_000)], enCarrera)
+    expect(tabla.map((s) => s.author)).toEqual(['tarde', 'pronto'])
+  })
+})

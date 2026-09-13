@@ -699,7 +699,13 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           <li><b className="text-slate-200">20</b> — clavar el puesto de alguien en el orden de llegada.</li>
           <li><b className="text-slate-200">+10</b> — si ese puesto clavado es el primero: acertar al ganador vale más.</li>
           <li><b className="text-slate-200">8</b> — fallar su puesto por uno: casi, y casi cuenta.</li>
-          <li><b className="text-slate-200">15</b> — acertar si alguien acaba o no.</li>
+          <li><b className="text-slate-200">15</b> — acertar si alguien acaba o no. Es cara o cruz: vale poco a propósito.</li>
+          <li>
+            <b className="text-slate-200">40</b> — el <b className="text-slate-200">kilómetro</b> en el que se
+            retira quien dijiste que no acababa. La otra mitad fina, y paga como el tiempo:
+            adivinar dónde se rompe alguien no es más fácil que su hora de meta.
+          </li>
+          <li><b className="text-slate-200">25</b> — quién firma el kilómetro más rápido de la carrera.</li>
           {/* El margen del TIEMPO se dice con los minutos de ESTA carrera, no
               con una fórmula: "menos 2 por cada minuto" era mentira en una
               ultra —a los 20 minutos ya no quedaba nada, y en 39 horas eso es
@@ -718,6 +724,11 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
             Ese margen es proporcional a lo que dura la carrera —un veinteavo—, no un
             número fijo: acertar por minutos es razonable en una de tres horas y
             no lo es en una de treinta y nueve.
+          </li>
+          <li className="text-slate-500">
+            Con los mismos puntos se comparte el puesto, y en la lista va delante quien
+            se mojó antes: la porra cierra en la salida, así que echarla una semana antes
+            es apostar con menos información que echarla diez minutos antes del disparo.
           </li>
           <li className="text-slate-500">
             El orden no se reparte hasta que están todos decididos: mientras quede alguien en carrera,

@@ -461,10 +461,15 @@ export function dibujaResultadoPorra(datos: {
   const { evento, foto, oraculos, ganador, record } = datos
   const ALTO_FOTO = foto ? 150 : 0
   const ALTO_PODIO = oraculos.length > 0 ? 118 : 0
+  // Con qué lo ganaron: una línea por cada uno de los tres de arriba que tenga
+  // algo que contar. Sin esto el podio son tres números, y lo que se discute en
+  // el grupo no es el número, es quién clavó qué.
+  const jugadas = oraculos.slice(0, 3).filter((o) => o.jugada && o.puntos > 0)
+  const ALTO_JUGADAS = jugadas.length > 0 ? 10 + jugadas.length * 19 : 0
   const RESTO = Math.max(0, oraculos.length - 3)
   const ALTO_RESTO = RESTO > 0 ? 14 + RESTO * 30 : 0
   const ALTO_CARRERA = (ganador ? 56 : 0) + (record ? 44 : 0)
-  const alto = ALTO_FOTO + 22 + 58 + ALTO_PODIO + ALTO_RESTO + ALTO_CARRERA + 34
+  const alto = ALTO_FOTO + 22 + 58 + ALTO_PODIO + ALTO_JUGADAS + ALTO_RESTO + ALTO_CARRERA + 34
 
   const lienzo = document.createElement('canvas')
   lienzo.width = ANCHO * ESCALA
@@ -544,6 +549,27 @@ export function dibujaResultadoPorra(datos: {
       ctx.fillText('PUNTOS', x + AN / 2, yPalabra)
     })
     y += ALTO_PODIO
+  }
+
+  // ── En qué acertó cada uno del podio ──────────────────────────────────
+  if (jugadas.length > 0) {
+    y += 10
+    for (const o of jugadas) {
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.font = fuente(12)
+      ctx.fillText(o.medalla, 22, y + 6)
+      ctx.font = fuente(11, 700)
+      ctx.fillStyle = TINTA
+      const nombre = recorta(ctx, o.nombre, 110)
+      ctx.fillText(nombre, 40, y + 6)
+      const dx = 40 + ctx.measureText(nombre).width + 6
+      ctx.font = fuente(11)
+      ctx.fillStyle = TINTA_FLOJA
+      ctx.fillText(recorta(ctx, o.jugada ?? '', ANCHO - dx - 22), dx, y + 6)
+      ctx.textBaseline = 'alphabetic'
+      y += 19
+    }
   }
 
   // ── Y los demás, en una línea cada uno ────────────────────────────────

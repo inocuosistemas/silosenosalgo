@@ -286,9 +286,17 @@ export function scoreBets(
   // llevaba el último en apostar mientras el que más puntos tenía salía tercero
   // —los puestos se reparten recorriendo la lista, así que un orden que no sea
   // por puntos los inventa—. Terminada la carrera esto ya es una clasificación.
+  //
+  // Y EL EMPATE, a quien se mojó ANTES. Con los mismos puntos se comparte el
+  // puesto —eso no lo cambia nadie— pero alguien tiene que ir primero en la
+  // lista, y hasta ahora iba el último en apostar, que es justo al revés de lo
+  // que tiene mérito: la porra cierra en la salida, así que quien la echó una
+  // semana antes se mojó con menos información que quien la echó diez minutos
+  // antes del disparo. A igualdad de aciertos, gana el que se arriesgó antes.
   const hayPuntos = [...porJugador.values()].some((s) => s.points > 0)
   return [...porJugador.values()].sort((a, b) => (hayPuntos ? b.points - a.points : 0)
-    || b.lastAt - a.lastAt || a.author.localeCompare(b.author))
+    || (hayPuntos ? a.lastAt - b.lastAt : b.lastAt - a.lastAt)
+    || a.author.localeCompare(b.author))
 }
 
 function scoreOne(
