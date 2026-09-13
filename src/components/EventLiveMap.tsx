@@ -800,6 +800,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [plan, cutoffs, startMs])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  /**
+   * Dónde se pinta cada uno, para poder encuadrar el mapa por ahí.
+   *
+   * Es la MISMA regla que usa cada marca —congelado en el punto del abandono,
+   * en la meta quien llegó, y si no donde dice su GPS—, y tiene que serlo: con
+   * las posiciones crudas, una baliza que siguió emitiendo desde la autovía a
+   * 173 km encuadraba la carrera entera con medio Aragón alrededor.
+   */
+  const posiciones = useMemo(
+    () => withFix.map((x): [number, number] => {
+      const fijo = x.congelado != null || (x.acabo && x.km !== null)
+      return (fijo && route && coordsAtKm(route, x.kmValido ?? x.km ?? 0))
+        || [x.r.fix!.lat, x.r.fix!.lon]
+    }),
+    [withFix, route],
+  )
   /** Dónde cae en el mapa el kilómetro que se está señalando en el perfil. */
   const hoverCoords = useMemo(
     () => (route && hoverKm !== null ? coordsAtKm(route, hoverKm) : null),
@@ -1194,7 +1210,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onRelease={() => setFollowing(null)}
             />
           )}
-          <FitAll points={withFix.map((x) => [x.r.fix!.lat, x.r.fix!.lon] as [number, number])} route={route?.pts} />
+          <FitAll points={posiciones} route={route?.pts} />
         </MapContainer>
       ) : (
         // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
@@ -2275,16 +2291,27 @@ function marginBox(min: number): string {
  */
 function FitAll({ points, route }: { points: [number, number][]; route?: [number, number][] }) {
   const map = useMap()
-  const done = useRef(false)
+  /**
+   * Qué se ha llegado a encuadrar: nada, los puntos, o el recorrido.
+   *
+   * Importa la diferencia. El recorrido tarda en bajarse —son cientos de
+   * kilobytes— y el mapa se pinta antes con lo único que hay, las posiciones. Si
+   * ese primer encuadre cerrara el asunto, la carrera se quedaba enmarcada por
+   * el punto más lejano de alguien: en la CanFranc, una baliza que siguió
+   * emitiendo desde la autovía a 173 km dejaba el circuito del tamaño de un
+   * sello en una esquina, con medio Aragón alrededor. Así que el encuadre por
+   * puntos es provisional y el recorrido, cuando llega, manda.
+   */
+  const hecho = useRef<'nada' | 'puntos' | 'ruta'>('nada')
   useEffect(() => {
-    if (done.current) return
+    if (hecho.current === 'ruta') return
     if (route && route.length > 1) {
-      done.current = true
+      hecho.current = 'ruta'
       map.fitBounds(L.latLngBounds(route), { padding: [28, 28] })
       return
     }
-    if (points.length === 0) return
-    done.current = true
+    if (hecho.current === 'puntos' || points.length === 0) return
+    hecho.current = 'puntos'
     if (points.length === 1) { map.setView(points[0], 14); return }
     map.fitBounds(L.latLngBounds(points), { padding: [48, 48] })
   }, [points, route, map])

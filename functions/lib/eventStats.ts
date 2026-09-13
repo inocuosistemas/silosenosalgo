@@ -568,6 +568,8 @@ export function calculaEstadisticas(
       ?? avance?.km
       ?? (f.trackKm != null && f.trackKm > 0 ? f.trackKm : kmTraza)
     const minutos = Math.max(0, (hasta - desde) / 60_000)
+    /** Se bajó: no cruzó, y o apagó la baliza o dejó de avanzar para siempre. */
+    const seRetiro = cruce === null && (f.status === 'ended' || parada !== null)
     // Y TODO se mide dentro de la carrera. Cruzada la meta se acaba: volver
     // andando al coche, dar la vuelta a por el que viene detrás o irse a
     // desayunar no son parte de la prueba, y medir ahí regala o roba marcas —el
@@ -601,12 +603,17 @@ export function calculaEstadisticas(
       // Se retiró: o paró la baliza sin cruzar —apagarla es decir "para mí se
       // ha acabado"— o dejó de avanzar y ya no volvió a hacerlo. Lo segundo
       // hace falta porque hay quien no la apaga nunca: la de Soriano siguió
-      // emitiendo desde el coche hasta la tarde siguiente.
-      abandono: cruce === null && (f.status === 'ended' || parada !== null),
+      // emitiendo desde el coche hasta la tarde siguiente. (Ver `seRetiro`.)
+      abandono: seRetiro,
       // Y cuándo la dejó: el momento en que se paró si se paró, y si no el
       // último en que estuvo avanzando. Nunca la hora de apagar la baliza, que
       // puede ser la tarde siguiente y desde su casa.
-      abandonoAt: cruce !== null ? null : (parada?.ms ?? avance?.enMs ?? null),
+      //
+      // Solo si se retiró de verdad. A quien sigue corriendo también se le
+      // puede calcular "cuándo llegó a su punto más lejano", pero eso no es la
+      // hora de nada: llamarlo abandono haría que la carrera se diera por
+      // cerrada a la hora del último que estaba vivo.
+      abandonoAt: seRetiro ? (parada?.ms ?? avance?.enMs ?? null) : null,
     })
   }
 
@@ -856,8 +863,17 @@ export async function cierraEvento(
   // La hora de cierre sale de los resultados que se van a guardar, sean los
   // nuevos o los que ya había: si mandan los viejos, la última llegada también
   // es la suya.
+  //
+  // Y se ESCRIBE, no se conserva la que hubiera. Era un `COALESCE(ended_at, ?)`
+  // y eso convertía la hora del primer cierre en definitiva: recalcular no
+  // podía arreglarla nunca. La CanFranc decía "cerrada a las 20:31" —la hora a
+  // la que el sistema se enteró— y siguió diciéndolo después de recalcular, con
+  // los resultados ya buenos al lado. La hora de cierre es un dato DERIVADO de
+  // la carrera (la última llegada, o el último abandono), así que se rehace con
+  // ella; sin nada que derivar, `horaDeCierre` devuelve la propuesta, que es la
+  // que ya tenía.
   if (vacios && habia) {
-    await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+    await env.DB.prepare('UPDATE events SET ended_at = ? WHERE id = ?')
       .bind(horaDeCierre(previos!, endedAt), eventId).run()
     return previos!
   }
@@ -866,7 +882,7 @@ export async function cierraEvento(
   // misma carrera, y guardarlas por separado abre la puerta a que una se
   // actualice sin la otra.
   const conPorra: EventStats = { ...stats, porra: await congelaPorra(env, eventId, stats) }
-  await env.DB.prepare('UPDATE events SET ended_at = COALESCE(ended_at, ?), stats = ?, stats_at = ? WHERE id = ?')
+  await env.DB.prepare('UPDATE events SET ended_at = ?, stats = ?, stats_at = ? WHERE id = ?')
     .bind(horaDeCierre(stats, endedAt), JSON.stringify(conPorra), Date.now(), eventId).run()
   return conPorra
 }
