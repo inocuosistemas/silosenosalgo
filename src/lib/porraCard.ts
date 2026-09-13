@@ -536,7 +536,27 @@ export function dibujaResultadoPorra(datos: {
         oro ? 'rgba(251,191,36,0.12)' : 'rgba(30,41,59,0.6)',
         oro ? '#f59e0b' : '#1e293b')
       ctx.textAlign = 'center'
+      /**
+       * La medalla, sobre un disco oscuro.
+       *
+       * Sin él se difumina: la bola de cristal es morada oscura y el relleno
+       * ámbar de la caja del ganador aclara justo el fondo que tiene detrás, así
+       * que el icono que corona la tarjeta era lo que peor se veía de ella. El
+       * disco le devuelve el fondo oscuro de la tarjeta y el aro lo remata.
+       */
+      // Sin medalla no hay disco: un aro vacío alrededor de un punto gris
+      // parece un hueco donde faltaba algo.
+      if (o.medalla !== '·') {
+        ctx.beginPath()
+        ctx.arc(x + AN / 2, yMedalla - (oro ? 9 : 7), oro ? 19 : 15, 0, Math.PI * 2)
+        ctx.fillStyle = FONDO
+        ctx.fill()
+        ctx.lineWidth = 1.5
+        ctx.strokeStyle = oro ? '#f59e0b' : '#334155'
+        ctx.stroke()
+      }
       ctx.font = fuente(oro ? 26 : 20)
+      ctx.fillStyle = TINTA
       ctx.fillText(o.medalla, x + AN / 2, yMedalla)
       ctx.font = fuente(oro ? 15 : 13, 700)
       ctx.fillStyle = TINTA
