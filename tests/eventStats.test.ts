@@ -438,6 +438,18 @@ describe('cuando alguien deja la carrera', () => {
     expect(c.abandono).toBe(true)
   })
 
+  it('señalar el punto donde lo dejó manda sobre la traza', () => {
+    // Quien organiza recuerda el sitio —"lo dejó en Canfranc Pueblo"— mucho
+    // mejor que la hora, y a menudo mejor que lo que dice un GPS que siguió
+    // encendido en el coche.
+    const corre = corriendo(0, 30, 6, 120)
+    const c = calculaEstadisticas(
+      [{ ...corredor('A', corre), retiredKm: 16 }], 100, linea, 0, 'run',
+    ).corredores[0]
+    expect(c.km).toBe(16)
+    expect(c.abandono).toBe(true)
+  })
+
   it('una lectura que no sabe dónde está no mueve a nadie', () => {
     // Una posición con kilómetro y medio de incertidumbre no dice nada, y sin
     // embargo arrastraba el kilómetro, la traza y la hora de salida.

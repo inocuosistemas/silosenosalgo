@@ -1,0 +1,14 @@
+-- Hasta cuándo está la baliza EN PAUSA, a propósito.
+--
+-- Pararse en una carrera larga es normal —un avituallamiento, una siesta, una
+-- necesidad— y hasta ahora quien mira no podía distinguirlo de una avería: el
+-- punto deja de moverse y a los veinte minutos el mapa anuncia "sin cobertura",
+-- que es exactamente el mensaje que no hay que mandarle a una familia.
+--
+-- Esto es la vía para decirlo: quien corre pulsa "pausa" y la baliza se calla
+-- un rato con permiso. El mapa lo enseña como pausa, no como problema, y se
+-- acaba sola —hay un tope, que una pausa indefinida es otra forma de no saber
+-- nada—.
+--
+-- Epoch ms. NULL o pasado = no hay pausa.
+ALTER TABLE tracking_sessions ADD COLUMN paused_until INTEGER;

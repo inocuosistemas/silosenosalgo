@@ -79,6 +79,16 @@ object TrackingRules {
      */
     const val AVISO_SALIDA_SEGUNDOS = 300.0
 
+    /**
+     * Lo máximo que se puede pausar una baliza de una vez: diez minutos.
+     *
+     * Con tope porque una pausa indefinida es otra forma de no saber nada, y
+     * quien se baja de verdad tiene el otro botón para decirlo. Diez minutos es
+     * lo que dura un avituallamiento largo o un cambio de ropa; para más, se
+     * vuelve a pulsar. Espejo del servidor y de `TrackingStore.pausaMax` en iOS.
+     */
+    const val PAUSA_MAX_MIN = 10
+
     /** Cada cuánto despierta el bucle de reintento: vacía el atasco cuando
      *  vuelve la cobertura aunque quien camina esté parado. Es una ayuda, no el
      *  mecanismo principal — con la pantalla apagada este temporizador se para,

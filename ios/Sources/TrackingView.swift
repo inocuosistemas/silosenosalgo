@@ -40,6 +40,8 @@ struct TrackingView: View {
     /// abrir cuesta un toque.
     @State private var outingOpen = false
     @State private var recordingOpen = false
+    /// Abandonar se pregunta: es lo único de esta pantalla que no se deshace.
+    @State private var confirmandoAbandono = false
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 150, 250, 500]
@@ -220,6 +222,72 @@ struct TrackingView: View {
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                     statusContent
+                    // Bajarse o pararse: las dos cosas que se hacen EN CARRERA
+                    // y que hasta ahora no se podían decir. Apagar la baliza
+                    // valía para las dos, y no son lo mismo: quien la apaga deja
+                    // a los suyos con la duda —¿se ha quedado sin batería?— y la
+                    // hora que queda es la de cuando se acordó del móvil.
+                    //
+                    // Rojo lo definitivo y ámbar lo que se deshace solo, que es
+                    // como se leen los botones sin pararse a leerlos.
+                    if store.isSharing && !store.isStandby {
+                        if let hasta = store.pausadaHasta, hasta > Date() {
+                            HStack(spacing: 8) {
+                                Text("⏸")
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("En pausa").font(.footnote.weight(.semibold))
+                                        .foregroundStyle(Theme.amber200)
+                                    Text("Vuelve sola en \(max(1, Int(hasta.timeIntervalSinceNow / 60))) min · quien te sigue lo ve")
+                                        .font(.caption2).foregroundStyle(Theme.slate400)
+                                }
+                                Spacer(minLength: 4)
+                                Button("Seguir") { Task { await store.reanuda() } }
+                                    .font(.footnote.weight(.semibold))
+                            }
+                            .padding(10)
+                            .background(Theme.amber950.opacity(0.35))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                        } else {
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await store.pausa() }
+                                } label: {
+                                    Text("⏸  Pausa \(TrackingStore.pausaMax) min")
+                                        .font(.footnote.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Theme.amber200)
+                                .background(Theme.amber950.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                                Button(role: .destructive) {
+                                    confirmandoAbandono = true
+                                } label: {
+                                    Text("⊘  Abandonar")
+                                        .font(.footnote.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Theme.rose300)
+                                .background(Theme.rose950.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                            .confirmationDialog("¿Abandonas la carrera?",
+                                                isPresented: $confirmandoAbandono, titleVisibility: .visible) {
+                                Button("Sí, lo dejo", role: .destructive) {
+                                    Task { await store.abandona() }
+                                }
+                                Button("No, sigo", role: .cancel) {}
+                            } message: {
+                                Text("Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. Si solo te paras un rato, usa la pausa.")
+                            }
+                        }
+                    }
                     // El botón, junto al estado y no al final de la pantalla:
                     // es LA acción, y donde se lee "detenido" es donde se va a
                     // buscar cómo dejar de estarlo. Además deja la misma

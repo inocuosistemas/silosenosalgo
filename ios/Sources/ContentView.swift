@@ -38,6 +38,10 @@ enum Theme {
     // en rojo asustarían sin motivo.
     static let amber200 = Color(red: 0.992, green: 0.902, blue: 0.541) // #fde68a
     static let amber950 = Color(red: 0.271, green: 0.098, blue: 0.020) // #451a03
+    // Rosa: lo que se retira de la carrera. Rojo de verdad sería una alarma, y
+    // bajarse no lo es; pero tiene que distinguirse del ámbar de "espera".
+    static let rose300  = Color(red: 0.992, green: 0.647, blue: 0.710) // #fda4af
+    static let rose950  = Color(red: 0.310, green: 0.027, blue: 0.106) // #4f071b
     static let emerald300 = Color(red: 0.431, green: 0.906, blue: 0.718) // #6ee7b7
     static let emerald950 = Color(red: 0.008, green: 0.235, blue: 0.153) // #022c22
 

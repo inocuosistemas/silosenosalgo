@@ -62,6 +62,15 @@ class Api(
         @Volatile
         var bateria: Int? = null
 
+        /**
+         * Minutos de pausa que anuncia el próximo ping, si hay que anunciar
+         * alguna. Se pone justo antes de mandar la posición que lleva el aviso y
+         * se quita después: la pausa se declara una vez, no en cada ping. `0` la
+         * cancela.
+         */
+        @Volatile
+        var pausaMin: Int? = null
+
         val json = Json {
             ignoreUnknownKeys = true      // un backend más nuevo no puede tumbar al cliente
             explicitNulls = false
@@ -342,6 +351,19 @@ class Api(
      */
     private val versionApp = "Android ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
+    /**
+     * Bajarse de la carrera, dicho por quien la corre.
+     *
+     * No es lo mismo que apagar la baliza: apagarla deja la duda —¿se ha quedado
+     * sin batería?— y la hora que queda registrada es la de cuando uno se
+     * acuerda del móvil. Esto dice "lo dejo AHORA" y queda en la clasificación
+     * con su hora y su kilómetro.
+     */
+    suspend fun marcaRetirado(token: String, eventId: String) {
+        val (body, status) = request("api/events/$eventId/retirado", "POST", token, buildJsonObject {})
+        if (!ok(status)) throw decodeError(body, status)
+    }
+
     suspend fun ping(token: String, id: String, fix: Fix) {
         val (body, status) = request(
             "api/track/$id/ping", "POST", token,
@@ -350,6 +372,7 @@ class Api(
                 put("appVersion", JsonPrimitive(versionApp))
                 cadencia?.let { put("cadencia", JsonPrimitive(it)) }
                 bateria?.let { put("bateria", JsonPrimitive(it)) }
+                pausaMin?.let { put("pausaMin", JsonPrimitive(it)) }
             },
         )
         if (!ok(status)) throw decodeError(body, status)
@@ -369,6 +392,7 @@ class Api(
                 put("appVersion", JsonPrimitive(versionApp))
                 cadencia?.let { put("cadencia", JsonPrimitive(it)) }
                 bateria?.let { put("bateria", JsonPrimitive(it)) }
+                pausaMin?.let { put("pausaMin", JsonPrimitive(it)) }
             },
         )
         if (!ok(status)) throw decodeError(body, status)

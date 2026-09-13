@@ -49,6 +49,8 @@ object TrackingStore {
         /** Evento al que se atribuye esta salida. null = baliza suelta, que es
          *  lo normal: los eventos son la excepción, no el modo por defecto. */
         val eventoId: String? = null,
+        /** Hasta cuándo está en pausa a propósito (epoch ms), o null. */
+        val pausadaHasta: Double? = null,
         /** El evento lo propuso la app (es el de HOY), no lo eligió su dueño.
          *  Se dice en pantalla: atribuir una salida a una carrera sin avisar
          *  sería decidir por él. Ver [autoeligeEventoDeHoy]. */
@@ -377,6 +379,58 @@ object TrackingStore {
         aplicaGps()
         ViewerData.registra(guardado.sessionId)
         return true
+    }
+
+    /**
+     * "Me paro un rato, no me ha pasado nada."
+     *
+     * Pararse en una carrera larga es normal —un avituallamiento, una siesta,
+     * una necesidad— y quien mira no podía distinguirlo de una avería: el punto
+     * deja de moverse y al rato el mapa anuncia "sin cobertura", que es justo el
+     * mensaje que no hay que mandarle a una familia.
+     *
+     * Se avisa al servidor con la posición de ahora y se deja de emitir: el GPS
+     * se relaja, la batería lo agradece y a quien sigue la carrera le sale "en
+     * pausa" con los minutos que quedan. Al terminar, la baliza vuelve sola.
+     */
+    suspend fun pausa(minutos: Int = TrackingRules.PAUSA_MAX_MIN) {
+        val e = _estado.value
+        if (!e.compartiendo || e.enEspera) return
+        _estado.value = e.copy(pausadaHasta = ahoraMs + minutos * 60_000.0)
+        Api.pausaMin = minutos
+        vacia()
+        Api.pausaMin = null
+        motor.para()
+        guardaActivo()
+    }
+
+    /** Vuelve de la pausa: se acabó el rato, o se ha pulsado "seguir". */
+    suspend fun reanuda() {
+        val e = _estado.value
+        if (!e.compartiendo || e.pausadaHasta == null) return
+        _estado.value = e.copy(pausadaHasta = null)
+        Api.pausaMin = 0            // cancela la pausa en el servidor
+        ultimoIntentoMs = 0.0
+        aplicaGps()
+        vacia()
+        Api.pausaMin = null
+        guardaActivo()
+    }
+
+    /**
+     * Bajarse de la carrera, dicho por quien la corre.
+     *
+     * No es lo mismo que apagar la baliza: apagarla deja a quien mira con la
+     * duda —¿se ha quedado sin batería?— y la hora que queda registrada es la
+     * de cuando uno se acuerda del móvil, en el coche o al día siguiente. Esto
+     * dice "lo dejo AHORA", queda en la clasificación con su hora y su
+     * kilómetro, y de paso cierra la baliza.
+     */
+    suspend fun abandona() {
+        val ev = _estado.value.eventoId
+        val t = token
+        if (ev != null && t != null) runCatching { api.marcaRetirado(t, ev) }
+        para()
     }
 
     /** Deja de transmitir: vacía lo que quede, cierra la sesión en el backend y

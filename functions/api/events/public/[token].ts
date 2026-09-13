@@ -57,10 +57,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   // enseña a todos los participantes; esto no amplía a quién, solo deja de
   // esconder a quien todavía no ha abierto la baliza.
   const rows = await env.DB.prepare(
-    `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, m.retired_at AS retiradoAt,
+    `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, m.retired_at AS retiradoAt, m.retired_km AS retiradoKm,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
-            t.altitude, t.fix_at AS fixAt, t.trail, t.send_cadence AS cadencia, t.battery_pct AS bateria
+            t.altitude, t.fix_at AS fixAt, t.trail, t.send_cadence AS cadencia, t.paused_until AS pausaHasta, t.battery_pct AS bateria
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
@@ -80,7 +80,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
     heading: number | null; accuracy: number | null; altitude: number | null
-    fixAt: number | null; trail: string | null; cadencia: string | null; bateria: number | null; retiradoAt: number | null
+    fixAt: number | null; trail: string | null; cadencia: string | null; bateria: number | null; retiradoAt: number | null; retiradoKm: number | null; pausaHasta: number | null
   }>()
 
   const runners: EventPublicRunner[] = (rows.results ?? []).map((r) => {
@@ -113,6 +113,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       cadencia: r.cadencia,
       bateria: r.bateria,
       retiradoAt: r.retiradoAt,
+      retiradoKm: r.retiradoKm,
+      pausaHasta: r.pausaHasta,
     }
   })
 

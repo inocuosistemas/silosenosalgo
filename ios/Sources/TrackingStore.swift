@@ -754,6 +754,71 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /**
+     Cuánto se puede pausar de una vez. Espejo de `PAUSA_MAX_MIN` en el servidor.
+
+     Con tope porque una pausa indefinida es otra forma de no saber nada, y
+     quien se baja de verdad tiene el otro botón para decirlo.
+     */
+    static let pausaMax = 10
+
+    /// Hasta cuándo está pausada esta baliza, si lo está.
+    @Published var pausadaHasta: Date?
+
+    /**
+     "Me paro un rato, no me ha pasado nada."
+
+     Pararse en una carrera larga es normal —un avituallamiento, una siesta, una
+     necesidad— y quien mira no podía distinguirlo de una avería: el punto deja
+     de moverse y al rato el mapa anuncia "sin cobertura", que es justo el
+     mensaje que no hay que mandarle a una familia.
+
+     Se avisa al servidor con la posición de ahora y se deja de emitir: el GPS
+     se relaja, la batería lo agradece y a quien sigue la carrera le sale "en
+     pausa" con los minutos que quedan. Al terminar, la baliza vuelve sola.
+     */
+    func pausa(minutos: Int = pausaMax) async {
+        guard isSharing, !isStandby else { return }
+        let hasta = Date().addingTimeInterval(Double(minutos) * 60)
+        pausadaHasta = hasta
+        API.pausaMin = minutos
+        // Una posición ahora mismo lleva el aviso; después ya no hace falta
+        // insistir, que de eso va la pausa.
+        if let loc = lastLocation { ingest(loc) } else { await flush() }
+        API.pausaMin = nil
+        location.stop()
+    }
+
+    /// Vuelve de la pausa: se acabó el rato, o se ha pulsado "seguir".
+    func reanuda() async {
+        guard isSharing, pausadaHasta != nil else { return }
+        pausadaHasta = nil
+        API.pausaMin = 0        // cancela la pausa en el servidor
+        applyLocationConfig()
+        location.start()
+        lastSendAttempt = .distantPast
+        if let loc = lastLocation { ingest(loc) } else { await flush() }
+        API.pausaMin = nil
+    }
+
+    /**
+     Bajarse de la carrera, dicho por quien la corre.
+
+     No es lo mismo que apagar la baliza: apagarla deja a quien mira con la
+     duda —¿se ha quedado sin batería?— y la hora que queda registrada es la de
+     cuando uno se acuerda del móvil, en el coche o al día siguiente. Esto dice
+     "lo dejo AHORA", queda en la clasificación con su hora y su kilómetro, y de
+     paso cierra la baliza.
+     */
+    func abandona() async {
+        // Si esta baliza corre una carrera, queda dicho AHÍ: es lo que pone su
+        // hora y su kilómetro en la clasificación.
+        if let ev = selectedEventId, !token.isEmpty {
+            try? await API.marcaRetirado(token: token, eventId: ev)
+        }
+        await stopSharing()
+    }
+
     func stopSharing() async {
         // Se acabó: los avisos de una salida que ya no va a ocurrir sobran.
         AvisosDeCarrera.borra()

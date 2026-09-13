@@ -50,6 +50,8 @@ export default function EventLobby({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
   /** A quién se está a punto de sacar de la parrilla (su userId). */
   const [expulsando, setExpulsando] = useState<string | null>(null)
+  /** De quién se está precisando dónde lo dejó (su nombre), o ninguno. */
+  const [ajustando, setAjustando] = useState<string | null>(null)
   /** De quién se está mirando el dorsal en grande (su userId), o null. */
   const [dorsal, setDorsal] = useState<string | null>(null)
   /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
@@ -139,7 +141,9 @@ export default function EventLobby({ id }: { id: string }) {
    */
   useEffect(() => {
     const ev = data?.event
-    if (dorsal === null || !ev) return
+    // El recorrido se baja para el dorsal Y para señalar dónde se retiró
+    // alguien: los dos necesitan sus puntos de paso.
+    if ((dorsal === null && ajustando === null) || !ev) return
     let vivo = true
     if (carrera === null && ev.planShareId) {
       void (async () => {
@@ -182,7 +186,7 @@ export default function EventLobby({ id }: { id: string }) {
       })()
     }
     return () => { vivo = false }
-  }, [dorsal, data, carrera, id])
+  }, [dorsal, ajustando, data, carrera, id])
 
   const refresh = useCallback(async () => {
     try {
@@ -502,10 +506,11 @@ export default function EventLobby({ id }: { id: string }) {
    * llamada del corredor o lo ha visto subir a la furgoneta. Manda sobre la
    * detección automática, que es prudente a propósito.
    */
-  async function marcaAbandono(username: string, retirado: boolean) {
+  async function marcaAbandono(username: string, retirado: boolean, km?: number) {
     setBusy(true); setError(null)
     try {
-      await marcaRetirado(id, username, retirado ? undefined : null)
+      await marcaRetirado(id, username, retirado ? undefined : null, km)
+      if (km !== undefined) setAjustando(null)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -779,6 +784,13 @@ export default function EventLobby({ id }: { id: string }) {
               // baliza se apaga cuando uno se acuerda.
               canRetire={event.canOrganize || m.userId === user.id}
               onRetire={(v) => void marcaAbandono(m.username, v)}
+              // Precisar dónde lo dejó señalando un punto del recorrido: el
+              // sitio se recuerda —"en Canfranc Pueblo"— y el kilómetro y la
+              // hora salen de ahí.
+              ajustando={ajustando === m.username}
+              onAjustar={() => setAjustando(ajustando === m.username ? null : m.username)}
+              puntos={carrera?.puntos ?? []}
+              onPunto={(km) => void marcaAbandono(m.username, true, km)}
             />
           ))}
         </ul>
@@ -1611,7 +1623,7 @@ function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib, onDorsal,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
-  canRetire, onRetire,
+  canRetire, onRetire, ajustando, onAjustar, puntos, onPunto,
 }: {
   m: EventMember
   now: number
@@ -1641,6 +1653,12 @@ function MemberRow({
   /** Marcar su abandono: quien organiza, de cualquiera; cualquiera, de sí mismo. */
   canRetire: boolean
   onRetire: (retirado: boolean) => void
+  /** Si está abierto el selector de "¿dónde lo dejó?". */
+  ajustando: boolean
+  onAjustar: () => void
+  /** Los puntos de paso del recorrido, para señalar uno. */
+  puntos: { nombre: string; km: number }[]
+  onPunto: (km: number) => void
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
@@ -1701,7 +1719,15 @@ function MemberRow({
         {/* Retirado manda sobre todo lo demás: quien se ha bajado no está
             "emitiendo" aunque su móvil siga hablando desde el coche. */}
         {m.retiredAt !== null ? (
-          <span className="text-rose-400">⊘ se retiró</span>
+          <button
+            onClick={onAjustar}
+            disabled={!canRetire}
+            title="Señalar dónde lo dejó"
+            className="text-rose-400 transition-colors hover:text-rose-300 disabled:cursor-default disabled:hover:text-rose-400"
+          >
+            ⊘ se retiró
+            {m.retiredKm != null && <span className="text-slate-400"> · km {m.retiredKm.toFixed(1)}</span>}
+          </button>
         ) : live ? (
           <span className="text-emerald-400">● emitiendo</span>
         ) : online ? (
@@ -1714,6 +1740,38 @@ function MemberRow({
           furgoneta— lo sabe quien organiza, y esto es su vía. Se deshace igual
           de fácil: alguien se marca por error y tiene que poder volver a la
           carrera sin dejar rastro. */}
+      {/* ¿Dónde lo dejó? Señalar un punto del recorrido en vez de teclear un
+          kilómetro: el sitio se recuerda y el número no. De ahí salen el
+          kilómetro y —mirando su traza— la hora. */}
+      {ajustando && (
+        <div className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+          <p className="text-[11px] text-slate-400">
+            ¿Dónde dejó la carrera {m.username}?
+          </p>
+          {puntos.length === 0 ? (
+            <p className="mt-1 text-[11px] text-slate-600">
+              Esta carrera no tiene puntos de paso en el recorrido.
+            </p>
+          ) : (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {puntos.map((p) => (
+                <button
+                  key={`${p.nombre}-${p.km}`}
+                  onClick={() => onPunto(p.km)}
+                  disabled={busy}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40 ${
+                    m.retiredKm != null && Math.abs(m.retiredKm - p.km) < 0.05
+                      ? 'border-rose-500 bg-rose-500/15 text-rose-200'
+                      : 'border-slate-700 text-slate-300 hover:border-rose-500 hover:text-rose-300'
+                  }`}
+                >
+                  {p.nombre} <span className="text-slate-500">km {p.km.toFixed(1)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {canRetire && (
         <button
           onClick={() => onRetire(m.retiredAt === null)}

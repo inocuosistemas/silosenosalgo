@@ -97,6 +97,28 @@ class TrackingService : Service() {
             return START_NOT_STICKY
         }
 
+        // Bajarse de la carrera: como parar, pero DICIÉNDOLO —queda en la
+        // clasificación con su hora y su kilómetro— en vez de dejar a quien
+        // mira con la duda de si se quedó sin batería.
+        if (intent?.action == ACCION_ABANDONAR) {
+            scope.launch {
+                TrackingStore.abandona()
+                paraTodo()
+            }
+            return START_NOT_STICKY
+        }
+
+        // La pausa no para el servicio: la baliza sigue viva —y con ella la
+        // sesión— pero se calla un rato con permiso.
+        if (intent?.action == ACCION_PAUSAR) {
+            scope.launch { TrackingStore.pausa() }
+            return START_STICKY
+        }
+        if (intent?.action == ACCION_SEGUIR) {
+            scope.launch { TrackingStore.reanuda() }
+            return START_STICKY
+        }
+
         // Arranque tras una muerte del proceso: el sistema nos revive sin intent
         // y sin interfaz. Si había una sesión en disco, se reanuda sola.
         if (!TrackingStore.estado.value.compartiendo && TrackingStore.haySesionGuardada()) {
@@ -326,6 +348,9 @@ class TrackingService : Service() {
         private const val ID_NOTIFICACION = 1
         private const val ID_ANIMO = 2
         const val ACCION_PARAR = "com.themakercrowd.silosenosalgo.PARAR"
+        const val ACCION_ABANDONAR = "com.themakercrowd.silosenosalgo.ABANDONAR"
+        const val ACCION_PAUSAR = "com.themakercrowd.silosenosalgo.PAUSAR"
+        const val ACCION_SEGUIR = "com.themakercrowd.silosenosalgo.SEGUIR"
 
         /** Arranca el servicio. Se llama SIEMPRE desde la pantalla y con los
          *  permisos ya concedidos: Android 14+ no deja arrancar un servicio de
@@ -337,6 +362,24 @@ class TrackingService : Service() {
 
         fun para(context: Context) {
             val intent = Intent(context, TrackingService::class.java).setAction(ACCION_PARAR)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
+        }
+
+        /** Bajarse de la carrera: se dice y se cierra la baliza. */
+        fun abandona(context: Context) {
+            val intent = Intent(context, TrackingService::class.java).setAction(ACCION_ABANDONAR)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
+        }
+
+        /** Callarse un rato con permiso. La sesión sigue viva. */
+        fun pausa(context: Context) {
+            val intent = Intent(context, TrackingService::class.java).setAction(ACCION_PAUSAR)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
+        }
+
+        /** Volver de la pausa antes de tiempo. */
+        fun sigue(context: Context) {
+            val intent = Intent(context, TrackingService::class.java).setAction(ACCION_SEGUIR)
             runCatching { ContextCompat.startForegroundService(context, intent) }
         }
     }

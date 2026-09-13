@@ -382,10 +382,19 @@ enum API {
      */
     static var bateria: Int?
 
+    /**
+     Minutos de pausa que anuncia el próximo ping, si hay que anunciar alguna.
+
+     Se pone justo antes de mandar la posición que lleva el aviso y se quita
+     después: la pausa se declara una vez, no en cada ping. `0` la cancela.
+     */
+    static var pausaMin: Int?
+
     static func ping(token: String, id: String, fix: Fix) async throws {
         var body: [String: Any] = ["lat": fix.lat, "lon": fix.lon, "appVersion": appVersion]
         if let c = cadencia { body["cadencia"] = c }
         if let b = bateria { body["bateria"] = b }
+        if let p = pausaMin { body["pausaMin"] = p }
         if let v = fix.trackKm { body["trackKm"] = v }
         if let v = fix.speed { body["speed"] = v }
         if let v = fix.heading { body["heading"] = v }
@@ -418,6 +427,20 @@ enum API {
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return (try? JSONDecoder().decode(PingResponse.self, from: data))?.viewers
+    }
+
+    /**
+     Bajarse de la carrera, dicho por quien la corre.
+
+     No es lo mismo que apagar la baliza: apagarla deja la duda —¿se ha quedado
+     sin batería?— y la hora que queda registrada es la de cuando uno se acuerda
+     del móvil. Esto dice "lo dejo AHORA" y queda en la clasificación con su
+     hora y su kilómetro.
+     */
+    static func marcaRetirado(token: String, eventId: String) async throws {
+        let (data, http) = try await request("api/events/\(eventId)/retirado", method: "POST",
+                                             token: token, body: [:])
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
     /// Create a field note on the current session. The note carries a

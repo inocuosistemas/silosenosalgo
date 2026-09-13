@@ -446,6 +446,9 @@ export interface EventMember {
    * organiza a veces no tiene ninguna porque se lo han dicho por teléfono.
    */
   retiredAt: number | null
+  /** Y dónde lo dejó, si se precisó: km del recorrido. Normalmente sale de
+   *  señalar un punto del trazado, que se recuerda mejor que un número. */
+  retiredKm: number | null
 }
 
 export interface EventInfo {
@@ -558,6 +561,17 @@ export interface EventPublicRunner {
   bateria?: number | null
   /** Cuándo lo dieron por retirado a mano (epoch ms), o null. */
   retiradoAt?: number | null
+  /** Y dónde lo dejó, si se precisó (km del recorrido). */
+  retiradoKm?: number | null
+  /**
+   * Hasta cuándo está EN PAUSA a propósito (epoch ms), o null.
+   *
+   * Lo declara quien corre: "me paro un rato, no me ha pasado nada". Sin esto,
+   * pararse y quedarse sin cobertura se ven igual desde fuera, y a los veinte
+   * minutos el mapa anuncia lo segundo — que es el mensaje que no hay que
+   * mandarle a una familia.
+   */
+  pausaHasta?: number | null
 }
 
 export interface EventPublicResponse {

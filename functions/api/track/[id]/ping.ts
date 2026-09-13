@@ -16,6 +16,16 @@ import { leeCadencia, escribeCadencia } from '../../../../shared/cadencia'
  * fix by time becomes the live position.
  */
 
+/**
+ * Lo máximo que se puede pausar una baliza de una vez: diez minutos.
+ *
+ * Con tope porque una pausa indefinida es otra forma de no saber nada, y quien
+ * se baja de verdad tiene el botón de al lado para decirlo. Diez minutos es lo
+ * que dura un avituallamiento largo o un cambio de ropa; para más, se vuelve a
+ * pulsar. Espejo de `PAUSA_MAX_MIN` en las apps.
+ */
+const PAUSA_MAX_MIN = 10
+
 const PATH_MAX = 2000
 const MAX_BATCH = 600
 /** Margen de silencio: una baliza que no da señal en este tiempo se da por
@@ -41,6 +51,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const body = await readJson<{
     fixes?: InFix[]; appVersion?: unknown; cadencia?: unknown; bateria?: unknown
+    pausaMin?: unknown
   } & Partial<InFix>>(request)
   if (!body) return json({ error: 'invalid_request' }, 400)
   /**
@@ -78,6 +89,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const raw: InFix[] = Array.isArray(body.fixes) ? body.fixes : [body as InFix]
 
   const now = Date.now()
+  /**
+   * Una pausa declarada: "me paro un rato, no me ha pasado nada".
+   *
+   * Pararse en una carrera larga es normal, y hasta ahora quien miraba no podía
+   * distinguirlo de una avería: el punto deja de moverse y a los veinte minutos
+   * el mapa anuncia "sin cobertura", que es el mensaje que no hay que mandarle
+   * a una familia. Con esto, la baliza se calla con permiso.
+   *
+   * En minutos y con TOPE: una pausa indefinida es otra forma de no saber nada,
+   * y quien se baja de verdad tiene el botón de al lado para decirlo. `0` la
+   * cancela —se vuelve antes de tiempo y hay que poder decirlo—.
+   */
+  const pausa = typeof body.pausaMin === 'number' && Number.isFinite(body.pausaMin)
+    ? Math.max(0, Math.min(PAUSA_MAX_MIN, Math.round(body.pausaMin)))
+    : null
+  const pausaHasta = pausa === null ? null : (pausa === 0 ? 0 : now + pausa * 60_000)
+
   const minT = now - 7 * 24 * 3600_000 // ignore absurdly old timestamps
   const incoming: NormFix[] = []
   for (const f of raw.slice(0, MAX_BATCH)) {
@@ -141,12 +169,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
             app_version=COALESCE(?, app_version),
             send_cadence=COALESCE(?, send_cadence),
             battery_pct=COALESCE(?, battery_pct),
+            paused_until=CASE WHEN ? IS NULL THEN paused_until WHEN ? = 0 THEN NULL ELSE ? END,
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
     latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion,
-    cadencia ? escribeCadencia(cadencia) : null, bateria, keepAlive, id,
+    cadencia ? escribeCadencia(cadencia) : null, bateria,
+    pausaHasta, pausaHasta, pausaHasta,
+    keepAlive, id,
   ).run()
 
   // Report how many followers are watching, so the beacon can show it live.

@@ -190,11 +190,18 @@ export async function recomputeEventStats(id: string): Promise<void> {
  * para devolverlo a la carrera. Lo puede hacer quien organiza con cualquiera y
  * cualquiera consigo mismo.
  */
-export async function marcaRetirado(id: string, username: string, at?: number | null): Promise<void> {
+export async function marcaRetirado(
+  id: string, username: string, at?: number | null, km?: number,
+): Promise<void> {
+  // `km` sin `at`: el servidor pone la hora mirando cuándo pasó su traza por
+  // ahí, que es mejor dato que el reloj de quien lo marca.
+  const cuerpo: Record<string, unknown> = { username }
+  if (at !== undefined) cuerpo.at = at
+  if (km !== undefined) cuerpo.km = km
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/retirado`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(at === undefined ? { username } : { username, at }),
+    body: JSON.stringify(cuerpo),
   })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }

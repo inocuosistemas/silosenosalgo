@@ -606,6 +606,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             arrancando = arrancando,
             hayPermiso = permisoUbicacion,
             onParar = { TrackingService.para(context) },
+            onPausar = { TrackingService.pausa(context) },
+            onSeguir = { TrackingService.sigue(context) },
+            onAbandonar = { TrackingService.abandona(context) },
             onEmpezar = {
                 arrancando = true
                 scope.launch {
@@ -979,7 +982,12 @@ private fun EstadoCompacto(
     hayPermiso: Boolean,
     onEmpezar: () -> Unit,
     onParar: () -> Unit,
+    onPausar: () -> Unit,
+    onSeguir: () -> Unit,
+    onAbandonar: () -> Unit,
 ) {
+    // Abandonar se pregunta: es lo único de esta pantalla que no se deshace.
+    var confirmaAbandono by remember { mutableStateOf(false) }
     Seccion {
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
@@ -1035,6 +1043,63 @@ private fun EstadoCompacto(
         // estarlo. Además deja la misma posición que iOS, que antes no
         // coincidía —allí estaba al final y aquí en medio— y obligaba a
         // explicar la app dos veces.
+        // Bajarse o pararse: las dos cosas que se hacen EN CARRERA y que hasta
+        // ahora no se podían decir. Apagar la baliza valía para las dos, y no
+        // son lo mismo: quien la apaga deja a los suyos con la duda —¿se ha
+        // quedado sin batería?— y la hora que queda es la de cuando se acordó
+        // del móvil. Rojo lo definitivo y ámbar lo que se deshace solo.
+        if (estado.compartiendo && !estado.enEspera) {
+            Spacer(Modifier.height(12.dp))
+            val pausada = estado.pausadaHasta?.let { it > System.currentTimeMillis() } == true
+            if (pausada) {
+                val quedan = maxOf(1, ((estado.pausadaHasta!! - System.currentTimeMillis()) / 60_000).toInt())
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(Paleta.ambar.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("⏸  En pausa", color = Paleta.ambar, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Vuelve sola en $quedan min · quien te sigue lo ve",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Paleta.slate400,
+                        )
+                    }
+                    TextButton(onClick = onSeguir) { Text("Seguir") }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onPausar,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.ambar),
+                    ) { Text("⏸  Pausa ${TrackingRules.PAUSA_MAX_MIN} min") }
+                    OutlinedButton(
+                        onClick = { confirmaAbandono = true },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.rojo),
+                    ) { Text("⊘  Abandonar") }
+                }
+            }
+        }
+        if (confirmaAbandono) {
+            AlertDialog(
+                onDismissRequest = { confirmaAbandono = false },
+                title = { Text("¿Abandonas la carrera?") },
+                text = {
+                    Text(
+                        "Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. " +
+                            "Si solo te paras un rato, usa la pausa.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { confirmaAbandono = false; onAbandonar() }) { Text("Sí, lo dejo") }
+                },
+                dismissButton = { TextButton(onClick = { confirmaAbandono = false }) { Text("No, sigo") } },
+            )
+        }
         Spacer(Modifier.height(14.dp))
         if (estado.compartiendo) {
             // En rojo, no en el azul de todo lo demás: es la única acción que

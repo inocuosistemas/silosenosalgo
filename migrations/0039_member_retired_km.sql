@@ -1,0 +1,11 @@
+-- Dónde dejó la carrera quien se retiró, cuando alguien lo sabe mejor que la traza.
+--
+-- La hora la puede decir el organizador ("me llamó a las once") pero el
+-- kilómetro es más difícil de recordar y más fácil de señalar: "lo dejó en
+-- Canfranc Pueblo". Con el punto del recorrido elegido, el kilómetro sale solo
+-- —lo trae el trazado— y la hora se puede deducir de cuándo pasó su traza por
+-- ahí.
+--
+-- Manda sobre lo que diga la traza, como `retired_at`: es un dato afirmado, no
+-- deducido. NULL = nadie lo ha precisado y vale lo que diga el GPS.
+ALTER TABLE event_members ADD COLUMN retired_km REAL;

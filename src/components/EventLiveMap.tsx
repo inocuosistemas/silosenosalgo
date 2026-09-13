@@ -648,11 +648,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
        */
       const cadencia = leeCadencia(r.cadencia)
       const plazos = plazosDe(cadencia)
+      /**
+       * En pausa, a propósito: lo ha dicho quien corre.
+       *
+       * Mientras dure, su silencio no es noticia. Sin esto, pararse veinte
+       * minutos en un avituallamiento y quedarse sin cobertura se ven igual
+       * desde fuera, y el mapa anuncia lo segundo — que es el mensaje que no hay
+       * que mandarle a una familia.
+       */
+      const enPausa = r.pausaHasta != null && r.pausaHasta > now
       const stale = r.status === 'ended'
-        || (r.updatedAt !== null && now - r.updatedAt > Math.max(STALE_MS, plazos.callado))
+        || (!enPausa && r.updatedAt !== null && now - r.updatedAt > Math.max(STALE_MS, plazos.callado))
       // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
       // última posición conocida, no donde está.
-      const lost = r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > plazos.perdido
+      const lost = !enPausa && r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > plazos.perdido
       // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
       // ABIERTA con la hora de salida por delante y no manda una sola posición
       // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
@@ -760,7 +769,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // Callado más de lo normal. No es todavía "sin cobertura" —eso son veinte
       // minutos— pero ya no es el pulso de la baliza, y decirlo es la mitad de
       // quitarle a quien mira la impresión de que esto no funciona.
-      const callado = r.status === 'active' && r.fix !== null && r.updatedAt !== null
+      const callado = !enPausa && r.status === 'active' && r.fix !== null && r.updatedAt !== null
         && now - r.updatedAt >= plazos.callado
       // RETIRADO: apagó la baliza sin cruzar la meta. Es lo que hace alguien
       // que se baja, y es una noticia distinta de un teléfono que se queda sin
@@ -821,8 +830,13 @@ export default function EventLiveMap({ source }: { source: Source }) {
        * tiene ninguna porque se lo han dicho por teléfono. Se le congela donde
        * estuviera en ese momento.
        */
-      const aMano = r.retiradoAt != null
-        ? { km: kmEnElHistorial(pasos, r.retiradoAt) ?? km, at: r.retiradoAt }
+      const aMano = r.retiradoAt != null || r.retiradoKm != null
+        ? {
+            km: r.retiradoKm
+              ?? (r.retiradoAt != null ? kmEnElHistorial(pasos, r.retiradoAt) : null)
+              ?? km,
+            at: r.retiradoAt ?? null,
+          }
         : null
       const oficial = abandonoOficial.get(r.username)
       const congelado = aMano ?? oficial ?? (abandono ? { km: abandono.km, at: abandono.desdeMs } : null)
@@ -830,7 +844,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       // La cola se corta donde se acabó su carrera: lo de después es el viaje de
       // vuelta, y dibujarlo es contar una carrera que no hizo.
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
-      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado, cadencia }
+      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista])
 
@@ -1564,7 +1578,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo }) => {
+            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo, enPausa }) => {
               // Su carrera ya terminó —en meta o donde la dejó— y su marca está
               // clavada ahí: los avisos de baliza dejan de tener sentido.
               const fijado = acabo || congelado !== null
@@ -1604,6 +1618,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   {/* Los avisos de baliza son para quien está corriendo. Al que
                       ya se retiró no le corresponde ninguno: claro que está sin
                       cobertura y fuera del recorrido, está en su casa. */}
+                  {enPausa && <span className="text-[10px] text-amber-300" title="En pausa: lo ha dicho, no le ha pasado nada">⏸</span>}
                   {!fijado && lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
                   {!fijado && desviadoM > DESVIADO_M && (
                     <span className="text-[10px] text-amber-400/80" title={`Fuera del recorrido: a unos ${Math.round(desviadoM)} m`}>↯</span>
@@ -1916,6 +1931,8 @@ type Row = {
   congelado: { km: number | null; at: number | null } | null
   /** Cada cuánto promete hablar su baliza: de ahí salen SUS plazos de silencio. */
   cadencia: ReturnType<typeof leeCadencia>
+  /** Ha dicho que se para un rato: su silencio no es noticia mientras dure. */
+  enPausa: boolean
   /** A cuántos metros del trazado está su última posición. */
   desviadoM: number
   /** Se le da por retirado sin haber apagado la baliza. Ver `lib/abandono.ts`. */
@@ -2045,7 +2062,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia }, i) => {
+        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia, enPausa }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -2170,6 +2187,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                 <div className="mt-1 flex items-center gap-2.5 overflow-hidden whitespace-nowrap pl-7 text-[11px]">
                   <span className={`min-w-0 truncate ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
                     {r.updatedAt === null ? 'sin señal'
+                      : enPausa ? `⏸ en pausa · vuelve en ${Math.max(1, Math.round((r.pausaHasta! - now) / 60_000))} min`
                       : lost ? `📡 ${silencioTexto(cadencia)} · hace ${agoLabel(now - r.updatedAt)}`
                       // Entre el pulso normal y la avería hay un rato largo que
                       // antes no se decía: el número envejecía en gris claro y

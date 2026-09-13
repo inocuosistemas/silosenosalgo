@@ -483,6 +483,9 @@ interface FilaSesion {
    * lo afirma tiene delante al corredor o su llamada.
    */
   retiredAt?: number | null
+  /** Y dónde lo dejó, si alguien lo precisó (km del recorrido). Manda sobre la
+   *  traza: normalmente sale de señalar un punto del recorrido. */
+  retiredKm?: number | null
   bib: string | null
   emoji: string | null
   color: string | null
@@ -549,7 +552,7 @@ export function calculaEstadisticas(
         // Sin una sola posición no hay carrera que juzgar, pero si alguien lo
         // marcó como retirado eso sigue siendo verdad: salió y se bajó, aunque
         // su baliza no llegara a contar nada.
-        abandono: f.retiredAt != null, abandonoAt: f.retiredAt ?? null,
+        abandono: f.retiredAt != null || f.retiredKm != null, abandonoAt: f.retiredAt ?? null,
       })
       continue
     }
@@ -589,8 +592,13 @@ export function calculaEstadisticas(
      * organiza dice que se retiró, no llegó —por mucho que su baliza pasara por
      * allí en el coche de vuelta—.
      */
-    const marcado = f.retiredAt != null
-      ? { ms: f.retiredAt, km: kmAlcanzadoEn(avance?.serie ?? [], f.retiredAt) ?? avance?.km ?? kmTraza }
+    const marcado = f.retiredAt != null || f.retiredKm != null
+      ? {
+          ms: f.retiredAt ?? (avance?.enMs ?? pts[pts.length - 1].t),
+          km: f.retiredKm
+            ?? (f.retiredAt != null ? kmAlcanzadoEn(avance?.serie ?? [], f.retiredAt) : null)
+            ?? avance?.km ?? kmTraza,
+        }
       : null
     const cruce = marcado ? null : crucaMeta(avance?.serie ?? [], totalKm, tolMeta, circuito)
     // Y si no llegó, la carrera se le acabó cuando dejó de avanzar: ahí está el
@@ -718,7 +726,7 @@ export function calculaEstadisticas(
 export async function sesionesDelEvento(env: Env, eventId: string): Promise<FilaSesion[]> {
   const rows = await env.DB.prepare(
     `SELECT u.username AS username, m.bib AS bib, m.emoji AS emoji, m.color AS color,
-            m.retired_at AS retiredAt,
+            m.retired_at AS retiredAt, m.retired_km AS retiredKm,
             t.status AS status, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.track_km AS trackKm, t.trail AS trail
        FROM event_members m
@@ -772,6 +780,41 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
   try { return JSON.parse(raw) as EventStats } catch { return null }
 }
 
+
+/**
+ * Cuándo pasó alguien por un kilómetro del recorrido, según su traza.
+ *
+ * Sirve para poner hora a un abandono que se marca señalando el sitio: quien
+ * organiza recuerda dónde lo dejó —"en Canfranc Pueblo"— mucho mejor que a qué
+ * hora, y a qué hora lo sabe su GPS. Nulo si no hay traza, no hay trazado, o
+ * nunca llegó a ese punto.
+ */
+export async function cuandoPasoPorKm(
+  env: Env, eventId: string, userId: string, km: number,
+): Promise<number | null> {
+  const linea = await leePolilinea(env, eventId)
+  if (!linea) return null
+  const row = await env.DB.prepare(
+    `SELECT t.trail AS trail, e.activity AS activity
+       FROM tracking_sessions t, events e
+      WHERE e.id = ? AND t.event_id = e.id AND t.owner_user_id = ?
+      ORDER BY COALESCE(t.updated_at, 0) DESC LIMIT 1`,
+  ).bind(eventId, userId).first<{ trail: string | null; activity: string | null }>()
+  if (!row?.trail) return null
+  let pts: TrailPoint[] = []
+  try {
+    const parsed = JSON.parse(row.trail) as TrailPoint[]
+    if (Array.isArray(parsed)) pts = parsed.filter((p) => typeof p?.lat === 'number' && typeof p?.lon === 'number')
+  } catch { return null }
+  pts.sort((a, b) => a.t - b.t)
+  const limpios = sinSaltos(pts, row.activity)
+  const avance = avanceSobreRuta(linea, limpios.length >= 2 ? limpios : pts, limitesDe(row.activity).maxKmh)
+  if (!avance) return null
+  // La PRIMERA vez que lo alcanzó: lo que se busca es cuándo llegó ahí, no la
+  // última vez que lo rozó de vuelta.
+  for (const [t, kmEn] of avance.serie) if (kmEn >= km) return t
+  return null
+}
 
 /** El trazado simplificado del evento, si lo tiene. */
 export async function leePolilinea(env: Env, eventId: string): Promise<Polilinea | null> {
