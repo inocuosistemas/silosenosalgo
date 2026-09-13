@@ -2,10 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
-import {
-  Pause, Square, RadioTower, MessageSquare, StickyNote, PenLine,
-  Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users,
-} from 'lucide-react'
+import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag } from 'lucide-react'
 import { ClipboardList, Trash2 } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -1842,8 +1839,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     ? <><span className="text-emerald-400">🏁 llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
     : ended
     ? (fix && fr
-        ? <><span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Square size={12} /> finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
-        : <span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Square size={12} /> finalizado</span>)
+        ? <><span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Flag size={12} /> finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
+        : <span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Flag size={12} /> finalizado</span>)
     : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
@@ -2036,7 +2033,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const endedAtMs = state.endedAt ?? fix?.updatedAt ?? null
   const endedHero = ended && (
     <div className="rounded-xl border border-slate-600 bg-slate-800/70 p-3 text-center text-slate-100">
-      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide opacity-80"><Square size={12} /> Seguimiento finalizado</p>
+      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide opacity-80"><Flag size={12} /> Seguimiento finalizado</p>
       <p className="text-3xl font-extrabold leading-tight">
         {endedAtMs != null ? hhmm((endedAtMs - sessionStart.getTime()) / 60_000) : '—'}
       </p>
