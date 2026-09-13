@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import { CargandoMarca } from './CargandoMarca'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
@@ -332,6 +333,17 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * salto—. Lo que se enseña ese segundo es la vista de partida, quieta.
    */
   const [hayRuta, setHayRuta] = useState(false)
+  /**
+   * Ya se ha esperado bastante al recorrido. Con mala cobertura puede tardar
+   * mucho, y un fondo negro no dice nada: pasado el tope se enseña el mapa con
+   * lo que haya y, cuando llegue, se encuadra —ese salto sí se verá, pero solo
+   * en el caso raro—.
+   */
+  const [esperaAgotada, setEsperaAgotada] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setEsperaAgotada(true), 8000)
+    return () => window.clearTimeout(t)
+  }, [])
 
   const poll = useCallback(async () => {
     try {
@@ -400,10 +412,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
     }
     async function loadPlan(shareId: string | null) {
-      if (shareId) setHayRuta(true)
       if (!shareId || planLoaded.current === shareId) return
       planLoaded.current = shareId
-      try { setPlan(await getEventPlan(shareId)) } catch { /* sin ruta se pinta igual */ }
+      setHayRuta(true)
+      try { setPlan(await getEventPlan(shareId)) } catch {
+        // Sin ruta se pinta igual, y sin esperarla: el mapa no se enseña hasta
+        // tenerla, y un recorrido que no va a llegar lo dejaría en negro.
+        setHayRuta(false)
+      }
     }
   }, [source])
 
@@ -1072,7 +1088,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const waiting = runners !== null && withFix.length === 0
   const followed = useMemo(() => withFix.find((x) => x.key === following) ?? null, [withFix, following])
 
-  if (!isPublic && status !== 'ready') return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
+  if (!isPublic && status !== 'ready') return <div className="h-[100dvh]"><CargandoMarca texto="Cargando la carrera…" /></div>
   if (!isPublic && !user) {
     return (
       <Shell>
@@ -1139,15 +1155,31 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onPick={(k) => { setSelected(k); setView('mapa') }} />
   )
 
-  const center: [number, number] = withFix[0]?.r.fix
-    ? [withFix[0].r.fix!.lat, withFix[0].r.fix!.lon]
-    : route?.pts[0] ?? [42.7, -0.52]
+  /**
+   * El mapa no se enseña hasta saber qué enseñar.
+   *
+   * Nacía centrado en el primer corredor a zoom 13 y, un segundo largo después,
+   * llegaba el recorrido y Encuadre lo abría a la carrera entera: la carrera
+   * aparecía desplazada y pegaba un salto delante de todo el mundo. Ahora se
+   * espera a la primera respuesta y, si la carrera tiene recorrido, a él, y el
+   * mapa NACE ya encuadrado con el mismo criterio que Encuadre. Así tampoco se
+   * descargan teselas de una vista que nadie iba a mirar.
+   */
+  const mapaListo = runners !== null && (!hayRuta || !!route || esperaAgotada)
+  const suyos = losDeLaCarrera(posiciones)
+  const vistaInicial = route && route.pts.length > 1
+    ? { bounds: L.latLngBounds(route.pts), boundsOptions: { padding: MARGEN_RUTA } }
+    : suyos.length > 1
+      ? { bounds: L.latLngBounds(suyos), boundsOptions: { padding: MARGEN_POSICIONES } }
+      : { center: suyos[0] ?? ([42.7, -0.52] as [number, number]), zoom: suyos.length === 1 ? 14 : 13 }
 
   return (
     <div className={`relative h-[100dvh] w-full bg-slate-950 ${view === 'mapa' ? '' : 'flex flex-col'}`}>
       <Confeti activo={festejar} />
-      {view === 'mapa' ? (
-        <MapContainer center={center} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
+      {view === 'mapa' && !mapaListo ? (
+        <CargandoMarca texto={runners === null ? 'Cargando la carrera…' : 'Cargando el recorrido…'} />
+      ) : view === 'mapa' ? (
+        <MapContainer {...vistaInicial} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <ZoomWatch onZoom={setZoom} />
           <MapTap onTap={() => setHoverKm(null)} />
@@ -2446,6 +2478,10 @@ function marginBox(min: number): string {
  * Y el botón ⤢ hace las dos cosas: devuelve la carrera entera y vuelve a
  * encender el automático.
  */
+/** Aire alrededor del recorrido al encuadrarlo, y alrededor de las posiciones. */
+const MARGEN_RUTA: [number, number] = [28, 28]
+const MARGEN_POSICIONES: [number, number] = [48, 48]
+
 function Encuadre({ points, route, esperaRuta }: {
   points: [number, number][]
   route?: [number, number][]
@@ -2458,7 +2494,7 @@ function Encuadre({ points, route, esperaRuta }: {
   /** El movimiento que está ocurriendo lo hemos hecho nosotros, no un dedo. */
   const propio = useRef(false)
 
-  const encuadra = useCallback((): boolean => {
+  const encuadra = useCallback((animar = false): boolean => {
     // El contenedor puede no tener su alto todavía —el `100dvh` de un móvil se
     // asienta después de la primera pintada—, y Leaflet mediría un lienzo de
     // cero y se iría al zoom mínimo, o sea a ver el continente.
@@ -2474,14 +2510,14 @@ function Encuadre({ points, route, esperaRuta }: {
       return true
     }
     if (route && route.length > 1) {
-      return mueve(() => map.fitBounds(L.latLngBounds(route), { padding: [28, 28] }))
+      return mueve(() => map.fitBounds(L.latLngBounds(route), { padding: MARGEN_RUTA, animate: animar }))
     }
     // Sin recorrido —y sin uno de camino— se encuadra por las posiciones, pero
     // solo por las que están en la carrera.
     if (esperaRuta) return false
     const suyos = losDeLaCarrera(points)
-    if (suyos.length === 1) return mueve(() => map.setView(suyos[0], 14))
-    if (suyos.length > 1) return mueve(() => map.fitBounds(L.latLngBounds(suyos), { padding: [48, 48] }))
+    if (suyos.length === 1) return mueve(() => map.setView(suyos[0], 14, { animate: animar }))
+    if (suyos.length > 1) return mueve(() => map.fitBounds(L.latLngBounds(suyos), { padding: MARGEN_POSICIONES, animate: animar }))
     return false
   }, [map, points, route, esperaRuta])
 
@@ -2509,7 +2545,7 @@ function Encuadre({ points, route, esperaRuta }: {
         L.DomEvent.disableClickPropagation(el)
         L.DomEvent.disableScrollPropagation(el)
       }}
-      onClick={() => { libre.current = true; encuadra() }}
+      onClick={() => { libre.current = true; encuadra(true) }}
       title="Ver toda la carrera"
       aria-label="Ver toda la carrera"
       className="absolute right-2 z-[500] rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1.5 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
