@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { joinEvent, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
+import { CargandoMarca } from './CargandoMarca'
 
 /**
  * `?evento=<código>` — la puerta de entrada que se pega en el grupo.
@@ -34,19 +35,31 @@ export default function EventJoin({ code }: { code: string }) {
     })()
   }, [code, status, user])
 
+  // Se dice aquí porque es donde se entra: la traza de una carrera queda en el
+  // archivo del evento. Ver functions/lib/archivo.ts.
+  const aviso = (
+    <>
+      Tu traza de esta carrera quedará en el archivo del evento —el replay y los resultados—
+      aunque en tu baliza elijas borrarla antes.
+    </>
+  )
+
+  // Mientras se sabe quién es, y mientras entra, la espera de siempre con la
+  // marca; el aviso del archivo va debajo, que es cuando hay tiempo de leerlo.
+  if (status !== 'ready' || (user && !error)) {
+    return (
+      <div className="h-dvh">
+        <CargandoMarca texto={status !== 'ready' ? 'Cargando…' : 'Entrando en el evento…'} nota={aviso} />
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-dvh bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-lg px-4 py-10">
         <h1 className="text-lg font-bold">Unirse al evento</h1>
-        {/* Se dice aquí porque es donde se entra: la traza de una carrera queda en
-            el archivo del evento. Ver functions/lib/archivo.ts. */}
-        <p className="mt-2 text-xs text-slate-500">
-          Tu traza de esta carrera quedará en el archivo del evento —el replay y los resultados—
-          aunque en tu baliza elijas borrarla antes.
-        </p>
-        {status !== 'ready' ? (
-          <p className="mt-2 text-sm text-slate-400">Cargando…</p>
-        ) : !user ? (
+        <p className="mt-2 text-xs text-slate-500">{aviso}</p>
+        {!user ? (
           <>
             <p className="mt-2 text-sm text-slate-300">
               Inicia sesión con tu cuenta y entrarás automáticamente.
@@ -56,13 +69,11 @@ export default function EventJoin({ code }: { code: string }) {
             </p>
             <a href="/" className="mt-4 inline-block text-sm text-sky-400 hover:text-sky-300">Ir al inicio para entrar →</a>
           </>
-        ) : error ? (
+        ) : (
           <>
             <p className="mt-2 text-sm text-red-400">{error}</p>
             <a href="/" className="mt-4 inline-block text-sm text-sky-400 hover:text-sky-300">Ir al inicio →</a>
           </>
-        ) : (
-          <p className="mt-2 text-sm text-slate-400">Entrando…</p>
         )}
       </div>
     </div>

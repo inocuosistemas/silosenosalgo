@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { CargandoMarca } from './CargandoMarca'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
@@ -1322,7 +1323,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
   if (error === 'not_found') return <Centered title="Enlace no válido o caducado" subtitle="Esta sesión de seguimiento no existe o ha terminado." />
   if (!state && error === 'network') return <Centered title="Sin conexión" subtitle="Reintentando…" />
-  if (!state) return <Centered title="Cargando…" />
+  if (!state) return <div className="fixed inset-0"><CargandoMarca texto="Cargando el seguimiento…" /></div>
 
   const fix = state.fix
   const notes = state.notes ?? []

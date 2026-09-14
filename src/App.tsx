@@ -1,4 +1,5 @@
 import { createElement, lazy, memo, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { CargandoMarca } from './components/CargandoMarca'
 import { ClipboardList, Pencil, RotateCw, Search, User, X } from 'lucide-react'
 import { GpxUploader } from './components/GpxUploader'
 import { PaceConfigPanel } from './components/PaceConfig'
@@ -396,7 +397,7 @@ export default function App() {
 
   if (guide) {
     return (
-      <Suspense fallback={<div className="min-h-dvh bg-slate-950" />}>
+      <Suspense fallback={<div className="h-dvh"><CargandoMarca texto="Cargando…" /></div>}>
         <GuideViewer guide={guide} onClose={closeGuide} />
       </Suspense>
     )
@@ -3231,11 +3232,8 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
 
       {/* ── Compartir salida: loading overlay while restoring from /?s=<id> ── */}
       {shareLoading && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm">
-          <div className="flex items-center gap-3 text-slate-200">
-            <span className="inline-block w-5 h-5 border-2 border-slate-600 border-t-sky-400 rounded-full animate-spin" />
-            <span className="text-sm">Cargando salida compartida…</span>
-          </div>
+        <div className="fixed inset-0 z-[3000]">
+          <CargandoMarca texto="Cargando la salida compartida…" />
         </div>
       )}
 

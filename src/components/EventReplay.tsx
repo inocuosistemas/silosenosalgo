@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
+import { CargandoMarca } from './CargandoMarca'
 import L from 'leaflet'
 import { getEventReplay, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { eventColorHex } from '../../shared/eventColors'
@@ -136,13 +137,7 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
       </div>
     )
   }
-  if (!datos) {
-    return (
-      <div className="h-full bg-slate-950 px-3 pt-3">
-        <p className="text-sm text-slate-400">Cargando la carrera…</p>
-      </div>
-    )
-  }
+  if (!datos) return <CargandoMarca texto="Cargando el replay…" />
   if (datos.runners.length === 0) {
     return (
       <div className="h-full bg-slate-950 px-3 pt-3">

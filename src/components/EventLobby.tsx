@@ -17,6 +17,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { ANDROID_APK_URL } from '../../shared/config'
 import { durationLabel } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
+import { CargandoMarca } from './CargandoMarca'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
@@ -272,7 +273,7 @@ export default function EventLobby({ id }: { id: string }) {
   }, [data?.event?.isOwner, data?.event?.planShareId, data?.event?.planTotalKm])
 
   if (status !== 'ready') {
-    return <Shell><p className="text-sm text-slate-400">Cargando…</p></Shell>
+    return <div className="h-dvh"><CargandoMarca texto="Cargando…" /></div>
   }
   // Sin sesión no se puede ni mirar: un evento es de sus participantes. El
   // enlace queda guardado en la URL, así que al entrar se vuelve aquí solo.
@@ -293,7 +294,7 @@ export default function EventLobby({ id }: { id: string }) {
     )
   }
 
-  if (!data) return <Shell><p className="text-sm text-slate-400">Cargando el evento…</p></Shell>
+  if (!data) return <div className="h-dvh"><CargandoMarca texto="Cargando el evento…" /></div>
 
   const { event, members: enParrilla, takenColors, takenEmojis, myPlanOverlay } = data
   /**

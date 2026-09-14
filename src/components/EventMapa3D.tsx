@@ -7,6 +7,7 @@ import type { EventFoto } from '../../shared/wireTypes'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
 import { encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type Punto3D } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
+import { CargandoMarca } from './CargandoMarca'
 
 /**
  * La carrera en 3D: el mismo mapa sobre el relieve de verdad, para girarlo e
@@ -328,7 +329,7 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
           cero de alto — el mapa estaba ahí y no se veía. */}
       <div ref={caja} className="h-full w-full" />
       {!listo && (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center text-xs text-slate-400">Cargando el relieve…</div>
+        <div className="pointer-events-none absolute inset-0 z-[5]"><CargandoMarca texto="Cargando el relieve…" /></div>
       )}
       <button
         onClick={onCerrar}

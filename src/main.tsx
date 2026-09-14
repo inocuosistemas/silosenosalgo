@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { reloadForChunkError } from './lib/chunkReload'
 import { initGhostScrollbars } from './lib/scrollbars'
 import { AuthProvider } from './lib/AuthContext'
+import { CargandoMarca } from './components/CargandoMarca'
 import { TOKEN_RE, INVITE_RE } from '../shared/validate'
 
 // After a deploy the hashed chunk names change; a tab opened on the previous
@@ -78,7 +79,7 @@ initGhostScrollbars()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <Suspense fallback={<div style={{ minHeight: '100dvh', background: '#020617' }} />}>
+      <Suspense fallback={<div style={{ height: '100dvh' }}><CargandoMarca texto="Cargando…" /></div>}>
         {isViewer ? (
           <LiveViewer token={trackToken!} />
         ) : isEvent ? (
