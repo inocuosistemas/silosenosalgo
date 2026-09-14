@@ -58,15 +58,6 @@ export function useFotosDelEvento(fuente: FuenteFotos | null) {
   return { fotos, recarga }
 }
 
-const iconoFoto = L.divIcon({
-  className: '',
-  html: `<div style="width:26px;height:26px;border-radius:9999px;background:rgba(2,6,23,0.9);
-    border:2px solid #f8fafc;display:grid;place-items:center;font-size:13px;line-height:1;
-    box-shadow:0 1px 4px rgba(0,0,0,0.5)">📷</div>`,
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
-})
-
 /** El 📷 que sigue al kilómetro elegido mientras se decide dónde se hizo una foto. */
 export const iconoFotoPrevia = L.divIcon({
   className: '',
@@ -77,15 +68,56 @@ export const iconoFotoPrevia = L.divIcon({
   iconAnchor: [18, 18],
 })
 
-/** Los 📷 en el mapa, solo de las que tienen sitio. Por debajo de los corredores. */
+/** La cámara del distintivo, en SVG: un emoji se ve distinto —y a veces gris— en cada móvil. */
+const CAMARA_SVG = (lado: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${lado}" height="${lado}" viewBox="0 0 24 24" fill="none" stroke="#f8fafc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`
+
+/** Por encima de tantas fotos en el mapa, marcos sin miniatura: no se descargan cien fotos para pintarlo. */
+const MINIATURAS_HASTA = 40
+
+const iconosDeFoto = new Map<string, L.DivIcon>()
+
+/**
+ * El 📷 de una foto en el mapa: la propia foto en miniatura, con marco blanco,
+ * sombra y un pico que apunta al sitio exacto, y un distintivo azul de cámara.
+ *
+ * Era un circulito oscuro con un emoji y, sobre el tramo ya recorrido —que va en
+ * pizarra oscura—, desaparecía. La miniatura dice de un vistazo que ahí hay una
+ * FOTO y no un punto más, y el marco blanco la despega del mapa aunque la foto
+ * sea de noche y salga negra. Se guardan hechos: rehacer el icono en cada
+ * refresco haría parpadear la miniatura.
+ */
+function iconoDeFoto(url: string | null): L.DivIcon {
+  const clave = url ?? ''
+  const hecho = iconosDeFoto.get(clave)
+  if (hecho) return hecho
+  const dentro = url
+    ? `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a url('${url.replace(/'/g, '%27')}') center/cover no-repeat"></div>`
+    : `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a;display:grid;place-items:center">${CAMARA_SVG(18)}</div>`
+  const icono = L.divIcon({
+    className: '',
+    html: `<div style="position:relative;width:42px;height:50px;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.55))">
+      <div style="position:absolute;left:0;top:0;width:42px;height:42px;box-sizing:border-box;border-radius:10px;background:#f8fafc;padding:3px">${dentro}</div>
+      <div style="position:absolute;left:14px;top:40px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #f8fafc"></div>
+      <div style="position:absolute;right:-7px;top:-7px;width:21px;height:21px;box-sizing:border-box;border-radius:9999px;background:#0284c7;border:2px solid #f8fafc;display:grid;place-items:center">${CAMARA_SVG(11)}</div>
+    </div>`,
+    iconSize: [42, 50],
+    // El pico, y no el centro, es el sitio de la foto.
+    iconAnchor: [21, 49],
+  })
+  iconosDeFoto.set(clave, icono)
+  return icono
+}
+
+/** Las fotos en el mapa, solo las que tienen sitio. Por debajo de los corredores. */
 export function CapaFotos({ fotos, onAbrir }: { fotos: EventFoto[]; onAbrir: (indice: number) => void }) {
+  const conMiniatura = fotos.filter((f) => f.lat !== null).length <= MINIATURAS_HASTA
   return (
     <>
       {fotos.map((f, i) => (f.lat === null || f.lon === null ? null : (
         <Marker
           key={f.id}
           position={[f.lat, f.lon]}
-          icon={iconoFoto}
+          icon={iconoDeFoto(conMiniatura ? f.url : null)}
           zIndexOffset={-500}
           title={`Foto de ${f.username}`}
           eventHandlers={{ click: () => onAbrir(i) }}
