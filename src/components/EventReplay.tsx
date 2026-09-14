@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Magnet, MapPin, Pause, Play, RotateCcw } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
@@ -72,6 +73,18 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
   const [t, setT] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [velocidad, setVelocidad] = useState<number>(60)
+  /**
+   * A quién no se quiere ver. Se toca su marca en la tira y desaparece del
+   * mapa, con su estela; otro toque y vuelve. Con diez corredores, para
+   * seguir a dos hay que poder apagar a los otros ocho.
+   */
+  const [ocultos, setOcultos] = useState<ReadonlySet<string>>(() => new Set())
+  const alternaOculto = (nombre: string) => setOcultos((prev) => {
+    const siguiente = new Set(prev)
+    if (siguiente.has(nombre)) siguiente.delete(nombre)
+    else siguiente.add(nombre)
+    return siguiente
+  })
   const ultimoTick = useRef<number>(0)
 
   useEffect(() => {
@@ -163,7 +176,7 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
           </>
         )}
         {route && route.length > 1 && <SentidoRecorrido pts={route} />}
-        {posiciones.map(({ r, pos, tramos, estimada, terminado }) => {
+        {posiciones.filter((p) => !ocultos.has(p.r.username)).map(({ r, pos, tramos, estimada, terminado }) => {
           const color = r.color ? eventColorHex(r.color) : '#94a3b8'
           // Apagado lo que no se está viendo: una posición supuesta, o quien
           // ya no sigue. Quien llegó a meta, no: ahí se queda con todo el color.
@@ -191,16 +204,52 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
       {/* Los mandos, abajo: el reloj de carrera, la barra y las velocidades. */}
       <div className="absolute inset-x-0 bottom-0 z-[1000] border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur">
         <div className="mx-auto w-full max-w-3xl">
+          {/* Quién sale: la marca de cada uno —su emoji y su color, las mismas
+              que en el mapa— y tocándola se quita o se pone. Apagado se queda en
+              la tira, a media tinta y tachado, para poder volver a encenderlo. */}
+          <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            {datos.runners.map((r) => {
+              const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+              const visible = !ocultos.has(r.username)
+              return (
+                <button
+                  key={r.username}
+                  onClick={() => alternaOculto(r.username)}
+                  aria-pressed={visible}
+                  title={visible ? `Quitar a ${r.username} del replay` : `Volver a ver a ${r.username}`}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                    visible
+                      ? 'border-slate-600 bg-slate-800/80 text-slate-100'
+                      : 'border-dashed border-slate-700 text-slate-500'
+                  }`}
+                >
+                  {r.emoji && (
+                    <span className={`text-sm leading-none ${visible ? '' : 'opacity-40 grayscale'}`}>{r.emoji}</span>
+                  )}
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color, opacity: visible ? 1 : 0.35 }} />
+                  <span className={visible ? '' : 'line-through'}>{r.username}</span>
+                </button>
+              )
+            })}
+          </div>
+
           <div className="flex items-center gap-3">
+            {/* Iconos dibujados y no caracteres: ▶ y ❚❚ salían de la fuente de
+                cada móvil, descentrados y de otro tamaño. Al final de la carrera,
+                el botón dice lo que hace: volver a empezar. */}
             <button
               onClick={() => {
                 if (t >= datos.to) setT(datos.from)
                 setPlaying((v) => !v)
               }}
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-sky-600 text-white hover:bg-sky-500"
-              aria-label={playing ? 'Pausa' : 'Reproducir'}
+              aria-label={playing ? 'Pausa' : t >= datos.to ? 'Volver a empezar' : 'Reproducir'}
             >
-              {playing ? '❚❚' : '▶'}
+              {playing
+                ? <Pause size={18} fill="currentColor" />
+                : t >= datos.to
+                  ? <RotateCcw size={18} strokeWidth={2.5} />
+                  : <Play size={18} fill="currentColor" className="ml-0.5" />}
             </button>
             <div className="min-w-0 flex-1">
               <input
@@ -245,16 +294,24 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
                 title={anclados
                   ? 'Pegados al recorrido; toca para verlos donde decía su GPS'
                   : 'Posición del GPS; toca para pegarlos al recorrido'}
-                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                aria-label={anclados ? 'Pegados al recorrido' : 'Posición del GPS'}
+                className={`flex items-center rounded-full border px-2.5 py-1 transition-colors ${
                   anclados ? 'border-slate-600 text-slate-300' : 'border-slate-700 text-slate-500'
                 }`}
               >
-                {anclados ? '🧲' : '📍'}
+                {anclados ? <Magnet size={13} /> : <MapPin size={13} />}
               </button>
             )}
             <div className="ml-auto flex items-center gap-3 whitespace-nowrap text-[11px]">
+              {/* Aquí y no al final de la tira: con cuatro corredores la tira ya
+                  llena el ancho del móvil y el botón se quedaba fuera de la vista. */}
+              {ocultos.size > 0 && (
+                <button onClick={() => setOcultos(new Set())} className="text-sky-400 hover:text-sky-300">
+                  ver a todos
+                </button>
+              )}
               <span className="text-slate-500">
-                {posiciones.filter((p) => p.pos && !p.terminado).length} en carrera
+                {posiciones.filter((p) => p.pos && !p.terminado && !ocultos.has(p.r.username)).length} en carrera
               </span>
               <button onClick={onBack} className="text-sky-400 hover:text-sky-300">← mapa</button>
             </div>
@@ -323,7 +380,8 @@ function Encuadre({ puntos, route }: { puntos: [number, number][]; route: [numbe
     const base = route && route.length > 1 ? route : puntos
     if (base.length < 2) return
     hecho.current = true
-    map.fitBounds(L.latLngBounds(base), { padding: [40, 120] })
+    // Más aire abajo: ahí van los mandos, ahora con la tira de participantes.
+    map.fitBounds(L.latLngBounds(base), { paddingTopLeft: [40, 40], paddingBottomRight: [40, 190] })
   }, [map, puntos, route])
   return null
 }
