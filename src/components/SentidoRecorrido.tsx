@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Marker, Pane, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { extremosDelRecorrido, flechasDelSentido } from '../lib/sentidoRecorrido'
+import { extremosDelRecorrido, flechasDelSentido, marcasDeExtremos, type LadoRotulo } from '../lib/sentidoRecorrido'
 
 /**
  * La salida, la meta y el sentido del recorrido, encima de su línea.
@@ -47,27 +47,28 @@ const PLAY = '<svg width="10" height="10" viewBox="0 0 10 10" style="display:blo
 const CUADROS = 'repeating-conic-gradient(#0f172a 0% 25%, #ffffff 0% 50%) 50% / 8px 8px'
 
 /**
- * La marca de un extremo, 22×22 con el centro en el sitio y el rótulo a la
- * derecha, siempre visible: la salida en verde con un ▶, la meta a cuadros como
- * la bandera, y si son el mismo sitio, a cuadros con el aro verde. En HTML
+ * La marca de un extremo, 22×22 con el centro en el sitio y el rótulo al lado
+ * que se diga, siempre visible: la salida en verde con un ▶, la meta a cuadros
+ * como la bandera, y si son el mismo sitio, a cuadros con el aro verde. En HTML
  * suelto para que la use también la vista 3D.
  */
-export function htmlExtremo(tipo: TipoExtremo): string {
+export function htmlExtremo(tipo: TipoExtremo, lado: LadoRotulo = 'derecha'): string {
   const circulo = tipo === 'salida'
     ? `background:#16a34a;border:2px solid #ffffff;display:grid;place-items:center`
     : `background:${CUADROS};border:${tipo === 'meta' ? '2px solid #ffffff' : '3px solid #16a34a'}`
   return `<div style="position:relative;width:22px;height:22px">`
     + `<div style="width:22px;height:22px;box-sizing:border-box;border-radius:50%;${circulo};box-shadow:0 0 0 1px rgba(2,6,23,.55),0 2px 4px rgba(0,0,0,.4)">${tipo === 'salida' ? PLAY : ''}</div>`
-    + `<div style="position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;font:700 10px system-ui,-apple-system,sans-serif;color:#f8fafc;background:rgba(2,6,23,.85);padding:2px 6px;border-radius:6px">${TEXTO_EXTREMO[tipo]}</div>`
+    + `<div style="position:absolute;${lado === 'derecha' ? 'left' : 'right'}:26px;top:50%;transform:translateY(-50%);white-space:nowrap;font:700 10px system-ui,-apple-system,sans-serif;color:#f8fafc;background:rgba(2,6,23,.85);padding:2px 6px;border-radius:6px">${TEXTO_EXTREMO[tipo]}</div>`
     + `</div>`
 }
 
-const extremos = new Map<TipoExtremo, L.DivIcon>()
-function iconoExtremo(tipo: TipoExtremo): L.DivIcon {
-  const hecho = extremos.get(tipo)
+const extremos = new Map<string, L.DivIcon>()
+function iconoExtremo(tipo: TipoExtremo, lado: LadoRotulo): L.DivIcon {
+  const clave = `${tipo}|${lado}`
+  const hecho = extremos.get(clave)
   if (hecho) return hecho
-  const icono = L.divIcon({ className: '', html: htmlExtremo(tipo), iconSize: [22, 22], iconAnchor: [11, 11] })
-  extremos.set(tipo, icono)
+  const icono = L.divIcon({ className: '', html: htmlExtremo(tipo, lado), iconSize: [22, 22], iconAnchor: [11, 11] })
+  extremos.set(clave, icono)
   return icono
 }
 
@@ -89,19 +90,25 @@ export function SentidoRecorrido({ pts }: { pts: [number, number][] }) {
   }, [map, pts, vista])
 
   const ext = useMemo(() => extremosDelRecorrido(pts), [pts])
+  // Juntas o separadas según cómo caigan a este zoom: de lejos, una marca; al
+  // acercarse, la salida y la meta cada una en su sitio.
+  const marcas = useMemo(
+    () => (ext ? marcasDeExtremos(ext.separadasM, map.project(ext.salida, vista.zoom), map.project(ext.meta, vista.zoom)) : null),
+    [map, ext, vista],
+  )
 
   return (
     <Pane name="sentido" style={{ zIndex: 450 }}>
       {puntas.map((f, i) => (
         <Marker key={i} position={f.pos} icon={iconoFlecha(f.grados)} interactive={false} keyboard={false} />
       ))}
-      {ext?.tipo === 'circular' && (
-        <Marker position={ext.punto} icon={iconoExtremo('salida-meta')} interactive={false} keyboard={false} />
+      {ext && marcas?.juntas && (
+        <Marker position={ext.salida} icon={iconoExtremo('salida-meta', 'derecha')} interactive={false} keyboard={false} />
       )}
-      {ext?.tipo === 'lineal' && (
+      {ext && marcas && !marcas.juntas && (
         <>
-          <Marker position={ext.meta} icon={iconoExtremo('meta')} interactive={false} keyboard={false} />
-          <Marker position={ext.salida} icon={iconoExtremo('salida')} interactive={false} keyboard={false} />
+          <Marker position={ext.meta} icon={iconoExtremo('meta', marcas.meta)} interactive={false} keyboard={false} />
+          <Marker position={ext.salida} icon={iconoExtremo('salida', marcas.salida)} interactive={false} keyboard={false} />
         </>
       )}
     </Pane>

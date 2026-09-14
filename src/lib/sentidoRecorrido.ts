@@ -62,22 +62,51 @@ export function flechasDelSentido(pts: PuntoPx[], pasoPx: number, suavizadoPx = 
   return flechas
 }
 
-/** A cuánto se considera que la salida y la meta son el mismo sitio. */
-export const SALIDA_Y_META_JUNTAS_M = 200
+/** A menos de esto la salida y la meta son el mismo sitio de verdad: el arco de
+ *  meta junto al de salida. Hasta 200 m se juntaban, y en UP26, que sale de un
+ *  lado del pueblo y llega a otra plaza, la meta desaparecía. */
+export const MISMO_SITIO_M = 25
+/** En pantalla, a menos de esto una marca tapa a la otra. */
+export const SOLAPE_PX = 30
+/** Y a menos de esto chocan los rótulos si van los dos hacia el mismo lado. */
+export const ROTULOS_CHOCAN_PX = 150
+/** Solo se juntan en una marca si están cerca de verdad: dos pueblos a 5 km no
+ *  son "salida y meta" por mucho que de lejos se pisen. */
+export const JUNTAR_HASTA_M = 1000
 
-export type ExtremosRecorrido =
-  | { tipo: 'circular'; punto: [number, number] }
-  | { tipo: 'lineal'; salida: [number, number]; meta: [number, number] }
+/** La salida y la meta de un recorrido ([lat, lon]) y cuánto las separa. */
+export interface Extremos {
+  salida: [number, number]
+  meta: [number, number]
+  separadasM: number
+}
 
-/**
- * La salida y la meta de un recorrido ([lat, lon]). Si acaban en el mismo
- * sitio —lo normal en una carrera de montaña, que sale y llega al pueblo— es
- * una sola marca: dos pegadas se taparían la una a la otra.
- */
-export function extremosDelRecorrido(pts: [number, number][], juntasM = SALIDA_Y_META_JUNTAS_M): ExtremosRecorrido | null {
+export function extremosDelRecorrido(pts: [number, number][]): Extremos | null {
   if (pts.length < 2) return null
   const salida = pts[0]
   const meta = pts[pts.length - 1]
-  const separadasKm = haversineKm({ lat: salida[0], lon: salida[1] }, { lat: meta[0], lon: meta[1] })
-  return separadasKm * 1000 <= juntasM ? { tipo: 'circular', punto: salida } : { tipo: 'lineal', salida, meta }
+  const separadasM = haversineKm({ lat: salida[0], lon: salida[1] }, { lat: meta[0], lon: meta[1] }) * 1000
+  return { salida, meta, separadasM }
+}
+
+export type LadoRotulo = 'derecha' | 'izquierda'
+export type MarcasExtremos =
+  | { juntas: true }
+  | { juntas: false; salida: LadoRotulo; meta: LadoRotulo }
+
+/**
+ * Cómo se pintan la salida y la meta, vistas desde donde se mira.
+ *
+ * Una sola marca "Salida y meta" si son el mismo sitio, o si a este zoom una
+ * taparía a la otra (y están cerca de verdad). Si no, dos, y cuando quedan
+ * cerca en pantalla cada rótulo va hacia su lado —la de la izquierda, hacia la
+ * izquierda— para que no se monten. Al acercarse se separan solas.
+ */
+export function marcasDeExtremos(separadasM: number, salidaPx: PuntoPx, metaPx: PuntoPx): MarcasExtremos {
+  const px = Math.hypot(metaPx.x - salidaPx.x, metaPx.y - salidaPx.y)
+  if (separadasM <= MISMO_SITIO_M || (px < SOLAPE_PX && separadasM <= JUNTAR_HASTA_M)) return { juntas: true }
+  if (px >= ROTULOS_CHOCAN_PX) return { juntas: false, salida: 'derecha', meta: 'derecha' }
+  return salidaPx.x <= metaPx.x
+    ? { juntas: false, salida: 'izquierda', meta: 'derecha' }
+    : { juntas: false, salida: 'derecha', meta: 'izquierda' }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { flechasDelSentido, extremosDelRecorrido } from '../src/lib/sentidoRecorrido'
+import { flechasDelSentido, extremosDelRecorrido, marcasDeExtremos } from '../src/lib/sentidoRecorrido'
 
 describe('flechasDelSentido', () => {
   it('una cada paso, empezando a medio paso de la salida y sin pasar de medio paso de la meta', () => {
@@ -34,15 +34,37 @@ describe('flechasDelSentido', () => {
 })
 
 describe('extremosDelRecorrido', () => {
-  it('sale y llega al mismo sitio: una sola marca', () => {
-    expect(extremosDelRecorrido([[42.7, -0.52], [42.8, -0.5], [42.7005, -0.5205]])).toEqual({ tipo: 'circular', punto: [42.7, -0.52] })
-  })
-
-  it('de un sitio a otro: salida y meta', () => {
-    expect(extremosDelRecorrido([[42.7, -0.52], [42.75, -0.45]])).toEqual({ tipo: 'lineal', salida: [42.7, -0.52], meta: [42.75, -0.45] })
+  it('la salida, la meta y cuánto las separa', () => {
+    const e = extremosDelRecorrido([[42.7, -0.52], [42.8, -0.5], [42.7005, -0.5205]])!
+    expect(e.salida).toEqual([42.7, -0.52])
+    expect(e.meta).toEqual([42.7005, -0.5205])
+    expect(e.separadasM).toBeGreaterThan(60)
+    expect(e.separadasM).toBeLessThan(75)
   })
 
   it('sin recorrido, nada', () => {
     expect(extremosDelRecorrido([[42.7, -0.52]])).toBeNull()
+  })
+})
+
+describe('marcasDeExtremos', () => {
+  const en = (x: number, y = 0) => ({ x, y })
+
+  it('el mismo sitio de verdad: una marca, se mire como se mire', () => {
+    expect(marcasDeExtremos(10, en(0), en(400))).toEqual({ juntas: true })
+  })
+
+  it('como UP26, a 150 m: de lejos se pisan y van juntas; de cerca, cada una la suya', () => {
+    expect(marcasDeExtremos(150, en(0), en(12))).toEqual({ juntas: true })
+    expect(marcasDeExtremos(150, en(0), en(300))).toEqual({ juntas: false, salida: 'derecha', meta: 'derecha' })
+  })
+
+  it('cerca en pantalla, los rótulos hacia fuera para que no se monten', () => {
+    expect(marcasDeExtremos(150, en(0), en(80))).toEqual({ juntas: false, salida: 'izquierda', meta: 'derecha' })
+    expect(marcasDeExtremos(150, en(80), en(0))).toEqual({ juntas: false, salida: 'derecha', meta: 'izquierda' })
+  })
+
+  it('dos pueblos a 5 km no se juntan aunque de lejos se pisen', () => {
+    expect(marcasDeExtremos(5000, en(0), en(10)).juntas).toBe(false)
   })
 })

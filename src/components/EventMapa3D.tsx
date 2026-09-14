@@ -9,7 +9,7 @@ import { encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type Punto3D 
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
 import { PUNTA, htmlExtremo, type TipoExtremo } from './SentidoRecorrido'
-import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
+import { extremosDelRecorrido, marcasDeExtremos, type LadoRotulo, type MarcasExtremos } from '../lib/sentidoRecorrido'
 
 /**
  * La carrera en 3D: el mismo mapa sobre el relieve de verdad, para girarlo e
@@ -128,6 +128,8 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
   const [elegido, setElegido] = useState<string | null>(null)
   const [ayuda, setAyuda] = useState(true)
   const [cerca, setCerca] = useState(false)
+  /** Cómo van la salida y la meta a este zoom, en JSON para compararlo barato. */
+  const [colocacion, setColocacion] = useState(() => JSON.stringify({ juntas: true }))
 
   useEffect(() => {
     if (!hayWebGL || !caja.current) return
@@ -243,6 +245,26 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
     return () => { for (const h of hechas) h.remove() }
   }, [fotos, listo, onAbrirFoto])
 
+  // Juntas o separadas, según cómo caigan en pantalla (ver `marcasDeExtremos`):
+  // se decide al terminar cada movimiento y las marcas se rehacen solo si cambia.
+  useEffect(() => {
+    const m = mapa.current
+    if (!m || !listo || !ruta) return
+    const ext = extremosDelRecorrido(ruta)
+    if (!ext) return
+    const decide = () => {
+      const a = m.project([ext.salida[1], ext.salida[0]])
+      const b = m.project([ext.meta[1], ext.meta[0]])
+      setColocacion(JSON.stringify(marcasDeExtremos(ext.separadasM, a, b)))
+    }
+    const primera = requestAnimationFrame(decide)
+    m.on('moveend', decide)
+    return () => {
+      cancelAnimationFrame(primera)
+      m.off('moveend', decide)
+    }
+  }, [ruta, listo])
+
   // La salida y la meta, las mismas marcas del mapa. Antes que los corredores,
   // para quedar debajo de ellos.
   useEffect(() => {
@@ -250,17 +272,18 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
     if (!m || !listo || !ruta) return
     const ext = extremosDelRecorrido(ruta)
     if (!ext) return
-    const pon = (tipo: TipoExtremo, [lat, lon]: [number, number]) => {
+    const marcas = JSON.parse(colocacion) as MarcasExtremos
+    const pon = (tipo: TipoExtremo, lado: LadoRotulo, [lat, lon]: [number, number]) => {
       const el = document.createElement('div')
       el.style.pointerEvents = 'none'
-      el.innerHTML = htmlExtremo(tipo)
+      el.innerHTML = htmlExtremo(tipo, lado)
       return new Marker({ element: el, anchor: 'center', opacityWhenCovered: '0.35' }).setLngLat([lon, lat]).addTo(m)
     }
-    const hechas = ext.tipo === 'circular'
-      ? [pon('salida-meta', ext.punto)]
-      : [pon('meta', ext.meta), pon('salida', ext.salida)]
+    const hechas = marcas.juntas
+      ? [pon('salida-meta', 'derecha', ext.salida)]
+      : [pon('meta', marcas.meta, ext.meta), pon('salida', marcas.salida, ext.salida)]
     return () => { for (const h of hechas) h.remove() }
-  }, [ruta, listo])
+  }, [ruta, listo, colocacion])
 
   // Los corredores se mueven en cada refresco: se recolocan las marcas que ya
   // hay y solo se rehace el dibujo de las que cambian, para que no parpadeen.
