@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
 import { CapaFotos, VisorFotos, AvisoSubida, ElegirSitio, iconoFotoPrevia, useFotosDelEvento, useSubirFoto } from './EventFotos'
 import L from 'leaflet'
@@ -309,6 +310,15 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * donde se busca: junto al resto de lo que se ve o se deja de ver.
    */
   const [opcionesAbiertas, setOpcionesAbiertas] = useState(false)
+  /** El relieve se ve salvo que se haya quitado, y se recuerda en este
+   *  navegador: quien lo quita por los datos no quiere quitarlo cada vez. */
+  const [relieve, setRelieve] = useState(() => {
+    try { return localStorage.getItem('mapaRelieve') !== 'no' } catch { return true }
+  })
+  const cambiaRelieve = (si: boolean) => {
+    setRelieve(si)
+    try { localStorage.setItem('mapaRelieve', si ? 'si' : 'no') } catch { /* modo privado */ }
+  }
   /**
    * Si el cartel de "carrera terminada" está desplegado. Empieza abierto: al
    * abrir el mapa de una carrera que ya acabó, lo primero que se quiere saber es
@@ -1129,7 +1139,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const vistaSinMapa = view === 'replay' ? (
     source.kind === 'demo'
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
-      : <EventReplay source={source} route={route?.pts ?? null} onBack={() => setView('mapa')} />
+      : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
     <ResultsView stats={stats} endedAt={endedAt} controles={controles} onBack={() => setView('mapa')} />
   ) : view === 'porra' && eventId ? (
@@ -1219,6 +1229,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       ) : view === 'mapa' ? (
         <MapContainer {...vistaInicial} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {relieve && <CapaRelieve />}
           <ZoomWatch onZoom={setZoom} />
           <MapTap onTap={() => setHoverKm(null)} />
 
@@ -1645,6 +1656,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
                     <span>{profileOpen ? 'Ocultar el perfil' : 'Ver el perfil'}</span>
                   </button>
                 )}
+                <button
+                  onClick={() => { cambiaRelieve(!relieve); setOpcionesAbiertas(false) }}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <span>⛰️</span>
+                  <span>
+                    {relieve ? 'Quitar el relieve' : 'Ver el relieve'}
+                    <span className="mt-0.5 block text-[10px] text-slate-500">
+                      {relieve
+                        ? 'El mapa plano, sin sombras: gasta menos datos.'
+                        : 'Sombras en las montañas, para ver dónde está la cuesta.'}
+                    </span>
+                  </span>
+                </button>
                 {fotos.length > 0 && (
                   <button
                     onClick={() => { setOpcionesAbiertas(false); setFotoAbierta(0) }}

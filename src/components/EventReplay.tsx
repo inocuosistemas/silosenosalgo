@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
+import { CapaRelieve } from './CapaRelieve'
 import L from 'leaflet'
 import { getEventReplay, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { eventColorHex } from '../../shared/eventColors'
@@ -39,10 +40,12 @@ interface Props {
   source: { kind: 'member'; id: string } | { kind: 'public'; token: string }
   /** El trazado de la carrera, para pintarlo debajo. */
   route: [number, number][] | null
+  /** Con relieve, como el mapa del que se viene. */
+  relieve: boolean
   onBack: () => void
 }
 
-export function EventReplay({ source, route, onBack }: Props) {
+export function EventReplay({ source, route, relieve, onBack }: Props) {
   /**
    * El trazado con su kilómetro acumulado, calculado una vez.
    *
@@ -156,6 +159,7 @@ export function EventReplay({ source, route, onBack }: Props) {
     <div className="relative h-full w-full bg-slate-950">
       <MapContainer center={centro} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
         <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {relieve && <CapaRelieve />}
         {route && (
           <>
             <Polyline positions={route} pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.9 }} />
