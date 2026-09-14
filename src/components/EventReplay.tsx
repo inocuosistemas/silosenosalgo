@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
+import { SentidoRecorrido } from './SentidoRecorrido'
 import L from 'leaflet'
 import { getEventReplay, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { eventColorHex } from '../../shared/eventColors'
@@ -161,6 +162,7 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
             <Polyline positions={route} pathOptions={{ color: '#6d28d9', weight: 4, opacity: 1 }} />
           </>
         )}
+        {route && route.length > 1 && <SentidoRecorrido pts={route} />}
         {posiciones.map(({ r, pos, tramos, estimada, terminado }) => {
           const color = r.color ? eventColorHex(r.color) : '#94a3b8'
           // Apagado lo que no se está viendo: una posición supuesta, o quien

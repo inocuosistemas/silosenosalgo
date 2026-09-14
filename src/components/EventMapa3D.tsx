@@ -8,6 +8,8 @@ import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
 import { encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type Punto3D } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
+import { PUNTA, htmlExtremo, type TipoExtremo } from './SentidoRecorrido'
+import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 
 /**
  * La carrera en 3D: el mismo mapa sobre el relieve de verdad, para girarlo e
@@ -194,6 +196,23 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
     const trazo = { 'line-join': 'round', 'line-cap': 'round' } as const
     m.addLayer({ id: 'ruta-halo', type: 'line', source: 'ruta', layout: trazo, paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.9 } })
     m.addLayer({ id: 'ruta', type: 'line', source: 'ruta', layout: trazo, paint: { 'line-color': '#6d28d9', 'line-width': 3.5 } })
+    // El sentido: la misma punta de flecha del mapa, repetida a lo largo de la
+    // línea y tumbada sobre el relieve.
+    if (!m.hasImage('flecha')) m.addImage('flecha', imagenFlecha(), { pixelRatio: 2 })
+    m.addLayer({
+      id: 'ruta-sentido',
+      type: 'symbol',
+      source: 'ruta',
+      layout: {
+        'symbol-placement': 'line',
+        'symbol-spacing': 110,
+        'icon-image': 'flecha',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-rotation-alignment': 'map',
+        'icon-pitch-alignment': 'map',
+      },
+    })
   }, [ruta, listo])
 
   useEffect(() => {
@@ -223,6 +242,25 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
     })
     return () => { for (const h of hechas) h.remove() }
   }, [fotos, listo, onAbrirFoto])
+
+  // La salida y la meta, las mismas marcas del mapa. Antes que los corredores,
+  // para quedar debajo de ellos.
+  useEffect(() => {
+    const m = mapa.current
+    if (!m || !listo || !ruta) return
+    const ext = extremosDelRecorrido(ruta)
+    if (!ext) return
+    const pon = (tipo: TipoExtremo, [lat, lon]: [number, number]) => {
+      const el = document.createElement('div')
+      el.style.pointerEvents = 'none'
+      el.innerHTML = htmlExtremo(tipo)
+      return new Marker({ element: el, anchor: 'center', opacityWhenCovered: '0.35' }).setLngLat([lon, lat]).addTo(m)
+    }
+    const hechas = ext.tipo === 'circular'
+      ? [pon('salida-meta', ext.punto)]
+      : [pon('meta', ext.meta), pon('salida', ext.salida)]
+    return () => { for (const h of hechas) h.remove() }
+  }, [ruta, listo])
 
   // Los corredores se mueven en cada refresco: se recolocan las marcas que ya
   // hay y solo se rehace el dibujo de las que cambian, para que no parpadeen.
@@ -358,6 +396,27 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
       )}
     </div>
   )
+}
+
+/** La punta de flecha del sentido, la misma que en el mapa (ver
+ *  `SentidoRecorrido`), dibujada a doble resolución para MapLibre. */
+function imagenFlecha(): ImageData {
+  // 20 px en pantalla, dibujada al doble. Un poco más que en el mapa: tumbada
+  // sobre el relieve e inclinada, se encoge.
+  const lado = 40
+  const lienzo = document.createElement('canvas')
+  lienzo.width = lado
+  lienzo.height = lado
+  const ctx = lienzo.getContext('2d')!
+  ctx.scale(lado / 14, lado / 14)
+  const punta = new Path2D(PUNTA)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill(punta)
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#1e1b4b'
+  ctx.stroke(punta)
+  return ctx.getImageData(0, 0, lado, lado)
 }
 
 function Redondo({ etiqueta, activo = false, onClick, children }: {

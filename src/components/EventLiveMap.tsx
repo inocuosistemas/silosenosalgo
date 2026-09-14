@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
+import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
 import { CapaFotos, VisorFotos, AvisoSubida, ElegirSitio, iconoFotoPrevia, useFotosDelEvento, useSubirFoto } from './EventFotos'
 import L from 'leaflet'
@@ -1279,6 +1280,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
               )}
             </>
           )}
+          {/* Por dónde se sale, dónde se llega y hacia dónde se va: sin esto el
+              recorrido es un garabato sin principio ni sentido. */}
+          {route && route.pts.length > 1 && <SentidoRecorrido pts={route.pts} />}
 
           {/* Los POI van DEBAJO de los corredores: son el decorado contra el
               que se lee la carrera, no lo que se mira. Pequeños y con el nombre
