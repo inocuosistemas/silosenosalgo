@@ -120,7 +120,7 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
     <div
       role="dialog"
       aria-label={`Foto de ${f.username}`}
-      className="fixed inset-0 z-[3000] flex flex-col bg-black/95"
+      className="fixed inset-0 z-[3000] flex flex-col bg-slate-950"
       onPointerUp={(e) => {
         if ((e.target as HTMLElement).closest('button')) return
         onCierra()
