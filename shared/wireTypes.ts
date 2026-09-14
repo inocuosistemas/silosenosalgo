@@ -527,6 +527,8 @@ export interface EventInfo {
   isOwner: boolean
   /** Si QUIEN PREGUNTA puede organizar: el dueño, un organizador nombrado o
    *  quien administra. Es lo que abre repartir invitaciones y el tablón. */
+  /** Cuándo se guardó el evento por última vez —replay, recorrido y foto—; null si nunca. */
+  archivedAt?: number | null
   canOrganize?: boolean
   /** Código de unión MULTIUSO. Solo se envía al dueño del evento. */
   inviteCode?: string

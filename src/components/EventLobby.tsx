@@ -9,7 +9,7 @@ import {
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, joinEvent, getEventPlan, marcaRetirado,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado,
   expulsaDelEvento, setEventOrganizer, getEventBets,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -511,6 +511,17 @@ export default function EventLobby({ id }: { id: string }) {
     try {
       await marcaRetirado(id, username, retirado ? undefined : null, km)
       if (km !== undefined) setAjustando(null)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  /** Guarda el evento ahora: el replay, el recorrido y la foto, sin caducidad. */
+  async function guardar() {
+    setBusy(true); setError(null)
+    try {
+      await guardaEvento(id)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -1251,10 +1262,23 @@ export default function EventLobby({ id }: { id: string }) {
           {event.endedAt ? (
             <>
               <p className="text-[11px] text-slate-400">
-                Terminada el {fmtDate(event.endedAt)}. Los resultados están congelados: aunque las trazas se
-                borren a los dos días, lo que pasó ese día se queda.
+                Terminada el {fmtDate(event.endedAt)}. Los resultados y la porra están congelados, y el
+                evento se guarda al cerrar: el replay de todos, el recorrido y la foto se quedan aunque
+                caduquen las balizas.
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {event.archivedAt ? `Guardado el ${fmtDate(event.archivedAt)}.` : 'Todavía sin guardar.'}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
+                {/* Guardar a mano: tras corregir algo, o un evento cerrado antes de
+                    que existiera el archivo. Ver functions/lib/archivo.ts. */}
+                <button
+                  onClick={() => void guardar()}
+                  disabled={busy}
+                  className="rounded border border-sky-800 px-2 py-1 text-[11px] text-sky-300 hover:text-sky-200 disabled:opacity-50"
+                >
+                  {event.archivedAt ? 'Volver a guardar' : 'Guardar evento'}
+                </button>
                 <button
                   onClick={() => void recalcular()}
                   disabled={busy}

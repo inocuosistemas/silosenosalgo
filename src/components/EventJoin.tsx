@@ -38,6 +38,12 @@ export default function EventJoin({ code }: { code: string }) {
     <div className="min-h-dvh bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-lg px-4 py-10">
         <h1 className="text-lg font-bold">Unirse al evento</h1>
+        {/* Se dice aquí porque es donde se entra: la traza de una carrera queda en
+            el archivo del evento. Ver functions/lib/archivo.ts. */}
+        <p className="mt-2 text-xs text-slate-500">
+          Tu traza de esta carrera quedará en el archivo del evento —el replay y los resultados—
+          aunque en tu baliza elijas borrarla antes.
+        </p>
         {status !== 'ready' ? (
           <p className="mt-2 text-sm text-slate-400">Cargando…</p>
         ) : !user ? (

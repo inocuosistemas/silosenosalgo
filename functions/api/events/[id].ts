@@ -30,7 +30,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
             bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats, stats_at AS statsAt, limit_min AS limitMin,
             plan_polyline IS NOT NULL AS hasPolyline, json_array_length(plan_polyline) AS polylinePts, activity,
             plan_total_km AS planTotalKm,
-            ended_at AS endedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
+            ended_at AS endedAt, archived_at AS archivedAt, created_by AS createdBy, invite_code AS inviteCode, public_token AS publicToken,
             tracking_url AS trackingUrl, website_url AS websiteUrl, notes AS notes,
             plan_updated_at AS planUpdatedAt, plan_change AS planChange
        FROM events WHERE id = ?`,
@@ -40,7 +40,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     colorsLocked: number; betsEnabled: number
     endsAt: number | null; stats: string | null; statsAt: number | null; planTotalKm: number | null; limitMin: number | null
     hasPolyline: number; polylinePts: number | null; activity: string | null
-    endedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
+    endedAt: number | null; archivedAt: number | null; createdBy: string; inviteCode: string | null; publicToken: string | null
     trackingUrl: string | null; websiteUrl: string | null; notes: string | null
     planUpdatedAt: number | null; planChange: string | null
   }>()
@@ -144,6 +144,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     polylinePts: ev.polylinePts,
     activity: isBeaconActivity(ev.activity) ? ev.activity : null,
     endedAt,
+    archivedAt: ev.archivedAt,
     // Los resultados solo tienen sentido en una carrera terminada, y solo si se
     // llegaron a congelar (un evento cerrado antes de que esto existiera no los
     // tiene). Se releen de la base cuando el cierre acaba de pasar aquí mismo.

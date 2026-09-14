@@ -184,6 +184,19 @@ export async function recomputeEventStats(id: string): Promise<void> {
 }
 
 /**
+ * Guarda el evento ahora: el replay de todos, el recorrido y la foto, sin
+ * caducidad. Solo quien organiza, y con la carrera cerrada.
+ */
+export async function guardaEvento(id: string): Promise<{ archivedAt: number; corredores: number }> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/archivo`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw errFrom(res)
+  return res.json() as Promise<{ archivedAt: number; corredores: number }>
+}
+
+/**
  * Dar a alguien por retirado, o deshacerlo.
  *
  * `at` en epoch ms para decir a qué hora dejó la carrera; sin él, ahora; `null`

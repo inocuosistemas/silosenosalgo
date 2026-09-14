@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import { claveArchivo } from '../../../lib/archivo'
 import type { Env } from '../../../lib/db'
 import { json, csrfOk } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
@@ -57,7 +58,9 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
 export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
+  // Caducada la original, la del archivo del evento. Ver `lib/archivo`.
   const body = await env.SHARE_KV.get(photoKvKey(id), 'arrayBuffer')
+    ?? await env.SHARE_KV.get(claveArchivo.foto(id), 'arrayBuffer')
   if (!body) return json({ error: 'not_found' }, 404)
   // Con versión en la URL (`?v=<photo_at>`) el contenido de ESA url no va a
   // cambiar nunca: se puede cachear a lo bestia, y un reencuadre llega igual

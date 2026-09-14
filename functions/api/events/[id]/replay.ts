@@ -3,7 +3,7 @@ import type { Env } from '../../../lib/db'
 import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE } from '../../../../shared/validate'
-import { construyeReplay } from '../../../lib/replay'
+import { replayDelEvento } from '../../../lib/archivo'
 
 /**
  * GET /api/events/:id/replay — la carrera entera, para verla otra vez.
@@ -29,5 +29,5 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   ).bind(id, user.id).first<{ ok: number }>()
   if (!member && ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
 
-  return json(await construyeReplay(env, id), 200, { 'Cache-Control': 'no-store' })
+  return json(await replayDelEvento(env, id), 200, { 'Cache-Control': 'no-store' })
 }

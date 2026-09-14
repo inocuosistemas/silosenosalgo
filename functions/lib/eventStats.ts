@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import { guardaEvento } from './archivo'
 import type { Env } from './db'
 import { crucaMeta } from '../../shared/cruceMeta'
 import { scoreBets, type BetScore, type RunnerOutcome } from '../../shared/bets'
@@ -982,6 +983,10 @@ export async function cierraEvento(
   const conPorra: EventStats = { ...stats, porra: await congelaPorra(env, eventId, stats) }
   await env.DB.prepare('UPDATE events SET ended_at = ?, stats = ?, stats_at = ? WHERE id = ?')
     .bind(horaDeCierre(stats, endedAt), JSON.stringify(conPorra), Date.now(), eventId).run()
+  // Y se guarda lo que caduca —el replay de todos, el recorrido, la foto— con los
+  // resultados recién hechos, que es cuando todavía está todo. Si falla, los
+  // resultados ya están escritos y se puede guardar desde la parrilla.
+  await guardaEvento(env, eventId).catch(() => null)
   return conPorra
 }
 

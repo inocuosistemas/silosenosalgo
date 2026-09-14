@@ -2,7 +2,7 @@
 import type { Env } from '../../../../lib/db'
 import { json } from '../../../../lib/http'
 import { TOKEN_RE } from '../../../../../shared/validate'
-import { construyeReplay } from '../../../../lib/replay'
+import { replayDelEvento } from '../../../../lib/archivo'
 
 /**
  * GET /api/events/public/:token/replay — la carrera entera para quien no corre.
@@ -19,5 +19,5 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   const ev = await env.DB.prepare('SELECT id FROM events WHERE public_token = ?')
     .bind(token).first<{ id: string }>()
   if (!ev) return json({ error: 'not_found' }, 404)
-  return json(await construyeReplay(env, ev.id), 200, { 'Cache-Control': 'no-store' })
+  return json(await replayDelEvento(env, ev.id), 200, { 'Cache-Control': 'no-store' })
 }
