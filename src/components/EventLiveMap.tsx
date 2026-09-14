@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
@@ -37,6 +37,7 @@ import { buildPlannedCurve } from '../lib/ghostPacer'
 import { proyeccionFantasma, type Fantasma } from '../lib/proyeccionFantasma'
 import { losDeLaCarrera } from '../lib/encuadre'
 import { leeCadencia, plazosDe, silencioTexto } from '../../shared/cadencia'
+import type { Corredor3D, Punto3D } from '../lib/mapa3d'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -121,6 +122,9 @@ function tramosDeCola(
   if (visto.length > 1) salida.push({ pts: visto, hueco: false })
   return salida
 }
+
+/** La vista 3D solo se baja si se abre: MapLibre pesa más que todo el mapa. */
+const EventMapa3D = lazy(() => import('./EventMapa3D'))
 
 const POLL_MS = 10_000
 /** Pasado esto sin noticias, el punto se apaga: quieto no es lo mismo que sin señal. */
@@ -315,6 +319,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [relieve, setRelieve] = useState(() => {
     try { return localStorage.getItem('mapaRelieve') !== 'no' } catch { return true }
   })
+  /** La vista 3D, encima del mapa; el mapa sigue debajo recibiendo posiciones. */
+  const [en3D, setEn3D] = useState(false)
   const cambiaRelieve = (si: boolean) => {
     setRelieve(si)
     try { localStorage.setItem('mapaRelieve', si ? 'si' : 'no') } catch { /* modo privado */ }
@@ -958,6 +964,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
   }, [plan, cutoffs, startMs])
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  /** Lo que enseña la vista 3D: cada uno donde lo pinta el mapa, con lo justo para reconocerlo. */
+  const corredores3D = useMemo<Corredor3D[]>(() => withFix.map((x) => ({
+    key: x.key,
+    punto: dondeSePinta(x, route, anclados),
+    color: x.r.color ? eventColorHex(x.r.color) : '#94a3b8',
+    emoji: x.r.emoji ?? null,
+    nombre: x.r.username,
+    apagado: x.stale || x.retirado,
+    detalle: x.acabo ? 'en meta' : x.retirado ? 'retirado' : x.kmValido !== null ? `km ${x.kmValido.toFixed(1)}` : null,
+  })), [withFix, route, anclados])
+  const puntos3D = useMemo<Punto3D[]>(
+    () => pois.map((p) => ({ lat: p.lat, lon: p.lon, nombre: p.name, cierre: p.cutoffAt ? hhmm(p.cutoffAt) : null })),
+    [pois],
+  )
   /**
    * Dónde se pinta cada uno, para poder encuadrar el mapa por ahí.
    *
@@ -1299,15 +1319,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
             // pase lo que pase con su baliza después. Es la misma idea que la
             // meta: lo que se enseña de él ya no es dónde está, es hasta dónde
             // llegó — y su baliza puede estar en la autovía, a 173 km de aquí.
-            const enMeta = acabo && route !== null && km !== null
-            // Congelado Y con kilómetro: si a alguien lo marcaron retirado sin
-            // que su baliza hubiera dicho nunca por dónde iba, no hay sitio del
-            // recorrido donde clavarlo y se queda donde dice su GPS.
-            const parado = congelado != null && congelado.km != null && route !== null
-            const suelto = !enMeta && !parado
-              && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
-            const anclaKm = parado ? congelado!.km! : km!
-            const punto: [number, number] = (!suelto && coordsAtKm(route!, anclaKm)) || [r.fix!.lat, r.fix!.lon]
+            // La regla vive en `dondeSePinta`: la vista 3D tiene que decir lo mismo.
+            const punto = dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados)
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
             return (
@@ -1621,6 +1634,34 @@ export default function EventLiveMap({ source }: { source: Source }) {
         </div>
       </div>
       </div>
+
+      {/* La carrera en 3D, para girarla e inclinarla. Debajo de ⤢, con su
+          mismo aspecto: es otra forma de mirar la carrera entera. */}
+      {view === 'mapa' && mapaListo && (
+        <button
+          onClick={() => setEn3D(true)}
+          title="Ver en 3D: girar e inclinar el mapa"
+          aria-label="Ver en 3D"
+          className="absolute right-2 z-[1000] rounded-lg border border-slate-700 bg-slate-900/90 px-1.5 py-1.5 text-sm font-bold leading-5 text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 162px)' }}
+        >
+          3D
+        </button>
+      )}
+      {en3D && (
+        <div className="fixed inset-0 z-[2400] bg-slate-950">
+          <Suspense fallback={<CargandoMarca texto="Cargando el 3D…" />}>
+            <EventMapa3D
+              ruta={route?.pts ?? null}
+              corredores={corredores3D}
+              puntos={puntos3D}
+              fotos={fotos}
+              onAbrirFoto={setFotoAbierta}
+              onCerrar={() => setEn3D(false)}
+            />
+          </Suspense>
+        </div>
+      )}
 
       {/* Opciones del mapa. Rueda pequeña, esquina derecha, sin fondo que tape
           terreno: es un ajuste, no una acción de todos los días. */}
@@ -2801,6 +2842,28 @@ function fold(value: string): string {
  *  temporal como en el visor individual — aquí basta con "por dónde va", y una
  *  ida y vuelta ambigua se resuelve entrando en su baliza. */
 /** Lat/lon del punto que está en el km `km` del recorrido, interpolando. */
+/**
+ * Dónde se pinta la marca de un corredor, en el mapa y en la vista 3D. Ver el
+ * comentario de las marcas: pegado a su kilómetro si el modo está puesto y no
+ * se ha ido lejos, en la meta quien llegó, clavado en el abandono quien se
+ * retiró, y si no donde dice su GPS.
+ */
+function dondeSePinta(
+  { r, km, congelado, desviadoM, acabo }: Pick<Row, 'r' | 'km' | 'congelado' | 'desviadoM' | 'acabo'>,
+  route: { pts: [number, number][]; cumKm: number[] } | null,
+  anclados: boolean,
+): [number, number] {
+  const enMeta = acabo && route !== null && km !== null
+  // Congelado Y con kilómetro: si a alguien lo marcaron retirado sin
+  // que su baliza hubiera dicho nunca por dónde iba, no hay sitio del
+  // recorrido donde clavarlo y se queda donde dice su GPS.
+  const parado = congelado != null && congelado.km != null && route !== null
+  const suelto = !enMeta && !parado
+    && (!anclados || desviadoM > DESVIADO_M || km === null || !route)
+  const anclaKm = parado ? congelado!.km! : km!
+  return (!suelto && coordsAtKm(route!, anclaKm)) || [r.fix!.lat, r.fix!.lon]
+}
+
 function coordsAtKm(route: { pts: [number, number][]; cumKm: number[] }, km: number): [number, number] | null {
   const { pts, cumKm } = route
   if (pts.length === 0) return null

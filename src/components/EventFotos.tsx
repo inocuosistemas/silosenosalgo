@@ -92,25 +92,31 @@ function iconoDeFoto(url: string | null, cuantas: number): L.DivIcon {
   const clave = `${url ?? ''}|${cuantas}`
   const hecho = iconosDeFoto.get(clave)
   if (hecho) return hecho
-  const dentro = url
-    ? `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a url('${url.replace(/'/g, '%27')}') center/cover no-repeat"></div>`
-    : `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a;display:grid;place-items:center">${CAMARA_SVG(18)}</div>`
-  const distintivo = cuantas > 1
-    ? `<span style="font:800 11px system-ui,-apple-system,sans-serif;color:#f8fafc;line-height:1">${cuantas}</span>`
-    : CAMARA_SVG(11)
   const icono = L.divIcon({
     className: '',
-    html: `<div style="position:relative;width:42px;height:50px;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.55))">
-      <div style="position:absolute;left:0;top:0;width:42px;height:42px;box-sizing:border-box;border-radius:10px;background:#f8fafc;padding:3px">${dentro}</div>
-      <div style="position:absolute;left:14px;top:40px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #f8fafc"></div>
-      <div style="position:absolute;right:-7px;top:-7px;min-width:21px;height:21px;box-sizing:border-box;padding:0 4px;border-radius:9999px;background:#0284c7;border:2px solid #f8fafc;display:grid;place-items:center">${distintivo}</div>
-    </div>`,
+    html: htmlDeFoto(url, cuantas),
     iconSize: [42, 50],
     // El pico, y no el centro, es el sitio de la foto.
     iconAnchor: [21, 49],
   })
   iconosDeFoto.set(clave, icono)
   return icono
+}
+
+/** El dibujo del icono de una foto: 42×50, con el pico abajo en el centro.
+ *  Aparte, para que lo use también la vista 3D, que no es Leaflet. */
+export function htmlDeFoto(url: string | null, cuantas: number): string {
+  const dentro = url
+    ? `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a url('${url.replace(/'/g, '%27')}') center/cover no-repeat"></div>`
+    : `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a;display:grid;place-items:center">${CAMARA_SVG(18)}</div>`
+  const distintivo = cuantas > 1
+    ? `<span style="font:800 11px system-ui,-apple-system,sans-serif;color:#f8fafc;line-height:1">${cuantas}</span>`
+    : CAMARA_SVG(11)
+  return `<div style="position:relative;width:42px;height:50px;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.55))">
+      <div style="position:absolute;left:0;top:0;width:42px;height:42px;box-sizing:border-box;border-radius:10px;background:#f8fafc;padding:3px">${dentro}</div>
+      <div style="position:absolute;left:14px;top:40px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #f8fafc"></div>
+      <div style="position:absolute;right:-7px;top:-7px;min-width:21px;height:21px;box-sizing:border-box;padding:0 4px;border-radius:9999px;background:#0284c7;border:2px solid #f8fafc;display:grid;place-items:center">${distintivo}</div>
+    </div>`
 }
 
 /** A cuántos píxeles dos fotos ya se pisan: casi el ancho de la miniatura. */
