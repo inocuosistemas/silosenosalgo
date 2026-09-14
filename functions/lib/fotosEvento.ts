@@ -11,7 +11,9 @@ import { puedeOrganizar } from './organiza'
  *   · las NOTAS CON FOTO de las balizas de los participantes, que ya traen
  *     posición, hora y kilómetro;
  *   · las SUBIDAS desde la página del evento, con la posición que traiga la
- *     propia foto o la del móvil al subirla.
+ *     propia foto o la que se elija en el recorrido. Nunca la del móvil al
+ *     subirla: se suben al acabar, y saldrían todas en la meta. Sin ninguna, va
+ *     sin sitio y no sale en el mapa.
  *
  * Se sirven POR EL EVENTO (`/fotos/<id>`) y nunca con la URL de la nota: esa
  * lleva el identificador de la baliza de cada uno, que es su enlace de
@@ -64,20 +66,23 @@ export async function fotosDelEvento(env: Env, eventId: string): Promise<FotoSin
     }>(),
     env.DB.prepare(
       `SELECT p.id AS id, p.user_id AS autorId, u.username AS username, COALESCE(p.taken_at, p.created_at) AS at,
-              p.lat AS lat, p.lon AS lon, p.caption AS texto
+              p.lat AS lat, p.lon AS lon, p.km AS km, p.posicion AS posicion, p.caption AS texto
          FROM event_photos p JOIN users u ON u.id = p.user_id
         WHERE p.event_id = ?`,
-    ).bind(eventId).all<{ id: string; autorId: string; username: string; at: number; lat: number; lon: number; texto: string | null }>(),
+    ).bind(eventId).all<{
+      id: string; autorId: string; username: string; at: number
+      lat: number | null; lon: number | null; km: number | null; posicion: 'foto' | 'recorrido' | null; texto: string | null
+    }>(),
     env.SHARE_KV.get(claveNotasArchivadas(eventId), 'json') as Promise<FotoSinUrl[] | null>,
   ])
   const vivas: FotoSinUrl[] = [
     ...(notas.results ?? []).map((n): FotoSinUrl => ({
       id: `n_${n.noteId}`, origen: 'nota', autorId: n.autorId, username: n.username,
-      at: n.at, lat: n.lat, lon: n.lon, km: n.km, texto: n.texto,
+      at: n.at, lat: n.lat, lon: n.lon, km: n.km, posicion: 'foto', texto: n.texto,
     })),
     ...(subidas.results ?? []).map((p): FotoSinUrl => ({
       id: `s_${p.id}`, origen: 'subida', autorId: p.autorId, username: p.username,
-      at: p.at, lat: p.lat, lon: p.lon, km: null, texto: p.texto,
+      at: p.at, lat: p.lat, lon: p.lon, km: p.km, posicion: p.posicion, texto: p.texto,
     })),
   ]
   return juntaFotos(vivas, archivadas ?? [])
@@ -132,4 +137,54 @@ export function paraEnviar(f: FotoSinUrl, url: string, borrable: boolean): Event
   const { autorId: _autor, ...resto } = f
   void _autor
   return { ...resto, url, ...(borrable ? { borrable: true } : {}) }
+}
+
+/** Un punto del trazado guardado del evento (`[lat, lon, km]`) en un km, interpolando. */
+export function puntoEnKm(linea: [number, number, number][], km: number): [number, number] | null {
+  if (linea.length === 0) return null
+  if (km <= linea[0][2]) return [linea[0][0], linea[0][1]]
+  const ultimo = linea[linea.length - 1]
+  if (km >= ultimo[2]) return [ultimo[0], ultimo[1]]
+  let lo = 0
+  let hi = linea.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (linea[mid][2] <= km) lo = mid
+    else hi = mid
+  }
+  const tramo = linea[hi][2] - linea[lo][2]
+  const t = tramo > 0 ? (km - linea[lo][2]) / tramo : 0
+  return [linea[lo][0] + t * (linea[hi][0] - linea[lo][0]), linea[lo][1] + t * (linea[hi][1] - linea[lo][1])]
+}
+
+export interface SitioFoto {
+  lat: number | null
+  lon: number | null
+  km: number | null
+  posicion: 'foto' | 'recorrido' | null
+}
+
+/**
+ * El sitio de una foto a partir de lo que manda quien la sube o la recoloca: sus
+ * coordenadas —las del GPS de la propia foto—, un km del recorrido, o nada.
+ * `'bad'` si lo que manda no vale. Que las coordenadas sean de la foto y no del
+ * móvil lo garantiza la web, que es quien las lee; aquí solo se comprueban.
+ */
+export function resuelveSitio(
+  e: { lat?: number | null; lon?: number | null; km?: number | null },
+  linea: [number, number, number][] | null,
+): SitioFoto | 'bad' {
+  if (e.lat != null || e.lon != null) {
+    if (e.lat == null || e.lon == null || !Number.isFinite(e.lat) || !Number.isFinite(e.lon)
+      || Math.abs(e.lat) > 90 || Math.abs(e.lon) > 180) return 'bad'
+    return { lat: e.lat, lon: e.lon, km: null, posicion: 'foto' }
+  }
+  if (e.km != null) {
+    if (!Number.isFinite(e.km) || e.km < 0 || !linea || linea.length === 0) return 'bad'
+    const km = Math.min(e.km, linea[linea.length - 1][2])
+    const p = puntoEnKm(linea, km)
+    if (!p) return 'bad'
+    return { lat: p[0], lon: p[1], km: Math.round(km * 100) / 100, posicion: 'recorrido' }
+  }
+  return { lat: null, lon: null, km: null, posicion: null }
 }

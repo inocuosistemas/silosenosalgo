@@ -6,12 +6,14 @@ import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { TOPE_FOTO_BYTES, TOPE_TEXTO_FOTO } from '../../../../shared/fotos'
 import type { EventFotosResponse } from '../../../../shared/wireTypes'
-import { fotosDelEvento, claveFoto, puedeVerEvento, paraEnviar } from '../../../lib/fotosEvento'
+import { fotosDelEvento, claveFoto, puedeVerEvento, paraEnviar, resuelveSitio } from '../../../lib/fotosEvento'
+import { leePolilinea } from '../../../lib/eventStats'
 import { cupoBytes, usoBytes } from '../../../lib/cuota'
 
 /**
  * GET  /api/events/:id/fotos — las fotos del evento, para su mapa.
- * POST /api/events/:id/fotos?lat=&lon=&at=&texto= — subir una (cuerpo: el JPEG).
+ * POST /api/events/:id/fotos?lat=&lon= | ?km= , &at=&texto= — subir una (cuerpo: el JPEG).
+ *      Sin `lat/lon` ni `km`, va sin sitio.
  *
  * Las dos para quien participa u organiza. Quien sigue por el enlace público
  * las ve por `/api/events/public/:token/fotos`. Ver `lib/fotosEvento`.
@@ -44,12 +46,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!(await puedeVerEvento(env, id, user))) return json({ error: 'not_found' }, 404)
 
   const q = new URL(request.url).searchParams
-  const lat = Number(q.get('lat'))
-  const lon = Number(q.get('lon'))
-  if (!q.has('lat') || !q.has('lon') || !Number.isFinite(lat) || !Number.isFinite(lon)
-    || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-    return json({ error: 'bad_coords' }, 400)
-  }
+  const num = (k: string) => (q.has(k) ? Number(q.get(k)) : null)
+  // Su sitio: el GPS de la propia foto, un km elegido en el recorrido, o ninguno.
+  const sitio = resuelveSitio(
+    { lat: num('lat'), lon: num('lon'), km: num('km') },
+    q.has('km') ? await leePolilinea(env, id) : null,
+  )
+  if (sitio === 'bad') return json({ error: 'bad_coords' }, 400)
   const atRaw = Number(q.get('at'))
   // La hora de la foto, si la trae; una del futuro o de antes de 2000 es un reloj mal puesto.
   const tomadaEn = Number.isFinite(atRaw) && atRaw > 946_684_800_000 && atRaw < Date.now() + 86_400_000
@@ -65,9 +68,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const fotoId = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
   await env.SHARE_KV.put(claveFoto(id, fotoId), buf)
   await env.DB.prepare(
-    `INSERT INTO event_photos (id, event_id, user_id, created_at, taken_at, lat, lon, caption, bytes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(fotoId, id, user.id, Date.now(), tomadaEn, lat, lon, texto, buf.byteLength).run()
+    `INSERT INTO event_photos (id, event_id, user_id, created_at, taken_at, lat, lon, km, posicion, caption, bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(fotoId, id, user.id, Date.now(), tomadaEn, sitio.lat, sitio.lon, sitio.km, sitio.posicion, texto, buf.byteLength).run()
 
   return json({ id: `s_${fotoId}` }, 201)
 }

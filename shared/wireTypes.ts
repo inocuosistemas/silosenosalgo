@@ -974,10 +974,16 @@ export interface EventFoto {
   username: string
   /** Cuándo se hizo (epoch ms). */
   at: number
-  lat: number
-  lon: number
-  /** Km del recorrido, si se sabe: las notas lo traen. */
+  /** Dónde se hizo; null si no se sabe: entonces no sale en el mapa, solo en la galería. */
+  lat: number | null
+  lon: number | null
+  /** Km del recorrido, si se sabe: las notas lo traen y en las subidas se elige. */
   km: number | null
+  /**
+   * De dónde sale su sitio: `foto`, el GPS de la propia foto o de la nota;
+   * `recorrido`, elegido en el trazado; null, sin sitio conocido.
+   */
+  posicion: 'foto' | 'recorrido' | null
   texto: string | null
   /** De dónde se descarga. */
   url: string

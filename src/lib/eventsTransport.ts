@@ -585,13 +585,22 @@ export async function getEventFotos(
   return ((await res.json()) as EventFotosResponse).fotos
 }
 
-/** Sube una foto al evento: el JPEG ya comprimido y dónde y cuándo se hizo. */
+/**
+ * Sube una foto al evento: el JPEG ya comprimido, cuándo se hizo y su sitio —las
+ * coordenadas de su propio GPS, un km del recorrido, o ninguno—.
+ */
 export async function subeFotoEvento(
   id: string,
   jpeg: Blob,
-  meta: { lat: number; lon: number; tomadaEn: number | null; texto: string | null },
+  meta: { sitio: { lat: number; lon: number } | { km: number } | null; tomadaEn: number | null; texto: string | null },
 ): Promise<string> {
-  const q = new URLSearchParams({ lat: String(meta.lat), lon: String(meta.lon) })
+  const q = new URLSearchParams()
+  if (meta.sitio && 'lat' in meta.sitio) {
+    q.set('lat', String(meta.sitio.lat))
+    q.set('lon', String(meta.sitio.lon))
+  } else if (meta.sitio) {
+    q.set('km', String(meta.sitio.km))
+  }
   if (meta.tomadaEn) q.set('at', String(meta.tomadaEn))
   if (meta.texto) q.set('texto', meta.texto)
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/fotos?${q}`, {
@@ -608,4 +617,27 @@ export async function borraFotoEvento(id: string, fotoId: string): Promise<void>
     method: 'DELETE', credentials: 'same-origin',
   })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** Recoloca una foto subida: en un km del recorrido, o sin sitio (`null`). */
+export async function recolocaFotoEvento(id: string, fotoId: string, sitio: { km: number } | null): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/fotos/${encodeURIComponent(fotoId)}`, {
+    method: 'PATCH', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sitio ?? { sinSitio: true }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** Por qué km iba quien sube la foto a la hora en que se hizo, o null. Solo una sugerencia. */
+export async function sugiereKmFoto(id: string, at: number): Promise<number | null> {
+  try {
+    const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/fotos/sugerencia?at=${Math.round(at)}`, {
+      credentials: 'same-origin', cache: 'no-store',
+    })
+    if (!res.ok) return null
+    return ((await res.json()) as { km: number | null }).km
+  } catch {
+    return null
+  }
 }

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Marker } from 'react-leaflet'
 import L from 'leaflet'
-import { getEventFotos, subeFotoEvento, borraFotoEvento, EventsError } from '../lib/eventsTransport'
+import {
+  getEventFotos, subeFotoEvento, borraFotoEvento, recolocaFotoEvento, sugiereKmFoto, EventsError,
+} from '../lib/eventsTransport'
 import { leeExif } from '../lib/fotoExif'
 import { comprimeFoto } from '../lib/comprimeFoto'
+import { cercaDe, type PuntoDelRecorrido } from '../lib/fotoSitio'
 import type { EventFoto } from '../../shared/wireTypes'
 
 /**
@@ -12,6 +15,12 @@ import type { EventFoto } from '../../shared/wireTypes'
  *
  * Salen de las notas con foto de las balizas y de las subidas desde aquí; el
  * servidor las junta (ver `functions/lib/fotosEvento.ts`).
+ *
+ * El SITIO de una foto subida sale de su propio GPS o se elige en el recorrido.
+ * Nunca de dónde está el móvil al subirla: lo normal es subirlas al acabar, en la
+ * meta o en casa, y todas acabarían amontonadas allí diciendo que se hicieron
+ * donde no. Y si no se sabe, va sin sitio: fuera del mapa y en la galería, que un
+ * 📷 en un sitio inventado cuenta una mentira.
  */
 
 export type FuenteFotos = { kind: 'member'; id: string } | { kind: 'public'; token: string }
@@ -58,11 +67,21 @@ const iconoFoto = L.divIcon({
   iconAnchor: [13, 13],
 })
 
-/** Los 📷 en el mapa. Por debajo de los corredores: la carrera sigue siendo lo primero. */
+/** El 📷 que sigue al kilómetro elegido mientras se decide dónde se hizo una foto. */
+export const iconoFotoPrevia = L.divIcon({
+  className: '',
+  html: `<div style="width:36px;height:36px;border-radius:9999px;background:#0284c7;border:3px solid #f8fafc;
+    display:grid;place-items:center;font-size:17px;line-height:1;
+    box-shadow:0 0 0 6px rgba(56,189,248,0.35),0 2px 8px rgba(0,0,0,0.5)">📷</div>`,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+})
+
+/** Los 📷 en el mapa, solo de las que tienen sitio. Por debajo de los corredores. */
 export function CapaFotos({ fotos, onAbrir }: { fotos: EventFoto[]; onAbrir: (indice: number) => void }) {
   return (
     <>
-      {fotos.map((f, i) => (
+      {fotos.map((f, i) => (f.lat === null || f.lon === null ? null : (
         <Marker
           key={f.id}
           position={[f.lat, f.lon]}
@@ -71,7 +90,7 @@ export function CapaFotos({ fotos, onAbrir }: { fotos: EventFoto[]; onAbrir: (in
           title={`Foto de ${f.username}`}
           eventHandlers={{ click: () => onAbrir(i) }}
         />
-      ))}
+      )))}
     </>
   )
 }
@@ -80,10 +99,11 @@ export function CapaFotos({ fotos, onAbrir }: { fotos: EventFoto[]; onAbrir: (in
  * La foto a pantalla completa.
  *
  * Como el zoom de tramos: un toque en cualquier parte cierra, salvo en los
- * botones, y ‹ › recorren las fotos por orden de hora. Se escucha `pointerup` y
- * no `click`, que en Safari de iOS no llega a un `div` que no es un control.
+ * botones, y ‹ › recorren TODAS las fotos por orden de hora, también las que no
+ * tienen sitio. Se escucha `pointerup` y no `click`, que en Safari de iOS no
+ * llega a un `div` que no es un control.
  */
-export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, onBorrada }: {
+export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, onBorrada, onRecolocar }: {
   fotos: EventFoto[]
   indice: number
   onCambia: (i: number) => void
@@ -93,6 +113,8 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
   /** El km del recorrido de una posición, para las fotos que no lo traen. */
   kmDe?: (lat: number, lon: number) => number | null
   onBorrada: () => void
+  /** Moverla en el recorrido: quien la subió u organiza. */
+  onRecolocar?: (foto: EventFoto) => void
 }) {
   const [confirmando, setConfirmando] = useState(false)
   const [borrando, setBorrando] = useState(false)
@@ -100,7 +122,8 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
   const f = fotos[indice]
   if (!f) return null
 
-  const km = f.km ?? kmDe?.(f.lat, f.lon) ?? null
+  const km = f.km ?? (f.lat !== null && f.lon !== null ? kmDe?.(f.lat, f.lon) ?? null : null)
+  const donde = f.lat === null ? ' · sin sitio' : km !== null ? ` · km ${km.toFixed(1)}` : ''
   const hora = new Date(f.at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
   async function borrar() {
@@ -116,6 +139,7 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
     }
   }
 
+  const boton = 'rounded-full border border-slate-700 px-3 py-2 text-xs text-slate-300 disabled:opacity-50'
   return (
     <div
       role="dialog"
@@ -129,10 +153,10 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
       <img src={f.url} alt={f.texto ?? `Foto de ${f.username}`} className="min-h-0 w-full flex-1 object-contain" />
       <div className="px-4 pt-2 text-center" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}>
         <p className="text-sm font-semibold text-slate-100">
-          📷 {f.username} <span className="font-normal text-slate-400">· {hora}{km !== null && ` · km ${km.toFixed(1)}`}</span>
+          📷 {f.username} <span className="font-normal text-slate-400">· {hora}{donde}</span>
         </p>
         {f.texto && <p className="mx-auto mt-0.5 max-w-md text-xs text-slate-300">{f.texto}</p>}
-        <div className="mt-3 flex items-center justify-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={() => onCambia(indice - 1)}
             disabled={indice === 0}
@@ -150,14 +174,17 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
           >
             ›
           </button>
+          {f.borrable && onRecolocar && (
+            <button onClick={() => onRecolocar(f)} className={boton}>
+              {f.lat === null ? 'Ponerle sitio' : 'Recolocar'}
+            </button>
+          )}
           {f.borrable && eventId && (
             // En dos toques: borrar una foto no se deshace.
             <button
               onClick={() => (confirmando ? void borrar() : setConfirmando(true))}
               disabled={borrando}
-              className={`rounded-full border px-3 py-2 text-xs disabled:opacity-50 ${
-                confirmando ? 'border-red-500 bg-red-950/60 text-red-200' : 'border-slate-700 text-slate-300'
-              }`}
+              className={confirmando ? 'rounded-full border border-red-500 bg-red-950/60 px-3 py-2 text-xs text-red-200 disabled:opacity-50' : boton}
             >
               {borrando ? 'Borrando…' : confirmando ? '¿Seguro? Borrar' : 'Borrar'}
             </button>
@@ -168,65 +195,86 @@ export function VisorFotos({ fotos, indice, onCambia, onCierra, eventId, kmDe, o
   )
 }
 
-type EstadoSubida = null | { fase: 'preparando' | 'ubicando' | 'subiendo' } | { error: string } | { hecho: true }
+/** Una foto esperando a que se diga dónde se hizo. */
+export type Pendiente =
+  | { modo: 'nueva'; jpeg: Blob; tomadaEn: number | null; sugerido: number | null }
+  | { modo: 'recolocar'; foto: EventFoto; sugerido: number | null }
+
+type EstadoSubida = null | { fase: 'preparando' | 'subiendo' } | { error: string } | { hecho: string }
 
 const MENSAJES: Record<string, string> = {
-  sin_ubicacion: 'La foto no trae ubicación y el móvil no ha dado la suya. Actívala y vuelve a intentarlo.',
   too_large: 'La foto pesa demasiado, incluso comprimida.',
   quota_exceeded: 'Has llegado a tu límite de espacio para fotos.',
-  bad_coords: 'La ubicación de la foto no es válida.',
+  bad_coords: 'Ese sitio no vale para la foto.',
   bad_type: 'Ese fichero no es una foto que se pueda subir.',
   no_se_pudo_comprimir: 'No se ha podido preparar la foto. Prueba con otra.',
 }
 
-/** Dónde está el móvil ahora, o null si no lo dice en diez segundos. */
-function ubicacionDelMovil(): Promise<{ lat: number; lon: number } | null> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
-    )
-  })
-}
+type Sitio = { lat: number; lon: number } | { km: number } | null
 
 /**
- * Añadir una foto al evento.
+ * Añadir una foto al evento, o recolocar una.
  *
- * La posición sale, por este orden, de la propia foto —dónde se HIZO— y, si no
- * la trae, de dónde está el móvil al subirla, que es lo que vale para una foto
- * recién hecha. Se lee el EXIF del fichero ORIGINAL, antes de comprimirla, que al
- * redibujarla se pierde. La hora, igual: la de la foto, o la del fichero.
+ * Con GPS en la foto se sube tal cual: dice dónde se HIZO. El EXIF se lee del
+ * fichero original antes de comprimirla, que al redibujarla se pierde. Sin GPS
+ * se pregunta dónde, en el recorrido, empezando por donde iba quien la sube a
+ * la hora de la foto; y si no lo sabe, va sin sitio.
  */
-export function useSubirFoto(eventId: string | null, onSubida: () => void) {
+export function useSubirFoto(eventId: string | null, onCambio: () => void) {
   const campo = useRef<HTMLInputElement>(null)
   const [estado, setEstado] = useState<EstadoSubida>(null)
+  const [pendiente, setPendiente] = useState<Pendiente | null>(null)
+
+  const falla = (e: unknown) => {
+    const codigo = e instanceof EventsError ? e.code : e instanceof Error ? e.message : ''
+    setEstado({ error: MENSAJES[codigo] ?? 'No se ha podido guardar la foto. Revisa la conexión.' })
+  }
+  const listo = (texto: string) => {
+    onCambio()
+    setEstado({ hecho: texto })
+    window.setTimeout(() => setEstado(null), 3500)
+  }
+
+  const sube = async (jpeg: Blob, sitio: Sitio, tomadaEn: number | null) => {
+    if (!eventId) return
+    try {
+      setEstado({ fase: 'subiendo' })
+      await subeFotoEvento(eventId, jpeg, { sitio, tomadaEn, texto: null })
+      listo(sitio ? '📷 Foto añadida al mapa' : '📷 Foto añadida sin sitio: está en «Ver las fotos»')
+    } catch (e) {
+      falla(e)
+    }
+  }
 
   const alElegir = async (fichero: File) => {
     if (!eventId) return
     try {
       setEstado({ fase: 'preparando' })
       const exif = leeExif(await fichero.arrayBuffer())
-      let sitio = exif.lat !== null && exif.lon !== null ? { lat: exif.lat, lon: exif.lon } : null
-      if (!sitio) {
-        setEstado({ fase: 'ubicando' })
-        sitio = await ubicacionDelMovil()
-      }
-      if (!sitio) throw new Error('sin_ubicacion')
+      const tomadaEn = exif.tomadaEn ?? (fichero.lastModified || null)
       const jpeg = await comprimeFoto(fichero)
-      setEstado({ fase: 'subiendo' })
-      await subeFotoEvento(eventId, jpeg, {
-        ...sitio,
-        tomadaEn: exif.tomadaEn ?? (fichero.lastModified || null),
-        texto: null,
-      })
-      onSubida()
-      setEstado({ hecho: true })
-      window.setTimeout(() => setEstado(null), 3000)
+      if (exif.lat !== null && exif.lon !== null) {
+        await sube(jpeg, { lat: exif.lat, lon: exif.lon }, tomadaEn)
+        return
+      }
+      const sugerido = tomadaEn ? await sugiereKmFoto(eventId, tomadaEn) : null
+      setEstado(null)
+      setPendiente({ modo: 'nueva', jpeg, tomadaEn, sugerido })
     } catch (e) {
-      const codigo = e instanceof EventsError ? e.code : e instanceof Error ? e.message : ''
-      setEstado({ error: MENSAJES[codigo] ?? 'No se ha podido subir la foto. Revisa la conexión.' })
+      falla(e)
+    }
+  }
+
+  const resuelve = async (sitio: { km: number } | null) => {
+    const p = pendiente
+    setPendiente(null)
+    if (!p || !eventId) return
+    if (p.modo === 'nueva') return sube(p.jpeg, sitio, p.tomadaEn)
+    try {
+      await recolocaFotoEvento(eventId, p.foto.id, sitio)
+      listo(sitio ? '📷 Foto recolocada' : '📷 Foto sin sitio: está en «Ver las fotos»')
+    } catch (e) {
+      falla(e)
     }
   }
 
@@ -244,15 +292,116 @@ export function useSubirFoto(eventId: string | null, onSubida: () => void) {
       }}
     />
   )
-  return { elegir: () => campo.current?.click(), input, estado, limpia: () => setEstado(null) }
+  return {
+    elegir: () => campo.current?.click(),
+    input,
+    estado,
+    limpia: () => setEstado(null),
+    pendiente,
+    colocar: (km: number) => void resuelve({ km }),
+    sinSitio: () => void resuelve(null),
+    cancelar: () => setPendiente(null),
+    recolocar: (foto: EventFoto) => setPendiente({ modo: 'recolocar', foto, sugerido: null }),
+  }
+}
+
+/**
+ * ¿Dónde se hizo? Un deslizador por el recorrido, con atajos a sus puntos con
+ * nombre, y el 📷 del mapa siguiéndolo (`onPrevia`). Abajo y sin tapar el mapa,
+ * que es donde se ve si el sitio es el bueno.
+ */
+export function ElegirSitio({ pendiente, totalKm, puntos, onPrevia, onColocar, onSinSitio, onCancelar }: {
+  pendiente: Pendiente
+  /** Largo del recorrido; null si la carrera no tiene recorrido cargado. */
+  totalKm: number | null
+  puntos: PuntoDelRecorrido[]
+  onPrevia: (km: number | null) => void
+  onColocar: (km: number) => void
+  onSinSitio: () => void
+  onCancelar: () => void
+}) {
+  const inicial = Math.max(0, Math.min(totalKm ?? 0,
+    pendiente.modo === 'recolocar' ? pendiente.foto.km ?? pendiente.sugerido ?? 0 : pendiente.sugerido ?? 0))
+  const [km, setKm] = useState(inicial)
+  useEffect(() => { onPrevia(totalKm === null ? null : km) }, [km, totalKm, onPrevia])
+  useEffect(() => () => onPrevia(null), [onPrevia])
+
+  const cerca = cercaDe(km, puntos)
+  const atajos = puntos.filter((p) => p.km != null && totalKm !== null && p.km <= totalKm + 0.5)
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-[2600] rounded-t-2xl border-t border-slate-700 bg-slate-900/95 px-4 pt-3 shadow-2xl backdrop-blur"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}
+    >
+      <div className="mx-auto max-w-lg">
+        <p className="text-sm font-semibold text-slate-100">
+          {pendiente.modo === 'nueva' ? '¿Dónde se hizo la foto?' : 'Recolocar la foto'}
+        </p>
+        <p className="mt-0.5 text-[11px] leading-snug text-slate-400">
+          {pendiente.modo === 'nueva' && 'No trae ubicación. '}
+          Muévela por el recorrido hasta donde se hizo: el 📷 del mapa te sigue.
+          {pendiente.sugerido !== null && ' Empieza donde ibas a la hora de la foto.'}
+        </p>
+
+        {totalKm !== null ? (
+          <>
+            <div className="mt-3 flex items-baseline justify-between gap-3">
+              <span className="shrink-0 text-2xl font-black tabular-nums text-slate-50">km {km.toFixed(1)}</span>
+              <span className="truncate text-xs text-slate-400">{cerca ? `cerca de ${cerca.name}` : ''}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={totalKm}
+              step={0.1}
+              value={km}
+              onChange={(e) => setKm(Number(e.target.value))}
+              aria-label="Kilómetro del recorrido donde se hizo la foto"
+              className="mt-2 w-full accent-sky-500"
+            />
+            {atajos.length > 0 && (
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                {atajos.map((p) => (
+                  <button
+                    key={`${p.name}-${p.km}`}
+                    onClick={() => setKm(Math.min(totalKm, p.km!))}
+                    className="shrink-0 rounded-full border border-slate-700 px-2.5 py-1 text-[11px] text-slate-300 hover:border-sky-600"
+                  >
+                    {p.name} · {p.km!.toFixed(1)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="mt-3 text-xs text-slate-400">Esta carrera no tiene recorrido cargado: la foto solo puede ir sin sitio.</p>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {totalKm !== null && (
+            <button onClick={() => onColocar(km)} className="flex-1 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500">
+              Colocar aquí
+            </button>
+          )}
+          <button onClick={onSinSitio} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300">
+            No sé dónde
+          </button>
+          <button onClick={onCancelar} className="rounded-lg px-3 py-2 text-sm text-slate-500">
+            Cancelar
+          </button>
+        </div>
+        <p className="mt-2 text-[10px] text-slate-500">Sin sitio la foto no sale en el mapa: se ve en «Ver las fotos».</p>
+      </div>
+    </div>
+  )
 }
 
 /** Cómo va la subida, en una pastilla abajo. */
 export function AvisoSubida({ estado, onCerrar }: { estado: EstadoSubida; onCerrar: () => void }) {
   if (!estado) return null
   const texto = 'fase' in estado
-    ? estado.fase === 'preparando' ? 'Preparando la foto…' : estado.fase === 'ubicando' ? 'Buscando dónde estás…' : 'Subiendo la foto…'
-    : 'error' in estado ? estado.error : '📷 Foto añadida al mapa'
+    ? estado.fase === 'preparando' ? 'Preparando la foto…' : 'Guardando la foto…'
+    : 'error' in estado ? estado.error : estado.hecho
   return (
     <div className="pointer-events-none fixed inset-x-0 z-[2500] flex justify-center px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)' }}>
       <div className={`pointer-events-auto flex max-w-sm items-center gap-2 rounded-full border px-3 py-2 text-xs shadow-xl backdrop-blur ${

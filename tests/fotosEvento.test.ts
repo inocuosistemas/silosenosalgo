@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { juntaFotos, paraEnviar, type FotoSinUrl } from '../functions/lib/fotosEvento'
 
 const foto = (id: string, at: number, origen: 'nota' | 'subida' = 'nota'): FotoSinUrl => ({
-  id, origen, autorId: 'u1', username: 'JM', at, lat: 42.7, lon: -0.5, km: null, texto: null,
+  id, origen, autorId: 'u1', username: 'JM', at, lat: 42.7, lon: -0.5, km: null, posicion: 'foto', texto: null,
 })
 
 describe('juntaFotos', () => {

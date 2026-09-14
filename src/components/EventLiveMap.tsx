@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CargandoMarca } from './CargandoMarca'
-import { CapaFotos, VisorFotos, AvisoSubida, useFotosDelEvento, useSubirFoto } from './EventFotos'
+import { CapaFotos, VisorFotos, AvisoSubida, ElegirSitio, iconoFotoPrevia, useFotosDelEvento, useSubirFoto } from './EventFotos'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
@@ -232,6 +232,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const { fotos, recarga: recargaFotos } = useFotosDelEvento(source.kind === 'demo' ? null : source)
   const [fotoAbierta, setFotoAbierta] = useState<number | null>(null)
   const subida = useSubirFoto(source.kind === 'member' ? source.id : null, () => void recargaFotos())
+  /** El km donde se está colocando una foto, para que su 📷 lo siga por el mapa. */
+  const [previaFotoKm, setPreviaFotoKm] = useState<number | null>(null)
   const [betsEnabled, setBetsEnabled] = useState(false)
   /** De qué va la carrera: caminata, carrera o bici. */
   const [actividad, setActividad] = useState<string | null>(null)
@@ -1188,6 +1190,18 @@ export default function EventLiveMap({ source }: { source: Source }) {
       <Confeti activo={festejar} />
       {subida.input}
       <AvisoSubida estado={subida.estado} onCerrar={subida.limpia} />
+      {subida.pendiente && (
+        <ElegirSitio
+          key={subida.pendiente.modo === 'nueva' ? 'nueva' : subida.pendiente.foto.id}
+          pendiente={subida.pendiente}
+          totalKm={route?.totalKm ?? null}
+          puntos={pois}
+          onPrevia={setPreviaFotoKm}
+          onColocar={subida.colocar}
+          onSinSitio={subida.sinSitio}
+          onCancelar={subida.cancelar}
+        />
+      )}
       {fotoAbierta !== null && fotos[fotoAbierta] && (
         <VisorFotos
           fotos={fotos}
@@ -1196,6 +1210,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           onCierra={() => setFotoAbierta(null)}
           eventId={source.kind === 'member' ? source.id : null}
           kmDe={route ? (lat, lon) => projectKm(lat, lon, route) : undefined}
+          onRecolocar={source.kind === 'member' ? (f) => { setFotoAbierta(null); subida.recolocar(f) } : undefined}
           onBorrada={() => { setFotoAbierta(null); void recargaFotos() }}
         />
       )}
@@ -1400,6 +1415,16 @@ export default function EventLiveMap({ source }: { source: Source }) {
             />
           )}
           <CapaFotos fotos={fotos} onAbrir={setFotoAbierta} />
+          {/* Mientras se elige dónde se hizo una foto, su 📷 va al km elegido y el mapa lo sigue. */}
+          {previaFotoKm !== null && route && (() => {
+            const p = coordsAtKm(route, previaFotoKm)
+            return p && (
+              <>
+                <Marker position={p} icon={iconoFotoPrevia} zIndexOffset={2000} interactive={false} />
+                <FollowRunner lat={p[0]} lon={p[1]} onRelease={() => {}} />
+              </>
+            )
+          })()}
           <Encuadre points={posiciones} route={route?.pts} esperaRuta={hayRuta && !route} />
         </MapContainer>
       ) : (
@@ -1614,6 +1639,20 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   >
                     <span>📈</span>
                     <span>{profileOpen ? 'Ocultar el perfil' : 'Ver el perfil'}</span>
+                  </button>
+                )}
+                {fotos.length > 0 && (
+                  <button
+                    onClick={() => { setOpcionesAbiertas(false); setFotoAbierta(0) }}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    <span>🖼️</span>
+                    <span>
+                      Ver las fotos ({fotos.length})
+                      {fotos.some((f) => f.lat === null) && (
+                        <span className="mt-0.5 block text-[10px] text-slate-500">También las que no tienen sitio en el mapa.</span>
+                      )}
+                    </span>
                   </button>
                 )}
                 {source.kind === 'member' && user && (

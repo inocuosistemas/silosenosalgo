@@ -782,17 +782,8 @@ export async function leeStats(env: Env, id: string, crudos: string | null): Pro
 }
 
 
-/**
- * Cuándo pasó alguien por un kilómetro del recorrido, según su traza.
- *
- * Sirve para poner hora a un abandono que se marca señalando el sitio: quien
- * organiza recuerda dónde lo dejó —"en Canfranc Pueblo"— mucho mejor que a qué
- * hora, y a qué hora lo sabe su GPS. Nulo si no hay traza, no hay trazado, o
- * nunca llegó a ese punto.
- */
-export async function cuandoPasoPorKm(
-  env: Env, eventId: string, userId: string, km: number | null,
-): Promise<number | null> {
+/** El avance sobre el recorrido de la traza de alguien en este evento. */
+async function avanceDeUsuario(env: Env, eventId: string, userId: string): Promise<Avance | null> {
   const linea = await leePolilinea(env, eventId)
   if (!linea) return null
   const row = await env.DB.prepare(
@@ -809,9 +800,33 @@ export async function cuandoPasoPorKm(
   } catch { return null }
   pts.sort((a, b) => a.t - b.t)
   const limpios = sinSaltos(pts, row.activity)
-  const avance = avanceSobreRuta(linea, limpios.length >= 2 ? limpios : pts, limitesDe(row.activity).maxKmh)
+  return avanceSobreRuta(linea, limpios.length >= 2 ? limpios : pts, limitesDe(row.activity).maxKmh)
+}
+
+/**
+ * Cuándo pasó alguien por un kilómetro del recorrido, según su traza.
+ *
+ * Sirve para poner hora a un abandono que se marca señalando el sitio: quien
+ * organiza recuerda dónde lo dejó —"en Canfranc Pueblo"— mucho mejor que a qué
+ * hora, y a qué hora lo sabe su GPS. Nulo si no hay traza, no hay trazado, o
+ * nunca llegó a ese punto.
+ */
+export async function cuandoPasoPorKm(
+  env: Env, eventId: string, userId: string, km: number | null,
+): Promise<number | null> {
+  const avance = await avanceDeUsuario(env, eventId, userId)
   if (!avance) return null
   return momentoEnLaTraza(avance.serie, avance.enMs, km)
+}
+
+/**
+ * Por qué kilómetro iba alguien a una hora dada, según su traza: lo más lejos
+ * que había llegado hasta entonces. Sirve para proponer dónde se hizo una foto
+ * que no trae ubicación, sabiendo cuándo se hizo.
+ */
+export async function kmEnElMomento(env: Env, eventId: string, userId: string, ms: number): Promise<number | null> {
+  const avance = await avanceDeUsuario(env, eventId, userId)
+  return avance ? kmAlcanzadoEn(avance.serie, ms) : null
 }
 
 /**
