@@ -3,6 +3,7 @@
  * de `fetch` que nunca lanza excepciones de red crudas y traduce el código del
  * servidor a un mensaje en español.
  */
+import type { EventFoto, EventFotosResponse } from '../../shared/wireTypes'
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
 import { simplificaTrazado } from './eventPlan'
@@ -187,13 +188,13 @@ export async function recomputeEventStats(id: string): Promise<void> {
  * Guarda el evento ahora: el replay de todos, el recorrido y la foto, sin
  * caducidad. Solo quien organiza, y con la carrera cerrada.
  */
-export async function guardaEvento(id: string): Promise<{ archivedAt: number; corredores: number }> {
+export async function guardaEvento(id: string): Promise<{ archivedAt: number; corredores: number; fotos: number }> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/archivo`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
   })
   if (!res.ok) throw errFrom(res)
-  return res.json() as Promise<{ archivedAt: number; corredores: number }>
+  return res.json() as Promise<{ archivedAt: number; corredores: number; fotos: number }>
 }
 
 /**
@@ -570,4 +571,41 @@ export function eventsErrorMessage(code: string): string {
     case 'rate_limited': return 'Demasiados intentos. Espera un poco.'
     default: return 'No se pudo completar la operación. Revisa tu conexión.'
   }
+}
+
+/** Las fotos del evento para su mapa: las de las notas de las balizas y las subidas. */
+export async function getEventFotos(
+  source: { kind: 'member'; id: string } | { kind: 'public'; token: string },
+): Promise<EventFoto[]> {
+  const url = source.kind === 'member'
+    ? `/api/events/${encodeURIComponent(source.id)}/fotos`
+    : `/api/events/public/${encodeURIComponent(source.token)}/fotos`
+  const res = await fetchSafe(url, { credentials: 'same-origin', cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return ((await res.json()) as EventFotosResponse).fotos
+}
+
+/** Sube una foto al evento: el JPEG ya comprimido y dónde y cuándo se hizo. */
+export async function subeFotoEvento(
+  id: string,
+  jpeg: Blob,
+  meta: { lat: number; lon: number; tomadaEn: number | null; texto: string | null },
+): Promise<string> {
+  const q = new URLSearchParams({ lat: String(meta.lat), lon: String(meta.lon) })
+  if (meta.tomadaEn) q.set('at', String(meta.tomadaEn))
+  if (meta.texto) q.set('texto', meta.texto)
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/fotos?${q}`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'image/jpeg' }, body: jpeg,
+  })
+  if (!res.ok) throw errFrom(res)
+  return ((await res.json()) as { id: string }).id
+}
+
+/** Borra una foto subida al evento (quien la subió u organiza). */
+export async function borraFotoEvento(id: string, fotoId: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/fotos/${encodeURIComponent(fotoId)}`, {
+    method: 'DELETE', credentials: 'same-origin',
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
 }

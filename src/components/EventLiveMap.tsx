@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CargandoMarca } from './CargandoMarca'
+import { CapaFotos, VisorFotos, AvisoSubida, useFotosDelEvento, useSubirFoto } from './EventFotos'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/AuthContext'
@@ -223,6 +224,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
    * fuera es justo quien juega.
    */
   const [eventId, setEventId] = useState<string | null>(source.kind === 'member' ? source.id : null)
+  /**
+   * Las fotos del evento: las de las notas de las balizas y las que se suben
+   * desde aquí. Las ve quien mira el evento, también por el enlace público; las
+   * sube quien participa. La demo no tiene. Ver `EventFotos`.
+   */
+  const { fotos, recarga: recargaFotos } = useFotosDelEvento(source.kind === 'demo' ? null : source)
+  const [fotoAbierta, setFotoAbierta] = useState<number | null>(null)
+  const subida = useSubirFoto(source.kind === 'member' ? source.id : null, () => void recargaFotos())
   const [betsEnabled, setBetsEnabled] = useState(false)
   /** De qué va la carrera: caminata, carrera o bici. */
   const [actividad, setActividad] = useState<string | null>(null)
@@ -1177,6 +1186,19 @@ export default function EventLiveMap({ source }: { source: Source }) {
   return (
     <div className={`relative h-[100dvh] w-full bg-slate-950 ${view === 'mapa' ? '' : 'flex flex-col'}`}>
       <Confeti activo={festejar} />
+      {subida.input}
+      <AvisoSubida estado={subida.estado} onCerrar={subida.limpia} />
+      {fotoAbierta !== null && fotos[fotoAbierta] && (
+        <VisorFotos
+          fotos={fotos}
+          indice={fotoAbierta}
+          onCambia={setFotoAbierta}
+          onCierra={() => setFotoAbierta(null)}
+          eventId={source.kind === 'member' ? source.id : null}
+          kmDe={route ? (lat, lon) => projectKm(lat, lon, route) : undefined}
+          onBorrada={() => { setFotoAbierta(null); void recargaFotos() }}
+        />
+      )}
       {view === 'mapa' && !mapaListo ? (
         <CargandoMarca texto={runners === null ? 'Cargando la carrera…' : 'Cargando el recorrido…'} />
       ) : view === 'mapa' ? (
@@ -1377,6 +1399,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               onRelease={() => setFollowing(null)}
             />
           )}
+          <CapaFotos fotos={fotos} onAbrir={setFotoAbierta} />
           <Encuadre points={posiciones} route={route?.pts} esperaRuta={hayRuta && !route} />
         </MapContainer>
       ) : (
@@ -1591,6 +1614,22 @@ export default function EventLiveMap({ source }: { source: Source }) {
                   >
                     <span>📈</span>
                     <span>{profileOpen ? 'Ocultar el perfil' : 'Ver el perfil'}</span>
+                  </button>
+                )}
+                {source.kind === 'member' && user && (
+                  <button
+                    // Se abre el selector DENTRO del toque: fuera de un gesto del
+                    // usuario, el navegador no deja abrirlo.
+                    onClick={() => { setOpcionesAbiertas(false); subida.elegir() }}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    <span>📷</span>
+                    <span>
+                      Añadir una foto
+                      <span className="mt-0.5 block text-[10px] text-slate-500">
+                        Sale en el mapa donde se hizo, para todos los que siguen el evento.
+                      </span>
+                    </span>
                   </button>
                 )}
               </div>

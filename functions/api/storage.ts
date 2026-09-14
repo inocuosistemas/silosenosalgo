@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import { cupoBytes, usoBytes } from '../lib/cuota'
 import type { Env } from '../lib/db'
 import { json } from '../lib/http'
 import { getSessionUser } from '../lib/session'
@@ -15,22 +16,12 @@ import type { StorageInfo } from '../../shared/wireTypes'
  * only — uploads aren't blocked here (the per-file cap in media.ts still applies).
  */
 
-const DEFAULT_QUOTA_BYTES = 100 * 1024 * 1024
-
-function quotaBytes(env: Env): number {
-  const n = parseInt(env.MEDIA_QUOTA_BYTES ?? '', 10)
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_QUOTA_BYTES
-}
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const row = await env.DB.prepare(
-    `SELECT COALESCE(SUM(COALESCE(audio_bytes, 0) + COALESCE(photo_bytes, 0)), 0) AS used
-       FROM track_notes WHERE owner_user_id = ?`,
-  ).bind(user.id).first<{ used: number }>()
-
-  const body: StorageInfo = { usedBytes: row?.used ?? 0, quotaBytes: quotaBytes(env) }
+  // Lo de sus notas de baliza y lo que ha subido a eventos, sumado. Ver `lib/cuota`.
+  const body: StorageInfo = { usedBytes: await usoBytes(env, user.id), quotaBytes: cupoBytes(env) }
   return json(body)
 }

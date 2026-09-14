@@ -2,6 +2,7 @@
 import type { Env } from './db'
 import type { EventReplay } from '../../shared/wireTypes'
 import { construyeReplay } from './replay'
+import { archivaFotosDeNotas } from './fotosEvento'
 
 /**
  * lib/archivo.ts — guardar un evento para siempre.
@@ -63,13 +64,16 @@ export async function replayDelEvento(env: Env, eventId: string): Promise<EventR
 }
 
 /**
- * Guarda el evento: copia sin caducidad del replay, el recorrido y la foto.
+ * Guarda el evento: copia sin caducidad del replay, el recorrido, la foto del
+ * evento y las fotos de las notas de las balizas.
  *
  * Se llama solo al cerrar la carrera —con los resultados recién hechos, que es
  * cuando todavía está todo— y a mano desde la parrilla, para repetirlo tras una
  * corrección o para guardar un evento cerrado antes de que esto existiera.
  */
-export async function guardaEvento(env: Env, eventId: string): Promise<{ archivedAt: number; corredores: number }> {
+export async function guardaEvento(
+  env: Env, eventId: string,
+): Promise<{ archivedAt: number; corredores: number; fotos: number }> {
   const ev = await env.DB.prepare('SELECT plan_share_id AS planShareId, photo_key AS photoKey FROM events WHERE id = ?')
     .bind(eventId).first<{ planShareId: string | null; photoKey: string | null }>()
   if (!ev) throw new Error('not_found')
@@ -87,7 +91,10 @@ export async function guardaEvento(env: Env, eventId: string): Promise<{ archive
     if (foto) await env.SHARE_KV.put(claveArchivo.foto(eventId), foto)
   }
 
+  // Y las fotos de las notas de las balizas, que caducan con ellas a los 60 días.
+  const fotos = await archivaFotosDeNotas(env, eventId)
+
   const archivedAt = Date.now()
   await env.DB.prepare('UPDATE events SET archived_at = ? WHERE id = ?').bind(archivedAt, eventId).run()
-  return { archivedAt, corredores: replay.runners.length }
+  return { archivedAt, corredores: replay.runners.length, fotos }
 }

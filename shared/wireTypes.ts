@@ -962,3 +962,30 @@ export interface StorageInfo {
   /** Per-user soft budget in bytes (informational; uploads aren't blocked). */
   quotaBytes: number
 }
+
+/**
+ * Una foto del evento, en su mapa. Sale de las notas con foto de las balizas de
+ * los participantes o de las subidas desde la página del evento.
+ */
+export interface EventFoto {
+  /** `n_<nota>` si es de una baliza, `s_<id>` si se subió al evento. */
+  id: string
+  origen: 'nota' | 'subida'
+  username: string
+  /** Cuándo se hizo (epoch ms). */
+  at: number
+  lat: number
+  lon: number
+  /** Km del recorrido, si se sabe: las notas lo traen. */
+  km: number | null
+  texto: string | null
+  /** De dónde se descarga. */
+  url: string
+  /** Quien mira la puede borrar: la subió él, o organiza. */
+  borrable?: boolean
+}
+
+/** GET /api/events/:id/fotos y /api/events/public/:token/fotos. */
+export interface EventFotosResponse {
+  fotos: EventFoto[]
+}
