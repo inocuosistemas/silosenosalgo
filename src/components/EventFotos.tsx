@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Marker } from 'react-leaflet'
+import { Marker, Pane, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import {
   getEventFotos, subeFotoEvento, borraFotoEvento, recolocaFotoEvento, sugiereKmFoto, EventsError,
@@ -7,6 +7,7 @@ import {
 import { leeExif } from '../lib/fotoExif'
 import { comprimeFoto } from '../lib/comprimeFoto'
 import { cercaDe, type PuntoDelRecorrido } from '../lib/fotoSitio'
+import { agrupaFotos } from '../lib/agrupaFotos'
 import type { EventFoto } from '../../shared/wireTypes'
 
 /**
@@ -77,8 +78,9 @@ const MINIATURAS_HASTA = 40
 const iconosDeFoto = new Map<string, L.DivIcon>()
 
 /**
- * El 📷 de una foto en el mapa: la propia foto en miniatura, con marco blanco,
- * sombra y un pico que apunta al sitio exacto, y un distintivo azul de cámara.
+ * El icono de una foto en el mapa: la propia foto en miniatura, con marco
+ * blanco, sombra y un pico que apunta al sitio exacto, y un distintivo azul en la
+ * esquina: una cámara, o cuántas fotos hay si son varias juntas.
  *
  * Era un circulito oscuro con un emoji y, sobre el tramo ya recorrido —que va en
  * pizarra oscura—, desaparecía. La miniatura dice de un vistazo que ahí hay una
@@ -86,19 +88,22 @@ const iconosDeFoto = new Map<string, L.DivIcon>()
  * sea de noche y salga negra. Se guardan hechos: rehacer el icono en cada
  * refresco haría parpadear la miniatura.
  */
-function iconoDeFoto(url: string | null): L.DivIcon {
-  const clave = url ?? ''
+function iconoDeFoto(url: string | null, cuantas: number): L.DivIcon {
+  const clave = `${url ?? ''}|${cuantas}`
   const hecho = iconosDeFoto.get(clave)
   if (hecho) return hecho
   const dentro = url
     ? `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a url('${url.replace(/'/g, '%27')}') center/cover no-repeat"></div>`
     : `<div style="width:36px;height:36px;border-radius:7px;background:#0f172a;display:grid;place-items:center">${CAMARA_SVG(18)}</div>`
+  const distintivo = cuantas > 1
+    ? `<span style="font:800 11px system-ui,-apple-system,sans-serif;color:#f8fafc;line-height:1">${cuantas}</span>`
+    : CAMARA_SVG(11)
   const icono = L.divIcon({
     className: '',
     html: `<div style="position:relative;width:42px;height:50px;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.55))">
       <div style="position:absolute;left:0;top:0;width:42px;height:42px;box-sizing:border-box;border-radius:10px;background:#f8fafc;padding:3px">${dentro}</div>
       <div style="position:absolute;left:14px;top:40px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #f8fafc"></div>
-      <div style="position:absolute;right:-7px;top:-7px;width:21px;height:21px;box-sizing:border-box;border-radius:9999px;background:#0284c7;border:2px solid #f8fafc;display:grid;place-items:center">${CAMARA_SVG(11)}</div>
+      <div style="position:absolute;right:-7px;top:-7px;min-width:21px;height:21px;box-sizing:border-box;padding:0 4px;border-radius:9999px;background:#0284c7;border:2px solid #f8fafc;display:grid;place-items:center">${distintivo}</div>
     </div>`,
     iconSize: [42, 50],
     // El pico, y no el centro, es el sitio de la foto.
@@ -108,22 +113,52 @@ function iconoDeFoto(url: string | null): L.DivIcon {
   return icono
 }
 
-/** Las fotos en el mapa, solo las que tienen sitio. Por debajo de los corredores. */
+/** A cuántos píxeles dos fotos ya se pisan: casi el ancho de la miniatura. */
+const RADIO_GRUPO_PX = 34
+
+/**
+ * Las fotos en el mapa, solo las que tienen sitio.
+ *
+ * En su PROPIA CAPA, por encima de los rótulos de los puntos del recorrido. En la
+ * de marcadores de Leaflet los rótulos quedan encima, y una foto junto a un
+ * control salía cruzada por "CF0230 · km 16.0 · cierra 02:30". Los corredores
+ * van en una capa aún más alta (ver EventLiveMap): en carrera, lo primero sigue
+ * siendo quién va dónde.
+ *
+ * Y las que se pisan en pantalla van juntas en un solo icono con su número
+ * (`agrupaFotos`): tocarlo abre la primera y ‹ › recorren el resto. Se rehace al
+ * cambiar el zoom, que es cuando se juntan o se separan.
+ */
 export function CapaFotos({ fotos, onAbrir }: { fotos: EventFoto[]; onAbrir: (indice: number) => void }) {
-  const conMiniatura = fotos.filter((f) => f.lat !== null).length <= MINIATURAS_HASTA
+  const map = useMap()
+  const [zoom, setZoom] = useState(() => map.getZoom())
+  useMapEvents({ zoomend: () => setZoom(map.getZoom()) })
+
+  const conSitio = fotos.flatMap((f, indice) => (f.lat === null || f.lon === null ? [] : [{ f, indice }]))
+  const conMiniatura = conSitio.length <= MINIATURAS_HASTA
+  const grupos = agrupaFotos(
+    conSitio.map(({ f, indice }) => {
+      const p = map.project([f.lat!, f.lon!], zoom)
+      return { indice, x: p.x, y: p.y }
+    }),
+    RADIO_GRUPO_PX,
+  )
+
   return (
-    <>
-      {fotos.map((f, i) => (f.lat === null || f.lon === null ? null : (
-        <Marker
-          key={f.id}
-          position={[f.lat, f.lon]}
-          icon={iconoDeFoto(conMiniatura ? f.url : null)}
-          zIndexOffset={-500}
-          title={`Foto de ${f.username}`}
-          eventHandlers={{ click: () => onAbrir(i) }}
-        />
-      )))}
-    </>
+    <Pane name="fotos" style={{ zIndex: 655 }}>
+      {grupos.map((g) => {
+        const f = fotos[g[0]]
+        return (
+          <Marker
+            key={`${f.id}·${g.length}`}
+            position={[f.lat!, f.lon!]}
+            icon={iconoDeFoto(conMiniatura ? f.url : null, g.length)}
+            title={g.length > 1 ? `${g.length} fotos` : `Foto de ${f.username}`}
+            eventHandlers={{ click: () => onAbrir(g[0]) }}
+          />
+        )
+      })}
+    </Pane>
   )
 }
 

@@ -1273,6 +1273,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
             </CircleMarker>
           ))}
 
+          {/* Los corredores, en una capa por encima de las fotos: en carrera lo
+              primero es quién va dónde, y una miniatura no puede taparlo. */}
+          <CapaAlta nombre="corredores" z={665} />
           {withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
@@ -1373,6 +1376,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
                 <Marker
                   position={punto}
                   icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji)}
+                  pane="corredores"
                   eventHandlers={{
                     click: () => setSelected(isSel ? null : key),
                     // Señalar aquí lo enciende en el perfil, y al revés: son la
@@ -2719,6 +2723,23 @@ function FollowRunner({ lat, lon, onRelease }: { lat: number; lon: number; onRel
     map.on('dragstart', soltar)
     return () => { map.off('dragstart', soltar) }
   }, [map, onRelease])
+  return null
+}
+
+/**
+ * Una capa de Leaflet con su altura, creada ANTES de que la usen los marcadores.
+ *
+ * Leaflet apila por capas: los rótulos (650) encima de los marcadores (600). Las
+ * fotos van en la suya a 655 para que los rótulos no las crucen, y los
+ * corredores en esta, más arriba, para que ninguna foto los tape. Se crea en la
+ * primera pintada, que es antes de que se monte ningún marcador que la nombre.
+ */
+function CapaAlta({ nombre, z }: { nombre: string; z: number }) {
+  const map = useMap()
+  useState(() => {
+    if (!map.getPane(nombre)) map.createPane(nombre).style.zIndex = String(z)
+    return null
+  })
   return null
 }
 
