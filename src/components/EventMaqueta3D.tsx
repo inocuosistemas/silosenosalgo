@@ -5,11 +5,11 @@ import { Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-reac
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
   LADO_MOSAICO, aligera, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, reduceRejilla, rejillaDeMaqueta, sitioEnMaqueta, sitiosDeArboles,
+  casasDeLugar, mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta, sitiosDeArboles,
   type Escala, type Malla, type Mosaico, type Rejilla, type Rgb,
 } from '../lib/maqueta3d'
-import { cargaMosaicosOsm, mascaraDeOsm } from '../lib/maquetaMascara'
-import { codificaPaquete, decodificaPaquete } from '../../shared/maquetaPaquete'
+import { capasDeOsm, cargaMosaicosOsm } from '../lib/maquetaMascara'
+import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta } from '../../shared/maquetaPaquete'
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
@@ -50,6 +50,12 @@ const NODOS_PAQUETE = 384
 /** Los árboles: uno como mucho por celda de tantos nodos, y hasta tantos. */
 const CELDA_ARBOL = TACTIL ? 5 : 4
 const ARBOLES_MAX = TACTIL ? 1200 : 3000
+/** Las poblaciones: cuántas casas y en qué radio (unidades de loseta) según
+ *  lo que sean, y a cuántas se les pone el nombre. */
+const CASAS: Record<ClaseLugar, number> = { city: 22, town: 12, village: 6, hamlet: 3 }
+const RADIO_LUGAR: Record<ClaseLugar, number> = { city: 0.06, town: 0.036, village: 0.022, hamlet: 0.012 }
+const ROTULOS_MAX = TACTIL ? 16 : 30
+const CLASE_ES: Record<ClaseLugar, string> = { city: 'ciudad', town: 'pueblo', village: 'pueblo', hamlet: 'aldea' }
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -60,6 +66,8 @@ interface Terreno {
   alturas: Float32Array
   /** Agua y bosque por nodo (ver `shared/maquetaPaquete`). */
   mascara: Uint8Array
+  /** Las poblaciones de la caja, de más a menos importante. */
+  lugares: LugarMaqueta[]
   escala: Escala
   malla: Malla
   /** Mosaicos que no llegaron: ahí la loseta es mar. */
@@ -142,10 +150,11 @@ async function calculaPaquete(ruta: [number, number][], cotas: RangoAlturas | nu
   })
   if (faltan === lista.length) return null
   const alturas = muestreaAlturas(rejilla, mosaicos)
-  const mascara = osm ? mascaraDeOsm(rejilla, osm) : new Uint8Array(alturas.length)
+  const capas = osm ? capasDeOsm(rejilla, osm) : null
+  const mascara = capas?.mascara ?? new Uint8Array(alturas.length)
   // Pasa por el mismo formato que el guardado: así todos ven las mismas
   // alturas, redondeadas igual.
-  const bytes = codificaPaquete({ rejilla, cotas, faltan, conMapa: osm !== null }, alturas, mascara)
+  const bytes = codificaPaquete({ rejilla, cotas, faltan, conMapa: osm !== null, lugares: capas?.lugares ?? [] }, alturas, mascara)
   if (planId && faltan === 0 && osm) subePaquete(planId, bytes)
   return decodificaPaquete(bytes)
 }
@@ -168,7 +177,10 @@ function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null, 
       const escala = escalaDeMaqueta(rejilla, min, exageracionMaqueta(largoEnMetros(rejilla), max - min), GROSOR)
       // Sin cotas del GPX, las de la propia loseta: mejor que una montaña fija.
       const rango = cotas ?? paquete.cabecera.cotas ?? (max - min >= 100 ? { min, max } : null)
-      return { rejilla, alturas, mascara, escala, malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO, mascara), faltan: paquete.cabecera.faltan }
+      return {
+        rejilla, alturas, mascara, lugares: paquete.cabecera.lugares, escala,
+        malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO, mascara), faltan: paquete.cabecera.faltan,
+      }
     })()
     p.then((t) => { if (!t) terrenos.delete(k) })
     terrenos.set(k, p)
@@ -192,6 +204,9 @@ interface Escena {
   sucio: boolean
   /** Una ida de cámara en marcha (a vista de pájaro, o de vuelta). */
   viaje: { desde: THREE.Vector3; hasta: THREE.Vector3; t0: number; ms: number } | null
+  /** A qué distancia quiere estar la cámara: el zoom se acerca a ella un
+   *  poco en cada fotograma, no de golpe con cada evento. */
+  distancia: number | null
 }
 
 /** Un lienzo a doble resolución, para que las chinchetas salgan nítidas. */
@@ -241,6 +256,48 @@ function dibujaFicha(c: Corredor3D, conEmoji: boolean, elegido: boolean): HTMLCa
     ctx.fillText(emoji, cx, cy + 2)
   }
   return lienzoFicha
+}
+
+/** El nombre de una población: en una pastilla oscura, sin palo. */
+function dibujaRotulo(texto: string): HTMLCanvasElement {
+  const fuente = '600 20px system-ui, -apple-system, sans-serif'
+  const medida = document.createElement('canvas').getContext('2d')!
+  medida.font = fuente
+  const ancho = Math.ceil(medida.measureText(texto).width) + 22
+  const [lienzoRotulo, ctx] = lienzo(ancho, 30)
+  ctx.font = fuente
+  ctx.fillStyle = 'rgba(15,23,42,0.88)'
+  ctx.beginPath()
+  ctx.roundRect(0, 0, ancho, 30, 8)
+  ctx.fill()
+  ctx.fillStyle = '#f8fafc'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(texto, ancho / 2, 16)
+  return lienzoRotulo
+}
+
+/**
+ * El nombre del evento tallado en el canto: mayúsculas de imprenta, hundidas
+ * —un filo claro abajo y a la derecha, como si la luz de arriba a la
+ * izquierda entrara en el surco—. Se encoge hasta que quepa.
+ */
+function dibujaInscripcion(texto: string): HTMLCanvasElement {
+  const [lienzoPlaca, ctx] = lienzo(1024, 64)
+  const t = texto.toUpperCase()
+  let tam = 44
+  const fuente = () => `700 ${tam}px Georgia, 'Times New Roman', serif`
+  const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
+  c.letterSpacing = '4px'
+  ctx.font = fuente()
+  while (ctx.measureText(t).width > 1024 * 0.9 && tam > 14) { tam -= 2; ctx.font = fuente() }
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = 'rgba(255,246,228,0.6)'
+  ctx.fillText(t, 512 + 1.6, 33 + 1.6)
+  ctx.fillStyle = 'rgba(46,32,20,0.88)'
+  ctx.fillText(t, 512, 33)
+  return lienzoPlaca
 }
 
 /** Un punto del recorrido: una bolita en un palo, naranja si tiene cierre. */
@@ -356,7 +413,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Nunca por debajo de la mesa.
     controls.maxPolarAngle = Math.PI / 2 - 0.04
     controls.rotateSpeed = 0.7
-    controls.zoomSpeed = 0.8
+    // El zoom no lo lleva OrbitControls: aplica cada evento tal cual llega,
+    // y en el móvil llegan a trompicones. Aquí el pellizco y la rueda fijan a
+    // qué distancia se quiere estar y la cámara va hacia ella suavizada.
+    controls.enableZoom = false
     controls.autoRotateSpeed = 2 * VUELTAS_POR_MIN
 
     // Luz de tarde, alta y desde el suroeste: a la izquierda de donde nace la
@@ -383,7 +443,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const chinchetas = new THREE.Group()
     scene.add(loseta, chinchetas)
 
-    const e: Escena = { renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null }
+    const e: Escena = { renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null }
     escena.current = e
 
     const mide = () => {
@@ -408,6 +468,15 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         camera.position.lerpVectors(e.viaje.desde, e.viaje.hasta, suave(t))
         if (t >= 1) e.viaje = null
         e.sucio = true
+      } else if (e.distancia !== null) {
+        const actual = camera.position.distanceTo(controls.target)
+        if (Math.abs(e.distancia - actual) < 1e-4) {
+          e.distancia = null
+        } else {
+          const nueva = actual + (e.distancia - actual) * 0.22
+          camera.position.sub(controls.target).multiplyScalar(nueva / actual).add(controls.target)
+          e.sucio = true
+        }
       }
       const movio = controls.update()
       if (movio || e.sucio) {
@@ -419,19 +488,54 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const alMover = () => setDesdeArriba(controls.getPolarAngle() < 0.35)
     controls.addEventListener('change', alMover)
 
-    // Tocar una chincheta: se distingue de arrastrar por lo que se movió el dedo.
+    // El zoom: la distancia a la que se quiere estar, que el bucle persigue.
+    const quiereDistancia = (factor: number) => {
+      const desde = e.distancia ?? camera.position.distanceTo(controls.target)
+      e.distancia = Math.min(controls.maxDistance, Math.max(controls.minDistance, desde * factor))
+    }
+    const rueda = (ev: WheelEvent) => {
+      ev.preventDefault()
+      const paso = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY
+      quiereDistancia(Math.exp(paso * 0.0015))
+    }
+    canvas.addEventListener('wheel', rueda, { passive: false })
+
+    // Los dedos en pantalla, para el pellizco; y tocar una chincheta, que se
+    // distingue de arrastrar y de pellizcar por lo que se movió el dedo.
     const rayo = new THREE.Raycaster()
+    const dedos = new Map<number, [number, number]>()
+    let separacion: number | null = null
     let bajada: [number, number] | null = null
-    const abajo = (ev: PointerEvent) => { bajada = [ev.clientX, ev.clientY] }
+    let pellizco = false
+    const abajo = (ev: PointerEvent) => {
+      if (ev.pointerType === 'touch') dedos.set(ev.pointerId, [ev.clientX, ev.clientY])
+      separacion = null
+      if (dedos.size <= 1) { bajada = [ev.clientX, ev.clientY]; pellizco = false }
+    }
+    const mueve = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'touch' || !dedos.has(ev.pointerId)) return
+      dedos.set(ev.pointerId, [ev.clientX, ev.clientY])
+      if (dedos.size !== 2) return
+      pellizco = true
+      const [a, b] = [...dedos.values()]
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1])
+      if (separacion && d > 0) quiereDistancia(separacion / d)
+      separacion = d
+    }
     const arriba = (ev: PointerEvent) => {
-      if (!bajada || Math.hypot(ev.clientX - bajada[0], ev.clientY - bajada[1]) > 8) return
+      dedos.delete(ev.pointerId)
+      separacion = null
+      if (pellizco || !bajada || Math.hypot(ev.clientX - bajada[0], ev.clientY - bajada[1]) > 8) return
       const r = canvas.getBoundingClientRect()
       rayo.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera)
       const tocado = rayo.intersectObjects(chinchetas.children, false)[0]?.object
       setElegido((tocado?.userData.key as string | undefined) ?? null)
     }
+    const suelta = (ev: PointerEvent) => { dedos.delete(ev.pointerId); separacion = null }
     canvas.addEventListener('pointerdown', abajo)
+    canvas.addEventListener('pointermove', mueve)
     canvas.addEventListener('pointerup', arriba)
+    canvas.addEventListener('pointercancel', suelta)
     // Con dos dedos, Safari intenta hacer zoom de la PÁGINA y se pelea con
     // la loseta: a tirones, y el visor entero se va de tamaño. Aquí los
     // dedos son solo para la maqueta, como hace MapLibre en el mapa.
@@ -445,8 +549,11 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       cancelAnimationFrame(cuadro)
       observador.disconnect()
       controls.removeEventListener('change', alMover)
+      canvas.removeEventListener('wheel', rueda)
       canvas.removeEventListener('pointerdown', abajo)
+      canvas.removeEventListener('pointermove', mueve)
       canvas.removeEventListener('pointerup', arriba)
+      canvas.removeEventListener('pointercancel', suelta)
       canvas.removeEventListener('touchstart', traga)
       canvas.removeEventListener('touchmove', traga)
       canvas.removeEventListener('gesturestart', gesto)
@@ -544,6 +651,37 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         troncos.castShadow = true
         e.loseta.add(copas, troncos)
       }
+
+      // Las poblaciones: un puñado de casitas alrededor de cada punto, más
+      // cuanto más grande sea el sitio. El nombre va aparte, con las chinchetas.
+      const casas = terreno.lugares.flatMap((l) => Array.from(casasDeLugar(
+        rejilla, alturas, terreno.mascara, escala, l, Math.round(CASAS[l.c] * (TACTIL ? 0.7 : 1)), RADIO_LUGAR[l.c],
+      )))
+      const nCasas = casas.length / 5
+      if (nCasas > 0) {
+        // Grandes para lo que son, como los árboles: si no, no se ven.
+        const caja = new THREE.BoxGeometry(0.011, 0.0085, 0.011)
+        caja.translate(0, 0.00425, 0)
+        const casitas = new THREE.InstancedMesh(caja, new THREE.MeshLambertMaterial({ color: 0xffffff }), nCasas)
+        const paredes = ['#efe6d6', '#e6d3b8', '#f3efe6', '#d9c3a3'].map((c) => new THREE.Color(c))
+        const matriz = new THREE.Matrix4()
+        const giro = new THREE.Quaternion()
+        const eje = new THREE.Vector3(0, 1, 0)
+        const sitio = new THREE.Vector3()
+        const tamano = new THREE.Vector3()
+        for (let k = 0; k < nCasas; k++) {
+          const t = casas[k * 5 + 4]
+          sitio.set(casas[k * 5], casas[k * 5 + 1], casas[k * 5 + 2])
+          giro.setFromAxisAngle(eje, casas[k * 5 + 3])
+          tamano.set(t, t * 0.9, t * (0.8 + (k % 3) * 0.2))
+          matriz.compose(sitio, giro, tamano)
+          casitas.setMatrixAt(k, matriz)
+          casitas.setColorAt(k, paredes[k % paredes.length])
+        }
+        casitas.castShadow = true
+        casitas.receiveShadow = true
+        e.loseta.add(casitas)
+      }
       e.renderer.shadowMap.needsUpdate = true
 
       // La cámara mira al centro de la loseta, a media altura del relieve, y
@@ -588,6 +726,21 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       }
     }
     puntos.forEach((p, i) => pon(dibujaPunto(p), 0.06, 0.12, p.lat, p.lon, `punto:${i}`))
+    // Los nombres de las poblaciones, de las más importantes: sobre sus
+    // casas, un poco por encima del suelo.
+    e.terreno.lugares.slice(0, ROTULOS_MAX).forEach((l, i) => {
+      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, l.u, l.v)
+      const c = dibujaRotulo(l.n)
+      const alto = 0.036
+      const s = chincheta(c, (alto * c.width) / c.height, alto, [x, y + 0.02, z])
+      // Un nombre se lee siempre, aunque haya un pino o una loma delante:
+      // por encima de todo y sin prueba de profundidad.
+      s.material.depthTest = false
+      s.renderOrder = 3
+      s.userData.key = `lugar:${i}`
+      e.chinchetas.add(s)
+      hechas.push(s)
+    })
     e.sucio = true
     return () => {
       for (const s of hechas) { e.chinchetas.remove(s); tira(s) }
@@ -642,6 +795,38 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     if (e) e.controls.autoRotate = girando
   }, [girando])
 
+  // El nombre del evento, tallado en el canto: en la pared sur, que es la que
+  // mira a la cámara al abrir, o en la este si la loseta es mucho más alta
+  // que ancha. A media altura del grosor que tiene seguro la base.
+  useEffect(() => {
+    const e = escena.current
+    const texto = nombre?.trim()
+    if (!e || estado !== 'lista' || !e.terreno || !texto) return
+    const { rejilla, escala } = e.terreno
+    const anchoU = rejilla.anchoPx * escala.u
+    const altoU = rejilla.altoPx * escala.u
+    const enSur = rejilla.anchoPx >= rejilla.altoPx * 0.8
+    const c = dibujaInscripcion(texto)
+    const ancho = Math.min((enSur ? anchoU : altoU) * 0.8, 1.3)
+    const placa = new THREE.Mesh(
+      new THREE.PlaneGeometry(ancho, (ancho * c.height) / c.width),
+      new THREE.MeshLambertMaterial({ map: texturaDe(c), transparent: true, polygonOffset: true, polygonOffsetFactor: -2 }),
+    )
+    const y = escala.base + GROSOR / 2
+    if (enSur) placa.position.set(0, y, altoU / 2 + 0.0015)
+    else {
+      placa.position.set(anchoU / 2 + 0.0015, y, 0)
+      placa.rotation.y = Math.PI / 2
+    }
+    e.loseta.add(placa)
+    e.sucio = true
+    return () => {
+      e.loseta.remove(placa)
+      tira(placa)
+      e.sucio = true
+    }
+  }, [nombre, estado])
+
   useEffect(() => {
     const t = window.setTimeout(() => setAyuda(false), 9000)
     return () => window.clearTimeout(t)
@@ -663,6 +848,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     esf.phi = polar
     const hasta = new THREE.Vector3().setFromSpherical(esf).add(e.controls.target)
     e.viaje = { desde, hasta, t0: performance.now(), ms: 900 }
+    e.distancia = null
   }
 
   const alternaGiro = () => {
@@ -694,6 +880,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     if (elegido.startsWith('punto:')) {
       const p = puntos[Number(elegido.slice(6))]
       return p ? `${p.nombre}${p.cierre ? ` · cierra ${p.cierre}` : ''}` : null
+    }
+    if (elegido.startsWith('lugar:')) {
+      const l = escena.current?.terreno?.lugares[Number(elegido.slice(6))]
+      return l ? `${l.n} · ${CLASE_ES[l.c]}` : null
     }
     if (elegido === 'extremo') return null
     const c = corredores.find((x) => x.key === elegido)

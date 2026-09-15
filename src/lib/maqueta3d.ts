@@ -1,6 +1,6 @@
 import { ZOOM_MAX_ALTURAS, metrosPorPixel } from './relieve'
 import { COLOR_AGUA, paradasMaqueta, type RangoAlturas } from './mapa3d'
-import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, type RejillaMaqueta } from '../../shared/maquetaPaquete'
+import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, type LugarMaqueta, type RejillaMaqueta } from '../../shared/maquetaPaquete'
 
 /** La rejilla de alturas de una maqueta: dónde cae en los mosaicos y cuántos
  *  nodos tiene. Vive en `shared` porque viaja en el paquete. */
@@ -484,6 +484,44 @@ export function sitiosDeArboles(r: Rejilla, alturas: Float32Array, mascara: Uint
     }
   }
   return new Float32Array(sitios.slice(0, tope * 4))
+}
+
+/** Dónde cae en la loseta una fracción de la caja (ver `LugarMaqueta`). */
+export function sitioDeFraccion(r: Rejilla, alturas: Float32Array, escala: Escala, u: number, v: number): [number, number, number] {
+  const px = r.x0 + u * r.anchoPx
+  const py = r.y0 + v * r.altoPx
+  return [escala.x(px), escala.y(alturaEn(r, alturas, px, py)), escala.z(py)]
+}
+
+/**
+ * Las casas de una población: `n` cajitas repartidas al azar —siempre el
+ * mismo— en un círculo de `radio` (unidades de la loseta) alrededor de su
+ * punto, cada una en el suelo, sin meterse en el agua. Devuelve, por casa,
+ * X, Y, Z, el giro (radianes) y el tamaño (de 0,8 a 1,25).
+ */
+export function casasDeLugar(r: Rejilla, alturas: Float32Array, mascara: Uint8Array, escala: Escala, lugar: LugarMaqueta, n: number, radio: number): Float32Array {
+  let semilla = 7 + Math.round(lugar.u * 100_003 + lugar.v * 10_007)
+  const azar = () => {
+    semilla = (semilla * 1103515245 + 12345) & 0x7fffffff
+    return semilla / 0x7fffffff
+  }
+  const [cx, , cz] = sitioDeFraccion(r, alturas, escala, lugar.u, lugar.v)
+  const salida: number[] = []
+  for (let k = 0; k < n * 3 && salida.length < n * 5; k++) {
+    // Más densas hacia el centro: raíz del azar para el radio.
+    const d = Math.sqrt(azar()) * radio
+    const a = azar() * Math.PI * 2
+    const x = cx + Math.cos(a) * d
+    const z = cz + Math.sin(a) * d
+    const px = escala.px(x)
+    const py = escala.py(z)
+    if (px < r.x0 || px > r.x0 + r.anchoPx || py < r.y0 || py > r.y0 + r.altoPx) continue
+    const i = Math.round(((px - r.x0) / r.anchoPx) * (r.cols - 1))
+    const j = Math.round(((py - r.y0) / r.altoPx) * (r.filas - 1))
+    if (mascara[j * r.cols + i] & (MASCARA_AGUA | MASCARA_RIO)) continue
+    salida.push(x, escala.y(alturaEn(r, alturas, px, py)), z, azar() * Math.PI, 0.8 + azar() * 0.45)
+  }
+  return new Float32Array(salida)
 }
 
 /** Como mucho `n` puntos, repartidos, con el primero y el último siempre. */

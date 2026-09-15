@@ -30,8 +30,20 @@ export interface RejillaMaqueta {
   mpp: number
 }
 
+export const CLASES_LUGAR = ['city', 'town', 'village', 'hamlet'] as const
+export type ClaseLugar = (typeof CLASES_LUGAR)[number]
+
+/** Una población: nombre, qué es, y dónde cae en la caja (de 0 a 1, de
+ *  oeste a este y de norte a sur), que así no depende de los nodos. */
+export interface LugarMaqueta {
+  n: string
+  c: ClaseLugar
+  u: number
+  v: number
+}
+
 export interface CabeceraMaqueta {
-  v: 1
+  v: 2
   rejilla: RejillaMaqueta
   alturaMin: number
   alturaMax: number
@@ -41,7 +53,11 @@ export interface CabeceraMaqueta {
   faltan: number
   /** Si la máscara lleva el agua y el bosque del mapa, o va vacía. */
   conMapa: boolean
+  /** Las poblaciones de la caja, de más a menos importante. */
+  lugares: LugarMaqueta[]
 }
+
+export const LUGARES_MAX = 80
 
 /** Los bits de la máscara. El mar no va aquí: sale de la altura cero. */
 export const MASCARA_AGUA = 1
@@ -61,7 +77,7 @@ export function codificaPaquete(
   let alturaMax = -Infinity
   for (const h of alturas) { if (h < alturaMin) alturaMin = h; if (h > alturaMax) alturaMax = h }
   if (!Number.isFinite(alturaMin)) { alturaMin = 0; alturaMax = 0 }
-  const cabecera = new TextEncoder().encode(JSON.stringify({ ...cab, v: 1, alturaMin, alturaMax } satisfies CabeceraMaqueta))
+  const cabecera = new TextEncoder().encode(JSON.stringify({ ...cab, v: 2, alturaMin, alturaMax } satisfies CabeceraMaqueta))
   const bytes = new Uint8Array(8 + cabecera.length + total * 3)
   const vista = new DataView(bytes.buffer)
   for (let i = 0; i < 4; i++) bytes[i] = MAGIA.charCodeAt(i)
@@ -87,7 +103,7 @@ export function validaPaquete(bytes: Uint8Array): CabeceraMaqueta | null {
   } catch {
     return null
   }
-  if (!cab || cab.v !== 1 || typeof cab.rejilla !== 'object' || cab.rejilla === null) return null
+  if (!cab || cab.v !== 2 || typeof cab.rejilla !== 'object' || cab.rejilla === null) return null
   const r = cab.rejilla
   const entero = (n: unknown, min: number, max: number) => Number.isInteger(n) && (n as number) >= min && (n as number) <= max
   const positivo = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n > 0
@@ -97,6 +113,13 @@ export function validaPaquete(bytes: Uint8Array): CabeceraMaqueta | null {
   if (!finito(cab.alturaMin) || !finito(cab.alturaMax) || cab.alturaMax < cab.alturaMin) return null
   if (cab.cotas !== null && (typeof cab.cotas !== 'object' || !finito(cab.cotas?.min) || !finito(cab.cotas?.max))) return null
   if (!entero(cab.faltan, 0, 4096) || typeof cab.conMapa !== 'boolean') return null
+  if (!Array.isArray(cab.lugares) || cab.lugares.length > LUGARES_MAX) return null
+  for (const l of cab.lugares) {
+    if (!l || typeof l !== 'object') return null
+    if (typeof l.n !== 'string' || l.n.length === 0 || l.n.length > 80) return null
+    if (!CLASES_LUGAR.includes(l.c)) return null
+    if (!finito(l.u) || !finito(l.v) || l.u < 0 || l.u > 1 || l.v < 0 || l.v > 1) return null
+  }
   if (bytes.length !== 8 + largo + r.cols * r.filas * 3) return null
   return cab
 }

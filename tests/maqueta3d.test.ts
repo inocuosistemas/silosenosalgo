@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, reduceRejilla, rejillaDeMaqueta, sitioEnMaqueta,
+  LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, casasDeLugar, cintaSobreTerreno, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
+  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta,
   sitiosDeArboles, tablaDeColores,
   type Rejilla,
 } from '../src/lib/maqueta3d'
@@ -316,6 +316,30 @@ describe('sitiosDeArboles', () => {
     expect(sitiosDeArboles(r, alturas, new Uint8Array(64), escala, 2, 100).length).toBe(0)
     const todo = new Uint8Array(64).fill(MASCARA_BOSQUE)
     expect(sitiosDeArboles(r, alturas, todo, escala, 1, 5, 1).length).toBe(20)
+  })
+})
+
+describe('casasDeLugar', () => {
+  const r = rejillaSimple(9, 9)
+  const alturas = new Float32Array(81).fill(700)
+  const escala = escalaDeMaqueta(r, 700, 2)
+
+  it('las casas caen alrededor del punto, en el suelo, y siempre en el mismo sitio', () => {
+    const lugar = { n: 'Villanúa', c: 'village' as const, u: 0.5, v: 0.5 }
+    const casas = casasDeLugar(r, alturas, new Uint8Array(81), escala, lugar, 5, 0.1)
+    expect(casas.length).toBe(5 * 5)
+    const [cx, , cz] = sitioDeFraccion(r, alturas, escala, 0.5, 0.5)
+    for (let k = 0; k < casas.length; k += 5) {
+      expect(Math.hypot(casas[k] - cx, casas[k + 2] - cz)).toBeLessThanOrEqual(0.1 + 1e-9)
+      expect(casas[k + 1]).toBeCloseTo(escala.y(700))
+      expect(casas[k + 4]).toBeGreaterThanOrEqual(0.8)
+    }
+    expect(casasDeLugar(r, alturas, new Uint8Array(81), escala, lugar, 5, 0.1)).toEqual(casas)
+  })
+
+  it('en el agua no se construye', () => {
+    const agua = new Uint8Array(81).fill(MASCARA_AGUA)
+    expect(casasDeLugar(r, alturas, agua, escala, { n: 'X', c: 'town', u: 0.5, v: 0.5 }, 5, 0.1).length).toBe(0)
   })
 })
 

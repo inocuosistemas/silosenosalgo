@@ -1,6 +1,9 @@
 import { VectorTile } from '@mapbox/vector-tile'
 import { PbfReader } from 'pbf'
-import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, type RejillaMaqueta as Rejilla } from '../../shared/maquetaPaquete'
+import {
+  CLASES_LUGAR, LUGARES_MAX, MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO,
+  type ClaseLugar, type LugarMaqueta, type RejillaMaqueta as Rejilla,
+} from '../../shared/maquetaPaquete'
 import { LADO_MOSAICO, claveDeMosaico, mosaicosDeRejilla } from './maqueta3d'
 
 /**
@@ -70,11 +73,18 @@ export function trazaLinea(mascara: Uint8Array, cols: number, filas: number, pun
 const cauces = (z: number) => (z >= 13 ? ['river', 'canal', 'stream'] : ['river', 'canal'])
 
 /**
- * La máscara de una rejilla a partir de sus mosaicos vectoriales (clave
- * `z/x/y` → bytes del .pbf). Un mosaico que falte deja su trozo en blanco.
+ * Lo que la maqueta saca del mapa: la máscara de agua y bosque de la rejilla,
+ * y las poblaciones que caen en la caja, a partir de sus mosaicos vectoriales
+ * (clave `z/x/y` → bytes del .pbf). Un mosaico que falte deja su trozo en
+ * blanco.
+ *
+ * Las poblaciones van de más a menos importante —ciudad, pueblo, aldea— y
+ * sin repetir: un punto cerca del borde viene en los dos mosaicos que lo
+ * comparten.
  */
-export function mascaraDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): Uint8Array {
+export function capasDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): { mascara: Uint8Array; lugares: LugarMaqueta[] } {
   const mascara = new Uint8Array(r.cols * r.filas)
+  const candidatos: (LugarMaqueta & { orden: number })[] = []
   for (const [clave, datos] of mosaicos) {
     const [z, tx, ty] = clave.split('/').map(Number)
     if (z !== r.z) continue
@@ -102,8 +112,31 @@ export function mascaraDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): Uin
       if (f.type !== 3 || f.properties.class !== 'wood') continue
       rellenaPoligono(mascara, r.cols, r.filas, f.loadGeometry().map((a) => a.map(aNodo(f.extent))), MASCARA_BOSQUE)
     }
+    for (const f of capa('place')) {
+      const c = String(f.properties.class) as ClaseLugar
+      if (f.type !== 1 || !CLASES_LUGAR.includes(c)) continue
+      const n = String(f.properties['name:es'] ?? f.properties.name ?? '').trim().slice(0, 80)
+      const p = f.loadGeometry()[0]?.[0]
+      if (!n || !p) continue
+      const [i, j] = aNodo(f.extent)(p)
+      const u = i / (r.cols - 1)
+      const v = j / (r.filas - 1)
+      if (u < 0 || u > 1 || v < 0 || v > 1) continue
+      const rango = typeof f.properties.rank === 'number' ? f.properties.rank : 99
+      candidatos.push({ n, c, u, v, orden: CLASES_LUGAR.indexOf(c) * 1000 + rango })
+    }
   }
-  return mascara
+  candidatos.sort((a, b) => a.orden - b.orden)
+  const vistos = new Set<string>()
+  const lugares: LugarMaqueta[] = []
+  for (const { orden: _orden, ...l } of candidatos) {
+    const k = `${l.c}|${l.n}`
+    if (vistos.has(k)) continue
+    vistos.add(k)
+    lugares.push(l)
+    if (lugares.length >= LUGARES_MAX) break
+  }
+  return { mascara, lugares }
 }
 
 /** De dónde salen los mosaicos: la ruta cambia con cada versión del planeta, así que se pregunta. */
