@@ -612,7 +612,7 @@ fun SeccionCarreras(
     pasadas: List<EventSummary>,
     elegido: String?,
     onElige: (String?) -> Unit,
-    onParrilla: (String) -> Unit,
+    onAbrir: (eventId: String, vista: String) -> Unit,
 ) {
     if (eventos.isEmpty() && pasadas.isEmpty()) return
     // El reloj de la cuenta atrás. Un tic por segundo y solo mientras esta
@@ -663,7 +663,7 @@ fun SeccionCarreras(
                     }
                 }
             }
-            TextButton(onClick = { onParrilla(ev.id) }) { Text("Parrilla") }
+            MenuDeCarrera(ev, onAbrir)
         }
     }
 
@@ -699,7 +699,7 @@ fun SeccionCarreras(
                             color = Paleta.slate400,
                         )
                     }
-                    TextButton(onClick = { onParrilla(ev.id) }) { Text("Parrilla") }
+                    MenuDeCarrera(ev, onAbrir)
                 }
             }
         }
@@ -707,11 +707,43 @@ fun SeccionCarreras(
 
     Spacer(Modifier.height(4.dp))
     Text(
-        "Toca una carrera para preparar la baliza con su hora de salida oficial. " +
-            "\"Parrilla\" abre su página en el navegador: quién corre, el tablón y los resultados.",
+        "Toca una carrera para preparar la baliza con su hora de salida oficial y tu previsión. " +
+            "\"Abrir\" lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.",
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,
     )
+}
+
+/**
+ * "Abrir": las secciones de la carrera en la web, sin pasar por la parrilla.
+ * Mismo orden que la barra de la web; terminada, resultados y replay primero,
+ * que es lo que se busca. Espejo de `WebDelEvento.secciones` en iOS.
+ */
+@Composable
+private fun MenuDeCarrera(ev: EventSummary, onAbrir: (String, String) -> Unit) {
+    var abierto by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { abierto = true }) { Text("Abrir") }
+        DropdownMenu(expanded = abierto, onDismissRequest = { abierto = false }) {
+            seccionesDeCarrera(ev).forEach { (vista, texto) ->
+                DropdownMenuItem(
+                    text = { Text(texto) },
+                    onClick = { abierto = false; onAbrir(ev.id, vista) },
+                )
+            }
+        }
+    }
+}
+
+internal fun seccionesDeCarrera(ev: EventSummary): List<Pair<String, String>> = buildList {
+    if (ev.isOver) {
+        add("meta" to "🏆  Resultados")
+        add("replay" to "⏱️  Replay")
+    }
+    add("parrilla" to "🏁  Parrilla")
+    add("mapa" to "🗺️  Mapa")
+    if (ev.betsEnabled != false) add("porra" to "🔮  Porra")
+    if (ev.isMember != false && !ev.isOver) add("plan" to "🧭  Mi plan")
 }
 
 /** ¿La carrera es HOY, en la zona del móvil? Se dice aparte porque es lo que

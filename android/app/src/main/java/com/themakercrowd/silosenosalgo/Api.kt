@@ -280,6 +280,13 @@ class Api(
 
     /** Los eventos en los que participo. Al mejor esfuerzo desde la interfaz:
      *  sin eventos, la baliza funciona exactamente como siempre. */
+    /** Un pase de un solo uso para abrir la web ya dentro (ver `functions/api/auth/pase.ts`). */
+    suspend fun pase(token: String): String {
+        val (body, status) = request("api/auth/pase", "POST", token)
+        if (!ok(status)) throw decodeError(body, status)
+        return decode<PaseResponse>(body).pase
+    }
+
     suspend fun listEvents(token: String): List<EventSummary> {
         val (body, status) = request("api/events", "GET", token)
         if (!ok(status)) throw decodeError(body, status)

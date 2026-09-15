@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**512**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**512**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**539**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**539**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -85,6 +85,29 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 ---
 
 ## 2026-09-15
+
+### La carrera, a un toque desde la app, y con tu previsión puesta sola
+
+**iOS y Android 539 · Mejora al actualizar.** En «Mis carreras», el botón
+«Parrilla» pasa a ser **Abrir**, con las secciones de la carrera: Parrilla,
+Mapa, Porra y Mi plan, y en las terminadas Resultados y Replay primero. Se
+abren **con la sesión ya iniciada**: la app pide un pase de un solo uso
+(`POST /api/auth/pase`, con su token) y `/api/auth/entra` lo cambia por una
+sesión del navegador y lleva a la sección. En iPhone la web se abre dentro de
+la app; en Android, en el navegador. Sin cobertura, o si el pase falla, se
+abre igual y la web pide entrar, como antes.
+
+Al elegir una carrera, **la baliza coge sola tu previsión de esa carrera**, la
+más reciente. Solo antes de salir y solo si no hay otra ruta elegida a mano, y
+si la quitas no vuelve a ponerse. Si cambias de carrera, la que se puso sola
+se va con la anterior.
+
+Las apps viejas siguen igual: su «Parrilla» abre la web sin sesión y la ruta se
+elige a mano.
+
+**Web · desplegado · compatible.** El enlace de seguimiento lo gestionan
+también los **organizadores nombrados**, no solo quien creó la carrera: la
+sección de Organización les sale a ellos y el servidor se lo permite.
 
 ### Compartir el seguimiento, siempre arriba; gestionarlo, en Organización
 

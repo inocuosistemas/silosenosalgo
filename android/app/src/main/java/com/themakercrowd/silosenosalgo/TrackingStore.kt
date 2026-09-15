@@ -1,6 +1,10 @@
 package com.themakercrowd.silosenosalgo
 
 import android.content.Context
+import java.net.URLEncoder
+import kotlinx.coroutines.withContext
+import android.net.Uri
+import android.content.Intent
 import android.location.Location
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -539,7 +543,12 @@ object TrackingStore {
 
     suspend fun cargaPlanes() {
         val t = token ?: return
-        runCatching { api.listPlans(t) }.onSuccess { _planes.value = it }
+        runCatching { api.listPlans(t) }.onSuccess {
+            _planes.value = it
+            // Si la carrera se eligió antes de que llegaran las previsiones
+            // (la de hoy se propone sola al abrir), ahora sí se coge la suya.
+            aplicaPlanDelEvento()
+        }
     }
 
     /** Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
@@ -637,6 +646,13 @@ object TrackingStore {
                 else -> _estado.value.copy(eventoId = eventoId)
             },
         ).copy(eventoAuto = auto && eventoId != null)
+        if (!_estado.value.compartiendo && anterior != eventoId) {
+            // La previsión que se puso sola era de la carrera de antes: se va con ella.
+            if (planPuestoSolo != null && _estado.value.planId == planPuestoSolo) eligePlan(null)
+            planPuestoSolo = null
+            planBuscadoPara = null
+            aplicaPlanDelEvento()
+        }
         guardaActivo()
         if (!_estado.value.compartiendo) return
         val t = token ?: return
@@ -665,6 +681,59 @@ object TrackingStore {
      * y no el momento de activar, para que los ritmos y las predicciones que ve
      * quien sigue la ruta vayan contra lo planificado.
      */
+    /** Para qué carrera se buscó ya previsión, y cuál se puso sola: así no se
+     *  vuelve a poner la que alguien acaba de quitar a mano. */
+    private var planBuscadoPara: String? = null
+    private var planPuestoSolo: String? = null
+
+    /**
+     * Al elegir una carrera, su PREVISIÓN va sola.
+     *
+     * Quien se ha hecho sus ritmos para la carrera —desde "Mi plan" en la web—
+     * tenía además que acordarse de elegirlos aquí como ruta, y si no, la
+     * baliza corría con los del evento sin decir nada. Se coge la más reciente
+     * de esa carrera (el servidor las da de la más nueva a la más vieja), solo
+     * antes de salir y solo si no hay otra elegida a mano. Espejo de
+     * `applyEventPlan` en iOS.
+     */
+    private fun aplicaPlanDelEvento() {
+        val e = _estado.value
+        if (e.compartiendo) return
+        val ev = e.eventoId ?: return
+        if (planBuscadoPara == ev) return
+        val plan = _planes.value.firstOrNull { it.eventId == ev } ?: return
+        if (e.planId != null && e.planId != planPuestoSolo) return
+        planBuscadoPara = ev
+        planPuestoSolo = plan.id
+        eligePlan(plan.id)
+        guardaActivo()
+    }
+
+    /**
+     * Abre una sección de la web de la carrera con la sesión de la app.
+     *
+     * Antes "Parrilla" abría el navegador a secas, y el navegador no sabe nada
+     * del token de la app: la web pedía entrar otra vez. Ahora se pide un pase
+     * de un solo uso (ver `functions/api/auth/pase.ts`) y se abre la sección
+     * ya dentro. Sin cobertura, o contra un servidor anterior, la dirección a
+     * secas: se abre igual y la web pide entrar como antes.
+     */
+    fun abreEvento(context: Context, eventId: String, vista: String) {
+        scope.launch {
+            val destino = Config.eventoEn(eventId, vista)
+            val pase = token?.let { t -> runCatching { api.pase(t) }.getOrNull() }
+            val url = if (pase != null) {
+                "${Config.BASE_URL}/api/auth/entra?pase=${URLEncoder.encode(pase, "UTF-8")}" +
+                    "&a=${URLEncoder.encode(destino, "UTF-8")}"
+            } else {
+                Config.PUBLIC_URL + destino
+            }
+            withContext(Dispatchers.Main) {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            }
+        }
+    }
+
     fun eligePlan(planId: String?) {
         val plan = _planes.value.firstOrNull { it.id == planId }
         // La hora la pone la RUTA si la trae y, si no, el EVENTO. Una ruta sin

@@ -43,6 +43,9 @@ object Config {
      */
     fun eventLobbyLink(eventId: String): String = "$PUBLIC_URL/?e=$eventId"
 
+    /** Una sección de la web de la carrera (`v=`: parrilla, mapa, porra, plan, meta, replay). */
+    fun eventoEn(eventId: String, vista: String): String = "/?e=$eventId&v=$vista"
+
     // Teselas del mapa offline
 
     /** Plantilla de teselas OSM. En un solo sitio para poder cambiar de

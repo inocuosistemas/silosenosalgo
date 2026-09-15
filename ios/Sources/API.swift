@@ -111,6 +111,13 @@ struct EventSummary: Codable, Identifiable, Equatable {
     /// elegir el evento, que es quien lo sabe — del trazado no se deduce.
     /// Opcional: nulo contra un servidor anterior a que esto existiera.
     let activity: String?
+    /// Si la carrera tiene porra, y si quien pregunta la corre (y no solo la
+    /// organiza). Para ofrecer en "Abrir" solo lo que existe. Opcionales: nulos
+    /// contra un servidor anterior.
+    /// `var` con valor por defecto, y no `let`: así el inicializador de toda la
+    /// vida (el de los tests) no las exige, y Codable las sigue leyendo.
+    var betsEnabled: Bool? = nil
+    var isMember: Bool? = nil
 
     var isOver: Bool { endedAt != nil }
 }
@@ -256,6 +263,15 @@ enum API {
 
     static func logout(token: String) async {
         _ = try? await request("api/auth/logout", method: "POST", token: token)
+    }
+
+    /// Un pase de un solo uso para abrir la web con la sesión de la app. Ver
+    /// `WebDelEvento` y `functions/api/auth/pase.ts`.
+    static func pase(token: String) async throws -> String {
+        struct R: Codable { let pase: String }
+        let (data, http) = try await request("api/auth/pase", method: "POST", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(R.self, from: data).pase
     }
 
     // MARK: Plans

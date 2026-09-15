@@ -3,6 +3,31 @@ import CoreLocation
 import UIKit
 
 struct TrackingView: View {
+    /// La sección de la web de una carrera abierta dentro de la app (ver `WebDelEvento`).
+    @State private var webEvento: EnlaceWeb?
+
+    /// Abre una sección de la carrera con la sesión de la app ya pasada a la web.
+    private func abrirEvento(_ ev: EventSummary, _ vista: String) {
+        Task {
+            if let url = await WebDelEvento.enlace(eventId: ev.id, vista: vista, token: Keychain.load()) {
+                webEvento = EnlaceWeb(url: url)
+            }
+        }
+    }
+
+    /// "Abrir": las secciones de la carrera en la web, sin pasar por la parrilla.
+    private func menuDeCarrera(_ ev: EventSummary) -> some View {
+        Menu {
+            ForEach(WebDelEvento.secciones(de: ev), id: \.self) { s in
+                Button(s.texto) { abrirEvento(ev, s.vista) }
+            }
+        } label: {
+            Text("Abrir").foregroundStyle(Theme.sky500)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Abrir \(ev.name)")
+    }
+
     @EnvironmentObject var auth: AuthStore
     @ObservedObject private var store = TrackingStore.shared
     @ObservedObject private var guideLibrary = GuideLibrary.shared
@@ -395,12 +420,7 @@ struct TrackingView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                if let url = URL(string: Config.eventLobbyLink(for: ev.id)) {
-                                    Link(destination: url) { Text("Parrilla") }
-                                        .buttonStyle(.borderless)
-                                        .foregroundStyle(Theme.sky500)
-                                        .accessibilityLabel("Abrir la parrilla de \(ev.name)")
-                                }
+                                menuDeCarrera(ev)
                             }
                         }
 
@@ -419,12 +439,7 @@ struct TrackingView: View {
                                                 .foregroundStyle(Theme.slate400)
                                         }
                                         Spacer()
-                                        if let url = URL(string: Config.eventLobbyLink(for: ev.id)) {
-                                            Link(destination: url) { Text("Parrilla") }
-                                                .buttonStyle(.borderless)
-                                                .foregroundStyle(Theme.sky500)
-                                                .accessibilityLabel("Abrir la parrilla de \(ev.name)")
-                                        }
+                                        menuDeCarrera(ev)
                                     }
                                 }
                             }
@@ -434,7 +449,7 @@ struct TrackingView: View {
                     } header: {
                         Text("Mis carreras").foregroundStyle(Theme.slate400)
                     } footer: {
-                        Text("Toca una carrera para preparar la baliza con su hora de salida oficial. «Parrilla» abre su página en el navegador: quién corre, el tablón y los resultados.")
+                        Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu previsión. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
@@ -1003,6 +1018,9 @@ struct TrackingView: View {
                     source: .offline(token: guide.id), offlineToken: guide.id,
                     allowsEditing: false, title: "Guía offline"
                 )
+            }
+            .sheet(item: $webEvento) { enlace in
+                SafariView(url: enlace.url).ignoresSafeArea()
             }
             .sheet(isPresented: $showMapDownload) {
                 MapDownloadView(routeName: downloadRouteName, polyline: downloadPolyline)

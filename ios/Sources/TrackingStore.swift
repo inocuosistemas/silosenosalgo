@@ -277,6 +277,9 @@ final class TrackingStore: ObservableObject {
         if let result = try? await API.listPlans(token: token) {
             plans = result
             applyPlanStart() // if a plan was already selected, pick up its start
+            // Si la carrera se eligió antes de que llegaran las previsiones
+            // (la de hoy se propone sola al abrir), ahora sí se puede coger la suya.
+            applyEventPlan()
         }
     }
 
@@ -292,6 +295,27 @@ final class TrackingStore: ObservableObject {
     /// that undoes your choice when you switch events is one you stop trusting.
     /// The exception is a time this same mechanism put there — that one belongs
     /// to the event, so it leaves with it.
+    /// Para qué carrera se buscó ya previsión, y cuál se puso sola. Con esto no
+    /// se vuelve a poner la que alguien acaba de quitar a mano.
+    private var planAppliedForEventId: String? = nil
+    private var planPickedForEvent: String? = nil
+
+    /// Al elegir una carrera, su PREVISIÓN va sola.
+    ///
+    /// Quien se ha hecho sus ritmos para la carrera —desde "Mi plan" en la
+    /// web— tenía además que acordarse de elegirlos aquí como ruta, y si no, la
+    /// baliza corría con los del evento sin decir nada. Se coge la más reciente
+    /// de esa carrera (el servidor las da de la más nueva a la más vieja), solo
+    /// antes de salir y solo si no hay otra elegida a mano.
+    private func applyEventPlan() {
+        guard !isSharing, let ev = selectedEventId, planAppliedForEventId != ev,
+              let plan = plans.first(where: { $0.eventId == ev }) else { return }
+        guard selectedPlanId == nil || selectedPlanId == planPickedForEvent else { return }
+        planAppliedForEventId = ev
+        planPickedForEvent = plan.id
+        selectedPlanId = plan.id
+    }
+
     private func applyEventStart(previous: String?) {
         let cameFromEvent = startAtTouched
             && events.contains { $0.id == previous && $0.startsAt.map { Date(timeIntervalSince1970: $0 / 1000) } == startAt }
@@ -498,6 +522,13 @@ final class TrackingStore: ObservableObject {
         selectedEventId = eventId
         eventPickedAutomatically = auto && eventId != nil
         applyEventStart(previous: previous)
+        if !isSharing && previous != eventId {
+            // La previsión que se puso sola era de la carrera de antes: se va con ella.
+            if let puesta = planPickedForEvent, selectedPlanId == puesta { selectedPlanId = nil }
+            planPickedForEvent = nil
+            planAppliedForEventId = nil
+            applyEventPlan()
+        }
         guard isSharing else { return }
         Task {
             // Quitar primero del anterior: una sesión pertenece a un evento, no

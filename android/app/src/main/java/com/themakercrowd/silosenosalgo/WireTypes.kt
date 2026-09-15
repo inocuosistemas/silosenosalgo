@@ -130,12 +130,20 @@ data class EventSummary(
     /** De que va la carrera: 'walk' | 'run' | 'bike'. La baliza la hereda al
      *  elegir el evento, que es quien la sabe —del trazado no se deduce—. */
     val activity: String? = null,
+    /** Si la carrera tiene porra, y si quien pregunta la corre (y no solo la
+     *  organiza): para ofrecer en "Abrir" solo lo que existe. */
+    val betsEnabled: Boolean? = null,
+    val isMember: Boolean? = null,
 ) {
     val isOver: Boolean get() = endedAt != null
 }
 
 @Serializable
 data class EventsWrapper(val events: List<EventSummary> = emptyList())
+
+/** Un pase de un solo uso para abrir la web con la sesión de la app. */
+@Serializable
+data class PaseResponse(val pase: String)
 
 /** Una posición enviada al backend. */
 @Serializable

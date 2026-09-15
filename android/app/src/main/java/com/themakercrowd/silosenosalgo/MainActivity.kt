@@ -726,13 +726,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     pasadas = eventosPasados,
                     elegido = estado.eventoId,
                     onElige = { TrackingStore.ajustaEvento(it) },
-                    onParrilla = { id ->
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(Config.eventLobbyLink(id))),
-                            )
-                        }
-                    },
+                    onAbrir = { id, vista -> TrackingStore.abreEvento(context, id, vista) },
                 )
             }
         }
