@@ -454,7 +454,9 @@ function dibujaFicha(c: Corredor3D, conEmoji: boolean, elegido: boolean): HTMLCa
   const emoji = conEmoji && c.emoji ? c.emoji : null
   const r = emoji ? 30 : 16
   const cx = 48
-  const cy = 34
+  // Con sitio para el aro blanco del elegido (r + 7): a 34 se salía 3 px por
+  // arriba y salía cortado.
+  const cy = 40
   ctx.globalAlpha = c.apagado ? 0.5 : 1
   ctx.strokeStyle = '#0f172a'
   ctx.lineWidth = 3
