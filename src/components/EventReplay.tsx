@@ -1,9 +1,12 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Magnet, MapPin, Pause, Play, RotateCcw } from 'lucide-react'
-import type { Corredor3D } from '../lib/mapa3d'
+import type { Corredor3D, Punto3D } from '../lib/mapa3d'
 
 // La maqueta es Three.js y pesa: se baja solo si se pide el replay sobre ella.
 const EventMaqueta3D = lazy(() => import('./EventMaqueta3D'))
+/** El replay no lleva puntos del recorrido. Siempre el mismo array: uno nuevo
+ *  en cada fotograma hacía redibujar las chinchetas fijas de la maqueta. */
+const SIN_PUNTOS: Punto3D[] = []
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
@@ -191,7 +194,7 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
     <div className="relative h-full w-full bg-slate-950">
       {enMaqueta && route && route.length >= 2 ? (
         <Suspense fallback={<CargandoMarca texto="Cargando la maqueta…" />}>
-          <EventMaqueta3D ruta={route} cotas={null} planId={planId} corredores={corredores} puntos={[]} nombre={nombre} margenAbajo={150} />
+          <EventMaqueta3D ruta={route} cotas={null} planId={planId} corredores={corredores} puntos={SIN_PUNTOS} nombre={nombre} margenAbajo={150} />
         </Suspense>
       ) : (
       <MapContainer center={centro} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>

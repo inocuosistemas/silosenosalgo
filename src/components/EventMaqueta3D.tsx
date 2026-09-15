@@ -860,7 +860,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         pon(dibujaBandera('salida'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL)
       }
     }
-    puntos.forEach((p, i) => pon(dibujaPunto(p), 0.06, 0.12, p.lat, p.lon, `punto:${i}`))
     // Los nombres de las poblaciones, de las más importantes: sobre sus
     // casas, un poco por encima del suelo.
     // Un nombre se lee siempre, aunque haya un pino o una loma delante: por
@@ -892,7 +891,31 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       for (const s of hechas) { e.chinchetas.remove(s); tira(s) }
       e.sucio = true
     }
-  }, [ruta, puntos, estado])
+  }, [ruta, estado])
+
+  // Los puntos del recorrido, aparte de lo de arriba: en el replay llegan
+  // como un array nuevo en cada fotograma, y con todo en un solo efecto se
+  // redibujaban también las banderas y los sesenta rótulos —lienzo, texto y
+  // subida a la tarjeta— sesenta veces por segundo. Iba a tirones.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno || puntos.length === 0) return
+    const { rejilla, alturas, escala } = e.terreno
+    const hechas: THREE.Sprite[] = []
+    puntos.forEach((p, i) => {
+      const sitio = sitioEnMaqueta(rejilla, alturas, escala, p.lat, p.lon)
+      if (!sitio) return
+      const s = chincheta(dibujaPunto(p), 0.06, 0.12, sitio)
+      s.userData.key = `punto:${i}`
+      e.chinchetas.add(s)
+      hechas.push(s)
+    })
+    e.sucio = true
+    return () => {
+      for (const s of hechas) { e.chinchetas.remove(s); tira(s) }
+      e.sucio = true
+    }
+  }, [puntos, estado])
 
   // Los corredores se mueven en cada refresco: se recolocan las chinchetas
   // que ya hay y solo se redibuja la que cambia.
