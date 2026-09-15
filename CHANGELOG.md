@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**540**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**540**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**543**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**543**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -88,7 +88,7 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ### La baliza dice de qué app es, y las terminadas van con las tarjetas
 
-**iOS y Android · Mejora al actualizar (sin publicar todavía).** Arriba de la
+**iOS y Android 543 · Mejora al actualizar.** Arriba de la
 pantalla de la baliza salen el **logo y el nombre de SiLoSeNoSalgo**, y debajo
 el usuario. Antes el título era solo el usuario en iOS y «Baliza» en Android.
 El logo sale del mismo favicon que los iconos: `node scripts/genera-marca-apps.mjs`.
