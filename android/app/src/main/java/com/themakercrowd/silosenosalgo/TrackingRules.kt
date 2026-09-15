@@ -393,8 +393,10 @@ object TrackingRules {
      * quitarlo es un toque. Por eso el criterio puede ser generoso.
      *
      * Reglas, y el porqué de cada una:
-     * - **El mismo día natural**, en la zona del móvil. Una carrera de mañana
-     *   no tiene por qué salir hoy, y una de ayer ya no.
+     * - **El mismo día natural**, en la zona del móvil, **o que salga en las
+     *   próximas 18 h** ([PROPONER_ANTES_MS]): la víspera por la noche se arma
+     *   la baliza antes de dormir, y es justo cuando se olvida elegir la
+     *   carrera. Una de ayer ya no.
      * - **Sin terminar** ([EventSummary.isOver]): al cerrarla el organizador ya
      *   no admite balizas.
      * - **Con hora puesta**: sin ella no hay nada que heredar y el criterio del
@@ -412,10 +414,35 @@ object TrackingRules {
         return eventos
             .filter { !it.isOver }
             .mapNotNull { ev -> ev.startsAt?.takeIf { it > 0.0 }?.let { ev to it } }
-            .filter { (_, salida) -> dia(salida) == hoy }
+            .filter { (_, salida) ->
+                dia(salida) == hoy || (salida > ahoraMs && salida - ahoraMs <= PROPONER_ANTES_MS)
+            }
             .minByOrNull { (_, salida) -> abs(salida - ahoraMs) }
             ?.first
     }
+
+    /** Cuánto antes de la salida se propone ya la carrera sola. */
+    const val PROPONER_ANTES_MS = 18 * 3_600_000.0
+    /** Hasta dónde, antes o después de la salida, se pregunta al compartir. */
+    const val CERCANA_MS = 48 * 3_600_000.0
+
+    /**
+     * La carrera por la que PREGUNTAR al pulsar "Compartir" sin carrera elegida.
+     *
+     * Es fácil salir sin elegirla: la app no la propuso (quedaba más lejos) o se
+     * quitó la propuesta. Y sin carrera, la salida no aparece en su mapa. Así
+     * que si hay una en marcha o que sale en las próximas 48 h, se pregunta
+     * antes de empezar; si no hay ninguna, un entrenamiento sigue siendo un
+     * toque. Sin terminar y con hora puesta; si hay varias, la más cercana.
+     * Espejo de `TrackingRules.nearbyEvent` en iOS.
+     */
+    fun carreraCercana(eventos: List<EventSummary>, ahoraMs: Double): EventSummary? =
+        eventos
+            .filter { !it.isOver }
+            .mapNotNull { ev -> ev.startsAt?.takeIf { it > 0.0 }?.let { ev to it } }
+            .filter { (_, salida) -> abs(salida - ahoraMs) <= CERCANA_MS }
+            .minByOrNull { (_, salida) -> abs(salida - ahoraMs) }
+            ?.first
 
     /**
      * Lo que falta para la salida, en palabras: `2 d 03 h 04 m 05 s`.

@@ -44,9 +44,28 @@ final class TrackingRulesTests: XCTestCase {
         let manana = evento("manana", salida: cuando("2026-09-13", "08:00"))
         let ayer = evento("ayer", salida: cuando("2026-09-11", "08:00"))
         XCTAssertEqual(deHoy([ayer, manana, hoy], cuando("2026-09-12", "07:10"))?.id, "hoy")
-        // La víspera NO propone nada: abrir la baliza el día antes es para
-        // preparar el móvil, no para salir.
-        XCTAssertNil(deHoy([hoy], cuando("2026-09-11", "22:00")))
+        // La víspera por la noche SÍ: se arma la baliza antes de dormir, y es
+        // justo cuando se olvida elegir la carrera. Hasta 18 h antes.
+        XCTAssertEqual(deHoy([hoy], cuando("2026-09-11", "22:00"))?.id, "hoy")
+        XCTAssertEqual(deHoy([hoy], cuando("2026-09-11", "14:00"))?.id, "hoy")
+        XCTAssertNil(deHoy([hoy], cuando("2026-09-11", "13:59")))
+        // Dos días antes, nada.
+        XCTAssertNil(deHoy([hoy], cuando("2026-09-10", "22:00")))
+    }
+
+    private func cercana(_ eventos: [EventSummary], _ ahora: Double) -> EventSummary? {
+        TrackingRules.nearbyEvent(eventos, now: Date(timeIntervalSince1970: ahora / 1000))
+    }
+
+    func testAlCompartirSinCarreraSePreguntaPorLaCercana() {
+        let ultra = evento("ultra", salida: cuando("2026-09-12", "07:00"))
+        // Dos días antes, y en marcha hasta dos días después: se pregunta.
+        XCTAssertEqual(cercana([ultra], cuando("2026-09-10", "08:00"))?.id, "ultra")
+        XCTAssertEqual(cercana([ultra], cuando("2026-09-13", "20:00"))?.id, "ultra")
+        // Más lejos, terminada o sin hora, no: un entrenamiento sigue siendo un toque.
+        XCTAssertNil(cercana([ultra], cuando("2026-09-09", "22:00")))
+        XCTAssertNil(cercana([evento("cerrada", salida: cuando("2026-09-12", "07:00"), terminado: true)], cuando("2026-09-12", "09:00")))
+        XCTAssertNil(cercana([evento("sinhora")], cuando("2026-09-12", "09:00")))
     }
 
     func testUnaCarreraYaEmpezadaSigueSiendoLaDeHoy() {

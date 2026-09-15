@@ -5,6 +5,7 @@ package com.themakercrowd.silosenosalgo
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.size
@@ -607,7 +608,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         relevo = null
                         arrancando = true
                         scope.launch {
-                            TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                            TrackingStore.empieza(titulo.ifBlank { null }, actividad = TrackingStore.estado.value.actividad)
                             arrancando = false
                             if (TrackingStore.estado.value.compartiendo) TrackingService.arranca(context)
                             // `elegida` solo se usa para el texto; el servidor ya
@@ -624,6 +625,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             estado = estado,
             arrancando = arrancando,
             hayPermiso = permisoUbicacion,
+            // Para qué es la salida, dicho en el botón; y sin carrera elegida,
+            // la que está cerca para preguntar por ella antes de empezar.
+            textoEmpezar = eventos.firstOrNull { it.id == estado.eventoId }?.let { "Compartir para ${it.name}" }
+                ?: if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera",
+            carreraAPreguntar = if (estado.eventoId == null && !estado.compartiendo) {
+                TrackingRules.carreraCercana(eventos, System.currentTimeMillis().toDouble())
+            } else null,
+            onElegirCarrera = { TrackingStore.ajustaEvento(it) },
             onParar = { TrackingService.para(context) },
             onPausar = { TrackingService.pausa(context) },
             onSeguir = { TrackingService.sigue(context) },
@@ -641,7 +650,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         arrancando = false
                         return@launch
                     }
-                    TrackingStore.empieza(titulo.ifBlank { null }, actividad = estado.actividad)
+                    TrackingStore.empieza(titulo.ifBlank { null }, actividad = TrackingStore.estado.value.actividad)
                     arrancando = false
                     // El servicio se arranca DESPUÉS de que exista la sesión:
                     // así su notificación nace con el enlace y el estado reales,
@@ -1017,6 +1026,9 @@ private fun EstadoCompacto(
     estado: TrackingStore.Estado,
     arrancando: Boolean,
     hayPermiso: Boolean,
+    textoEmpezar: String,
+    carreraAPreguntar: EventSummary?,
+    onElegirCarrera: (String) -> Unit,
     onEmpezar: () -> Unit,
     onParar: () -> Unit,
     onPausar: () -> Unit,
@@ -1025,6 +1037,8 @@ private fun EstadoCompacto(
 ) {
     // Abandonar se pregunta: es lo único de esta pantalla que no se deshace.
     var confirmaAbandono by remember { mutableStateOf(false) }
+    // Salir sin carrera con una cerca se pregunta: sin ella no se sale en su mapa.
+    var preguntaCarrera by remember { mutableStateOf(false) }
     Seccion {
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
@@ -1144,6 +1158,29 @@ private fun EstadoCompacto(
                 dismissButton = { TextButton(onClick = { confirmaAbandono = false }) { Text("No, sigo") } },
             )
         }
+        val cerca = carreraAPreguntar
+        if (preguntaCarrera && cerca != null) {
+            AlertDialog(
+                onDismissRequest = { preguntaCarrera = false },
+                title = { Text("¿Esta salida es para ${cerca.name}?") },
+                text = {
+                    Column {
+                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu previsión.")
+                        TextButton(onClick = { preguntaCarrera = false; onEmpezar() }) {
+                            Text("No, es una salida suelta", color = Paleta.slate400)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        preguntaCarrera = false
+                        onElegirCarrera(cerca.id)
+                        onEmpezar()
+                    }) { Text("Sí, para esta carrera") }
+                },
+                dismissButton = { TextButton(onClick = { preguntaCarrera = false }) { Text("Cancelar") } },
+            )
+        }
         Spacer(Modifier.height(14.dp))
         if (estado.compartiendo) {
             // En rojo, no en el azul de todo lo demás: es la única acción que
@@ -1158,12 +1195,12 @@ private fun EstadoCompacto(
             ) { Text(if (abandonaAlParar) "Abandonar" else "Dejar de compartir") }
         } else {
             Button(
-                onClick = onEmpezar,
+                onClick = { if (carreraAPreguntar != null) preguntaCarrera = true else onEmpezar() },
                 enabled = hayPermiso && !arrancando,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
-                else Text("Empezar a compartir")
+                else Text(textoEmpezar, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(8.dp))
             Text(

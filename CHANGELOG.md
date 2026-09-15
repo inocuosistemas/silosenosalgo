@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**545**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**545**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**546**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**546**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -83,6 +83,24 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 > APK, solo su firma. Es el mismo fichero que antes se mandaba por WhatsApp.
 
 ---
+
+## 2026-09-16
+
+### Ya no se sale sin carrera por despiste
+
+**iOS y Android 546 · Mejora al actualizar.** Era fácil pulsar «Compartir»
+sin haber elegido la carrera, y entonces la salida no aparece en su mapa. Tres
+cambios:
+
+- **Se pregunta.** Al pulsar sin carrera elegida, si hay una en marcha o que
+  sale en las próximas 48 h, la app pregunta «¿Esta salida es para …?»: sí, no
+  (salida suelta) o cancelar. Sin ninguna carrera cerca no pregunta nada, y un
+  entrenamiento sigue siendo un toque.
+- **El botón dice para qué es**: «Compartir para Matxicots 26», o «Compartir
+  mi ubicación · sin carrera» si tienes carreras y no hay ninguna elegida.
+- **La carrera se propone sola desde la víspera.** Antes solo el mismo día;
+  ahora también si sale en las próximas 18 h, que es cuando se arma la baliza
+  antes de dormir.
 
 ## 2026-09-15
 

@@ -655,9 +655,27 @@ class TrackingRulesTest {
         val ayer = evento("ayer", cuando("2026-09-11", "08:00"))
         val alAbrir = cuando("2026-09-12", "07:10")
         assertEquals("hoy", deHoy(listOf(ayer, manana, hoy), alAbrir)?.id)
-        // La víspera NO propone nada: abrir la baliza el día antes es para
-        // preparar el móvil, no para salir.
-        assertNull(deHoy(listOf(hoy), cuando("2026-09-11", "22:00")))
+        // La víspera por la noche SÍ: se arma la baliza antes de dormir, y es
+        // justo cuando se olvida elegir la carrera. Hasta 18 h antes.
+        assertEquals("hoy", deHoy(listOf(hoy), cuando("2026-09-11", "22:00"))?.id)
+        assertEquals("hoy", deHoy(listOf(hoy), cuando("2026-09-11", "14:00"))?.id)
+        assertNull(deHoy(listOf(hoy), cuando("2026-09-11", "13:59")))
+        // Dos días antes, nada.
+        assertNull(deHoy(listOf(hoy), cuando("2026-09-10", "22:00")))
+    }
+
+    private fun cercana(eventos: List<EventSummary>, ahora: Double) =
+        TrackingRules.carreraCercana(eventos, ahora)
+
+    @Test fun `al compartir sin carrera se pregunta por la cercana`() {
+        val ultra = evento("ultra", cuando("2026-09-12", "07:00"))
+        // Dos días antes, y en marcha hasta dos días después: se pregunta.
+        assertEquals("ultra", cercana(listOf(ultra), cuando("2026-09-10", "08:00"))?.id)
+        assertEquals("ultra", cercana(listOf(ultra), cuando("2026-09-13", "20:00"))?.id)
+        // Más lejos, terminada o sin hora, no: un entrenamiento sigue siendo un toque.
+        assertNull(cercana(listOf(ultra), cuando("2026-09-09", "22:00")))
+        assertNull(cercana(listOf(evento("cerrada", cuando("2026-09-12", "07:00"), terminado = true)), cuando("2026-09-12", "09:00")))
+        assertNull(cercana(listOf(evento("sinhora")), cuando("2026-09-12", "09:00")))
     }
 
     @Test fun `una carrera ya empezada sigue siendo la de hoy`() {

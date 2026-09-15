@@ -7,6 +7,8 @@ struct TrackingView: View {
     @State private var webEvento: EnlaceWeb?
     /// Si el bloque de carreras terminadas está desplegado.
     @State private var terminadasAbiertas = false
+    /// La carrera por la que se pregunta al pulsar "Compartir" sin ninguna elegida.
+    @State private var carreraAPreguntar: EventSummary?
 
     /// Abre una sección de la carrera con la sesión de la app ya pasada a la web.
     private func abrirEvento(_ ev: EventSummary, _ vista: String) {
@@ -326,13 +328,19 @@ struct TrackingView: View {
                                 confirmandoAbandono = true
                             } else if store.isSharing {
                                 await store.stopSharing()
+                            } else if store.selectedEventId == nil, let cerca = TrackingRules.nearbyEvent(store.events) {
+                                // Sin carrera elegida y con una cerca: se pregunta
+                                // antes, que sin ella la salida no sale en su mapa.
+                                carreraAPreguntar = cerca
                             } else {
-                                await store.startSharing(title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title)
+                                await store.startSharing(title: tituloLimpio)
                             }
                         }
                     } label: {
-                        Text(abandonaAlParar ? "Abandonar" : store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
+                        Text(abandonaAlParar ? "Abandonar" : store.isSharing ? "Dejar de compartir" : textoCompartir)
                             .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                     }
@@ -340,6 +348,26 @@ struct TrackingView: View {
                     .foregroundStyle(.white)
                     .cornerRadius(12)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 6, trailing: 16))
+                    .confirmationDialog(
+                        carreraAPreguntar.map { "¿Esta salida es para \($0.name)?" } ?? "",
+                        isPresented: Binding(
+                            get: { carreraAPreguntar != nil },
+                            set: { if !$0 { carreraAPreguntar = nil } }
+                        ),
+                        titleVisibility: .visible,
+                        presenting: carreraAPreguntar
+                    ) { ev in
+                        Button("Sí, para \(ev.name)") {
+                            store.setEvent(ev.id)
+                            Task { await store.startSharing(title: tituloLimpio) }
+                        }
+                        Button("No, es una salida suelta") {
+                            Task { await store.startSharing(title: tituloLimpio) }
+                        }
+                        Button("Cancelar", role: .cancel) {}
+                    } message: { _ in
+                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu previsión.")
+                    }
                     .confirmationDialog("¿Abandonas la carrera?",
                                         isPresented: $confirmandoAbandono, titleVisibility: .visible) {
                         Button("Sí, lo dejo", role: .destructive) {
@@ -1105,6 +1133,20 @@ struct TrackingView: View {
             // usuario. La cabecera va dentro, en la primera fila (ver `cabecera`).
             .toolbar(.hidden, for: .navigationBar)
         }
+    }
+
+    /// Lo que dice el botón de empezar: PARA QUÉ es la salida, justo donde se
+    /// toca, y no en una lista más arriba que no se mira con prisa. "Sin
+    /// carrera" solo a quien tiene carreras: a quien no tiene ninguna no le dice
+    /// nada.
+    private var textoCompartir: String {
+        if let ev = store.activeEvent { return "Compartir para \(ev.name)" }
+        return store.events.isEmpty ? "Compartir mi ubicación" : "Compartir mi ubicación · sin carrera"
+    }
+
+    private var tituloLimpio: String? {
+        let t = title.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : t
     }
 
     /// La cabecera de la pantalla: marca, "Baliza · usuario" y salir de la cuenta.

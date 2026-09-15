@@ -37,7 +37,10 @@ enum TrackingRules {
     /// hora oficial, que es lo que deja la baliza ARMADA y en silencio hasta el
     /// disparo en vez de emitiendo desde el aparcamiento.
     ///
-    /// Mismo día natural (el del móvil), sin terminar, con hora puesta, y si hay
+    /// Mismo día natural (el del móvil) o, si no, que salga en las próximas
+    /// `proposeAheadSeconds` (18 h): la víspera por la noche se arma la baliza
+    /// antes de dormir, y es justo cuando se olvida elegir la carrera.
+    /// Sin terminar, con hora puesta, y si hay
     /// dos, la más cercana a este momento —antes o después de su hora—.
     static func todaysEvent(
         _ events: [EventSummary],
@@ -50,7 +53,35 @@ enum TrackingRules {
                 guard let ms = ev.startsAt, ms > 0 else { return nil }
                 return (ev, Date(timeIntervalSince1970: ms / 1000))
             }
-            .filter { calendar.isDate($0.1, inSameDayAs: now) }
+            .filter {
+                calendar.isDate($0.1, inSameDayAs: now)
+                    || ($0.1 > now && $0.1.timeIntervalSince(now) <= proposeAheadSeconds)
+            }
+            .min { abs($0.1.timeIntervalSince(now)) < abs($1.1.timeIntervalSince(now)) }?
+            .0
+    }
+
+    /// Cuánto antes de la salida se propone ya la carrera sola.
+    static let proposeAheadSeconds: TimeInterval = 18 * 3_600
+    /// Hasta dónde, antes o después de la salida, se pregunta al compartir.
+    static let nearbySeconds: TimeInterval = 48 * 3_600
+
+    /// La carrera por la que PREGUNTAR al pulsar "Compartir" sin carrera elegida.
+    ///
+    /// Es fácil salir sin elegirla: la app no la propuso (quedaba más lejos) o se
+    /// quitó la propuesta. Y sin carrera, la salida no aparece en su mapa. Así
+    /// que si hay una en marcha o que sale en las próximas 48 h, se pregunta
+    /// antes de empezar; si no hay ninguna, un entrenamiento sigue siendo un
+    /// toque. Sin terminar y con hora puesta; si hay varias, la más cercana.
+    /// Espejo de `TrackingRules.carreraCercana` en Android.
+    static func nearbyEvent(_ events: [EventSummary], now: Date = Date()) -> EventSummary? {
+        events
+            .filter { !$0.isOver }
+            .compactMap { ev -> (EventSummary, Date)? in
+                guard let ms = ev.startsAt, ms > 0 else { return nil }
+                return (ev, Date(timeIntervalSince1970: ms / 1000))
+            }
+            .filter { abs($0.1.timeIntervalSince(now)) <= nearbySeconds }
             .min { abs($0.1.timeIntervalSince(now)) < abs($1.1.timeIntervalSince(now)) }?
             .0
     }
