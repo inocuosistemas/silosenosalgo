@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, casasDeLugar, cintaSobreTerreno, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta,
+  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, picosDelRecorrido, proyecta, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta,
   sitiosDeArboles, tablaDeColores,
   type Rejilla,
 } from '../src/lib/maqueta3d'
@@ -340,6 +340,30 @@ describe('casasDeLugar', () => {
   it('en el agua no se construye', () => {
     const agua = new Uint8Array(81).fill(MASCARA_AGUA)
     expect(casasDeLugar(r, alturas, agua, escala, { n: 'X', c: 'town', u: 0.5, v: 0.5 }, 5, 0.1).length).toBe(0)
+  })
+})
+
+describe('picosDelRecorrido', () => {
+  it('se queda con los picos a menos de tantos metros del recorrido, en su orden', () => {
+    // Un mosaico entero a zoom 4, 100 m por píxel: un recorrido recto por el
+    // medio, de oeste a este, y picos a distintas distancias de él.
+    const r = rejillaSimple(3, 3)
+    const lat = (py: number) => {
+      // La vuelta de píxel a latitud, buscando: basta para un test.
+      let lo = 60, hi = 85
+      for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (proyecta(m, 0, 4).y > py) lo = m; else hi = m }
+      return lo
+    }
+    // Por el medio de la caja (v = 0,5), de lon −150 a −140: de u ≈ 0,33 a u ≈ 0,78.
+    const latRuta = lat(r.y0 + r.altoPx / 2)
+    const ruta: [number, number][] = [[latRuta, -150], [latRuta, -140]]
+    const picos = [
+      { n: 'Lejos', e: 3000, u: 0.5, v: 0.05 },
+      { n: 'Cerca', e: 2500, u: 0.5, v: 0.51 },
+      { n: 'Encima', e: 2000, u: 0.7, v: 0.5 },
+    ]
+    expect(picosDelRecorrido(r, ruta, picos, 300).map((p) => p.n)).toEqual(['Cerca', 'Encima'])
+    expect(picosDelRecorrido(r, ruta, picos, 20_000).map((p) => p.n)).toEqual(['Lejos', 'Cerca', 'Encima'])
   })
 })
 

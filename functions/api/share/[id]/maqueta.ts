@@ -23,7 +23,7 @@ import { PAQUETE_MAX_BYTES, validaPaquete } from '../../../../shared/maquetaPaqu
 
 const ID_RE = /^[A-Za-z0-9_-]{8,32}$/
 /** Con la versión del formato: un paquete viejo no se sirve, se rehace. */
-const clave = (id: string) => `maqueta:2:${id}`
+const clave = (id: string) => `maqueta:3:${id}`
 
 export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
   const id = String(params.id)

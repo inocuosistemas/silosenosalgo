@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Magnet, MapPin, Pause, Play, RotateCcw } from 'lucide-react'
+import type { Corredor3D } from '../lib/mapa3d'
+
+// La maqueta es Three.js y pesa: se baja solo si se pide el replay sobre ella.
+const EventMaqueta3D = lazy(() => import('./EventMaqueta3D'))
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
@@ -45,10 +49,15 @@ interface Props {
   route: [number, number][] | null
   /** Con relieve, como el mapa del que se viene. */
   relieve: boolean
+  /** El recorrido compartido y el nombre del evento, para la maqueta. */
+  planId: string | null
+  nombre: string | null
   onBack: () => void
 }
 
-export function EventReplay({ source, route, relieve, onBack }: Props) {
+export function EventReplay({ source, route, relieve, planId, nombre, onBack }: Props) {
+  /** El replay sobre la maqueta en vez de sobre el mapa: los mismos mandos, otra vista. */
+  const [enMaqueta, setEnMaqueta] = useState(false)
   /**
    * El trazado con su kilómetro acumulado, calculado una vez.
    *
@@ -143,6 +152,20 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
     return route?.[0] ?? [42.7, -0.52]
   }, [posiciones, route])
 
+  /** Los mismos de arriba, como los quiere la maqueta: una chincheta por cabeza. */
+  const corredores = useMemo<Corredor3D[]>(() => posiciones.flatMap(({ r, pos, estimada, terminado }) => {
+    if (!pos || ocultos.has(r.username)) return []
+    return [{
+      key: r.username,
+      punto: pos,
+      color: r.color ? eventColorHex(r.color) : '#94a3b8',
+      emoji: r.emoji ?? null,
+      nombre: r.username,
+      apagado: estimada || (terminado && r.final !== 'meta'),
+      detalle: terminado ? (r.final === 'meta' ? 'en meta' : 'retirado') : null,
+    }]
+  }), [posiciones, ocultos])
+
   if (error) {
     return (
       <div className="h-full bg-slate-950 px-3 pt-3">
@@ -166,6 +189,11 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
 
   return (
     <div className="relative h-full w-full bg-slate-950">
+      {enMaqueta && route && route.length >= 2 ? (
+        <Suspense fallback={<CargandoMarca texto="Cargando la maqueta…" />}>
+          <EventMaqueta3D ruta={route} cotas={null} planId={planId} corredores={corredores} puntos={[]} nombre={nombre} margenAbajo={150} />
+        </Suspense>
+      ) : (
       <MapContainer center={centro} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
         <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {relieve && <CapaRelieve />}
@@ -200,6 +228,7 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
         })}
         <Encuadre puntos={posiciones.flatMap((p) => (p.pos ? [p.pos] : []))} route={route} />
       </MapContainer>
+      )}
 
       {/* Los mandos, abajo: el reloj de carrera, la barra y las velocidades. */}
       <div className="absolute inset-x-0 bottom-0 z-[1000] border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur">
@@ -313,6 +342,11 @@ export function EventReplay({ source, route, relieve, onBack }: Props) {
               <span className="text-slate-500">
                 {posiciones.filter((p) => p.pos && !p.terminado && !ocultos.has(p.r.username)).length} en carrera
               </span>
+              {route && route.length >= 2 && (
+                <button onClick={() => setEnMaqueta((v) => !v)} className="text-sky-400 hover:text-sky-300">
+                  {enMaqueta ? '🗺️ sobre el mapa' : '🏔️ sobre la maqueta'}
+                </button>
+              )}
               <button onClick={onBack} className="text-sky-400 hover:text-sky-300">← mapa</button>
             </div>
           </div>

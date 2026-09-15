@@ -2,7 +2,7 @@ import { VectorTile } from '@mapbox/vector-tile'
 import { PbfReader } from 'pbf'
 import {
   CLASES_LUGAR, LUGARES_MAX, MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO,
-  type ClaseLugar, type LugarMaqueta, type RejillaMaqueta as Rejilla,
+  type ClaseLugar, type LugarMaqueta, type PicoMaqueta, type RejillaMaqueta as Rejilla,
 } from '../../shared/maquetaPaquete'
 import { LADO_MOSAICO, claveDeMosaico, mosaicosDeRejilla } from './maqueta3d'
 
@@ -80,11 +80,14 @@ const cauces = (z: number) => (z >= 13 ? ['river', 'canal', 'stream'] : ['river'
  *
  * Las poblaciones van de más a menos importante —ciudad, pueblo, aldea— y
  * sin repetir: un punto cerca del borde viene en los dos mosaicos que lo
- * comparten.
+ * comparten. Los picos, todos los de la caja con nombre: cuáles pisa la
+ * carrera se decide después, con el recorrido (ver `picosDelRecorrido`).
  */
-export function capasDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): { mascara: Uint8Array; lugares: LugarMaqueta[] } {
+export function capasDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): { mascara: Uint8Array; lugares: LugarMaqueta[]; picos: (PicoMaqueta & { orden: number })[] } {
   const mascara = new Uint8Array(r.cols * r.filas)
   const candidatos: (LugarMaqueta & { orden: number })[] = []
+  const picos: (PicoMaqueta & { orden: number })[] = []
+  const vistosPicos = new Set<string>()
   for (const [clave, datos] of mosaicos) {
     const [z, tx, ty] = clave.split('/').map(Number)
     if (z !== r.z) continue
@@ -125,7 +128,24 @@ export function capasDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): { mas
       const rango = typeof f.properties.rank === 'number' ? f.properties.rank : 99
       candidatos.push({ n, c, u, v, orden: CLASES_LUGAR.indexOf(c) * 1000 + rango })
     }
+    for (const f of capa('mountain_peak')) {
+      if (f.type !== 1 || (f.properties.class !== 'peak' && f.properties.class !== 'volcano')) continue
+      const n = String(f.properties['name:es'] ?? f.properties.name ?? '').trim().slice(0, 80)
+      const p = f.loadGeometry()[0]?.[0]
+      if (!n || !p) continue
+      const [i, j] = aNodo(f.extent)(p)
+      const u = i / (r.cols - 1)
+      const v = j / (r.filas - 1)
+      if (u < 0 || u > 1 || v < 0 || v > 1) continue
+      const e = typeof f.properties.ele === 'number' && Number.isFinite(f.properties.ele) ? Math.round(f.properties.ele) : null
+      const k = `${n}|${e ?? ''}`
+      if (vistosPicos.has(k)) continue
+      vistosPicos.add(k)
+      // Los más altos primero, que son los que se nombran.
+      picos.push({ n, e, u, v, orden: -(e ?? 0) })
+    }
   }
+  picos.sort((a, b) => a.orden - b.orden)
   candidatos.sort((a, b) => a.orden - b.orden)
   const vistos = new Set<string>()
   const lugares: LugarMaqueta[] = []
@@ -136,7 +156,7 @@ export function capasDeOsm(r: Rejilla, mosaicos: Map<string, Uint8Array>): { mas
     lugares.push(l)
     if (lugares.length >= LUGARES_MAX) break
   }
-  return { mascara, lugares }
+  return { mascara, lugares, picos }
 }
 
 /** De dónde salen los mosaicos: la ruta cambia con cada versión del planeta, así que se pregunta. */

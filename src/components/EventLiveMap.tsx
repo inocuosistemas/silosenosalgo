@@ -1164,7 +1164,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const vistaSinMapa = view === 'replay' ? (
     source.kind === 'demo'
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
-      : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} onBack={() => setView('mapa')} />
+      : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} planId={planShareId} nombre={eventName} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
     <ResultsView stats={stats} endedAt={endedAt} controles={controles} onBack={() => setView('mapa')} />
   ) : view === 'porra' && eventId ? (
@@ -1650,7 +1650,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           onClick={() => setEn3D(true)}
           title="Ver en 3D: girar e inclinar el mapa"
           aria-label="Ver en 3D"
-          className="absolute right-2 z-[1000] rounded-lg border border-slate-700 bg-slate-900/90 px-1.5 py-1.5 text-sm font-bold leading-5 text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
+          className="absolute right-2 z-[1000] grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm font-bold text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
           style={{ top: 'calc(env(safe-area-inset-top, 0px) + 162px)' }}
         >
           3D
@@ -2708,7 +2708,7 @@ function Encuadre({ points, route, esperaRuta }: {
       onClick={() => { libre.current = true; encuadra(true) }}
       title="Ver toda la carrera"
       aria-label="Ver toda la carrera"
-      className="absolute right-2 z-[500] rounded-lg border border-slate-700 bg-slate-900/90 px-2 py-1.5 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
+      className="absolute right-2 z-[500] grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
       style={{ top: 'calc(env(safe-area-inset-top, 0px) + 120px)' }}
     >
       ⤢

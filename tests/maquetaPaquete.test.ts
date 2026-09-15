@@ -1,20 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { MASCARA_AGUA, MASCARA_BOSQUE, codificaPaquete, decodificaPaquete, validaPaquete, type LugarMaqueta } from '../shared/maquetaPaquete'
+import { MASCARA_AGUA, MASCARA_BOSQUE, codificaPaquete, decodificaPaquete, validaPaquete, type LugarMaqueta, type PicoMaqueta } from '../shared/maquetaPaquete'
 
 const rejilla = { z: 11, x0: 1000.5, y0: 2000.25, anchoPx: 300, altoPx: 200, cols: 3, filas: 2, mpp: 57.3 }
 const alturas = new Float32Array([120.5, 300, 2450.25, 0, 800, 1999])
 const mascara = new Uint8Array([0, MASCARA_AGUA, MASCARA_BOSQUE, 0, MASCARA_AGUA | MASCARA_BOSQUE, 0])
 const lugares: LugarMaqueta[] = [{ n: 'Canfranc', c: 'village', u: 0.4, v: 0.7 }, { n: 'Jaca', c: 'town', u: 0, v: 1 }]
-const cab = { rejilla, cotas: { min: 100, max: 2500 }, faltan: 0, conMapa: true, lugares }
+const picos: PicoMaqueta[] = [{ n: 'Collarada', e: 2886, u: 0.9, v: 0.1 }, { n: 'Sin cota', e: null, u: 0.2, v: 0.2 }]
+const cab = { rejilla, cotas: { min: 100, max: 2500 }, faltan: 0, conMapa: true, lugares, picos }
 
 describe('paquete de maqueta', () => {
   it('lo que se codifica se decodifica, con las alturas a menos de 5 cm', () => {
     const bytes = codificaPaquete(cab, alturas, mascara)
     const p = decodificaPaquete(bytes)!
     expect(p).not.toBeNull()
-    expect(p.cabecera.v).toBe(2)
+    expect(p.cabecera.v).toBe(3)
     expect(p.cabecera.rejilla).toEqual(rejilla)
     expect(p.cabecera.lugares).toEqual(lugares)
+    expect(p.cabecera.picos).toEqual(picos)
     expect(p.cabecera.cotas).toEqual({ min: 100, max: 2500 })
     expect(p.cabecera.alturaMin).toBe(0)
     expect(p.cabecera.alturaMax).toBe(2450.25)
@@ -52,6 +54,8 @@ describe('paquete de maqueta', () => {
     expect(validaPaquete(sinNombre)).toBeNull()
     const claseRara = codificaPaquete({ ...cab, lugares: [{ n: 'X', c: 'castillo' as 'town', u: 0.5, v: 0 }] }, alturas, mascara)
     expect(validaPaquete(claseRara)).toBeNull()
+    const picoRaro = codificaPaquete({ ...cab, picos: [{ n: 'X', e: 'alto' as unknown as number, u: 0.5, v: 0 }] }, alturas, mascara)
+    expect(validaPaquete(picoRaro)).toBeNull()
   })
 
   it('no acepta alturas y máscara de distinto tamaño que la rejilla', () => {

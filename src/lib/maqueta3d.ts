@@ -1,6 +1,6 @@
 import { ZOOM_MAX_ALTURAS, metrosPorPixel } from './relieve'
 import { COLOR_AGUA, paradasMaqueta, type RangoAlturas } from './mapa3d'
-import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, type LugarMaqueta, type RejillaMaqueta } from '../../shared/maquetaPaquete'
+import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, PICOS_MAX, type LugarMaqueta, type PicoMaqueta, type RejillaMaqueta } from '../../shared/maquetaPaquete'
 
 /** La rejilla de alturas de una maqueta: dónde cae en los mosaicos y cuántos
  *  nodos tiene. Vive en `shared` porque viaja en el paquete. */
@@ -522,6 +522,32 @@ export function casasDeLugar(r: Rejilla, alturas: Float32Array, mascara: Uint8Ar
     salida.push(x, escala.y(alturaEn(r, alturas, px, py)), z, azar() * Math.PI, 0.8 + azar() * 0.45)
   }
   return new Float32Array(salida)
+}
+
+/**
+ * Los picos por los que pasa la carrera: los que quedan a menos de `metros`
+ * del recorrido, de más alto a más bajo y como mucho `PICOS_MAX`. Un collado
+ * a trescientos metros del sendero es un pico de la carrera; el que está a
+ * cinco kilómetros, no, por mucho que se vea.
+ */
+export function picosDelRecorrido(r: Rejilla, ruta: [number, number][], candidatos: PicoMaqueta[], metros: number): PicoMaqueta[] {
+  const tope = metros / r.mpp
+  const px = aligera(ruta, 2000).map(([lat, lon]) => proyecta(lat, lon, r.z))
+  const cerca = (x: number, y: number) => {
+    for (let i = 1; i < px.length; i++) {
+      const a = px[i - 1]
+      const b = px[i]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const l2 = dx * dx + dy * dy
+      const t = l2 > 0 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / l2)) : 0
+      if (Math.hypot(x - (a.x + dx * t), y - (a.y + dy * t)) <= tope) return true
+    }
+    return false
+  }
+  return candidatos
+    .filter((p) => cerca(r.x0 + p.u * r.anchoPx, r.y0 + p.v * r.altoPx))
+    .slice(0, PICOS_MAX)
 }
 
 /** Como mucho `n` puntos, repartidos, con el primero y el último siempre. */

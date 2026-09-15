@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-react'
+import { Captions, CaptionsOff, Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-react'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
   LADO_MOSAICO, aligera, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
-  casasDeLugar, mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta, sitiosDeArboles,
+  casasDeLugar, mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, picosDelRecorrido, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta, sitiosDeArboles,
   type Escala, type Malla, type Mosaico, type Rejilla, type Rgb,
 } from '../lib/maqueta3d'
 import { capasDeOsm, cargaMosaicosOsm } from '../lib/maquetaMascara'
-import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta } from '../../shared/maquetaPaquete'
+import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta, type PicoMaqueta } from '../../shared/maquetaPaquete'
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
@@ -56,6 +56,8 @@ const CASAS: Record<ClaseLugar, number> = { city: 22, town: 12, village: 6, haml
 const RADIO_LUGAR: Record<ClaseLugar, number> = { city: 0.06, town: 0.036, village: 0.022, hamlet: 0.012 }
 const ROTULOS_MAX = TACTIL ? 16 : 30
 const CLASE_ES: Record<ClaseLugar, string> = { city: 'ciudad', town: 'pueblo', village: 'pueblo', hamlet: 'aldea' }
+/** Un pico cuenta como de la carrera si el recorrido pasa a menos de esto. */
+const PICO_CERCA_M = 300
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -68,6 +70,8 @@ interface Terreno {
   mascara: Uint8Array
   /** Las poblaciones de la caja, de más a menos importante. */
   lugares: LugarMaqueta[]
+  /** Los picos por los que pasa el recorrido. */
+  picos: PicoMaqueta[]
   escala: Escala
   malla: Malla
   /** Mosaicos que no llegaron: ahí la loseta es mar. */
@@ -154,7 +158,11 @@ async function calculaPaquete(ruta: [number, number][], cotas: RangoAlturas | nu
   const mascara = capas?.mascara ?? new Uint8Array(alturas.length)
   // Pasa por el mismo formato que el guardado: así todos ven las mismas
   // alturas, redondeadas igual.
-  const bytes = codificaPaquete({ rejilla, cotas, faltan, conMapa: osm !== null, lugares: capas?.lugares ?? [] }, alturas, mascara)
+  const bytes = codificaPaquete({
+    rejilla, cotas, faltan, conMapa: osm !== null,
+    lugares: capas?.lugares ?? [],
+    picos: capas ? picosDelRecorrido(rejilla, ruta, capas.picos.map(({ n, e, u, v }) => ({ n, e, u, v })), PICO_CERCA_M) : [],
+  }, alturas, mascara)
   if (planId && faltan === 0 && osm) subePaquete(planId, bytes)
   return decodificaPaquete(bytes)
 }
@@ -178,7 +186,7 @@ function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null, 
       // Sin cotas del GPX, las de la propia loseta: mejor que una montaña fija.
       const rango = cotas ?? paquete.cabecera.cotas ?? (max - min >= 100 ? { min, max } : null)
       return {
-        rejilla, alturas, mascara, lugares: paquete.cabecera.lugares, escala,
+        rejilla, alturas, mascara, lugares: paquete.cabecera.lugares, picos: paquete.cabecera.picos, escala,
         malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO, mascara), faltan: paquete.cabecera.faltan,
       }
     })()
@@ -258,8 +266,8 @@ function dibujaFicha(c: Corredor3D, conEmoji: boolean, elegido: boolean): HTMLCa
   return lienzoFicha
 }
 
-/** El nombre de una población: en una pastilla oscura, sin palo. */
-function dibujaRotulo(texto: string): HTMLCanvasElement {
+/** Un nombre en una pastilla oscura, sin palo: blanco para las poblaciones, ámbar para los picos. */
+function dibujaRotulo(texto: string, tinta = '#f8fafc'): HTMLCanvasElement {
   const fuente = '600 20px system-ui, -apple-system, sans-serif'
   const medida = document.createElement('canvas').getContext('2d')!
   medida.font = fuente
@@ -270,7 +278,7 @@ function dibujaRotulo(texto: string): HTMLCanvasElement {
   ctx.beginPath()
   ctx.roundRect(0, 0, ancho, 30, 8)
   ctx.fill()
-  ctx.fillStyle = '#f8fafc'
+  ctx.fillStyle = tinta
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(texto, ancho / 2, 16)
@@ -278,11 +286,13 @@ function dibujaRotulo(texto: string): HTMLCanvasElement {
 }
 
 /**
- * El nombre del evento tallado en el canto: mayúsculas de imprenta, hundidas
- * —un filo claro abajo y a la derecha, como si la luz de arriba a la
- * izquierda entrara en el surco—. Se encoge hasta que quepa.
+ * El nombre del evento para el canto, en mayúsculas de imprenta que se
+ * encogen hasta caber. Dos dibujos del mismo texto: el de `color`, las
+ * letras en piedra clara con el borde oscuro; y el de `relieve`, blanco
+ * sobre negro con el borde difuminado, que es lo que las levanta de la
+ * pared (ver la placa en el componente).
  */
-function dibujaInscripcion(texto: string): HTMLCanvasElement {
+function dibujaInscripcion(texto: string, modo: 'color' | 'relieve'): HTMLCanvasElement {
   const [lienzoPlaca, ctx] = lienzo(1024, 64)
   const t = texto.toUpperCase()
   let tam = 44
@@ -290,13 +300,27 @@ function dibujaInscripcion(texto: string): HTMLCanvasElement {
   const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
   c.letterSpacing = '4px'
   ctx.font = fuente()
-  while (ctx.measureText(t).width > 1024 * 0.9 && tam > 14) { tam -= 2; ctx.font = fuente() }
+  while (ctx.measureText(t).width > 1024 * 0.88 && tam > 14) { tam -= 2; ctx.font = fuente() }
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = 'rgba(255,246,228,0.6)'
-  ctx.fillText(t, 512 + 1.6, 33 + 1.6)
-  ctx.fillStyle = 'rgba(46,32,20,0.88)'
-  ctx.fillText(t, 512, 33)
+  if (modo === 'relieve') {
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, 1024, 64)
+    // El halo hace la pendiente del canto de cada letra; el trazo nítido, la cara.
+    ctx.shadowColor = '#fff'
+    ctx.shadowBlur = 5
+    ctx.fillStyle = '#fff'
+    for (let k = 0; k < 3; k++) ctx.fillText(t, 512, 33)
+    ctx.shadowBlur = 0
+    ctx.fillText(t, 512, 33)
+  } else {
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 3
+    ctx.strokeStyle = '#5e564c'
+    ctx.strokeText(t, 512, 33)
+    ctx.fillStyle = '#c9c1b4'
+    ctx.fillText(t, 512, 33)
+  }
   return lienzoPlaca
 }
 
@@ -366,9 +390,11 @@ interface Props {
   corredores: Corredor3D[]
   puntos: Punto3D[]
   nombre: string | null
+  /** Píxeles que hay que dejar libres abajo: los mandos del replay, cuando la maqueta va dentro de él. */
+  margenAbajo?: number
 }
 
-export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre }: Props) {
+export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0 }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const escena = useRef<Escena | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'lista' | 'error'>('cargando')
@@ -377,6 +403,9 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [elegido, setElegido] = useState<string | null>(null)
   const [ayuda, setAyuda] = useState(true)
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
+  /** Los nombres de pueblos y picos, que tapan cuando lo que se quiere ver es el relieve. */
+  const [rotulos, setRotulos] = useState(true)
+  const rotulosRef = useRef(true)
 
   // La escena, una vez: luces, mesa, cámara y mandos. La loseta llega después.
   useEffect(() => {
@@ -407,7 +436,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.enablePan = false
-    controls.minDistance = 1
+    // Nunca dentro de la loseta: a menos de 1,5 la cámara se metía bajo el monte.
+    controls.minDistance = 1.5
     controls.maxDistance = 9
     controls.minPolarAngle = 0.05
     // Nunca por debajo de la mesa.
@@ -728,18 +758,26 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     puntos.forEach((p, i) => pon(dibujaPunto(p), 0.06, 0.12, p.lat, p.lon, `punto:${i}`))
     // Los nombres de las poblaciones, de las más importantes: sobre sus
     // casas, un poco por encima del suelo.
-    e.terreno.lugares.slice(0, ROTULOS_MAX).forEach((l, i) => {
-      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, l.u, l.v)
-      const c = dibujaRotulo(l.n)
+    // Un nombre se lee siempre, aunque haya un pino o una loma delante: por
+    // encima de todo y sin prueba de profundidad. Y se puede quitar (`rotulos`).
+    const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
       const alto = 0.036
-      const s = chincheta(c, (alto * c.width) / c.height, alto, [x, y + 0.02, z])
-      // Un nombre se lee siempre, aunque haya un pino o una loma delante:
-      // por encima de todo y sin prueba de profundidad.
+      const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
       s.material.depthTest = false
       s.renderOrder = 3
-      s.userData.key = `lugar:${i}`
+      s.userData.key = key
+      s.userData.rotulo = true
+      s.visible = rotulosRef.current
       e.chinchetas.add(s)
       hechas.push(s)
+    }
+    e.terreno.lugares.slice(0, ROTULOS_MAX).forEach((l, i) => {
+      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, l.u, l.v)
+      rotulo(dibujaRotulo(l.n), [x, y + 0.02, z], `lugar:${i}`)
+    })
+    e.terreno.picos.slice(0, ROTULOS_MAX).forEach((p, i) => {
+      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, p.u, p.v)
+      rotulo(dibujaRotulo(`▲ ${p.n}${p.e !== null ? ` · ${p.e.toLocaleString('es-ES')} m` : ''}`, '#fde68a'), [x, y + 0.012, z], `pico:${i}`)
     })
     e.sucio = true
     return () => {
@@ -795,9 +833,23 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     if (e) e.controls.autoRotate = girando
   }, [girando])
 
-  // El nombre del evento, tallado en el canto: en la pared sur, que es la que
-  // mira a la cámara al abrir, o en la este si la loseta es mucho más alta
-  // que ancha. A media altura del grosor que tiene seguro la base.
+  useEffect(() => {
+    rotulosRef.current = rotulos
+    const e = escena.current
+    if (!e) return
+    for (const ch of e.chinchetas.children) if (ch.userData.rotulo) ch.visible = rotulos
+    e.sucio = true
+  }, [rotulos])
+
+  // El nombre del evento, esculpido en el canto: en la pared sur, que es la
+  // que mira a la cámara al abrir, o en la este si la loseta es mucho más
+  // alta que ancha. A media altura del grosor que tiene seguro la base.
+  //
+  // Son letras de verdad, con volumen: una plancha muy subdividida pegada a
+  // la pared cuyos vértices se levantan donde el dibujo del texto es blanco
+  // (mapa de desplazamiento), con el borde difuminado para que el canto de
+  // cada letra salga en pendiente. Lo que no es letra se descarta por
+  // transparencia, y las letras dan sombra sobre la pared.
   useEffect(() => {
     const e = escena.current
     const texto = nombre?.trim()
@@ -806,23 +858,37 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const anchoU = rejilla.anchoPx * escala.u
     const altoU = rejilla.altoPx * escala.u
     const enSur = rejilla.anchoPx >= rejilla.altoPx * 0.8
-    const c = dibujaInscripcion(texto)
+    const color = dibujaInscripcion(texto, 'color')
+    const relieve = texturaDe(dibujaInscripcion(texto, 'relieve'))
+    relieve.colorSpace = THREE.NoColorSpace
     const ancho = Math.min((enSur ? anchoU : altoU) * 0.8, 1.3)
+    const alto = (ancho * color.height) / color.width
     const placa = new THREE.Mesh(
-      new THREE.PlaneGeometry(ancho, (ancho * c.height) / c.width),
-      new THREE.MeshLambertMaterial({ map: texturaDe(c), transparent: true, polygonOffset: true, polygonOffsetFactor: -2 }),
+      new THREE.PlaneGeometry(ancho, alto, 384, 48),
+      new THREE.MeshLambertMaterial({
+        map: texturaDe(color),
+        transparent: true,
+        alphaTest: 0.4,
+        displacementMap: relieve,
+        displacementScale: 0.014,
+        bumpMap: relieve,
+        bumpScale: 0.006,
+      }),
     )
+    placa.castShadow = true
     const y = escala.base + GROSOR / 2
-    if (enSur) placa.position.set(0, y, altoU / 2 + 0.0015)
+    if (enSur) placa.position.set(0, y, altoU / 2 + 0.001)
     else {
-      placa.position.set(anchoU / 2 + 0.0015, y, 0)
+      placa.position.set(anchoU / 2 + 0.001, y, 0)
       placa.rotation.y = Math.PI / 2
     }
     e.loseta.add(placa)
+    e.renderer.shadowMap.needsUpdate = true
     e.sucio = true
     return () => {
       e.loseta.remove(placa)
       tira(placa)
+      e.renderer.shadowMap.needsUpdate = true
       e.sucio = true
     }
   }, [nombre, estado])
@@ -885,6 +951,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       const l = escena.current?.terreno?.lugares[Number(elegido.slice(6))]
       return l ? `${l.n} · ${CLASE_ES[l.c]}` : null
     }
+    if (elegido.startsWith('pico:')) {
+      const p = escena.current?.terreno?.picos[Number(elegido.slice(5))]
+      return p ? `${p.n} · pico${p.e !== null ? ` · ${p.e.toLocaleString('es-ES')} m` : ''}` : null
+    }
     if (elegido === 'extremo') return null
     const c = corredores.find((x) => x.key === elegido)
     return c ? `${c.emoji ? `${c.emoji} ` : ''}${c.nombre}${c.detalle ? ` · ${c.detalle}` : ''}` : null
@@ -901,9 +971,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           <p className="text-sm text-slate-300">No se ha podido bajar el relieve. Sin red no hay maqueta; vuelve a intentarlo con cobertura.</p>
         </div>
       )}
-      <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 72px)' }}>
+      <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${72 + margenAbajo}px)` }}>
         <BotonRedondo etiqueta="Compartir la maqueta como imagen" onClick={comparte}>
           <Share2 size={16} />
+        </BotonRedondo>
+        <BotonRedondo etiqueta={rotulos ? 'Quitar los nombres' : 'Poner los nombres'} activo={!rotulos} onClick={() => setRotulos((v) => !v)}>
+          {rotulos ? <Captions size={16} /> : <CaptionsOff size={16} />}
         </BotonRedondo>
         <BotonRedondo etiqueta={girando ? 'Parar el giro' : 'Girar alrededor'} activo={girando} onClick={alternaGiro}>
           {girando ? <Pause size={16} /> : <RotateCw size={16} />}
@@ -915,7 +988,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       {(elegidoTexto || comoFue || (ayuda && estado === 'lista')) && (
         <div
           className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-16"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 64px)' }}
+          style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${64 + margenAbajo}px)` }}
         >
           <p className="rounded-2xl bg-slate-900/85 px-3 py-1.5 text-center text-[11px] leading-snug text-slate-200 shadow-lg">
             {comoFue === 'compartida' ? '✓ Compartida'

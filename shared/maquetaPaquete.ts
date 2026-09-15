@@ -42,8 +42,16 @@ export interface LugarMaqueta {
   v: number
 }
 
+/** Un pico por el que pasa la carrera: nombre, altura en metros si la tiene, y dónde cae en la caja. */
+export interface PicoMaqueta {
+  n: string
+  e: number | null
+  u: number
+  v: number
+}
+
 export interface CabeceraMaqueta {
-  v: 2
+  v: 3
   rejilla: RejillaMaqueta
   alturaMin: number
   alturaMax: number
@@ -55,9 +63,12 @@ export interface CabeceraMaqueta {
   conMapa: boolean
   /** Las poblaciones de la caja, de más a menos importante. */
   lugares: LugarMaqueta[]
+  /** Los picos por los que pasa el recorrido, de más a menos importante. */
+  picos: PicoMaqueta[]
 }
 
 export const LUGARES_MAX = 80
+export const PICOS_MAX = 60
 
 /** Los bits de la máscara. El mar no va aquí: sale de la altura cero. */
 export const MASCARA_AGUA = 1
@@ -77,7 +88,7 @@ export function codificaPaquete(
   let alturaMax = -Infinity
   for (const h of alturas) { if (h < alturaMin) alturaMin = h; if (h > alturaMax) alturaMax = h }
   if (!Number.isFinite(alturaMin)) { alturaMin = 0; alturaMax = 0 }
-  const cabecera = new TextEncoder().encode(JSON.stringify({ ...cab, v: 2, alturaMin, alturaMax } satisfies CabeceraMaqueta))
+  const cabecera = new TextEncoder().encode(JSON.stringify({ ...cab, v: 3, alturaMin, alturaMax } satisfies CabeceraMaqueta))
   const bytes = new Uint8Array(8 + cabecera.length + total * 3)
   const vista = new DataView(bytes.buffer)
   for (let i = 0; i < 4; i++) bytes[i] = MAGIA.charCodeAt(i)
@@ -103,7 +114,7 @@ export function validaPaquete(bytes: Uint8Array): CabeceraMaqueta | null {
   } catch {
     return null
   }
-  if (!cab || cab.v !== 2 || typeof cab.rejilla !== 'object' || cab.rejilla === null) return null
+  if (!cab || cab.v !== 3 || typeof cab.rejilla !== 'object' || cab.rejilla === null) return null
   const r = cab.rejilla
   const entero = (n: unknown, min: number, max: number) => Number.isInteger(n) && (n as number) >= min && (n as number) <= max
   const positivo = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n > 0
@@ -119,6 +130,13 @@ export function validaPaquete(bytes: Uint8Array): CabeceraMaqueta | null {
     if (typeof l.n !== 'string' || l.n.length === 0 || l.n.length > 80) return null
     if (!CLASES_LUGAR.includes(l.c)) return null
     if (!finito(l.u) || !finito(l.v) || l.u < 0 || l.u > 1 || l.v < 0 || l.v > 1) return null
+  }
+  if (!Array.isArray(cab.picos) || cab.picos.length > PICOS_MAX) return null
+  for (const p of cab.picos) {
+    if (!p || typeof p !== 'object') return null
+    if (typeof p.n !== 'string' || p.n.length === 0 || p.n.length > 80) return null
+    if (p.e !== null && !finito(p.e)) return null
+    if (!finito(p.u) || !finito(p.v) || p.u < 0 || p.u > 1 || p.v < 0 || p.v > 1) return null
   }
   if (bytes.length !== 8 + largo + r.cols * r.filas * 3) return null
   return cab
