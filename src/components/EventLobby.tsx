@@ -807,8 +807,9 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
             <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">En la baliza</h2>
               <p className="text-xs leading-relaxed text-slate-400">
-                Al elegir esta carrera en la app, elige también tu previsión como ruta. Si no eliges ninguna, la baliza
-                corre con la del evento. El GPX lleva dentro los controles y los horarios de cierre, listo para el reloj.
+                Al elegir esta carrera en la app, la baliza coge tu previsión sola (con la app al día; si no, elígela como
+                ruta). Sin previsión propia corre con la del evento. El GPX lleva dentro los controles y los horarios de
+                cierre, listo para el reloj.
               </p>
             </section>
             <p className="mt-3 text-[11px] text-slate-500">
@@ -874,7 +875,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         <p className="mt-1 text-center text-[11px] text-slate-500">
           {event.publicToken
             ? 'Para que familia y amigos sigan la carrera en directo, sin cuenta'
-            : event.isOwner
+            : event.canOrganize
               ? 'Aún no hay enlace público: créalo en Organización, más abajo'
               : 'Aún no hay enlace público: lo crea quien organiza'}
         </p>
@@ -1273,8 +1274,9 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           la de unirse —con esta se mira, no se entra— que se puede regenerar o
           quitar sin tocar el evento. Compartirlo lo hace cualquiera desde el
           botón de arriba; crearlo, cambiarlo o apagarlo enseña o esconde la
-          carrera entera, y el servidor solo se lo deja a quien la creó. */}
-      {event.isOwner && (
+          carrera entera, y es de quien organiza: quien la creó y los
+          organizadores que nombró. */}
+      {event.canOrganize && (
         <Plegable
           orga
           title="Enlace de seguimiento"

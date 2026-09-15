@@ -3,6 +3,7 @@ import type { Env } from '../../../lib/db'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE } from '../../../../shared/validate'
+import { puedeOrganizar } from '../../../lib/organiza'
 import { genId } from '../../../../shared/ids'
 
 /**
@@ -25,9 +26,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const user = await getSessionUser(request, env)
   if (!user) return json({ error: 'unauthorized' }, 401)
 
-  const ev = await env.DB.prepare('SELECT created_by AS createdBy FROM events WHERE id = ?')
-    .bind(id).first<{ createdBy: string }>()
-  if (!ev || ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
+  // Lo gestiona quien puede organizar la carrera: quien la creó, los
+  // organizadores que nombró y quien administra. Antes era solo quien la creó,
+  // y un organizador nombrado podía cambiar la hora de salida pero no el enlace
+  // con el que la familia la sigue.
+  const ev = await env.DB.prepare('SELECT id FROM events WHERE id = ?').bind(id).first<{ id: string }>()
+  if (!ev || !(await puedeOrganizar(env, id, user))) return json({ error: 'not_found' }, 404)
 
   const body = (await readJson<{ share?: unknown }>(request)) || {}
   const share = body.share !== false
@@ -35,8 +39,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // familia y tiene que ser inadivinable.
   const token = share ? genId(16) : null
 
-  await env.DB.prepare('UPDATE events SET public_token = ? WHERE id = ? AND created_by = ?')
-    .bind(token, id, user.id).run()
+  await env.DB.prepare('UPDATE events SET public_token = ? WHERE id = ?').bind(token, id).run()
 
   return json({ publicToken: token }, 200, { 'Cache-Control': 'no-store' })
 }
