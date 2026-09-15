@@ -5,7 +5,7 @@ import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url
 import { Map as IconoMapa, Mountain, Palette, Pause, RotateCw, X } from 'lucide-react'
 import type { EventFoto } from '../../shared/wireTypes'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
-import { coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
+import { COLOR_AGUA, coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
 import { PUNTA, htmlExtremo, type TipoExtremo } from './SentidoRecorrido'
@@ -118,6 +118,11 @@ function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): Styl
         maxzoom: 19,
         attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
       },
+      // El agua de la maqueta: las alturas no saben dónde hay un ibón o un
+      // río. Mosaicos vectoriales abiertos de OpenFreeMap (OSM), sin clave y
+      // con CORS. Solo se bajan con la maqueta a la vista: MapLibre no pide
+      // mosaicos de una fuente cuyas capas están todas escondidas.
+      agua: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
       // Una sola fuente para el volumen, el sombreado y el color por altura:
       // con varias se bajaría cada mosaico de alturas varias veces.
       alturas: {
@@ -132,6 +137,40 @@ function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): Styl
     layers: [
       { id: 'fondo', type: 'background', paint: { 'background-color': a.fondo } },
       { id: 'maqueta', type: 'color-relief', source: 'alturas', layout: { visibility: maqueta ? 'visible' : 'none' }, paint: { 'color-relief-color': coloresMaqueta(cotas) } },
+      // El agua, encima del color y debajo del sombreado. Lo que va en túnel
+      // o entubado no se pinta: en la maqueta sería un río por encima del monte.
+      {
+        id: 'agua-lagos',
+        type: 'fill',
+        source: 'agua',
+        'source-layer': 'water',
+        filter: ['!=', ['get', 'brunnel'], 'tunnel'],
+        layout: { visibility: maqueta ? 'visible' : 'none' },
+        paint: { 'fill-color': COLOR_AGUA, 'fill-outline-color': '#3d6a86' },
+      },
+      {
+        id: 'agua-rios',
+        type: 'line',
+        source: 'agua',
+        'source-layer': 'waterway',
+        filter: ['!=', ['get', 'brunnel'], 'tunnel'],
+        layout: { visibility: maqueta ? 'visible' : 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': COLOR_AGUA,
+          // Los ríos se ven desde lejos; los arroyos, al acercarse.
+          // Más gruesos que en un mapa: la cámara inclinada los aplasta, y un
+          // barranco de un píxel sobre la ladera no se ve.
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            9, ['match', ['get', 'class'], 'river', 1.2, 0],
+            12, ['match', ['get', 'class'], ['river', 'canal'], 2.5, 1.2],
+            14, ['match', ['get', 'class'], ['river', 'canal'], 4.5, 2.2],
+            16, ['match', ['get', 'class'], ['river', 'canal'], 8, 4],
+          ],
+          // Los que solo llevan agua a temporadas, a media tinta.
+          'line-opacity': ['match', ['get', 'intermittent'], 1, 0.7, 1],
+        },
+      },
       { id: 'osm', type: 'raster', source: 'osm', layout: { visibility: maqueta ? 'none' : 'visible' } },
       {
         id: 'sombra',
@@ -155,7 +194,7 @@ function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): Styl
 function aplicaEstilo(m: MapaGL, estilo: EstiloMapa3D, cotas: RangoAlturas | null) {
   const a = ASPECTO[estilo]
   const maqueta = estilo === 'maqueta'
-  m.setLayoutProperty('maqueta', 'visibility', maqueta ? 'visible' : 'none')
+  for (const capa of ['maqueta', 'agua-lagos', 'agua-rios']) m.setLayoutProperty(capa, 'visibility', maqueta ? 'visible' : 'none')
   m.setLayoutProperty('osm', 'visibility', maqueta ? 'none' : 'visible')
   m.setPaintProperty('maqueta', 'color-relief-color', coloresMaqueta(cotas))
   m.setPaintProperty('fondo', 'background-color', a.fondo)

@@ -34,6 +34,9 @@ export function rangoDeAlturas(eles: number[]): RangoAlturas | null {
   return max - min >= 100 ? { min, max } : null
 }
 
+/** El azul del agua en la maqueta: el mar de la paleta y los lagos y ríos de OSM, que tienen que ser el mismo. */
+export const COLOR_AGUA = '#5b8aa6'
+
 /** Sin recorrido con alturas, una montaña cualquiera. */
 export const COTAS_FIJAS: RangoAlturas = { min: 400, max: 2400 }
 
@@ -61,7 +64,7 @@ export function coloresMaqueta(rango: RangoAlturas | null): ExpressionSpecificat
   const { min, max } = rango ?? COTAS_FIJAS
   const cota = (parte: number) => Math.round(min + (max - min) * parte)
   const paradas: [number, string][] = [
-    [0, '#5b8aa6'],
+    [0, COLOR_AGUA],
     [cota(-0.25), '#476f37'],
     [cota(0), '#6b9147'],
     [cota(0.35), '#a3aa5c'],
