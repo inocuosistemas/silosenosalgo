@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom'
 import { Share2 } from 'lucide-react'
 import { eventColorHex } from '../../shared/eventColors'
 import type { SharePayloadV1 } from '../lib/sharePayload'
-import type { ComoSeFue } from '../lib/compartirImagen'
-import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
+import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
 
 /**
  * El dorsal de la carrera, dibujado como lo que es.
@@ -206,8 +205,40 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
   const [compartiendo, setCompartiendo] = useState(false)
   /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
-  /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
-  const { pide, vistaPrevia } = useVistaPreviaCompartir()
+  /**
+   * La imagen que se manda, dibujada en cuanto se abre el dorsal.
+   *
+   * Aquí NO pasa por la vista previa de compartir: el dorsal grande de la
+   * pantalla ya es esa vista previa, y con las dos había que pulsar
+   * "Compartir" dos veces. La vista previa existía porque dibujar después del
+   * toque se comía el permiso del móvil para abrir el menú de compartir; con
+   * la imagen hecha de antemano, el toque llega entero.
+   */
+  const [imagen, setImagen] = useState<string | null>(null)
+  useEffect(() => {
+    if (!carrera) return
+    let vivo = true
+    import('../lib/dorsalCard')
+      .then(({ dibujaDorsal }) => {
+        if (!vivo) return
+        setImagen(dibujaDorsal({
+          bib,
+          nombre: username,
+          emoji,
+          color,
+          carrera: carrera.nombre,
+          km: carrera.km,
+          desnivelM: carrera.desnivelM,
+          salida: carrera.salida,
+          cierre: carrera.cierre,
+          perfil: carrera.perfil,
+          puntos: carrera.puntos,
+          porra,
+        }))
+      })
+      .catch(() => { /* sin imagen, el botón se queda sin ofrecer nada */ })
+    return () => { vivo = false }
+  }, [bib, username, emoji, color, carrera, porra])
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -223,25 +254,11 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
    * manda tiene que leerse sin ampliar, como la porra.
    */
   async function compartir() {
-    if (compartiendo || !carrera) return
+    if (compartiendo || !imagen) return
     setCompartiendo(true)
     try {
-      const { dibujaDorsal } = await import('../lib/dorsalCard')
-      const fue = await pide(
-        dibujaDorsal({
-          bib,
-          nombre: username,
-          emoji,
-          color,
-          carrera: carrera.nombre,
-          km: carrera.km,
-          desnivelM: carrera.desnivelM,
-          salida: carrera.salida,
-          cierre: carrera.cierre,
-          perfil: carrera.perfil,
-          puntos: carrera.puntos,
-          porra,
-        }),
+      const fue = await comparteImagen(
+        imagen,
         `dorsal-${bib.replace(/[^A-Za-z0-9-]/g, '')}.png`,
         `${username} · dorsal ${bib}`,
       )
@@ -276,7 +293,6 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
     >
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
-          {vistaPrevia}
           <div
             className="w-[280px] overflow-hidden rounded-md text-[#0b1120]"
             style={{
@@ -377,10 +393,10 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
             <button
               type="button"
               onClick={() => void compartir()}
-              disabled={compartiendo || !carrera}
+              disabled={compartiendo || !imagen}
               className="flex items-center gap-1.5 rounded-full border border-sky-800 bg-sky-950/60 px-4 py-1.5 text-xs font-semibold text-sky-300 transition-colors hover:border-sky-600 hover:text-sky-100 disabled:opacity-50"
             >
-              <Share2 size={13} /> {compartiendo ? 'Preparando…'
+              <Share2 size={13} /> {compartiendo || (carrera && !imagen) ? 'Preparando…'
                 : comoFue === 'copiada' ? 'Copiado · pégalo'
                 : comoFue === 'descargada' ? 'Descargado'
                 : comoFue === 'compartida' ? 'Compartido'

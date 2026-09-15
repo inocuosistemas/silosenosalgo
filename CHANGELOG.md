@@ -86,6 +86,15 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### El dorsal se comparte de un toque
+
+**Web · desplegado · compatible.** Al compartir el dorsal ya no sale la vista
+previa de compartir: el dorsal grande de la pantalla ya lo es, y había que
+pulsar «Compartir» dos veces. La imagen se dibuja al abrir el dorsal, así que el
+toque abre directamente el menú de compartir del móvil. La porra, su pulso y la
+maqueta siguen enseñando la vista previa, porque ahí no se ve antes lo que se
+manda.
+
 ### La cabecera del evento no se mueve, y lleva de vuelta al planificador
 
 **Web · desplegado · compatible.** La parrilla, tu plan, el mapa, la lista, la
