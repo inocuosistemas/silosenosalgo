@@ -1,6 +1,7 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Magnet, MapPin, Pause, Play, RotateCcw } from 'lucide-react'
 import type { Corredor3D, Punto3D } from '../lib/mapa3d'
+import type { VideoReplay } from './EventMaqueta3D'
 
 // La maqueta es Three.js y pesa: se baja solo si se pide el replay sobre ella.
 const EventMaqueta3D = lazy(() => import('./EventMaqueta3D'))
@@ -135,11 +136,15 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
     [datos, trazado],
   )
 
-  /** Dónde está cada uno en el instante `t`, y por dónde ha pasado ya. */
-  const posiciones = useMemo(() => {
+  /**
+   * Dónde está cada uno en un instante, y por dónde ha pasado ya. Una función
+   * y no solo el valor del instante `t`: el vídeo del replay la llama para
+   * cada fotograma, con su propio reloj.
+   */
+  const posicionesEn = useCallback((instante: number) => {
     if (!datos) return []
     return datos.runners.map((r, n) => {
-      const base = estadoEn(preparados[n], t, trazado)
+      const base = estadoEn(preparados[n], instante, trazado)
       if (!anclados || !geo || !base.pos) return { r, ...base }
       // Imantado: se pinta en su punto del trazado, no donde temblaba el GPS.
       // Fuera de ruta se respeta la posición cruda —a más de cien metros ya no
@@ -147,7 +152,8 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
       const p = pegaAlTrazado(geo, base.pos)
       return { r, ...base, pos: p ?? base.pos }
     })
-  }, [datos, preparados, t, anclados, geo, trazado])
+  }, [datos, preparados, anclados, geo, trazado])
+  const posiciones = useMemo(() => posicionesEn(t), [posicionesEn, t])
 
   const centro = useMemo<[number, number]>(() => {
     const conPos = posiciones.find((p) => p.pos)
@@ -156,7 +162,7 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
   }, [posiciones, route])
 
   /** Los mismos de arriba, como los quiere la maqueta: una chincheta por cabeza. */
-  const corredores = useMemo<Corredor3D[]>(() => posiciones.flatMap(({ r, pos, estimada, terminado }) => {
+  const aCorredores = useCallback((ps: ReturnType<typeof posicionesEn>): Corredor3D[] => ps.flatMap(({ r, pos, estimada, terminado }) => {
     if (!pos || ocultos.has(r.username)) return []
     return [{
       key: r.username,
@@ -167,7 +173,24 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
       apagado: estimada || (terminado && r.final !== 'meta'),
       detalle: terminado ? (r.final === 'meta' ? 'en meta' : 'retirado') : null,
     }]
-  }), [posiciones, ocultos])
+  }), [ocultos])
+  const corredores = useMemo(() => aCorredores(posiciones), [aCorredores, posiciones])
+
+  /**
+   * Lo que necesita la maqueta para grabar el vídeo del replay: de dónde a
+   * dónde va la carrera, dónde está cada uno en cada instante, entre quién se
+   * puede elegir para seguir —los que se ven, no los quitados de la tira— y
+   * parar el reloj de la pantalla mientras se graba.
+   */
+  const video = useMemo<VideoReplay | undefined>(() => (datos ? {
+    desde: datos.from,
+    hasta: datos.to,
+    corredoresEn: (instante: number) => aCorredores(posicionesEn(instante)),
+    participantes: datos.runners
+      .filter((r) => !ocultos.has(r.username))
+      .map((r) => ({ key: r.username, nombre: r.username, emoji: r.emoji ?? null, color: r.color ? eventColorHex(r.color) : '#94a3b8' })),
+    alEmpezar: () => setPlaying(false),
+  } : undefined), [datos, aCorredores, posicionesEn, ocultos])
 
   if (error) {
     return (
@@ -194,7 +217,7 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
     <div className="relative h-full w-full bg-slate-950">
       {enMaqueta && route && route.length >= 2 ? (
         <Suspense fallback={<CargandoMarca texto="Cargando la maqueta…" />}>
-          <EventMaqueta3D ruta={route} cotas={null} planId={planId} corredores={corredores} puntos={SIN_PUNTOS} nombre={nombre} margenAbajo={150} />
+          <EventMaqueta3D ruta={route} cotas={null} planId={planId} corredores={corredores} puntos={SIN_PUNTOS} nombre={nombre} margenAbajo={150} video={video} />
         </Suspense>
       ) : (
       <MapContainer center={centro} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>

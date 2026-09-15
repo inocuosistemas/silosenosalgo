@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { Captions, CaptionsOff, Map as IconoMapa, Mountain, Pause, RotateCw, Share2, Video } from 'lucide-react'
+import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, RotateCw, Share2, Video } from 'lucide-react'
+import { durationLabel } from '../../shared/bets'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
   LADO_MOSAICO, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
@@ -218,8 +219,13 @@ interface Escena {
   /** Lo que hay que quitar al cambiar de carrera. */
   loseta: THREE.Group
   chinchetas: THREE.Group
-  fichas: Map<string, { sprite: THREE.Sprite; firma: string }>
+  /** Las sombras de las agujas de la gente, en el suelo (ver `creaSombra`). */
+  sombras: THREE.Group
+  fichas: Map<string, { sprite: THREE.Sprite; firma: string; sombra: THREE.Group }>
   terreno: Terreno | null
+  /** Mientras se genera un vídeo, el bucle de la pantalla no pinta: la
+   *  escena la mueve el vídeo, fotograma a fotograma. */
+  grabando: boolean
   /** Que hay que volver a pintar aunque la cámara no se haya movido. */
   sucio: boolean
   /** Una ida de cámara en marcha (a vista de pájaro, o de vuelta). */
@@ -278,9 +284,10 @@ const angulo = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
  * suaviza mucho; el lado no se cambia mientras el de ahora siga libre y no
  * se aleje demasiado del ideal; y el giro tiene velocidad máxima.
  */
-function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
-  const s = e.seguir!
-  const p = sprite.position
+function sigueCorredor(
+  s: Seguimiento, t: Terreno | null, camara: THREE.PerspectiveCamera, objetivo: THREE.Vector3,
+  p: THREE.Vector3, dt: number, ahora: number,
+) {
   if (!s.ultimo) s.ultimo = p.clone()
   else {
     const dx = p.x - s.ultimo.x
@@ -292,16 +299,17 @@ function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
     }
   }
   const suaviza = (ms: number) => 1 - Math.exp(-dt / ms)
-  e.controls.target.lerp(new THREE.Vector3(p.x, p.y + 0.02, p.z), suaviza(900))
+  objetivo.lerp(new THREE.Vector3(p.x, p.y + 0.02, p.z), suaviza(900))
 
-  const ahora = performance.now()
-  if (e.terreno && ahora - s.revisado > REVISA_LADO_MS) {
+  // `ahora` es el reloj de quien pinta: el de la pantalla, o el de los
+  // fotogramas del vídeo, que no va al ritmo del reloj de verdad.
+  if (t && ahora - s.revisado > REVISA_LADO_MS) {
     s.revisado = ahora
-    const relativa = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
+    const relativa = new THREE.Spherical().setFromVector3(camara.position.clone().sub(objetivo))
     // Sin rumbo todavía —parado, o recién elegido—, desde donde ya se mira.
     const ideal = s.rumbo === null ? relativa.theta : s.rumbo + Math.PI + 0.6
     const cabeza = new THREE.Vector3(p.x, p.y + 0.05, p.z)
-    const terreno = e.terreno
+    const terreno = t
     const libre = (theta: number) => !tapadaPorElMonte(
       terreno, cabeza, new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza), 48,
     )
@@ -313,15 +321,14 @@ function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
     }
   }
 
-  const esf = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
+  const esf = new THREE.Spherical().setFromVector3(camara.position.clone().sub(objetivo))
   const tope = GIRO_MAX * (dt / 1000)
   const giro = angulo(s.azimut - esf.theta) * suaviza(4500)
   esf.theta += Math.max(-tope, Math.min(tope, giro))
   esf.phi += (POLAR_SEGUIR - esf.phi) * suaviza(2500)
   esf.radius += (s.distancia - esf.radius) * suaviza(1200)
   esf.makeSafe()
-  e.camera.position.setFromSpherical(esf).add(e.controls.target)
-  e.sucio = true
+  camara.position.setFromSpherical(esf).add(objetivo)
 }
 
 /**
@@ -403,19 +410,37 @@ function esquinasDeLoseta(t: Terreno): THREE.Vector3[] {
  */
 function encuadra(e: Escena, azimut: number, polar: number, margenAbajoPx: number) {
   if (!e.terreno) return
-  const esquinas = esquinasDeLoseta(e.terreno)
+  encuadreDe(
+    e.terreno, e.camera, e.controls.target, azimut, polar,
+    e.renderer.domElement.clientHeight || 1, margenAbajoPx, 0, e.controls.minDistance, e.controls.maxDistance,
+  )
+  e.controls.update()
+  e.sucio = true
+}
+
+/**
+ * La cuenta de `encuadra`, para cualquier cámara: la pone mirando a
+ * `objetivo` desde `azimut` y `polar`, corre `objetivo` para centrar la
+ * loseta en el hueco que dejan los márgenes de arriba y abajo, y devuelve la
+ * distancia a la que cabe entera. La usan la pantalla y el vídeo.
+ */
+function encuadreDe(
+  t: Terreno, camara: THREE.PerspectiveCamera, objetivo: THREE.Vector3, azimut: number, polar: number,
+  altoPx: number, margenAbajoPx: number, margenArribaPx: number, dMin: number, dMax: number,
+): number {
+  const esquinas = esquinasDeLoseta(t)
   const dir = new THREE.Vector3().setFromSpherical(new THREE.Spherical(1, polar, azimut))
-  const alto = e.renderer.domElement.clientHeight || 1
-  const limiteAbajo = -0.92 + (2 * margenAbajoPx) / alto
-  const centroY = (limiteAbajo + 0.92) / 2
+  const limiteAbajo = -0.92 + (2 * margenAbajoPx) / altoPx
+  const limiteArriba = 0.92 - (2 * margenArribaPx) / altoPx
+  const centroY = (limiteAbajo + limiteArriba) / 2
   let d = 3
   const proyecta = () => {
-    e.camera.position.copy(e.controls.target).addScaledVector(dir, d)
-    e.camera.lookAt(e.controls.target)
-    e.camera.updateMatrixWorld()
+    camara.position.copy(objetivo).addScaledVector(dir, d)
+    camara.lookAt(objetivo)
+    camara.updateMatrixWorld()
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
     for (const c of esquinas) {
-      const p = c.clone().project(e.camera)
+      const p = c.clone().project(camara)
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
     }
@@ -425,22 +450,22 @@ function encuadra(e: Escena, azimut: number, polar: number, margenAbajoPx: numbe
     // Primero la distancia a la que cabe…
     for (let k = 0; k < 4; k++) {
       const { minX, maxX, minY, maxY } = proyecta()
-      const exceso = Math.max(Math.abs(minX) / 0.92, Math.abs(maxX) / 0.92, (maxY - centroY) / (0.92 - centroY), (centroY - minY) / (centroY - limiteAbajo))
-      d = Math.min(e.controls.maxDistance, Math.max(e.controls.minDistance, d * exceso))
+      const exceso = Math.max(Math.abs(minX) / 0.92, Math.abs(maxX) / 0.92, (maxY - centroY) / (limiteArriba - centroY), (centroY - minY) / (centroY - limiteAbajo))
+      d = Math.min(dMax, Math.max(dMin, d * exceso))
     }
     // …y luego se corre el centro para que la loseta quede en medio del
     // hueco, no pegada a un lado: la caja no es simétrica vista de esquina.
     const { minX, maxX, minY, maxY } = proyecta()
-    const medioVisible = d * Math.tan((e.camera.fov * Math.PI) / 360)
-    const dx = ((minX + maxX) / 2) * medioVisible * e.camera.aspect
+    const medioVisible = d * Math.tan((camara.fov * Math.PI) / 360)
+    const dx = ((minX + maxX) / 2) * medioVisible * camara.aspect
     const dy = ((minY + maxY) / 2 - centroY) * medioVisible
-    const derecha = new THREE.Vector3().setFromMatrixColumn(e.camera.matrixWorld, 0)
-    const arriba = new THREE.Vector3().setFromMatrixColumn(e.camera.matrixWorld, 1)
-    e.controls.target.addScaledVector(derecha, dx).addScaledVector(arriba, dy)
+    const derecha = new THREE.Vector3().setFromMatrixColumn(camara.matrixWorld, 0)
+    const arriba = new THREE.Vector3().setFromMatrixColumn(camara.matrixWorld, 1)
+    objetivo.addScaledVector(derecha, dx).addScaledVector(arriba, dy)
   }
-  e.camera.position.copy(e.controls.target).addScaledVector(dir, d)
-  e.controls.update()
-  e.sucio = true
+  camara.position.copy(objetivo).addScaledVector(dir, d)
+  camara.lookAt(objetivo)
+  return d
 }
 
 /** Un lienzo a doble resolución, para que las chinchetas salgan nítidas. */
@@ -722,6 +747,385 @@ function imagenParaCompartir(e: Escena): string {
   return e.renderer.domElement.toDataURL('image/png')
 }
 
+/** Dónde está el sol de la escena (y desde dónde da sombra), mirando al centro de la loseta. */
+const SOL = new THREE.Vector3(-1.3, 2.6, 1.5)
+/** Hacia dónde cae en el suelo la sombra de algo que se levanta una unidad: lejos del sol. */
+const CAIDA_SOMBRA = new THREE.Vector2(-SOL.x / SOL.y, -SOL.z / SOL.y)
+
+/** La mancha de sombra, difuminada del centro al borde; una sola para todas. */
+let manchaSombra: THREE.CanvasTexture | null = null
+function texturaMancha(): THREE.CanvasTexture {
+  if (manchaSombra) return manchaSombra
+  const c = document.createElement('canvas')
+  c.width = 64
+  c.height = 64
+  const ctx = c.getContext('2d')!
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
+  g.addColorStop(0, 'rgba(0,0,0,1)')
+  g.addColorStop(0.45, 'rgba(0,0,0,0.6)')
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 64, 64)
+  manchaSombra = new THREE.CanvasTexture(c)
+  return manchaSombra
+}
+
+/**
+ * La sombra de la aguja de un corredor en el suelo: una mancha oscura y
+ * pequeña al pie, que es lo que dice por dónde va exactamente; y otra más
+ * grande y suave donde cae la cabeza con la luz de la escena. Leve: marca el
+ * sitio sin ensuciar el terreno. Son dos planos tumbados, que se recolocan
+ * en cada pintado (ver `colocaSombra`).
+ */
+function creaSombra(): THREE.Group {
+  const g = new THREE.Group()
+  for (const opacidad of [0.5, 0.22]) {
+    const geo = new THREE.PlaneGeometry(1, 1)
+    geo.rotateX(-Math.PI / 2)
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      map: texturaMancha(), color: 0x000000, transparent: true, opacity: opacidad,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4,
+    }))
+    m.renderOrder = 1
+    g.add(m)
+  }
+  return g
+}
+
+/** Sin `tira`: la textura de la mancha es de todas, no se libera con una. */
+function tiraSombra(g: THREE.Group) {
+  for (const m of g.children as THREE.Mesh[]) {
+    m.geometry.dispose()
+    ;(m.material as THREE.Material).dispose()
+  }
+}
+
+const alturaDelSuelo = (t: Terreno, x: number, z: number) =>
+  t.escala.y(alturaEn(t.rejilla, t.alturas, t.escala.px(x), t.escala.py(z)))
+
+/** Pone la sombra de una aguja clavada en `pie` que se levanta `alto`, a la escala `k` de su chincheta. */
+function colocaSombra(sombra: THREE.Group, t: Terreno, pie: THREE.Vector3, alto: number, k: number) {
+  const [alPie, deLaCabeza] = sombra.children as THREE.Mesh[]
+  alPie.position.set(pie.x, alturaDelSuelo(t, pie.x, pie.z) + 0.002, pie.z)
+  alPie.scale.setScalar(0.045 * k)
+  const x = pie.x + CAIDA_SOMBRA.x * alto
+  const z = pie.z + CAIDA_SOMBRA.y * alto
+  deLaCabeza.position.set(x, alturaDelSuelo(t, x, z) + 0.002, z)
+  deLaCabeza.scale.setScalar(0.09 * k)
+}
+
+/**
+ * Coloca las fichas de los corredores donde dice `corredores`: recoloca las
+ * que ya hay y solo redibuja la que cambia —color, emoji, apagada, elegida—,
+ * para que no parpadeen. Lo usan el efecto de la pantalla y el vídeo, que
+ * mueve a la gente con su propio reloj.
+ */
+function colocaFichas(e: Escena, corredores: Corredor3D[], elegido: string | null) {
+  const t = e.terreno
+  if (!t) return
+  const { rejilla, alturas, escala } = t
+  const conEmoji = corredores.length <= EMOJIS_HASTA
+  const quedan = new Set<string>()
+  for (const c of corredores) {
+    const sitio = sitioEnMaqueta(rejilla, alturas, escala, c.punto[0], c.punto[1])
+    if (!sitio) continue
+    quedan.add(c.key)
+    const esElegido = c.key === elegido
+    const firma = `${c.color}|${conEmoji ? c.emoji ?? '' : ''}|${c.apagado}|${esElegido}`
+    let f = e.fichas.get(c.key)
+    if (!f) {
+      const s = chincheta(dibujaFicha(c, conEmoji, esElegido), 1, 1, sitio)
+      s.userData.key = c.key
+      const sombra = creaSombra()
+      s.userData.sombra = sombra
+      e.chinchetas.add(s)
+      e.sombras.add(sombra)
+      f = { sprite: s, firma, sombra }
+      e.fichas.set(c.key, f)
+    } else if (f.firma !== firma) {
+      const mat = f.sprite.material
+      mat.map?.dispose()
+      mat.map = texturaDe(dibujaFicha(c, conEmoji, esElegido))
+      mat.needsUpdate = true
+      f.firma = firma
+    }
+    const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
+    f.sprite.scale.set(tam, tam * 1.5, 1)
+    f.sprite.userData.escalaBase = new THREE.Vector2(tam, tam * 1.5)
+    f.sprite.position.set(sitio[0], sitio[1], sitio[2])
+    // El elegido, por encima de todo, rótulos incluidos.
+    f.sprite.renderOrder = esElegido ? 4 : 2
+  }
+  for (const [key, f] of e.fichas) {
+    if (quedan.has(key)) continue
+    e.chinchetas.remove(f.sprite)
+    tira(f.sprite)
+    e.sombras.remove(f.sombra)
+    tiraSombra(f.sombra)
+    e.fichas.delete(key)
+  }
+  e.sucio = true
+}
+
+/**
+ * Deja las chinchetas listas para pintar desde `camara`: al acercarse encogen
+ * —miden en la maqueta, y de cerca el emoji ocupaba media pantalla—; se
+ * esconden enteras si el monte las tapa (ver `chincheta`); los rótulos, si
+ * están quitados; y la sombra de cada aguja se pone en su sitio. La pantalla
+ * y el vídeo pintan con cámaras distintas, y cada una lo prepara para la suya.
+ */
+function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulos: boolean) {
+  const t = e.terreno
+  if (!t) return
+  const cabeza = new THREE.Vector3()
+  for (const ch of e.chinchetas.children) {
+    const base = ch.userData.escalaBase as THREE.Vector2 | undefined
+    let k = 1
+    if (base) {
+      k = Math.min(1, Math.max(0.3, ch.position.distanceTo(camara.position) / 3))
+      ch.scale.set(base.x * k, base.y * k, 1)
+    }
+    cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
+    ch.visible = !(ch.userData.rotulo && !conRotulos) && !tapadaPorElMonte(t, cabeza, camara.position, PASOS_TAPADO)
+    const sombra = ch.userData.sombra as THREE.Group | undefined
+    if (sombra) colocaSombra(sombra, t, ch.position, ch.scale.y * 0.8, k)
+  }
+}
+
+/** Lo que el replay le da a la maqueta para que pueda grabar su vídeo. */
+export interface VideoReplay {
+  /** De la salida al cierre de la carrera (epoch ms). */
+  desde: number
+  hasta: number
+  /** Dónde está cada uno en un instante: el vídeo lo pregunta para cada fotograma. */
+  corredoresEn: (instante: number) => Corredor3D[]
+  /** Entre quién se puede elegir para seguir. */
+  participantes: { key: string; nombre: string; emoji: string | null; color: string }[]
+  /** Al empezar a grabar: para parar el reloj de la pantalla. */
+  alEmpezar?: () => void
+}
+
+type FormatoVideo = 'vertical' | 'horizontal'
+
+const VIDEO_FPS = 30
+const VIDEO_SEGUNDOS = 30
+/** Plano general antes de que corra el reloj de la carrera, y otra vez al acabar. */
+const VIDEO_INTRO_S = 3
+const VIDEO_OUTRO_S = 3
+/** Cuánto gira el plano general a lo largo del vídeo, a cada lado de la cara buena. */
+const VIDEO_BARRIDO = 0.2
+
+const nombreDeFichero = (nombre: string | null) =>
+  (nombre ?? 'carrera').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'carrera'
+
+/**
+ * Lo que va escrito encima de cada fotograma del vídeo: arriba, el nombre de
+ * la carrera sobre una franja que se funde con la escena; abajo, la hora de
+ * la carrera en grande, cuánto llevan y, siguiendo a alguien, quién. En los
+ * últimos segundos aparece la marca de la app (`marca`, de 0 a 1).
+ */
+function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d: {
+  nombre: string | null
+  instante: number
+  desde: number
+  seguido: Corredor3D | null
+  logo: HTMLImageElement | null
+  marca: number
+}) {
+  const u = Math.min(W, H) / 1080
+  const fuente = (peso: number, px: number) => `${peso} ${Math.round(px)}px system-ui, -apple-system, "Segoe UI", sans-serif`
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+
+  const altoArriba = 230 * u
+  const arriba = ctx.createLinearGradient(0, 0, 0, altoArriba)
+  arriba.addColorStop(0, 'rgba(15,23,42,0.78)')
+  arriba.addColorStop(1, 'rgba(15,23,42,0)')
+  ctx.fillStyle = arriba
+  ctx.fillRect(0, 0, W, altoArriba)
+  ctx.fillStyle = 'rgba(148,163,184,0.95)'
+  ctx.font = fuente(700, 24 * u)
+  ctx.fillText('R E P L A Y', W / 2, 70 * u)
+  if (d.nombre) {
+    let tam = 60 * u
+    ctx.font = fuente(800, tam)
+    while (ctx.measureText(d.nombre).width > W * 0.88 && tam > 24 * u) { tam -= 2 * u; ctx.font = fuente(800, tam) }
+    ctx.fillStyle = '#f8fafc'
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'
+    ctx.shadowBlur = 12 * u
+    ctx.fillText(d.nombre, W / 2, 70 * u + tam + 10 * u)
+    ctx.shadowBlur = 0
+  }
+
+  const altoAbajo = 280 * u
+  const abajo = ctx.createLinearGradient(0, H - altoAbajo, 0, H)
+  abajo.addColorStop(0, 'rgba(15,23,42,0)')
+  abajo.addColorStop(1, 'rgba(15,23,42,0.8)')
+  ctx.fillStyle = abajo
+  ctx.fillRect(0, H - altoAbajo, W, altoAbajo)
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = fuente(800, 84 * u)
+  ctx.fillText(new Date(d.instante).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), W / 2, H - 110 * u)
+  ctx.fillStyle = 'rgba(203,213,225,0.95)'
+  ctx.font = fuente(600, 30 * u)
+  const quien = d.seguido ? `${d.seguido.emoji ? `${d.seguido.emoji} ` : ''}${d.seguido.nombre}` : null
+  ctx.fillText([`+${durationLabel(Math.max(0, d.instante - d.desde))}`, quien].filter(Boolean).join('  ·  '), W / 2, H - 62 * u)
+
+  if (d.marca > 0) {
+    ctx.globalAlpha = d.marca
+    ctx.font = fuente(800, 30 * u)
+    const lado = 40 * u
+    const hueco = 12 * u
+    const ancho = (d.logo ? lado + hueco : 0) + ctx.measureText(NOMBRE_APP).width
+    let x = W / 2 - ancho / 2
+    const y = H - 210 * u
+    if (d.logo) { ctx.drawImage(d.logo, x, y - lado + 6 * u, lado, lado); x += lado + hueco }
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillText(NOMBRE_APP, x, y)
+  }
+  ctx.restore()
+}
+
+/**
+ * El vídeo del replay, fotograma a fotograma: no se graba la pantalla, se
+ * pinta cada fotograma sin prisa con su propia cámara y su propio reloj, y se
+ * codifica a H.264 en MP4 con WebCodecs (Mediabunny monta el fichero). Así
+ * sale fluido a 30 fps sea cual sea el móvil; lo que cambia es lo que tarda en
+ * generarse.
+ *
+ * El guion, 30 s: tres de plano general con la carrera parada en la salida;
+ * veinticuatro en los que corre la carrera entera —en plano general, con un
+ * barrido lento, o siguiendo a quien se elija con la misma cámara que la
+ * pantalla—; y tres de vuelta al plano general con la carrera acabada y la
+ * marca de la app apareciendo.
+ *
+ * La escena es la misma de la pantalla —la loseta no se duplica—, pintada con
+ * otro renderizador al tamaño del vídeo. Mientras dura, el bucle de la
+ * pantalla no pinta (`grabando`). Devuelve `null` si se cancela.
+ */
+async function grabaVideo(
+  e: Escena, video: VideoReplay, formato: FormatoVideo, seguir: string | null, nombre: string | null,
+  conRotulos: boolean, alProgreso: (fraccion: number) => void, cancelado: () => boolean,
+): Promise<Blob | null> {
+  const t = e.terreno
+  if (!t) return null
+  const mb = await import('mediabunny')
+  const tamanos: [number, number][] = formato === 'vertical' ? [[1080, 1920], [720, 1280]] : [[1920, 1080], [1280, 720]]
+  let W = 0
+  let H = 0
+  for (const [w, h] of tamanos) {
+    if (await mb.canEncodeVideo('avc', { width: w, height: h, quality: mb.QUALITY_HIGH })) { W = w; H = h; break }
+  }
+  if (!W) throw new Error('sin-codificador')
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true })
+  renderer.setPixelRatio(1)
+  renderer.setSize(W, H, false)
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFShadowMap
+  renderer.shadowMap.autoUpdate = false
+  renderer.shadowMap.needsUpdate = true
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  const lienzoVideo = document.createElement('canvas')
+  lienzoVideo.width = W
+  lienzoVideo.height = H
+  const ctx = lienzoVideo.getContext('2d')!
+  const logo = await cargaLogo()
+
+  const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() })
+  const fuente = new mb.CanvasSource(lienzoVideo, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 })
+  output.addVideoTrack(fuente, { frameRate: VIDEO_FPS })
+
+  const total = VIDEO_FPS * VIDEO_SEGUNDOS
+  const intro = VIDEO_FPS * VIDEO_INTRO_S
+  const outro = VIDEO_FPS * VIDEO_OUTRO_S
+  const dt = 1000 / VIDEO_FPS
+
+  // El plano general, encuadrado para este formato con sitio arriba para el
+  // nombre y abajo para el reloj; un poco más lejos, que el barrido no saque
+  // las esquinas de la loseta.
+  // En vertical, desde más arriba: la loseta es ancha y, vista de lado, en
+  // una pantalla alta quedaba una tira pequeña en medio de mucho fondo.
+  const camara = new THREE.PerspectiveCamera(formato === 'vertical' ? 44 : 34, W / H, 0.05, 60)
+  const polarGeneral = formato === 'vertical' ? 0.7 : POLAR_INICIAL
+  let min = Infinity
+  let max = -Infinity
+  for (const h of t.alturas) { if (h < min) min = h; if (h > max) max = h }
+  const centro = new THREE.Vector3(0, (t.escala.y(max) + t.escala.y(min)) / 2, 0)
+  const dGeneral = encuadreDe(t, camara, centro, AZIMUT_INICIAL, polarGeneral, H, H * 0.13, H * 0.12, 0.5, 12) * 1.06
+  const posGeneral = new THREE.Vector3()
+  const planoGeneral = (f: number) => {
+    const u = f / (total - 1)
+    posGeneral.copy(centro).add(new THREE.Vector3().setFromSpherical(
+      new THREE.Spherical(dGeneral, polarGeneral - 0.06 * u, AZIMUT_INICIAL - VIDEO_BARRIDO + 2 * VIDEO_BARRIDO * u),
+    ))
+  }
+
+  // Siguiendo a alguien: arranca desde el plano general en cuanto está en la
+  // loseta, y en los últimos segundos vuelve a él.
+  const s: Seguimiento | null = seguir
+    ? { key: seguir, distancia: formato === 'vertical' ? 1.25 : 1.05, ultimo: null, rumbo: null, azimut: AZIMUT_INICIAL, revisado: -Infinity }
+    : null
+  const camSeguir = new THREE.PerspectiveCamera()
+  const objSeguir = new THREE.Vector3()
+  let siguiendoYa = false
+  const objetivo = new THREE.Vector3()
+
+  e.grabando = true
+  try {
+    await output.start()
+    for (let f = 0; f < total; f++) {
+      if (cancelado()) { await output.cancel(); return null }
+      const carrera = Math.min(1, Math.max(0, (f - intro) / (total - intro - outro)))
+      const instante = video.desde + (video.hasta - video.desde) * carrera
+      const corredores = video.corredoresEn(instante)
+      colocaFichas(e, corredores, seguir)
+
+      planoGeneral(f)
+      camara.position.copy(posGeneral)
+      objetivo.copy(centro)
+      const ficha = s ? e.fichas.get(s.key) : undefined
+      if (s && ficha && f >= intro) {
+        if (!siguiendoYa) { camSeguir.position.copy(posGeneral); objSeguir.copy(centro); siguiendoYa = true }
+        if (f < total - outro) sigueCorredor(s, t, camSeguir, objSeguir, ficha.sprite.position, dt, f * dt)
+      }
+      const final = f >= total - outro ? suave((f - (total - outro)) / outro) : 0
+      if (siguiendoYa) {
+        camara.position.lerpVectors(camSeguir.position, posGeneral, final)
+        objetivo.lerpVectors(objSeguir, centro, final)
+      }
+      camara.lookAt(objetivo)
+      camara.updateMatrixWorld()
+
+      preparaChinchetas(e, camara, conRotulos)
+      renderer.render(e.scene, camara)
+      // Copiado en el mismo turno que se pinta: sin `preserveDrawingBuffer`,
+      // después el lienzo de WebGL ya estaría en blanco.
+      ctx.drawImage(renderer.domElement, 0, 0, W, H)
+      rotulaFotograma(ctx, W, H, {
+        nombre, instante, desde: video.desde,
+        seguido: s ? corredores.find((c) => c.key === s.key) ?? null : null,
+        logo, marca: final,
+      })
+      await fuente.add(f / VIDEO_FPS, 1 / VIDEO_FPS)
+      if (f % 3 === 0) {
+        alProgreso(f / total)
+        await new Promise((r) => setTimeout(r, 0))
+      }
+    }
+    await output.finalize()
+    const buffer = output.target.buffer
+    return buffer ? new Blob([buffer], { type: 'video/mp4' }) : null
+  } finally {
+    e.grabando = false
+    renderer.dispose()
+    renderer.forceContextLoss()
+  }
+}
+
 interface Props {
   ruta: [number, number][]
   cotas: RangoAlturas | null
@@ -732,9 +1136,11 @@ interface Props {
   nombre: string | null
   /** Píxeles que hay que dejar libres abajo: los mandos del replay, cuando la maqueta va dentro de él. */
   margenAbajo?: number
+  /** En el replay: con esto la maqueta puede grabar su vídeo (ver `grabaVideo`). */
+  video?: VideoReplay
 }
 
-export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0 }: Props) {
+export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0, video }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const escena = useRef<Escena | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'lista' | 'error'>('cargando')
@@ -744,7 +1150,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [ayuda, setAyuda] = useState(true)
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
   /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
-  const { pide, vistaPrevia } = useVistaPreviaCompartir()
+  const { pide, pideVideo, vistaPrevia } = useVistaPreviaCompartir()
   /** Los nombres de pueblos y picos, que tapan cuando lo que se quiere ver es el relieve. */
   const [rotulos, setRotulos] = useState(true)
   const rotulosRef = useRef(true)
@@ -755,6 +1161,46 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const seguido = siguiendo ? corredores.find((c) => c.key === siguiendo) ?? null : null
   const siguiendoKey = seguido?.key ?? null
   const corredorElegido = elegido ? corredores.find((c) => c.key === elegido) ?? null : null
+
+  /** El vídeo del replay: el panel, lo elegido y, mientras se genera, cuánto va. */
+  const [panelVideo, setPanelVideo] = useState(false)
+  const [formatoVideo, setFormatoVideo] = useState<FormatoVideo>('vertical')
+  const [seguirVideo, setSeguirVideo] = useState<string | null>(null)
+  const [progresoVideo, setProgresoVideo] = useState<number | null>(null)
+  const [errorVideo, setErrorVideo] = useState<string | null>(null)
+  const cancelaVideo = useRef(false)
+  /** Los corredores de la pantalla, para volver a ponerlos al acabar de grabar. */
+  const corredoresRef = useRef(corredores)
+  useEffect(() => { corredoresRef.current = corredores }, [corredores])
+
+  const generaVideo = async () => {
+    const e = escena.current
+    if (!e || !video || progresoVideo !== null) return
+    video.alEmpezar?.()
+    setSiguiendo(null)
+    setGirando(false)
+    setErrorVideo(null)
+    cancelaVideo.current = false
+    setProgresoVideo(0)
+    let hecho: Blob | null = null
+    try {
+      hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, setProgresoVideo, () => cancelaVideo.current)
+    } catch (err) {
+      setErrorVideo(err instanceof Error && err.message === 'sin-codificador'
+        ? 'Este navegador no sabe generar vídeo. Prueba con Chrome o Safari actualizados.'
+        : 'No se ha podido generar el vídeo.')
+    } finally {
+      setProgresoVideo(null)
+      const ahora = escena.current
+      if (ahora) {
+        colocaFichas(ahora, corredoresRef.current, elegido)
+        ahora.sucio = true
+      }
+    }
+    if (!hecho) return
+    setPanelVideo(false)
+    await pideVideo(hecho, `replay-${nombreDeFichero(nombre)}.mp4`, nombre ? `${nombre} · replay` : 'Replay de la carrera')
+  }
 
   // Empezar a seguir: la cámara se suelta de los mandos, que se pelearían con
   // ella, y deja acercarse más de lo normal. Al dejar de seguir, todo vuelve.
@@ -838,7 +1284,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // y un cielo suave para que la umbría no sea negra.
     scene.add(new THREE.HemisphereLight(0xe6eef2, 0x4c5a5c, 1.25))
     const sol = new THREE.DirectionalLight(0xfff3dc, 2.6)
-    sol.position.set(-1.3, 2.6, 1.5)
+    sol.position.copy(SOL)
     sol.castShadow = true
     sol.shadow.mapSize.set(SOMBRA_PX, SOMBRA_PX)
     const foco = sol.shadow.camera
@@ -855,10 +1301,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     const loseta = new THREE.Group()
     const chinchetas = new THREE.Group()
-    scene.add(loseta, chinchetas)
+    const sombras = new THREE.Group()
+    scene.add(loseta, sombras, chinchetas)
 
     const e: Escena = {
-      renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
+      renderer, scene, camera, controls, mesa, loseta, chinchetas, sombras, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
+      grabando: false,
       limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
     }
     escena.current = e
@@ -878,18 +1326,19 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     // Se pinta solo cuando algo cambia: una maqueta quieta no gasta batería.
     let cuadro = 0
-    const cabeza = new THREE.Vector3()
     let antes = performance.now()
     const bucle = () => {
       cuadro = requestAnimationFrame(bucle)
+      if (e.grabando) { antes = performance.now(); return }
       const ahora = performance.now()
       const dt = Math.min(100, ahora - antes)
       antes = ahora
       // Siguiendo a alguien, la cámara la lleva `sigueCorredor`; un viaje
       // (a vista de pájaro, o de vuelta) manda sobre el seguimiento.
       const seguido = e.seguir && !e.viaje ? e.fichas.get(e.seguir.key)?.sprite : undefined
-      if (seguido) {
-        sigueCorredor(e, seguido, dt)
+      if (seguido && e.seguir) {
+        sigueCorredor(e.seguir, e.terreno, camera, controls.target, seguido.position, dt, ahora)
+        e.sucio = true
       } else if (e.viaje) {
         const t = Math.min(1, (performance.now() - e.viaje.t0) / e.viaje.ms)
         camera.position.lerpVectors(e.viaje.desde, e.viaje.hasta, suave(t))
@@ -914,22 +1363,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         controls.target.copy(dentro)
       }
       if (movio || e.sucio) {
-        // Qué chinchetas tapa el monte desde aquí (ver `chincheta`): la
-        // cabeza de cada una, que es lo que se lee.
-        if (e.terreno) {
-          for (const ch of e.chinchetas.children) {
-            // Al acercar la cámara, las chinchetas encogen: miden en la
-            // maqueta, y de cerca —siguiendo a alguien— el emoji ocupaba media
-            // pantalla. Desde la vista de apertura se quedan como son.
-            const base = ch.userData.escalaBase as THREE.Vector2 | undefined
-            if (base) {
-              const k = Math.min(1, Math.max(0.3, ch.position.distanceTo(camera.position) / 3))
-              ch.scale.set(base.x * k, base.y * k, 1)
-            }
-            cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
-            ch.visible = !(ch.userData.rotulo && !rotulosRef.current) && !tapadaPorElMonte(e.terreno, cabeza, camera.position, PASOS_TAPADO)
-          }
-        }
+        preparaChinchetas(e, camera, rotulosRef.current)
         renderer.render(scene, camera)
         e.sucio = false
       }
@@ -1246,44 +1680,9 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   // que ya hay y solo se redibuja la que cambia.
   useEffect(() => {
     const e = escena.current
-    if (!e || estado !== 'lista' || !e.terreno) return
-    const { rejilla, alturas, escala } = e.terreno
-    const conEmoji = corredores.length <= EMOJIS_HASTA
-    const quedan = new Set<string>()
-    for (const c of corredores) {
-      const sitio = sitioEnMaqueta(rejilla, alturas, escala, c.punto[0], c.punto[1])
-      if (!sitio) continue
-      quedan.add(c.key)
-      const esElegido = c.key === elegido
-      const firma = `${c.color}|${conEmoji ? c.emoji ?? '' : ''}|${c.apagado}|${esElegido}`
-      let f = e.fichas.get(c.key)
-      if (!f) {
-        const s = chincheta(dibujaFicha(c, conEmoji, esElegido), 1, 1, sitio)
-        s.userData.key = c.key
-        e.chinchetas.add(s)
-        f = { sprite: s, firma }
-        e.fichas.set(c.key, f)
-      } else if (f.firma !== firma) {
-        const mat = f.sprite.material
-        mat.map?.dispose()
-        mat.map = texturaDe(dibujaFicha(c, conEmoji, esElegido))
-        mat.needsUpdate = true
-        f.firma = firma
-      }
-      const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
-      f.sprite.scale.set(tam, tam * 1.5, 1)
-      f.sprite.userData.escalaBase = new THREE.Vector2(tam, tam * 1.5)
-      f.sprite.position.set(sitio[0], sitio[1], sitio[2])
-      // El elegido, por encima de todo, rótulos incluidos.
-      f.sprite.renderOrder = esElegido ? 4 : 2
-    }
-    for (const [key, f] of e.fichas) {
-      if (quedan.has(key)) continue
-      e.chinchetas.remove(f.sprite)
-      tira(f.sprite)
-      e.fichas.delete(key)
-    }
-    e.sucio = true
+    // Grabando un vídeo, las fichas las coloca el vídeo con su propio reloj.
+    if (!e || estado !== 'lista' || !e.terreno || e.grabando) return
+    colocaFichas(e, corredores, elegido)
   }, [corredores, elegido, estado])
 
   useEffect(() => {
@@ -1488,6 +1887,15 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
             <Video size={16} />
           </BotonRedondo>
         )}
+        {video && (
+          <BotonRedondo
+            etiqueta="Grabar vídeo del replay"
+            activo={panelVideo || progresoVideo !== null}
+            onClick={() => { if (progresoVideo === null) setPanelVideo((v) => !v); setEligiendoSeguir(false) }}
+          >
+            <Clapperboard size={16} />
+          </BotonRedondo>
+        )}
         <BotonRedondo etiqueta={girando ? 'Parar el giro' : 'Girar alrededor'} activo={girando} onClick={alternaGiro}>
           {girando ? <Pause size={16} /> : <RotateCw size={16} />}
         </BotonRedondo>
@@ -1495,6 +1903,75 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           {desdeArriba ? <Mountain size={16} /> : <IconoMapa size={16} />}
         </BotonRedondo>
       </div>
+      {/* El vídeo del replay: formato, cámara y generar; y mientras se
+          genera, cuánto va. A la izquierda de la columna de botones. */}
+      {video && (panelVideo || progresoVideo !== null) && estado === 'lista' && (
+        <div
+          className="absolute inset-x-0 z-30 flex justify-center pl-4 pr-16"
+          style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${72 + margenAbajo}px)` }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900/95 p-3 text-slate-200 shadow-xl backdrop-blur">
+            <p className="flex items-center gap-1.5 text-sm font-semibold"><Clapperboard size={15} /> Vídeo del replay · 30 s</p>
+            {progresoVideo === null ? (
+              <>
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Formato</p>
+                <div className="mt-1 flex gap-1.5">
+                  {([['vertical', 'Vertical · móvil'], ['horizontal', 'Horizontal']] as [FormatoVideo, string][]).map(([valor, texto]) => (
+                    <button
+                      key={valor}
+                      onClick={() => setFormatoVideo(valor)}
+                      className={`rounded-full border px-3 py-1 text-xs ${formatoVideo === valor ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                    >
+                      {texto}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Cámara</p>
+                <div className="mt-1 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                  <button
+                    onClick={() => setSeguirVideo(null)}
+                    className={`rounded-full border px-3 py-1 text-xs ${seguirVideo === null ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    General
+                  </button>
+                  {video.participantes.map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => setSeguirVideo(p.key)}
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${seguirVideo === p.key ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                    >
+                      {p.emoji && <span className="text-sm leading-none">{p.emoji}</span>}
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorSeguro(p.color) }} />
+                      {p.nombre}
+                    </button>
+                  ))}
+                </div>
+                {errorVideo && <p className="mt-2 text-xs text-red-400">{errorVideo}</p>}
+                <div className="mt-3 flex justify-end gap-2">
+                  <button onClick={() => setPanelVideo(false)} className="rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-300">
+                    Cerrar
+                  </button>
+                  <button onClick={() => void generaVideo()} className="rounded-full bg-sky-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-sky-400">
+                    Generar vídeo
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.round(progresoVideo * 100)}%` }} />
+                </div>
+                <p className="mt-1.5 text-xs text-slate-400">Generando… {Math.round(progresoVideo * 100)} % · no cierres esta pantalla</p>
+                <div className="mt-2 flex justify-end">
+                  <button onClick={() => { cancelaVideo.current = true }} className="rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-300">
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* La tira para elegir a quién seguir: su marca y su nombre. A la
           izquierda de la columna de botones, que no la tape. */}
       {eligiendoSeguir && !siguiendoKey && estado === 'lista' && (

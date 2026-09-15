@@ -67,3 +67,30 @@ export async function comparteImagen(
   }
   return descarga()
 }
+
+/**
+ * Manda un vídeo por donde el aparato ofrezca: en el móvil, el menú de
+ * compartir; en un ordenador, se descarga (un vídeo no se pega desde el
+ * portapapeles). Cancelar el menú no es un fallo.
+ */
+export async function comparteVideo(video: Blob, fichero: string, titulo: string): Promise<ComoSeFue> {
+  const mp4 = new File([video], fichero, { type: video.type || 'video/mp4' })
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+  const dedo = typeof window !== 'undefined'
+    && window.matchMedia?.('(pointer: coarse)').matches === true
+  if (dedo && nav.canShare?.({ files: [mp4] })) {
+    try {
+      await nav.share({ files: [mp4], title: titulo })
+      return 'compartida'
+    } catch (e) {
+      if ((e as { name?: string })?.name === 'AbortError') return 'cancelada'
+    }
+  }
+  const url = URL.createObjectURL(video)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fichero
+  a.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
+  return 'descargada'
+}

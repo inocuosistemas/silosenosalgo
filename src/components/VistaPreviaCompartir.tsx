@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Share2, X } from 'lucide-react'
-import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import { comparteImagen, comparteVideo, type ComoSeFue } from '../lib/compartirImagen'
 
 /**
- * Antes de compartir una imagen, se enseña.
+ * Antes de compartir una imagen —o un vídeo—, se enseña.
  *
  * Hasta ahora, tocar "compartir" abría directamente el menú del sistema con
  * una imagen que no se había visto: la porra, el dorsal o la maqueta salían a
@@ -12,16 +12,20 @@ import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
  *
  * El menú del sistema se abre desde el botón de ESTA vista: `navigator.share`
  * solo funciona en respuesta a un toque, y dibujar la imagen antes —cargar la
- * foto del evento, pintar la tarjeta— se comía ese permiso en algunos móviles.
+ * foto del evento, pintar la tarjeta, generar el vídeo— se comía ese permiso.
  *
- * Uso: `const { pide, vistaPrevia } = useVistaPreviaCompartir()`, pintar
- * `{vistaPrevia}` en cualquier sitio del componente (va en un portal, encima
- * de todo) y cambiar `comparteImagen(...)` por `pide(...)`: devuelve lo mismo,
- * y `'cancelada'` si se cierra sin compartir.
+ * Uso: `const { pide, pideVideo, vistaPrevia } = useVistaPreviaCompartir()`,
+ * pintar `{vistaPrevia}` en cualquier sitio del componente (va en un portal,
+ * encima de todo) y cambiar `comparteImagen(...)` por `pide(...)`: devuelve lo
+ * mismo, y `'cancelada'` si se cierra sin compartir. Para un vídeo,
+ * `pideVideo(blob, fichero, titulo)`.
  */
 
 interface Pedida {
+  /** La imagen (data URL) o, con vídeo, una URL de objeto para verlo. */
   url: string
+  /** El vídeo, si lo que se comparte es un vídeo. */
+  video: Blob | null
   fichero: string
   titulo: string
   resolve: (fue: ComoSeFue) => void
@@ -32,7 +36,13 @@ export function useVistaPreviaCompartir() {
 
   const pide = useCallback(
     (url: string, fichero: string, titulo: string) =>
-      new Promise<ComoSeFue>((resolve) => setPedida({ url, fichero, titulo, resolve })),
+      new Promise<ComoSeFue>((resolve) => setPedida({ url, video: null, fichero, titulo, resolve })),
+    [],
+  )
+
+  const pideVideo = useCallback(
+    (video: Blob, fichero: string, titulo: string) =>
+      new Promise<ComoSeFue>((resolve) => setPedida({ url: URL.createObjectURL(video), video, fichero, titulo, resolve })),
     [],
   )
 
@@ -41,6 +51,7 @@ export function useVistaPreviaCompartir() {
       <VistaPrevia
         pedida={pedida}
         onTermina={(fue) => {
+          if (pedida.video) URL.revokeObjectURL(pedida.url)
           pedida.resolve(fue)
           setPedida(null)
         }}
@@ -49,7 +60,7 @@ export function useVistaPreviaCompartir() {
     )
     : null
 
-  return { pide, vistaPrevia }
+  return { pide, pideVideo, vistaPrevia }
 }
 
 function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: ComoSeFue) => void }) {
@@ -72,11 +83,15 @@ function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: C
     if (enviando) return
     setEnviando(true)
     try {
-      onTermina(await comparteImagen(pedida.url, pedida.fichero, pedida.titulo))
+      onTermina(pedida.video
+        ? await comparteVideo(pedida.video, pedida.fichero, pedida.titulo)
+        : await comparteImagen(pedida.url, pedida.fichero, pedida.titulo))
     } catch {
       onTermina('cancelada')
     }
   }
+
+  const clasesMedio = 'max-h-[70dvh] max-w-full rounded-xl border border-slate-700 object-contain shadow-2xl'
 
   return (
     <div
@@ -93,12 +108,25 @@ function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: C
       }}
     >
       <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Así se va a compartir</p>
-      <img
-        src={pedida.url}
-        alt="La imagen que se va a compartir"
-        className="max-h-[70dvh] max-w-full rounded-xl border border-slate-700 object-contain shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      />
+      {pedida.video ? (
+        <video
+          src={pedida.url}
+          className={clasesMedio}
+          autoPlay
+          muted
+          loop
+          playsInline
+          controls
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <img
+          src={pedida.url}
+          alt="La imagen que se va a compartir"
+          className={clasesMedio}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
       <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => onTermina('cancelada')}
