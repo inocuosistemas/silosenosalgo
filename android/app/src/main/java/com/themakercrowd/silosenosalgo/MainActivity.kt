@@ -5,6 +5,9 @@ package com.themakercrowd.silosenosalgo
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.size
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -396,14 +399,26 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
-                Text("Baliza", style = MaterialTheme.typography.headlineSmall)
-                // El usuario debajo, no en el título: en iOS el título ES el
-                // nombre, y saber de quién es la baliza importa —el enlace que
-                // se comparte lleva ese nombre— pero no es el asunto de la
-                // pantalla.
-                usuario?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+            // Arriba, la MARCA y de quién es la baliza: el logo y el nombre de la
+            // app, y debajo el usuario —el enlace que se comparte lleva ese
+            // nombre—. Igual que en iOS.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(R.drawable.marca_app),
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "SiLoSeNoSalgo",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Paleta.slate100,
+                    )
+                    usuario?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                    }
                 }
             }
             // Se pregunta antes de salir, como en iOS: al lado del título es

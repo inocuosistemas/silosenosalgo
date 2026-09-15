@@ -86,6 +86,17 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### La baliza dice de qué app es, y las terminadas van con las tarjetas
+
+**iOS y Android · Mejora al actualizar (sin publicar todavía).** Arriba de la
+pantalla de la baliza salen el **logo y el nombre de SiLoSeNoSalgo**, y debajo
+el usuario. Antes el título era solo el usuario en iOS y «Baliza» en Android.
+El logo sale del mismo favicon que los iconos: `node scripts/genera-marca-apps.mjs`.
+
+En iOS, **«Terminadas»** deja de ser una fila de lista suelta: es un bloque con
+el mismo ancho, esquinas y borde que las tarjetas de «Mis carreras», que se
+despliega con las carreras acabadas y su «Abrir».
+
 ### «Mis carreras», con su cartel y la cuenta atrás en grande
 
 **iOS y Android 540 · Mejora al actualizar.** Cada carrera de «Mis carreras»

@@ -5,6 +5,8 @@ import UIKit
 struct TrackingView: View {
     /// La sección de la web de una carrera abierta dentro de la app (ver `WebDelEvento`).
     @State private var webEvento: EnlaceWeb?
+    /// Si el bloque de carreras terminadas está desplegado.
+    @State private var terminadasAbiertas = false
 
     /// Abre una sección de la carrera con la sesión de la app ya pasada a la web.
     private func abrirEvento(_ ev: EventSummary, _ vista: String) {
@@ -413,24 +415,61 @@ struct TrackingView: View {
                         // Las terminadas, plegadas: ya no se pueden correr, pero
                         // su parrilla sigue siendo donde están los resultados.
                         if !store.pastEvents.isEmpty {
-                            DisclosureGroup("Terminadas (\(store.pastEvents.count))") {
-                                ForEach(store.pastEvents) { ev in
-                                    HStack(spacing: 10) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name)
-                                                .foregroundStyle(Theme.slate400)
-                                                .lineLimit(1)
-                                            Text(Self.whenLabel(ev.startsAt))
-                                                .font(.caption2)
-                                                .foregroundStyle(Theme.slate400)
-                                        }
+                            // Un bloque con el mismo ancho, esquinas y borde que las
+                            // tarjetas de arriba. Como fila de lista normal quedaba con
+                            // otros márgenes y otras esquinas, despegado de ellas.
+                            VStack(spacing: 0) {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) { terminadasAbiertas.toggle() }
+                                } label: {
+                                    HStack {
+                                        Text("Terminadas (\(store.pastEvents.count))")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(Theme.slate100)
                                         Spacer()
-                                        menuDeCarrera(ev)
+                                        Image(systemName: "chevron.right")
+                                            .font(.footnote.weight(.semibold))
+                                            .foregroundStyle(Theme.slate400)
+                                            .rotationEffect(.degrees(terminadasAbiertas ? 90 : 0))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint(terminadasAbiertas ? "Ocultar las carreras terminadas" : "Ver las carreras terminadas")
+
+                                if terminadasAbiertas {
+                                    ForEach(store.pastEvents) { ev in
+                                        Rectangle().fill(Theme.slate800).frame(height: 1)
+                                        HStack(spacing: 10) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name)
+                                                    .font(.subheadline)
+                                                    .foregroundStyle(Theme.slate100)
+                                                    .lineLimit(1)
+                                                Text("terminada · " + Self.whenLabel(ev.startsAt))
+                                                    .font(.caption2)
+                                                    .foregroundStyle(Theme.slate400)
+                                            }
+                                            Spacer(minLength: 0)
+                                            menuDeCarrera(ev)
+                                        }
+                                        .padding(.leading, 12)
+                                        .padding(.trailing, 8)
+                                        .padding(.vertical, 8)
                                     }
                                 }
                             }
-                            .font(.caption)
-                            .tint(Theme.sky500)
+                            .background(Theme.slate900)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Theme.slate800, lineWidth: 1)
+                            )
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                     } header: {
                         Text("Mis carreras").foregroundStyle(Theme.slate400)
@@ -1052,8 +1091,31 @@ struct TrackingView: View {
                      ? "Estás compartiendo tu ubicación. Al salir se detiene el seguimiento y se cierra la sesión."
                      : "Se cerrará tu sesión en este dispositivo.")
             }
-            .navigationTitle(auth.user?.username ?? "Seguimiento")
+            // Arriba, la MARCA y de quién es la baliza: el logo y el nombre de la app,
+            // y debajo el usuario. Antes el título grande era solo el usuario, y la
+            // pantalla no decía de qué app era la baliza que se estaba armando.
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    HStack(spacing: 8) {
+                        Image("MarcaApp")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("SiLoSeNoSalgo")
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(Theme.slate100)
+                            if let nombre = auth.user?.username {
+                                Text(nombre)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.slate400)
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Salir") { pendingLogout = true }
                         .tint(Theme.sky500)
