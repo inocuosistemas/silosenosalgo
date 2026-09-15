@@ -254,17 +254,29 @@ const POLAR_SEGUIR = 1.0
 const DISTANCIA_SEGUIR = 0.95
 /** Los lados que se prueban, alrededor del ideal, si el monte lo tapa desde él. */
 const DESVIOS_SEGUIR = [0, 0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.2, -2.2, Math.PI]
+/** Cuánto tiene que avanzar (unidades de loseta) para contar como un rumbo: menos es temblor del GPS. */
+const TRAMO_RUMBO = 0.03
+/** Mientras el lado de ahora siga libre y a menos de esto del ideal, no se cambia. */
+const HOLGURA_LADO = 0.7
+/** Cada cuánto se revisa si el monte lo tapa, en ms. */
+const REVISA_LADO_MS = 1200
+/** Lo más rápido que gira la cámara alrededor de él, en radianes por segundo. */
+const GIRO_MAX = 0.35
 
 const angulo = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
 
 /**
  * Un paso de la cámara siguiendo a un corredor: el centro de la vista va
  * hacia él, y la cámara se coloca en tres cuartos por detrás de hacia dónde
- * avanza —se ve lo que tiene delante—, algo elevada. Cada poco se comprueba si
- * el monte lo tapa desde ahí y, si lo tapa, se busca el lado libre más
- * cercano. Todo se acerca a su objetivo con curvas exponenciales en el
- * tiempo, no por fotograma: igual de suave en un móvil que en un ordenador,
- * y sin saltos cuando cambia el lado.
+ * avanza —se ve lo que tiene delante—, algo elevada. Si el monte lo tapa
+ * desde ahí, se busca el lado libre más cercano. Todo se acerca a su
+ * objetivo con curvas exponenciales en el tiempo, no por fotograma: igual de
+ * suave en un móvil que en un ordenador.
+ *
+ * Y sobre todo, quieta: la primera versión cambiaba de lado con cada zigzag
+ * del GPS y mareaba. El rumbo solo cuenta tras un tramo claro de avance y se
+ * suaviza mucho; el lado no se cambia mientras el de ahora siga libre y no
+ * se aleje demasiado del ideal; y el giro tiene velocidad máxima.
  */
 function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
   const s = e.seguir!
@@ -273,33 +285,40 @@ function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
   else {
     const dx = p.x - s.ultimo.x
     const dz = p.z - s.ultimo.z
-    if (Math.hypot(dx, dz) > 0.004) {
+    if (Math.hypot(dx, dz) > TRAMO_RUMBO) {
       const hacia = Math.atan2(dx, dz)
-      s.rumbo = s.rumbo === null ? hacia : s.rumbo + angulo(hacia - s.rumbo) * 0.3
+      s.rumbo = s.rumbo === null ? hacia : s.rumbo + angulo(hacia - s.rumbo) * 0.12
       s.ultimo.copy(p)
     }
   }
   const suaviza = (ms: number) => 1 - Math.exp(-dt / ms)
-  e.controls.target.lerp(new THREE.Vector3(p.x, p.y + 0.02, p.z), suaviza(320))
+  e.controls.target.lerp(new THREE.Vector3(p.x, p.y + 0.02, p.z), suaviza(900))
 
   const ahora = performance.now()
-  if (e.terreno && ahora - s.revisado > 450) {
+  if (e.terreno && ahora - s.revisado > REVISA_LADO_MS) {
     s.revisado = ahora
     const relativa = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
     // Sin rumbo todavía —parado, o recién elegido—, desde donde ya se mira.
     const ideal = s.rumbo === null ? relativa.theta : s.rumbo + Math.PI + 0.6
     const cabeza = new THREE.Vector3(p.x, p.y + 0.05, p.z)
-    for (const desvio of DESVIOS_SEGUIR) {
-      const theta = ideal + desvio
-      const camara = new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza)
-      if (!tapadaPorElMonte(e.terreno, cabeza, camara, 48)) { s.azimut = theta; break }
+    const terreno = e.terreno
+    const libre = (theta: number) => !tapadaPorElMonte(
+      terreno, cabeza, new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza), 48,
+    )
+    const bastaElDeAhora = Math.abs(angulo(ideal - s.azimut)) < HOLGURA_LADO && libre(s.azimut)
+    if (!bastaElDeAhora) {
+      for (const desvio of DESVIOS_SEGUIR) {
+        if (libre(ideal + desvio)) { s.azimut = ideal + desvio; break }
+      }
     }
   }
 
   const esf = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
-  esf.theta += angulo(s.azimut - esf.theta) * suaviza(1500)
-  esf.phi += (POLAR_SEGUIR - esf.phi) * suaviza(900)
-  esf.radius += (s.distancia - esf.radius) * suaviza(600)
+  const tope = GIRO_MAX * (dt / 1000)
+  const giro = angulo(s.azimut - esf.theta) * suaviza(4500)
+  esf.theta += Math.max(-tope, Math.min(tope, giro))
+  esf.phi += (POLAR_SEGUIR - esf.phi) * suaviza(2500)
+  esf.radius += (s.distancia - esf.radius) * suaviza(1200)
   esf.makeSafe()
   e.camera.position.setFromSpherical(esf).add(e.controls.target)
   e.sucio = true
