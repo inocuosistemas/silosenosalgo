@@ -31,7 +31,12 @@ import { CargandoMarca } from './CargandoMarca'
 
 /** El color del canto y la base: cartón. */
 const CANTO: Rgb = [0.8, 0.72, 0.58]
-const GROSOR = 0.12
+/** Lo que baja la loseta por debajo del punto más bajo: la pared donde va el nombre. */
+const GROSOR = 0.16
+/** Desde dónde se mira al abrir: un poco al este del sur y a media altura,
+ *  que es la cara que enseña la carrera entera y deja leer el nombre. */
+const AZIMUT_INICIAL = 0.45
+const POLAR_INICIAL = 0.92
 /** Cuánto sobresale el cordón del recorrido del suelo, y su anchura. */
 const CORDON_ALTO = 0.008
 const CORDON_ANCHO = 0.012
@@ -215,6 +220,66 @@ interface Escena {
   /** A qué distancia quiere estar la cámara: el zoom se acerca a ella un
    *  poco en cada fotograma, no de golpe con cada evento. */
   distancia: number | null
+  /** Hasta dónde se puede llevar el centro de la vista con el paneo: la loseta y poco más. */
+  limites: THREE.Box3
+}
+
+/** Los ocho vértices de la caja de la loseta, para encuadrarla entera. */
+function esquinasDeLoseta(t: Terreno): THREE.Vector3[] {
+  const ax = (t.rejilla.anchoPx * t.escala.u) / 2
+  const az = (t.rejilla.altoPx * t.escala.u) / 2
+  let max = -Infinity
+  for (const h of t.alturas) if (h > max) max = h
+  const arriba = t.escala.y(max)
+  return [-ax, ax].flatMap((x) => [-az, az].flatMap((z) => [new THREE.Vector3(x, t.escala.base, z), new THREE.Vector3(x, arriba, z)]))
+}
+
+/**
+ * Pone la cámara mirando al centro de la loseta desde `azimut` y `polar`, a
+ * la distancia justa para que quepa entera con un poco de aire, dejando
+ * libres los `margenAbajoPx` de abajo. Se tantea: al alejarse, lo que se sale
+ * por los bordes entra en proporción casi exacta, y en cuatro vueltas está.
+ */
+function encuadra(e: Escena, azimut: number, polar: number, margenAbajoPx: number) {
+  if (!e.terreno) return
+  const esquinas = esquinasDeLoseta(e.terreno)
+  const dir = new THREE.Vector3().setFromSpherical(new THREE.Spherical(1, polar, azimut))
+  const alto = e.renderer.domElement.clientHeight || 1
+  const limiteAbajo = -0.92 + (2 * margenAbajoPx) / alto
+  const centroY = (limiteAbajo + 0.92) / 2
+  let d = 3
+  const proyecta = () => {
+    e.camera.position.copy(e.controls.target).addScaledVector(dir, d)
+    e.camera.lookAt(e.controls.target)
+    e.camera.updateMatrixWorld()
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const c of esquinas) {
+      const p = c.clone().project(e.camera)
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
+    }
+    return { minX, maxX, minY, maxY }
+  }
+  for (let vuelta = 0; vuelta < 3; vuelta++) {
+    // Primero la distancia a la que cabe…
+    for (let k = 0; k < 4; k++) {
+      const { minX, maxX, minY, maxY } = proyecta()
+      const exceso = Math.max(Math.abs(minX) / 0.92, Math.abs(maxX) / 0.92, (maxY - centroY) / (0.92 - centroY), (centroY - minY) / (centroY - limiteAbajo))
+      d = Math.min(e.controls.maxDistance, Math.max(e.controls.minDistance, d * exceso))
+    }
+    // …y luego se corre el centro para que la loseta quede en medio del
+    // hueco, no pegada a un lado: la caja no es simétrica vista de esquina.
+    const { minX, maxX, minY, maxY } = proyecta()
+    const medioVisible = d * Math.tan((e.camera.fov * Math.PI) / 360)
+    const dx = ((minX + maxX) / 2) * medioVisible * e.camera.aspect
+    const dy = ((minY + maxY) / 2 - centroY) * medioVisible
+    const derecha = new THREE.Vector3().setFromMatrixColumn(e.camera.matrixWorld, 0)
+    const arriba = new THREE.Vector3().setFromMatrixColumn(e.camera.matrixWorld, 1)
+    e.controls.target.addScaledVector(derecha, dx).addScaledVector(arriba, dy)
+  }
+  e.camera.position.copy(e.controls.target).addScaledVector(dir, d)
+  e.controls.update()
+  e.sucio = true
 }
 
 /** Un lienzo a doble resolución, para que las chinchetas salgan nítidas. */
@@ -266,60 +331,84 @@ function dibujaFicha(c: Corredor3D, conEmoji: boolean, elegido: boolean): HTMLCa
   return lienzoFicha
 }
 
-/** Un nombre en una pastilla oscura, sin palo: blanco para las poblaciones, ámbar para los picos. */
-function dibujaRotulo(texto: string, tinta = '#f8fafc'): HTMLCanvasElement {
+/** Cuánto mide la pastilla de un rótulo, en píxeles del dibujo. */
+const ROTULO_ALTO = 30
+
+/**
+ * Un nombre en una pastilla oscura: blanco para las poblaciones, ámbar para
+ * los picos. Con `palo`, una varilla de tantos píxeles desde la pastilla
+ * hasta el punto exacto, rematada en un puntito: con varias cimas juntas, es
+ * lo único que dice cuál es cuál.
+ */
+function dibujaRotulo(texto: string, tinta = '#f8fafc', palo = 0): HTMLCanvasElement {
   const fuente = '600 20px system-ui, -apple-system, sans-serif'
   const medida = document.createElement('canvas').getContext('2d')!
   medida.font = fuente
   const ancho = Math.ceil(medida.measureText(texto).width) + 22
-  const [lienzoRotulo, ctx] = lienzo(ancho, 30)
+  const [lienzoRotulo, ctx] = lienzo(ancho, ROTULO_ALTO + palo)
   ctx.font = fuente
   ctx.fillStyle = 'rgba(15,23,42,0.88)'
   ctx.beginPath()
-  ctx.roundRect(0, 0, ancho, 30, 8)
+  ctx.roundRect(0, 0, ancho, ROTULO_ALTO, 8)
   ctx.fill()
   ctx.fillStyle = tinta
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(texto, ancho / 2, 16)
+  if (palo > 0) {
+    ctx.strokeStyle = 'rgba(15,23,42,0.9)'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(ancho / 2, ROTULO_ALTO)
+    ctx.lineTo(ancho / 2, ROTULO_ALTO + palo - 3)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(ancho / 2, ROTULO_ALTO + palo - 3, 3.5, 0, Math.PI * 2)
+    ctx.fillStyle = tinta
+    ctx.fill()
+  }
   return lienzoRotulo
 }
 
+/** El lienzo del nombre del evento: 1024 de ancho por esto de alto. */
+const INSCRIPCION_ALTO = 96
+
 /**
- * El nombre del evento para el canto, en mayúsculas de imprenta que se
- * encogen hasta caber. Dos dibujos del mismo texto: el de `color`, las
- * letras en piedra clara con el borde oscuro; y el de `relieve`, blanco
- * sobre negro con el borde difuminado, que es lo que las levanta de la
- * pared (ver la placa en el componente).
+ * El nombre del evento para el canto, en mayúsculas gruesas que se encogen
+ * hasta caber. Dos dibujos del mismo texto: el de `color`, las letras en
+ * piedra clara con el borde oscuro; y el de `relieve`, blanco sobre negro
+ * con el borde difuminado, que es lo que las levanta de la pared (ver la
+ * placa en el componente).
  */
 function dibujaInscripcion(texto: string, modo: 'color' | 'relieve'): HTMLCanvasElement {
-  const [lienzoPlaca, ctx] = lienzo(1024, 64)
+  const [lienzoPlaca, ctx] = lienzo(1024, INSCRIPCION_ALTO)
   const t = texto.toUpperCase()
-  let tam = 44
-  const fuente = () => `700 ${tam}px Georgia, 'Times New Roman', serif`
+  let tam = 68
+  const fuente = () => `900 ${tam}px "Arial Black", "Helvetica Neue", Arial, sans-serif`
   const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
-  c.letterSpacing = '4px'
+  c.letterSpacing = '6px'
   ctx.font = fuente()
-  while (ctx.measureText(t).width > 1024 * 0.88 && tam > 14) { tam -= 2; ctx.font = fuente() }
+  while (ctx.measureText(t).width > 1024 * 0.9 && tam > 14) { tam -= 2; ctx.font = fuente() }
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
+  const y = INSCRIPCION_ALTO / 2 + 2
   if (modo === 'relieve') {
     ctx.fillStyle = '#000'
-    ctx.fillRect(0, 0, 1024, 64)
+    ctx.fillRect(0, 0, 1024, INSCRIPCION_ALTO)
     // El halo hace la pendiente del canto de cada letra; el trazo nítido, la cara.
     ctx.shadowColor = '#fff'
-    ctx.shadowBlur = 5
+    ctx.shadowBlur = 6
     ctx.fillStyle = '#fff'
-    for (let k = 0; k < 3; k++) ctx.fillText(t, 512, 33)
+    for (let k = 0; k < 3; k++) ctx.fillText(t, 512, y)
     ctx.shadowBlur = 0
-    ctx.fillText(t, 512, 33)
+    ctx.fillText(t, 512, y)
   } else {
     ctx.lineJoin = 'round'
-    ctx.lineWidth = 3
-    ctx.strokeStyle = '#5e564c'
-    ctx.strokeText(t, 512, 33)
-    ctx.fillStyle = '#c9c1b4'
-    ctx.fillText(t, 512, 33)
+    ctx.lineWidth = 5
+    ctx.strokeStyle = '#3b3128'
+    ctx.strokeText(t, 512, y)
+    ctx.fillStyle = '#efe6d3'
+    ctx.fillText(t, 512, y)
   }
   return lienzoPlaca
 }
@@ -435,7 +524,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     controls.target.set(0, 0.08, 0)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
-    controls.enablePan = false
+    // Paneo: con dos dedos, o con el botón derecho (o Mayús) en el ordenador.
+    // En el plano de la pantalla, que es como se espera de una maqueta sobre
+    // una mesa; y sin dejar que el centro se vaya de la loseta (ver el bucle).
+    controls.enablePan = true
+    controls.screenSpacePanning = true
+    controls.panSpeed = 0.9
     // Nunca dentro de la loseta: a menos de 1,5 la cámara se metía bajo el monte.
     controls.minDistance = 1.5
     controls.maxDistance = 9
@@ -473,7 +567,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const chinchetas = new THREE.Group()
     scene.add(loseta, chinchetas)
 
-    const e: Escena = { renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null }
+    const e: Escena = {
+      renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null,
+      limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
+    }
     escena.current = e
 
     const mide = () => {
@@ -509,6 +606,13 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         }
       }
       const movio = controls.update()
+      // El paneo no saca el centro de la loseta: si se pasa, se recorta y la
+      // cámara se corre lo mismo, que el encuadre no salte.
+      if (!e.limites.containsPoint(controls.target)) {
+        const dentro = controls.target.clone().clamp(e.limites.min, e.limites.max)
+        camera.position.add(dentro).sub(controls.target)
+        controls.target.copy(dentro)
+      }
       if (movio || e.sucio) {
         renderer.render(scene, camera)
         e.sucio = false
@@ -714,17 +818,18 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       }
       e.renderer.shadowMap.needsUpdate = true
 
-      // La cámara mira al centro de la loseta, a media altura del relieve, y
-      // se pone a la distancia justa para que quepa entera: en un móvil en
-      // vertical hay que alejarse más. (Sin `Math.max(...alturas)`: con cien
-      // mil nodos revienta la pila.)
+      // La cámara mira al centro de la loseta, a media altura del relieve,
+      // desde la cara buena y a la distancia justa para que quepa entera
+      // (ver `encuadra`). (Sin `Math.max(...alturas)`: con cien mil nodos
+      // revienta la pila.)
       let min = Infinity
       let max = -Infinity
       for (const h of alturas) { if (h < min) min = h; if (h > max) max = h }
       e.controls.target.set(0, (escala.y(max) + escala.y(min)) / 2, 0)
-      const distancia = Math.min(8, Math.max(2.4, 1.2 / (Math.tan((e.camera.fov * Math.PI) / 360) * e.camera.aspect)))
-      e.camera.position.setFromSpherical(new THREE.Spherical(distancia, INCLINACION, 0.75)).add(e.controls.target)
-      e.sucio = true
+      const ax = (rejilla.anchoPx * escala.u) / 2 + 0.1
+      const az = (rejilla.altoPx * escala.u) / 2 + 0.1
+      e.limites.set(new THREE.Vector3(-ax, escala.base, -az), new THREE.Vector3(ax, escala.y(max) + 0.2, az))
+      encuadra(e, AZIMUT_INICIAL, POLAR_INICIAL, margenAbajo)
       setEstado('lista')
     })
     return () => { vigente = false }
@@ -761,7 +866,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Un nombre se lee siempre, aunque haya un pino o una loma delante: por
     // encima de todo y sin prueba de profundidad. Y se puede quitar (`rotulos`).
     const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
-      const alto = 0.036
+      // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
+      const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
       const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
       s.material.depthTest = false
       s.renderOrder = 3
@@ -775,9 +881,11 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, l.u, l.v)
       rotulo(dibujaRotulo(l.n), [x, y + 0.02, z], `lugar:${i}`)
     })
+    // Las cimas, con palo hasta el punto exacto y a tres alturas distintas,
+    // que en una cresta van seguidas y las pastillas se pisaban.
     e.terreno.picos.slice(0, ROTULOS_MAX).forEach((p, i) => {
-      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, p.u, p.v)
-      rotulo(dibujaRotulo(`▲ ${p.n}${p.e !== null ? ` · ${p.e.toLocaleString('es-ES')} m` : ''}`, '#fde68a'), [x, y + 0.012, z], `pico:${i}`)
+      const sitio = sitioDeFraccion(rejilla, alturas, escala, p.u, p.v)
+      rotulo(dibujaRotulo(`▲ ${p.n}${p.e !== null ? ` · ${p.e.toLocaleString('es-ES')} m` : ''}`, '#fde68a', 28 + (i % 3) * 24), sitio, `pico:${i}`)
     })
     e.sucio = true
     return () => {
@@ -861,18 +969,19 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const color = dibujaInscripcion(texto, 'color')
     const relieve = texturaDe(dibujaInscripcion(texto, 'relieve'))
     relieve.colorSpace = THREE.NoColorSpace
-    const ancho = Math.min((enSur ? anchoU : altoU) * 0.8, 1.3)
+    // Tan ancha como la pared deje y tan alta como el grosor de la base.
+    const ancho = Math.min((enSur ? anchoU : altoU) * 0.92, (GROSOR * color.width) / color.height)
     const alto = (ancho * color.height) / color.width
     const placa = new THREE.Mesh(
-      new THREE.PlaneGeometry(ancho, alto, 384, 48),
+      new THREE.PlaneGeometry(ancho, alto, 512, 48),
       new THREE.MeshLambertMaterial({
         map: texturaDe(color),
         transparent: true,
         alphaTest: 0.4,
         displacementMap: relieve,
-        displacementScale: 0.014,
+        displacementScale: 0.022,
         bumpMap: relieve,
-        bumpScale: 0.006,
+        bumpScale: 0.01,
       }),
     )
     placa.castShadow = true
@@ -995,7 +1104,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
               : comoFue === 'copiada' ? '✓ Copiada — pégala donde quieras'
               : comoFue === 'descargada' ? '✓ Descargada'
               : comoFue === 'cancelada' ? 'Sin compartir'
-              : elegidoTexto ?? 'Un dedo gira · dos dedos acercan · toca una chincheta para saber quién es'}
+              : elegidoTexto ?? 'Un dedo gira · dos dedos acercan y desplazan · toca una chincheta para saber qué es'}
           </p>
         </div>
       )}
