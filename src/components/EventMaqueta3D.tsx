@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { Captions, CaptionsOff, Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-react'
+import { Captions, CaptionsOff, Map as IconoMapa, Mountain, Pause, RotateCw, Share2, Video } from 'lucide-react'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
   LADO_MOSAICO, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
@@ -12,7 +12,8 @@ import { capasDeOsm, cargaMosaicosOsm } from '../lib/maquetaMascara'
 import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta, type PicoMaqueta } from '../../shared/maquetaPaquete'
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
-import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import type { ComoSeFue } from '../lib/compartirImagen'
+import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 import { LOGO_APP, NOMBRE_APP } from '../lib/marcaApp'
 import { BotonRedondo } from './BotonRedondo'
 import { CargandoMarca } from './CargandoMarca'
@@ -228,6 +229,80 @@ interface Escena {
   distancia: number | null
   /** Hasta dónde se puede llevar el centro de la vista con el paneo: la loseta y poco más. */
   limites: THREE.Box3
+  /** A quién sigue la cámara, si sigue a alguien (ver `sigueCorredor`). */
+  seguir: Seguimiento | null
+}
+
+/** La cámara siguiendo a un corredor. */
+interface Seguimiento {
+  key: string
+  /** A qué distancia de él; el zoom la cambia. */
+  distancia: number
+  /** Dónde estaba la última vez que se movió, para saber hacia dónde va. */
+  ultimo: THREE.Vector3 | null
+  /** Hacia dónde avanza, suavizado (ángulo como `Spherical.theta`). */
+  rumbo: number | null
+  /** Desde qué lado se le mira ahora (el mejor que se encontró libre). */
+  azimut: number
+  /** Cuándo se buscó por última vez ese lado, en ms. */
+  revisado: number
+}
+
+/** Desde qué altura se mira al que se sigue: ni encima ni rasante. */
+const POLAR_SEGUIR = 1.0
+/** A cuánto se le mira al empezar. */
+const DISTANCIA_SEGUIR = 0.95
+/** Los lados que se prueban, alrededor del ideal, si el monte lo tapa desde él. */
+const DESVIOS_SEGUIR = [0, 0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.2, -2.2, Math.PI]
+
+const angulo = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
+
+/**
+ * Un paso de la cámara siguiendo a un corredor: el centro de la vista va
+ * hacia él, y la cámara se coloca en tres cuartos por detrás de hacia dónde
+ * avanza —se ve lo que tiene delante—, algo elevada. Cada poco se comprueba si
+ * el monte lo tapa desde ahí y, si lo tapa, se busca el lado libre más
+ * cercano. Todo se acerca a su objetivo con curvas exponenciales en el
+ * tiempo, no por fotograma: igual de suave en un móvil que en un ordenador,
+ * y sin saltos cuando cambia el lado.
+ */
+function sigueCorredor(e: Escena, sprite: THREE.Sprite, dt: number) {
+  const s = e.seguir!
+  const p = sprite.position
+  if (!s.ultimo) s.ultimo = p.clone()
+  else {
+    const dx = p.x - s.ultimo.x
+    const dz = p.z - s.ultimo.z
+    if (Math.hypot(dx, dz) > 0.004) {
+      const hacia = Math.atan2(dx, dz)
+      s.rumbo = s.rumbo === null ? hacia : s.rumbo + angulo(hacia - s.rumbo) * 0.3
+      s.ultimo.copy(p)
+    }
+  }
+  const suaviza = (ms: number) => 1 - Math.exp(-dt / ms)
+  e.controls.target.lerp(new THREE.Vector3(p.x, p.y + 0.02, p.z), suaviza(320))
+
+  const ahora = performance.now()
+  if (e.terreno && ahora - s.revisado > 450) {
+    s.revisado = ahora
+    const relativa = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
+    // Sin rumbo todavía —parado, o recién elegido—, desde donde ya se mira.
+    const ideal = s.rumbo === null ? relativa.theta : s.rumbo + Math.PI + 0.6
+    const cabeza = new THREE.Vector3(p.x, p.y + 0.05, p.z)
+    for (const desvio of DESVIOS_SEGUIR) {
+      const theta = ideal + desvio
+      const camara = new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza)
+      if (!tapadaPorElMonte(e.terreno, cabeza, camara, 48)) { s.azimut = theta; break }
+    }
+  }
+
+  const esf = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
+  esf.theta += angulo(s.azimut - esf.theta) * suaviza(1500)
+  esf.phi += (POLAR_SEGUIR - esf.phi) * suaviza(900)
+  esf.radius += (s.distancia - esf.radius) * suaviza(600)
+  esf.makeSafe()
+  e.camera.position.setFromSpherical(esf).add(e.controls.target)
+  e.sucio = true
 }
 
 /**
@@ -260,6 +335,35 @@ function tapadaPorElMonte(t: Terreno, cabeza: THREE.Vector3, camara: THREE.Vecto
     if (y < escala.y(alturaEn(rejilla, alturas, escala.px(x), escala.py(z)))) return true
   }
   return false
+}
+
+/**
+ * Cómo se reparten el canto el nombre del evento y la marca de la app: en la
+ * misma pared, el nombre a la izquierda y la marca a su derecha, más pequeña,
+ * y los dos juntos centrados. En la pared sur, que es la que mira a la cámara
+ * al abrir (y la que sale en la imagen compartida), o en la este si la loseta
+ * es mucho más alta que ancha. `s` es la posición a lo largo de la pared.
+ */
+function repartoDelCanto(t: Terreno) {
+  const anchoU = t.rejilla.anchoPx * t.escala.u
+  const altoU = t.rejilla.altoPx * t.escala.u
+  const enSur = t.rejilla.anchoPx >= t.rejilla.altoPx * 0.8
+  const largo = enSur ? anchoU : altoU
+  const hueco = largo * 0.03
+  const anchoMarca = Math.min(largo * 0.2, (GROSOR * 0.55 * 512) / MARCA_ALTO)
+  const anchoNombre = Math.min(largo * 0.94 - hueco - anchoMarca, (GROSOR * 1024) / INSCRIPCION_ALTO)
+  const total = anchoNombre + hueco + anchoMarca
+  const y = t.escala.base + GROSOR / 2
+  /** Pega una placa a la pared, con su centro en `s`. En la este, la placa
+   *  gira un cuarto de vuelta y se lee hacia −Z. */
+  const coloca = (placa: THREE.Mesh, s: number) => {
+    if (enSur) placa.position.set(s, y, altoU / 2 + 0.001)
+    else {
+      placa.position.set(anchoU / 2 + 0.001, y, -s)
+      placa.rotation.y = Math.PI / 2
+    }
+  }
+  return { anchoNombre, sNombre: -total / 2 + anchoNombre / 2, anchoMarca, sMarca: total / 2 - anchoMarca / 2, coloca }
 }
 
 /** Los ocho vértices de la caja de la loseta, para encuadrarla entera. */
@@ -451,6 +555,61 @@ function dibujaInscripcion(texto: string, modo: 'color' | 'relieve'): HTMLCanvas
   return lienzoPlaca
 }
 
+/** El lienzo de la marca de la app: 512 de ancho por esto de alto. */
+const MARCA_ALTO = 96
+
+/**
+ * La marca de la app para tallarla en el canto: el logo y el nombre, juntos
+ * y centrados. Como el nombre del evento, dos dibujos: `color`, el logo con
+ * sus colores y el nombre en piedra clara; y `relieve`, todo blanco sobre
+ * negro con el borde difuminado, que es lo que lo levanta de la pared.
+ */
+function dibujaMarca(logo: HTMLImageElement | null, modo: 'color' | 'relieve'): HTMLCanvasElement {
+  const [lienzoMarca, ctx] = lienzo(512, MARCA_ALTO)
+  const lado = 64
+  const hueco = 14
+  ctx.font = '800 46px system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif'
+  const anchoTexto = ctx.measureText(NOMBRE_APP).width
+  const total = (logo ? lado + hueco : 0) + anchoTexto
+  const x0 = (512 - total) / 2
+  const yLogo = (MARCA_ALTO - lado) / 2
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  const xTexto = x0 + (logo ? lado + hueco : 0)
+  const yTexto = MARCA_ALTO / 2 + 2
+  if (modo === 'relieve') {
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, 512, MARCA_ALTO)
+    if (logo) {
+      // La silueta del logo en blanco: se pinta en un lienzo aparte y se
+      // rellena por encima con `source-in`, que respeta su transparencia.
+      const [silueta, sctx] = lienzo(lado, lado)
+      sctx.drawImage(logo, 0, 0, lado, lado)
+      sctx.globalCompositeOperation = 'source-in'
+      sctx.fillStyle = '#fff'
+      sctx.fillRect(0, 0, lado, lado)
+      ctx.shadowColor = '#fff'
+      ctx.shadowBlur = 4
+      ctx.drawImage(silueta, x0, yLogo, lado, lado)
+    }
+    ctx.shadowColor = '#fff'
+    ctx.shadowBlur = 5
+    ctx.fillStyle = '#fff'
+    for (let k = 0; k < 2; k++) ctx.fillText(NOMBRE_APP, xTexto, yTexto)
+    ctx.shadowBlur = 0
+    ctx.fillText(NOMBRE_APP, xTexto, yTexto)
+  } else {
+    if (logo) ctx.drawImage(logo, x0, yLogo, lado, lado)
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 4
+    ctx.strokeStyle = '#3b3128'
+    ctx.strokeText(NOMBRE_APP, xTexto, yTexto)
+    ctx.fillStyle = '#efe6d3'
+    ctx.fillText(NOMBRE_APP, xTexto, yTexto)
+  }
+  return lienzoMarca
+}
+
 /** Un punto del recorrido: una bolita en un palo, naranja si tiene cierre. */
 function dibujaPunto(p: Punto3D): HTMLCanvasElement {
   const [lienzoPunto, ctx] = lienzo(48, 96)
@@ -499,6 +658,8 @@ function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [nu
   s.renderOrder = 2
   s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
+  // El tamaño de partida: al acercar la cámara se encoge desde aquí (ver el bucle).
+  s.userData.escalaBase = new THREE.Vector2(ancho, alto)
   s.position.set(sitio[0], sitio[1], sitio[2])
   return s
 }
@@ -529,45 +690,15 @@ const cargaLogo = () => (logoCargado ??= new Promise((resolve) => {
 }))
 
 /**
- * La imagen que se comparte: el lienzo 3D tal cual y, en la esquina de abajo
- * a la derecha, el logo y el nombre de la app en una pastilla a media tinta.
- * Discreta, pero la foto que llega a un grupo dice de dónde sale.
+ * La imagen que se comparte: el lienzo 3D tal cual. La marca de la app va
+ * tallada en el canto de la loseta (ver `dibujaMarca`), así que sale sola.
  *
- * El lienzo de WebGL se copia justo después de pintarlo, en el mismo turno:
- * sin `preserveDrawingBuffer`, un momento después ya estaría en blanco.
+ * Se copia justo después de pintarlo, en el mismo turno: sin
+ * `preserveDrawingBuffer`, un momento después el lienzo ya estaría en blanco.
  */
-async function imagenParaCompartir(e: Escena): Promise<string> {
+function imagenParaCompartir(e: Escena): string {
   e.renderer.render(e.scene, e.camera)
-  const gl = e.renderer.domElement
-  const lienzoFinal = document.createElement('canvas')
-  lienzoFinal.width = gl.width
-  lienzoFinal.height = gl.height
-  const ctx = lienzoFinal.getContext('2d')!
-  ctx.drawImage(gl, 0, 0)
-
-  const k = gl.width / Math.max(1, gl.clientWidth)
-  const logo = await cargaLogo()
-  const margen = 14 * k
-  const lado = 22 * k
-  ctx.font = `700 ${13 * k}px system-ui, -apple-system, sans-serif`
-  const anchoTexto = ctx.measureText(NOMBRE_APP).width
-  const anchoPastilla = 10 * k + (logo ? lado + 7 * k : 0) + anchoTexto + 12 * k
-  const altoPastilla = lado + 10 * k
-  const x = gl.width - margen - anchoPastilla
-  const y = gl.height - margen - altoPastilla
-  ctx.fillStyle = 'rgba(15,23,42,0.55)'
-  ctx.beginPath()
-  ctx.roundRect(x, y, anchoPastilla, altoPastilla, altoPastilla / 2)
-  ctx.fill()
-  let cursor = x + 10 * k
-  if (logo) {
-    ctx.drawImage(logo, cursor, y + 5 * k, lado, lado)
-    cursor += lado + 7 * k
-  }
-  ctx.fillStyle = 'rgba(248,250,252,0.92)'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(NOMBRE_APP, cursor, y + altoPastilla / 2 + k)
-  return lienzoFinal.toDataURL('image/png')
+  return e.renderer.domElement.toDataURL('image/png')
 }
 
 interface Props {
@@ -591,9 +722,48 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [elegido, setElegido] = useState<string | null>(null)
   const [ayuda, setAyuda] = useState(true)
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
+  /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
+  const { pide, vistaPrevia } = useVistaPreviaCompartir()
   /** Los nombres de pueblos y picos, que tapan cuando lo que se quiere ver es el relieve. */
   const [rotulos, setRotulos] = useState(true)
   const rotulosRef = useRef(true)
+  /** A quién sigue la cámara (su `key`), y si está abierta la tira para elegirlo. */
+  const [siguiendo, setSiguiendo] = useState<string | null>(null)
+  const [eligiendoSeguir, setEligiendoSeguir] = useState(false)
+  /** Solo si sigue en la maqueta: quitado del replay, o sin posición, se suelta. */
+  const seguido = siguiendo ? corredores.find((c) => c.key === siguiendo) ?? null : null
+  const siguiendoKey = seguido?.key ?? null
+  const corredorElegido = elegido ? corredores.find((c) => c.key === elegido) ?? null : null
+
+  // Empezar a seguir: la cámara se suelta de los mandos, que se pelearían con
+  // ella, y deja acercarse más de lo normal. Al dejar de seguir, todo vuelve.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || !siguiendoKey) return
+    e.viaje = null
+    e.distancia = null
+    const relativa = new THREE.Spherical().setFromVector3(e.camera.position.clone().sub(e.controls.target))
+    e.seguir = { key: siguiendoKey, distancia: DISTANCIA_SEGUIR, ultimo: null, rumbo: null, azimut: relativa.theta, revisado: 0 }
+    e.controls.enabled = false
+    e.controls.autoRotate = false
+    e.controls.minDistance = 0.3
+    e.sucio = true
+    return () => {
+      e.seguir = null
+      e.controls.enabled = true
+      e.controls.minDistance = 1.5
+      if (e.camera.position.distanceTo(e.controls.target) < 1.5) e.distancia = 1.5
+      e.sucio = true
+    }
+  }, [siguiendoKey])
+
+  const alternaSeguir = () => {
+    if (siguiendoKey) { setSiguiendo(null); return }
+    setGirando(false)
+    // Si ya hay un corredor tocado, a ese; si no, se elige de la tira.
+    if (corredorElegido) { setSiguiendo(corredorElegido.key); setEligiendoSeguir(false); return }
+    setEligiendoSeguir((v) => !v)
+  }
 
   // La escena, una vez: luces, mesa, cámara y mandos. La loseta llega después.
   useEffect(() => {
@@ -667,7 +837,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     scene.add(loseta, chinchetas)
 
     const e: Escena = {
-      renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null,
+      renderer, scene, camera, controls, mesa, loseta, chinchetas, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
       limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
     }
     escena.current = e
@@ -688,9 +858,18 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Se pinta solo cuando algo cambia: una maqueta quieta no gasta batería.
     let cuadro = 0
     const cabeza = new THREE.Vector3()
+    let antes = performance.now()
     const bucle = () => {
       cuadro = requestAnimationFrame(bucle)
-      if (e.viaje) {
+      const ahora = performance.now()
+      const dt = Math.min(100, ahora - antes)
+      antes = ahora
+      // Siguiendo a alguien, la cámara la lleva `sigueCorredor`; un viaje
+      // (a vista de pájaro, o de vuelta) manda sobre el seguimiento.
+      const seguido = e.seguir && !e.viaje ? e.fichas.get(e.seguir.key)?.sprite : undefined
+      if (seguido) {
+        sigueCorredor(e, seguido, dt)
+      } else if (e.viaje) {
         const t = Math.min(1, (performance.now() - e.viaje.t0) / e.viaje.ms)
         camera.position.lerpVectors(e.viaje.desde, e.viaje.hasta, suave(t))
         if (t >= 1) e.viaje = null
@@ -718,6 +897,14 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         // cabeza de cada una, que es lo que se lee.
         if (e.terreno) {
           for (const ch of e.chinchetas.children) {
+            // Al acercar la cámara, las chinchetas encogen: miden en la
+            // maqueta, y de cerca —siguiendo a alguien— el emoji ocupaba media
+            // pantalla. Desde la vista de apertura se quedan como son.
+            const base = ch.userData.escalaBase as THREE.Vector2 | undefined
+            if (base) {
+              const k = Math.min(1, Math.max(0.3, ch.position.distanceTo(camera.position) / 3))
+              ch.scale.set(base.x * k, base.y * k, 1)
+            }
             cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
             ch.visible = !(ch.userData.rotulo && !rotulosRef.current) && !tapadaPorElMonte(e.terreno, cabeza, camera.position, PASOS_TAPADO)
           }
@@ -732,6 +919,11 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     // El zoom: la distancia a la que se quiere estar, que el bucle persigue.
     const quiereDistancia = (factor: number) => {
+      // Siguiendo a alguien, el zoom acerca o aleja la cámara de él.
+      if (e.seguir) {
+        e.seguir.distancia = Math.min(3, Math.max(0.35, e.seguir.distancia * factor))
+        return
+      }
       const desde = e.distancia ?? camera.position.distanceTo(controls.target)
       e.distancia = Math.min(controls.maxDistance, Math.max(controls.minDistance, desde * factor))
     }
@@ -755,6 +947,11 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       if (dedos.size <= 1) { bajada = [ev.clientX, ev.clientY]; pellizco = false }
     }
     const mueve = (ev: PointerEvent) => {
+      // Arrastrar con un dedo (o el ratón) mientras se sigue a alguien es
+      // querer mirar por otro lado: se suelta el seguimiento.
+      if (e.seguir && ev.buttons && bajada && dedos.size <= 1 && Math.hypot(ev.clientX - bajada[0], ev.clientY - bajada[1]) > 10) {
+        setSiguiendo(null)
+      }
       if (ev.pointerType !== 'touch' || !dedos.has(ev.pointerId)) return
       dedos.set(ev.pointerId, [ev.clientX, ev.clientY])
       if (dedos.size !== 2) return
@@ -1054,6 +1251,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       }
       const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
       f.sprite.scale.set(tam, tam * 1.5, 1)
+      f.sprite.userData.escalaBase = new THREE.Vector2(tam, tam * 1.5)
       f.sprite.position.set(sitio[0], sitio[1], sitio[2])
       // El elegido, por encima de todo, rótulos incluidos.
       f.sprite.renderOrder = esElegido ? 4 : 2
@@ -1091,15 +1289,13 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const e = escena.current
     const texto = nombre?.trim()
     if (!e || estado !== 'lista' || !e.terreno || !texto) return
-    const { rejilla, escala } = e.terreno
-    const anchoU = rejilla.anchoPx * escala.u
-    const altoU = rejilla.altoPx * escala.u
-    const enSur = rejilla.anchoPx >= rejilla.altoPx * 0.8
+    // Tan ancha como la pared deje —con la marca de la app a su derecha— y
+    // tan alta como el grosor de la base (ver `repartoDelCanto`).
+    const reparto = repartoDelCanto(e.terreno)
     const color = dibujaInscripcion(texto, 'color')
     const relieve = texturaDe(dibujaInscripcion(texto, 'relieve'))
     relieve.colorSpace = THREE.NoColorSpace
-    // Tan ancha como la pared deje y tan alta como el grosor de la base.
-    const ancho = Math.min((enSur ? anchoU : altoU) * 0.92, (GROSOR * color.width) / color.height)
+    const ancho = reparto.anchoNombre
     const alto = (ancho * color.height) / color.width
     const placa = new THREE.Mesh(
       new THREE.PlaneGeometry(ancho, alto, 512, 48),
@@ -1114,12 +1310,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       }),
     )
     placa.castShadow = true
-    const y = escala.base + GROSOR / 2
-    if (enSur) placa.position.set(0, y, altoU / 2 + 0.001)
-    else {
-      placa.position.set(anchoU / 2 + 0.001, y, 0)
-      placa.rotation.y = Math.PI / 2
-    }
+    reparto.coloca(placa, reparto.sNombre)
     e.loseta.add(placa)
     e.renderer.shadowMap.needsUpdate = true
     e.sucio = true
@@ -1130,6 +1321,53 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       e.sucio = true
     }
   }, [nombre, estado])
+
+  // La marca de la app, tallada en el canto a la derecha del nombre del
+  // evento (ver `repartoDelCanto`). Más pequeña y con menos relieve, que lo
+  // principal es el nombre; pero integrada en la maqueta, no pegada encima, y
+  // en la cara que se ve al abrir: por eso sale en la imagen que se comparte.
+  // Se probó en la otra pared y desde la vista de apertura no se veía.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno) return
+    let vigente = true
+    let placa: THREE.Mesh | null = null
+    cargaLogo().then((logo) => {
+      const e = escena.current
+      if (!vigente || !e || !e.terreno) return
+      const reparto = repartoDelCanto(e.terreno)
+      const color = dibujaMarca(logo, 'color')
+      const relieve = texturaDe(dibujaMarca(logo, 'relieve'))
+      relieve.colorSpace = THREE.NoColorSpace
+      const ancho = reparto.anchoMarca
+      const alto = (ancho * color.height) / color.width
+      placa = new THREE.Mesh(
+        new THREE.PlaneGeometry(ancho, alto, 256, 48),
+        new THREE.MeshLambertMaterial({
+          map: texturaDe(color),
+          transparent: true,
+          alphaTest: 0.4,
+          displacementMap: relieve,
+          displacementScale: 0.012,
+          bumpMap: relieve,
+          bumpScale: 0.006,
+        }),
+      )
+      placa.castShadow = true
+      reparto.coloca(placa, reparto.sMarca)
+      e.loseta.add(placa)
+      e.renderer.shadowMap.needsUpdate = true
+      e.sucio = true
+    })
+    return () => {
+      vigente = false
+      if (!placa) return
+      e.loseta.remove(placa)
+      tira(placa)
+      e.renderer.shadowMap.needsUpdate = true
+      e.sucio = true
+    }
+  }, [estado])
 
   useEffect(() => {
     const t = window.setTimeout(() => setAyuda(false), 9000)
@@ -1158,6 +1396,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const alternaGiro = () => {
     const e = escena.current
     if (!e) return
+    setSiguiendo(null)
     if (girando) { setGirando(false); return }
     // Girar mirando desde arriba no enseña nada: primero se inclina.
     if (e.controls.getPolarAngle() < 0.35) viaja(INCLINACION)
@@ -1166,16 +1405,19 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
   const alternaVista = () => {
     setGirando(false)
+    setSiguiendo(null)
     viaja(desdeArriba ? INCLINACION : 0.06)
   }
 
   const comparte = async () => {
     const e = escena.current
     if (!e) return
-    const url = await imagenParaCompartir(e)
+    const url = imagenParaCompartir(e)
     const nombreFichero = (nombre ?? 'carrera').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'carrera'
-    setComoFue(await comparteImagen(url, `maqueta-${nombreFichero}.png`, nombre ? `${nombre} · maqueta` : 'La carrera en maqueta'))
+    // Cerrar la vista previa no es un fallo: no se dice nada.
+    const fue = await pide(url, `maqueta-${nombreFichero}.png`, nombre ? `${nombre} · maqueta` : 'La carrera en maqueta')
+    if (fue !== 'cancelada') setComoFue(fue)
   }
 
   const elegidoTexto = (() => {
@@ -1199,6 +1441,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
   return (
     <div className="relative h-full w-full" style={{ background: COLOR_MESA }}>
+      {vistaPrevia}
       <div ref={caja} className="h-full w-full" />
       {estado === 'cargando' && (
         <div className="pointer-events-none absolute inset-0 z-[5]"><CargandoMarca texto="Recortando la maqueta…" /></div>
@@ -1208,18 +1451,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           <p className="text-sm text-slate-300">No se ha podido bajar el relieve. Sin red no hay maqueta; vuelve a intentarlo con cobertura.</p>
         </div>
       )}
-      {/* La marca de la app, arriba a la derecha, que en la maqueta está libre.
-          Pequeña y a media tinta: firma, no cartel. En la imagen compartida va
-          dibujada abajo a la derecha (ver `imagenParaCompartir`). */}
-      {estado === 'lista' && (
-        <div
-          className="pointer-events-none absolute right-3 z-10 flex items-center gap-1.5 rounded-full bg-slate-900/45 py-1 pl-1.5 pr-2.5 opacity-90"
-          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
-        >
-          <img src={LOGO_APP} alt="" width={18} height={17} />
-          <span className="text-[11px] font-bold tracking-tight text-slate-100">{NOMBRE_APP}</span>
-        </div>
-      )}
       <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${72 + margenAbajo}px)` }}>
         <BotonRedondo etiqueta="Compartir la maqueta como imagen" onClick={comparte}>
           <Share2 size={16} />
@@ -1227,6 +1458,15 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         <BotonRedondo etiqueta={rotulos ? 'Quitar los nombres' : 'Poner los nombres'} activo={!rotulos} onClick={() => setRotulos((v) => !v)}>
           {rotulos ? <Captions size={16} /> : <CaptionsOff size={16} />}
         </BotonRedondo>
+        {corredores.length > 0 && (
+          <BotonRedondo
+            etiqueta={siguiendoKey ? 'Dejar de seguir' : corredorElegido ? `Seguir a ${corredorElegido.nombre}` : 'Seguir a un corredor'}
+            activo={!!siguiendoKey || eligiendoSeguir}
+            onClick={alternaSeguir}
+          >
+            <Video size={16} />
+          </BotonRedondo>
+        )}
         <BotonRedondo etiqueta={girando ? 'Parar el giro' : 'Girar alrededor'} activo={girando} onClick={alternaGiro}>
           {girando ? <Pause size={16} /> : <RotateCw size={16} />}
         </BotonRedondo>
@@ -1234,7 +1474,29 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           {desdeArriba ? <Mountain size={16} /> : <IconoMapa size={16} />}
         </BotonRedondo>
       </div>
-      {(elegidoTexto || comoFue || (ayuda && estado === 'lista')) && (
+      {/* La tira para elegir a quién seguir: su marca y su nombre. A la
+          izquierda de la columna de botones, que no la tape. */}
+      {eligiendoSeguir && !siguiendoKey && estado === 'lista' && (
+        <div
+          className="absolute inset-x-0 z-20 flex justify-center pl-4 pr-16"
+          style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${104 + margenAbajo}px)` }}
+        >
+          <div className="flex max-w-full gap-1.5 overflow-x-auto rounded-2xl border border-slate-700 bg-slate-900/90 p-1.5 shadow-lg backdrop-blur">
+            {corredores.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => { setSiguiendo(c.key); setElegido(c.key); setEligiendoSeguir(false) }}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-100 active:scale-95"
+              >
+                {c.emoji && <span className="text-sm leading-none">{c.emoji}</span>}
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorSeguro(c.color) }} />
+                {c.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {(elegidoTexto || comoFue || seguido || (ayuda && estado === 'lista')) && (
         <div
           className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-16"
           style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${64 + margenAbajo}px)` }}
@@ -1244,6 +1506,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
               : comoFue === 'copiada' ? '✓ Copiada — pégala donde quieras'
               : comoFue === 'descargada' ? '✓ Descargada'
               : comoFue === 'cancelada' ? 'Sin compartir'
+              : seguido && (!elegidoTexto || elegido === seguido.key)
+                ? `🎥 Siguiendo a ${seguido.emoji ? `${seguido.emoji} ` : ''}${seguido.nombre}${seguido.detalle ? ` · ${seguido.detalle}` : ''}`
               : elegidoTexto ?? 'Un dedo gira · dos dedos acercan y desplazan · toca una chincheta para saber qué es'}
           </p>
         </div>
