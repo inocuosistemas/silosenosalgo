@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Share2 } from 'lucide-react'
 import { dibujaPorra, cargaImagen, tituloParaCompartir } from '../lib/porraCard'
-import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import type { ComoSeFue } from '../lib/compartirImagen'
+import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 import { MarkBadge } from './MarkPicker'
 import { durationLabel, type Proyeccion } from '../../shared/bets'
 import type { EventBetsResponse } from '../../shared/wireTypes'
@@ -56,6 +57,8 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
   const [compartiendo, setCompartiendo] = useState(false)
   /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
   const [comoFuePulso, setComoFuePulso] = useState<ComoSeFue | null>(null)
+  /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
+  const { pide, vistaPrevia } = useVistaPreviaCompartir()
   /** Si está abierto el menú de "con o sin mis votos". */
   const [eligiendo, setEligiendo] = useState(false)
 
@@ -86,7 +89,7 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
         { evento: eventName ?? 'La carrera', foto, pulso, corredores: runners, autor: conMisVotos ? me : null },
         C_SI, C_NO,
       )
-      const fue = await comparteImagen(url, 'porra.png', tituloParaCompartir(eventName))
+      const fue = await pide(url, 'porra.png', tituloParaCompartir(eventName))
       if (fue !== 'cancelada') {
         setComoFuePulso(fue)
         window.setTimeout(() => setComoFuePulso(null), 4000)
@@ -287,6 +290,7 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
   const cuerpo = visibles.filter((s) => s !== 'favorito')
   return (
     <section className="mb-4 overflow-hidden rounded-xl border border-violet-900/50 bg-gradient-to-b from-violet-950/30 to-slate-900/60">
+      {vistaPrevia}
       <header className="flex items-center justify-between gap-2 border-b border-violet-900/40 px-3.5 py-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-violet-300">
           Cómo está la porra

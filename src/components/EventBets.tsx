@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, ChevronRight, User } from 'lucide-react'
 import { getEventBets, putEventBets, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { dibujaResultadoPorra, cargaImagen, tituloParaCompartir } from '../lib/porraCard'
-import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import type { ComoSeFue } from '../lib/compartirImagen'
+import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
   scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
@@ -796,6 +797,8 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
   const [compartiendo, setCompartiendo] = useState(false)
   /** Qué pasó al compartir: copiar al portapapeles no se ve, y hay que decirlo. */
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
+  /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
+  const { pide, vistaPrevia } = useVistaPreviaCompartir()
   const dame = (n: string) => runners.find((r) => r.username === n)
   const podio = ranking.slice(0, 3)
   /** Quién ganó la CARRERA: el primero en cruzar, si cruzó alguien. */
@@ -847,7 +850,7 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
           desdeKm: recordKm.desdeKm,
         },
       })
-      const fue = await comparteImagen(url, 'porra.png', tituloParaCompartir(eventName))
+      const fue = await pide(url, 'porra.png', tituloParaCompartir(eventName))
       if (fue !== 'cancelada') {
         setComoFue(fue)
         window.setTimeout(() => setComoFue(null), 4000)
@@ -858,6 +861,7 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
 
   return (
     <section className="mb-4 rounded-xl border border-amber-800/50 bg-gradient-to-b from-amber-950/30 to-slate-900/60 p-3.5">
+      {vistaPrevia}
       <h2 className="text-center text-[11px] font-semibold uppercase tracking-wider text-amber-400">
         🔮 La porra, resuelta
       </h2>

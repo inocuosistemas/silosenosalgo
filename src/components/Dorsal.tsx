@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { Share2 } from 'lucide-react'
 import { eventColorHex } from '../../shared/eventColors'
 import type { SharePayloadV1 } from '../lib/sharePayload'
-import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import type { ComoSeFue } from '../lib/compartirImagen'
+import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 
 /**
  * El dorsal de la carrera, dibujado como lo que es.
@@ -205,6 +206,8 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
   const [compartiendo, setCompartiendo] = useState(false)
   /** Copiar al portapapeles no se ve: hay que decir que se hizo. */
   const [comoFue, setComoFue] = useState<ComoSeFue | null>(null)
+  /** La imagen se enseña antes de mandarla (ver `VistaPreviaCompartir`). */
+  const { pide, vistaPrevia } = useVistaPreviaCompartir()
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -224,7 +227,7 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
     setCompartiendo(true)
     try {
       const { dibujaDorsal } = await import('../lib/dorsalCard')
-      const fue = await comparteImagen(
+      const fue = await pide(
         dibujaDorsal({
           bib,
           nombre: username,
@@ -273,6 +276,7 @@ export function DorsalGrande({ bib, username, emoji, color, carrera, porra, onEd
     >
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+          {vistaPrevia}
           <div
             className="w-[280px] overflow-hidden rounded-md text-[#0b1120]"
             style={{
