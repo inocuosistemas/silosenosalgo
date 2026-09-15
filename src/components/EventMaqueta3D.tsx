@@ -13,6 +13,7 @@ import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta,
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
+import { LOGO_APP, NOMBRE_APP } from '../lib/marcaApp'
 import { BotonRedondo } from './BotonRedondo'
 import { CargandoMarca } from './CargandoMarca'
 
@@ -517,6 +518,57 @@ function tira(o: THREE.Object3D) {
 }
 
 const suave = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
+
+/** El logo ya cargado como imagen, una vez: para dibujarlo en lo que se comparte. */
+let logoCargado: Promise<HTMLImageElement | null> | null = null
+const cargaLogo = () => (logoCargado ??= new Promise((resolve) => {
+  const img = new Image()
+  img.onload = () => resolve(img)
+  img.onerror = () => resolve(null)
+  img.src = LOGO_APP
+}))
+
+/**
+ * La imagen que se comparte: el lienzo 3D tal cual y, en la esquina de abajo
+ * a la derecha, el logo y el nombre de la app en una pastilla a media tinta.
+ * Discreta, pero la foto que llega a un grupo dice de dónde sale.
+ *
+ * El lienzo de WebGL se copia justo después de pintarlo, en el mismo turno:
+ * sin `preserveDrawingBuffer`, un momento después ya estaría en blanco.
+ */
+async function imagenParaCompartir(e: Escena): Promise<string> {
+  e.renderer.render(e.scene, e.camera)
+  const gl = e.renderer.domElement
+  const lienzoFinal = document.createElement('canvas')
+  lienzoFinal.width = gl.width
+  lienzoFinal.height = gl.height
+  const ctx = lienzoFinal.getContext('2d')!
+  ctx.drawImage(gl, 0, 0)
+
+  const k = gl.width / Math.max(1, gl.clientWidth)
+  const logo = await cargaLogo()
+  const margen = 14 * k
+  const lado = 22 * k
+  ctx.font = `700 ${13 * k}px system-ui, -apple-system, sans-serif`
+  const anchoTexto = ctx.measureText(NOMBRE_APP).width
+  const anchoPastilla = 10 * k + (logo ? lado + 7 * k : 0) + anchoTexto + 12 * k
+  const altoPastilla = lado + 10 * k
+  const x = gl.width - margen - anchoPastilla
+  const y = gl.height - margen - altoPastilla
+  ctx.fillStyle = 'rgba(15,23,42,0.55)'
+  ctx.beginPath()
+  ctx.roundRect(x, y, anchoPastilla, altoPastilla, altoPastilla / 2)
+  ctx.fill()
+  let cursor = x + 10 * k
+  if (logo) {
+    ctx.drawImage(logo, cursor, y + 5 * k, lado, lado)
+    cursor += lado + 7 * k
+  }
+  ctx.fillStyle = 'rgba(248,250,252,0.92)'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(NOMBRE_APP, cursor, y + altoPastilla / 2 + k)
+  return lienzoFinal.toDataURL('image/png')
+}
 
 interface Props {
   ruta: [number, number][]
@@ -1120,8 +1172,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const comparte = async () => {
     const e = escena.current
     if (!e) return
-    e.renderer.render(e.scene, e.camera)
-    const url = e.renderer.domElement.toDataURL('image/png')
+    const url = await imagenParaCompartir(e)
     const nombreFichero = (nombre ?? 'carrera').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'carrera'
     setComoFue(await comparteImagen(url, `maqueta-${nombreFichero}.png`, nombre ? `${nombre} · maqueta` : 'La carrera en maqueta'))
@@ -1155,6 +1206,18 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       {estado === 'error' && (
         <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/80 px-6 text-center">
           <p className="text-sm text-slate-300">No se ha podido bajar el relieve. Sin red no hay maqueta; vuelve a intentarlo con cobertura.</p>
+        </div>
+      )}
+      {/* La marca de la app, arriba a la derecha, que en la maqueta está libre.
+          Pequeña y a media tinta: firma, no cartel. En la imagen compartida va
+          dibujada abajo a la derecha (ver `imagenParaCompartir`). */}
+      {estado === 'lista' && (
+        <div
+          className="pointer-events-none absolute right-3 z-10 flex items-center gap-1.5 rounded-full bg-slate-900/45 py-1 pl-1.5 pr-2.5 opacity-90"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        >
+          <img src={LOGO_APP} alt="" width={18} height={17} />
+          <span className="text-[11px] font-bold tracking-tight text-slate-100">{NOMBRE_APP}</span>
         </div>
       )}
       <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${72 + margenAbajo}px)` }}>

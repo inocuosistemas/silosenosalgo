@@ -1,12 +1,5 @@
 import type { ReactNode } from 'react'
-import faviconRaw from '../../public/favicon.svg?raw'
-
-/**
- * El logo, embebido. En las apps el visor se sirve desde el paquete OTA y una
- * ruta absoluta a `/favicon.svg` no está garantizada ahí; incrustado se ve
- * igual en los tres sitios.
- */
-const LOGO = `data:image/svg+xml,${encodeURIComponent(faviconRaw)}`
+import { LOGO_APP as LOGO } from '../lib/marcaApp'
 
 /**
  * La espera, con la marca.
