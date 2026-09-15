@@ -167,9 +167,11 @@ export function exageracionMaqueta(largoM: number, desnivelM: number): number {
 export interface Escala {
   /** Unidades por píxel de mosaico. */
   u: number
-  /** De píxeles absolutos a X y Z, centrados en la loseta. */
+  /** De píxeles absolutos a X y Z, centrados en la loseta, y la vuelta. */
   x: (px: number) => number
   z: (py: number) => number
+  px: (x: number) => number
+  py: (z: number) => number
   /** De metros de altura a Y. */
   y: (metros: number) => number
   /** La Y de la cara de abajo de la loseta. */
@@ -183,6 +185,8 @@ export function escalaDeMaqueta(r: Rejilla, alturaMin: number, exageracion: numb
     u,
     x: (px) => (px - r.x0 - r.anchoPx / 2) * u,
     z: (py) => (py - r.y0 - r.altoPx / 2) * u,
+    px: (x) => x / u + r.x0 + r.anchoPx / 2,
+    py: (z) => z / u + r.y0 + r.altoPx / 2,
     y,
     base: y(alturaMin) - grosor,
   }
@@ -222,6 +226,20 @@ export interface Malla {
 }
 
 /**
+ * La paleta ya en lineal y troceada en `pasos` entre dos cotas, para colorear
+ * cien mil vértices con una consulta a una tabla y no con una interpolación y
+ * tres conversiones cada uno.
+ */
+export function tablaDeColores(paradas: [number, Rgb][], min: number, max: number, pasos = 256): Float32Array {
+  const tabla = new Float32Array(pasos * 3)
+  for (let k = 0; k < pasos; k++) {
+    const c = colorPorAltura(paradas, pasos > 1 ? min + ((max - min) * k) / (pasos - 1) : min)
+    tabla[k * 3] = aLineal(c[0]); tabla[k * 3 + 1] = aLineal(c[1]); tabla[k * 3 + 2] = aLineal(c[2])
+  }
+  return tabla
+}
+
+/**
  * La malla de la loseta: la capa de arriba con el relieve, las cuatro paredes
  * hasta la base y la base. Las paredes y la base llevan sus propios vértices,
  * del color del canto: así la luz las ve planas y el corte queda limpio, como
@@ -229,7 +247,6 @@ export interface Malla {
  */
 export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala, rango: RangoAlturas | null, colorCanto: Rgb): Malla {
   const { cols, filas } = r
-  const paradas = paradasRgb(rango)
   const cantoLineal = colorCanto.map(aLineal) as Rgb
   const arriba = cols * filas
   const total = arriba + 2 * (2 * cols + 2 * filas) + 4
@@ -242,31 +259,47 @@ export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala
     return v++
   }
 
+  let hMin = Infinity
+  let hMax = -Infinity
+  for (const h of alturas) { if (h < hMin) hMin = h; if (h > hMax) hMax = h }
+  const PASOS = 256
+  const tabla = tablaDeColores(paradasRgb(rango), hMin, hMax, PASOS)
+  const porPaso = hMax > hMin ? (PASOS - 1) / (hMax - hMin) : 0
+
   const X = (i: number) => escala.x(r.x0 + (i / (cols - 1)) * r.anchoPx)
   const Z = (j: number) => escala.z(r.y0 + (j / (filas - 1)) * r.altoPx)
   for (let j = 0; j < filas; j++) {
+    const z = Z(j)
     for (let i = 0; i < cols; i++) {
       const h = alturas[j * cols + i]
-      vertice(X(i), escala.y(h), Z(j), colorPorAltura(paradas, h).map(aLineal) as Rgb)
+      const k = Math.round((h - hMin) * porPaso) * 3
+      posiciones[v * 3] = X(i); posiciones[v * 3 + 1] = escala.y(h); posiciones[v * 3 + 2] = z
+      colores[v * 3] = tabla[k]; colores[v * 3 + 1] = tabla[k + 1]; colores[v * 3 + 2] = tabla[k + 2]
+      v++
     }
   }
 
-  const indices: number[] = []
+  const indices = new Uint32Array(((cols - 1) * (filas - 1) * 2 + 2 * (2 * (cols - 1) + 2 * (filas - 1)) + 2) * 3)
+  let n = 0
   /** Un triángulo mirando hacia `fuera`: se invierte si sale del revés. */
   const cara = (a: number, b: number, c: number, fuera: Rgb) => {
     const p = (k: number, d: number) => posiciones[k * 3 + d]
     const bx = p(b, 0) - p(a, 0), by = p(b, 1) - p(a, 1), bz = p(b, 2) - p(a, 2)
     const cx = p(c, 0) - p(a, 0), cy = p(c, 1) - p(a, 1), cz = p(c, 2) - p(a, 2)
     const nx = by * cz - bz * cy, ny = bz * cx - bx * cz, nz = bx * cy - by * cx
-    if (nx * fuera[0] + ny * fuera[1] + nz * fuera[2] < 0) indices.push(a, c, b)
-    else indices.push(a, b, c)
+    const alReves = nx * fuera[0] + ny * fuera[1] + nz * fuera[2] < 0
+    indices[n++] = a
+    indices[n++] = alReves ? c : b
+    indices[n++] = alReves ? b : c
   }
-  const ARRIBA: Rgb = [0, 1, 0]
+  // La capa de arriba siempre mira al cielo: la rejilla va de oeste a este y
+  // de norte a sur, así que el orden se sabe sin comprobarlo triángulo a
+  // triángulo (son cien mil).
   for (let j = 0; j < filas - 1; j++) {
     for (let i = 0; i < cols - 1; i++) {
       const nw = j * cols + i
-      cara(nw, nw + cols, nw + 1, ARRIBA)
-      cara(nw + 1, nw + cols, nw + cols + 1, ARRIBA)
+      indices[n++] = nw; indices[n++] = nw + cols; indices[n++] = nw + 1
+      indices[n++] = nw + 1; indices[n++] = nw + cols; indices[n++] = nw + cols + 1
     }
   }
 
@@ -291,7 +324,46 @@ export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala
   cara(esquinas[0], esquinas[1], esquinas[2], [0, -1, 0])
   cara(esquinas[1], esquinas[3], esquinas[2], [0, -1, 0])
 
-  return { posiciones, colores, indices: new Uint32Array(indices) }
+  return { posiciones, colores, indices }
+}
+
+/**
+ * Una cinta tendida sobre el terreno a lo largo de unos puntos: dos vértices
+ * por punto, a `ancho` uno del otro, cada uno con la altura del suelo justo
+ * debajo más `alza`. Así la cinta se acuesta en la ladera en vez de clavarse
+ * por un lado y volar por el otro. Es lo que dibuja el recorrido: un tubo
+ * hacía lo mismo con tres veces más vértices y las cuentas de Frenet.
+ */
+export function cintaSobreTerreno(
+  r: Rejilla, alturas: Float32Array, escala: Escala, puntos: [number, number, number][], ancho: number, alza: number,
+): { posiciones: Float32Array; indices: Uint32Array } {
+  const n = puntos.length
+  const posiciones = new Float32Array(n * 2 * 3)
+  let dx = 1
+  let dz = 0
+  for (let i = 0; i < n; i++) {
+    const a = puntos[Math.max(0, i - 1)]
+    const b = puntos[Math.min(n - 1, i + 1)]
+    const largo = Math.hypot(b[0] - a[0], b[2] - a[2])
+    // En un punto repetido se sigue con el rumbo que se traía.
+    if (largo > 1e-9) { dx = (b[0] - a[0]) / largo; dz = (b[2] - a[2]) / largo }
+    const [x, , z] = puntos[i]
+    const lados = [[x - dz * ancho / 2, z + dx * ancho / 2], [x + dz * ancho / 2, z - dx * ancho / 2]]
+    lados.forEach(([lx, lz], lado) => {
+      const k = (i * 2 + lado) * 3
+      posiciones[k] = lx
+      posiciones[k + 1] = escala.y(alturaEn(r, alturas, escala.px(lx), escala.py(lz))) + alza
+      posiciones[k + 2] = lz
+    })
+  }
+  const indices = new Uint32Array(Math.max(0, n - 1) * 6)
+  for (let i = 0, k = 0; i < n - 1; i++) {
+    const a = i * 2
+    // Mirando al cielo, como la capa de arriba.
+    indices[k++] = a; indices[k++] = a + 1; indices[k++] = a + 2
+    indices[k++] = a + 1; indices[k++] = a + 3; indices[k++] = a + 2
+  }
+  return { posiciones, indices }
 }
 
 /** La altura (en metros) del terreno en un píxel absoluto, bilineal entre nodos. */

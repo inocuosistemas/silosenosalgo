@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-react'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
-  LADO_MOSAICO, aligera, cajaDeMaqueta, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
+  LADO_MOSAICO, aligera, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
   mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, rejillaDeMaqueta, sitioEnMaqueta,
   type Escala, type Malla, type Mosaico, type Rejilla, type Rgb,
 } from '../lib/maqueta3d'
@@ -30,9 +30,18 @@ import { CargandoMarca } from './CargandoMarca'
 /** El color del canto y la base: cartón. */
 const CANTO: Rgb = [0.8, 0.72, 0.58]
 const GROSOR = 0.12
-/** Cuánto sobresale el cordón del recorrido del suelo, y su grosor. */
-const CORDON_ALTO = 0.006
-const CORDON_RADIO = 0.0065
+/** Cuánto sobresale el cordón del recorrido del suelo, y su anchura. */
+const CORDON_ALTO = 0.008
+const CORDON_ANCHO = 0.012
+/**
+ * En un móvil, menos: la mitad de nodos, la sombra más basta y menos píxeles.
+ * A ese tamaño de pantalla no se nota, y la diferencia entre fluido y a
+ * tirones está justo ahí.
+ */
+const TACTIL = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true
+const NODOS_MAX = TACTIL ? 256 : 384
+const SOMBRA_PX = TACTIL ? 1024 : 2048
+const DPR_MAX = TACTIL ? 1.5 : 2
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -83,11 +92,11 @@ const terrenos = new Map<string, Promise<Terreno | null>>()
 function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null): Promise<Terreno | null> {
   const caja = cajaDeMaqueta(ruta)
   if (!caja) return Promise.resolve(null)
-  const k = JSON.stringify([caja, cotas])
+  const k = JSON.stringify([caja, cotas, NODOS_MAX])
   let p = terrenos.get(k)
   if (!p) {
     p = (async () => {
-      const rejilla = rejillaDeMaqueta(caja)
+      const rejilla = rejillaDeMaqueta(caja, 768, NODOS_MAX)
       const lista = mosaicosDeRejilla(rejilla)
       const cargados = await Promise.all(lista.map(cargaMosaico))
       const mosaicos = new Map<string, Float32Array>()
@@ -259,9 +268,12 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
     const contenedor = caja.current
     if (!contenedor) return
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, DPR_MAX))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFShadowMap
+    // La sombra se calcula cuando cambia la loseta, no en cada fotograma: la
+    // luz no se mueve y las chinchetas no dan sombra.
+    renderer.shadowMap.autoUpdate = false
     renderer.outputColorSpace = THREE.SRGBColorSpace
     const canvas = renderer.domElement
     canvas.style.width = '100%'
@@ -296,7 +308,7 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
     const sol = new THREE.DirectionalLight(0xfff3dc, 2.6)
     sol.position.set(-1.3, 2.6, 1.5)
     sol.castShadow = true
-    sol.shadow.mapSize.set(2048, 2048)
+    sol.shadow.mapSize.set(SOMBRA_PX, SOMBRA_PX)
     const foco = sol.shadow.camera
     foco.left = -1.7; foco.right = 1.7; foco.top = 1.7; foco.bottom = -1.7; foco.near = 0.1; foco.far = 9
     sol.shadow.bias = -0.0006
@@ -362,6 +374,14 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
     }
     canvas.addEventListener('pointerdown', abajo)
     canvas.addEventListener('pointerup', arriba)
+    // Con dos dedos, Safari intenta hacer zoom de la PÁGINA y se pelea con
+    // la loseta: a tirones, y el visor entero se va de tamaño. Aquí los
+    // dedos son solo para la maqueta, como hace MapLibre en el mapa.
+    const traga = (ev: TouchEvent) => { if (ev.touches.length > 1) ev.preventDefault() }
+    const gesto = (ev: Event) => ev.preventDefault()
+    canvas.addEventListener('touchstart', traga, { passive: false })
+    canvas.addEventListener('touchmove', traga, { passive: false })
+    canvas.addEventListener('gesturestart', gesto)
 
     return () => {
       cancelAnimationFrame(cuadro)
@@ -369,6 +389,9 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
       controls.removeEventListener('change', alMover)
       canvas.removeEventListener('pointerdown', abajo)
       canvas.removeEventListener('pointerup', arriba)
+      canvas.removeEventListener('touchstart', traga)
+      canvas.removeEventListener('touchmove', traga)
+      canvas.removeEventListener('gesturestart', gesto)
       controls.dispose()
       tira(scene)
       renderer.dispose()
@@ -392,32 +415,39 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
       e.loseta.clear()
       e.terreno = terreno
 
+      // Lambert y no PBR: en una maqueta de cartón mate no se echa de menos, y
+      // en el móvil es la mitad de trabajo por píxel.
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(terreno.malla.posiciones, 3))
       geo.setAttribute('color', new THREE.BufferAttribute(terreno.malla.colores, 3))
       geo.setIndex(new THREE.BufferAttribute(terreno.malla.indices, 1))
       geo.computeVertexNormals()
-      const tierra = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }))
+      const tierra = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }))
       tierra.castShadow = true
       tierra.receiveShadow = true
       e.loseta.add(tierra)
       e.mesa.position.y = terreno.escala.base - 0.002
 
-      // El cordón: violeta sobre un halo blanco un pelo más bajo, como la
-      // línea del mapa. Tendido sobre el suelo tramo a tramo, con un punto
-      // cada medio milímetro de loseta.
+      // El cordón: una cinta violeta sobre otra blanca más ancha y un pelo
+      // más baja, como la línea del mapa. Tendida sobre el suelo tramo a
+      // tramo, con un punto cada medio milímetro de loseta.
       const { rejilla, alturas, escala } = terreno
       const puntosCordon = cordonSobreTerreno(rejilla, alturas, escala, aligera(ruta, 3000), Math.max(rejilla.anchoPx, rejilla.altoPx) / 500)
       if (puntosCordon.length >= 2) {
-        const cordon = (alza: number, radio: number, color: string) => {
-          const curva = new THREE.CatmullRomCurve3(puntosCordon.map(([x, y, z]) => new THREE.Vector3(x, y + alza, z)), false, 'centripetal')
-          const m = new THREE.Mesh(new THREE.TubeGeometry(curva, puntosCordon.length, radio, 6, false), new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0 }))
-          m.castShadow = true
+        const cinta = (ancho: number, alza: number, color: string) => {
+          const c = cintaSobreTerreno(rejilla, alturas, escala, puntosCordon, ancho, alza)
+          const g = new THREE.BufferGeometry()
+          g.setAttribute('position', new THREE.BufferAttribute(c.posiciones, 3))
+          g.setIndex(new THREE.BufferAttribute(c.indices, 1))
+          g.computeVertexNormals()
+          const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }))
+          m.receiveShadow = true
           return m
         }
-        e.loseta.add(cordon(CORDON_ALTO - 0.004, CORDON_RADIO * 1.5, '#f8fafc'))
-        e.loseta.add(cordon(CORDON_ALTO, CORDON_RADIO, '#6d28d9'))
+        e.loseta.add(cinta(CORDON_ANCHO * 1.7, CORDON_ALTO * 0.6, '#f8fafc'))
+        e.loseta.add(cinta(CORDON_ANCHO, CORDON_ALTO, '#6d28d9'))
       }
+      e.renderer.shadowMap.needsUpdate = true
 
       // La cámara mira al centro de la loseta, a media altura del relieve, y
       // se pone a la distancia justa para que quepa entera: en un móvil en

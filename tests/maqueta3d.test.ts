@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, rejillaDeMaqueta, sitioEnMaqueta,
+  LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
+  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, rejillaDeMaqueta, sitioEnMaqueta, tablaDeColores,
   type Rejilla,
 } from '../src/lib/maqueta3d'
 import { COLOR_AGUA } from '../src/lib/mapa3d'
@@ -215,6 +215,42 @@ describe('cordonSobreTerreno', () => {
 
   it('lo que queda fuera de la loseta no entra', () => {
     expect(cordonSobreTerreno(r, alturas, escala, [[0, 0], [1, 1]], 8)).toEqual([])
+  })
+})
+
+describe('tablaDeColores', () => {
+  it('las puntas de la tabla son las de la paleta, ya en lineal', () => {
+    const p = paradasRgb({ min: 1000, max: 2000 })
+    const t = tablaDeColores(p, 500, 3000, 64)
+    const primero = colorPorAltura(p, 500).map(aLineal)
+    const ultimo = colorPorAltura(p, 3000).map(aLineal)
+    expect([t[0], t[1], t[2]].map((c) => +c.toFixed(5))).toEqual(primero.map((c) => +c.toFixed(5)))
+    expect([t[63 * 3], t[63 * 3 + 1], t[63 * 3 + 2]].map((c) => +c.toFixed(5))).toEqual(ultimo.map((c) => +c.toFixed(5)))
+  })
+})
+
+describe('cintaSobreTerreno', () => {
+  const r = rejillaSimple(3, 3)
+  const alturas = new Float32Array([0, 0, 0, 0, 200, 0, 0, 0, 0])
+  const escala = escalaDeMaqueta(r, 0, 2)
+
+  it('dos vértices por punto, a la anchura pedida, cada uno pegado a su suelo', () => {
+    const puntos: [number, number, number][] = [[-0.5, 0, 0], [0, 0, 0], [0.5, 0, 0]]
+    const cinta = cintaSobreTerreno(r, alturas, escala, puntos, 0.1, 0.01)
+    expect(cinta.posiciones.length).toBe(3 * 2 * 3)
+    expect(cinta.indices.length).toBe(2 * 6)
+    // Los dos lados del primer punto, a 0,1 uno del otro, cruzados al rumbo (que va por X).
+    expect(cinta.posiciones[2]).toBeCloseTo(0.05)
+    expect(cinta.posiciones[5]).toBeCloseTo(-0.05)
+    // En el centro pasa por el pico: los dos lados suben, y llevan el alza.
+    const alturaCentro = escala.y(alturaEn(r, alturas, escala.px(0), escala.py(0.05))) + 0.01
+    expect(cinta.posiciones[2 * 2 * 3 + 1 - 3]).toBeCloseTo(alturaCentro)
+    expect(Math.max(...cinta.indices)).toBe(5)
+  })
+
+  it('la vuelta de píxeles a unidades es la inversa', () => {
+    expect(escala.px(escala.x(300))).toBeCloseTo(300)
+    expect(escala.py(escala.z(600))).toBeCloseTo(600)
   })
 })
 

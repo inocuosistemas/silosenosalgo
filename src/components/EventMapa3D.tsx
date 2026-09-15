@@ -393,18 +393,18 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
 
   useEffect(() => {
     const m = mapa.current
-    if (!m || !listo) return
+    if (!m || !listo || enMaqueta) return
     const hechas = puntos.map((p) => {
       const el = document.createElement('div')
       el.innerHTML = htmlPunto3D(p)
       return new Marker({ element: el, anchor: 'bottom', opacityWhenCovered: '0.3' }).setLngLat([p.lon, p.lat]).addTo(m)
     })
     return () => { for (const h of hechas) h.remove() }
-  }, [puntos, listo])
+  }, [puntos, listo, enMaqueta])
 
   useEffect(() => {
     const m = mapa.current
-    if (!m || !listo) return
+    if (!m || !listo || enMaqueta) return
     const hechas = fotos.flatMap((f, indice) => {
       if (f.lat === null || f.lon === null) return []
       const el = document.createElement('div')
@@ -417,7 +417,7 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
       return [new Marker({ element: el, anchor: 'bottom', opacityWhenCovered: '0.3' }).setLngLat([f.lon, f.lat]).addTo(m)]
     })
     return () => { for (const h of hechas) h.remove() }
-  }, [fotos, listo, onAbrirFoto])
+  }, [fotos, listo, onAbrirFoto, enMaqueta])
 
   // Juntas o separadas, según cómo caigan en pantalla (ver `marcasDeExtremos`):
   // se decide al terminar cada movimiento y las marcas se rehacen solo si cambia.
@@ -443,7 +443,7 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
   // para quedar debajo de ellos.
   useEffect(() => {
     const m = mapa.current
-    if (!m || !listo || !ruta) return
+    if (!m || !listo || !ruta || enMaqueta) return
     const ext = extremosDelRecorrido(ruta)
     if (!ext) return
     const marcas = JSON.parse(colocacion) as MarcasExtremos
@@ -457,13 +457,17 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
       ? [pon('salida-meta', 'derecha', ext.salida)]
       : [pon('meta', marcas.meta, ext.meta), pon('salida', marcas.salida, ext.salida)]
     return () => { for (const h of hechas) h.remove() }
-  }, [ruta, listo, colocacion])
+  }, [ruta, listo, colocacion, enMaqueta])
 
   // Los corredores se mueven en cada refresco: se recolocan las marcas que ya
   // hay y solo se rehace el dibujo de las que cambian, para que no parpadeen.
+  //
+  // Con la maqueta delante, nada: cada marca que se mueve hace repintar el
+  // relieve de MapLibre, escondido, y eran dos escenas 3D a la vez en el
+  // móvil. Al volver, este mismo efecto lo pone todo al día.
   useEffect(() => {
     const m = mapa.current
-    if (!m || !listo) return
+    if (!m || !listo || enMaqueta) return
     const vivas = marcas.current
     const conEmoji = corredores.length <= EMOJIS_HASTA
     const quedan = new Set<string>()
@@ -496,7 +500,12 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
       v.marca.remove()
       vivas.delete(key)
     }
-  }, [corredores, elegido, listo])
+  }, [corredores, elegido, listo, enMaqueta])
+
+  // Girar alrededor con la maqueta delante es repintar un mapa que no se ve.
+  useEffect(() => {
+    if (enMaqueta) setOrbitando(false)
+  }, [enMaqueta])
 
   // Girar alrededor: el rumbo avanza con el reloj, no por fotograma, para que
   // vaya igual de lento en un móvil que en un ordenador. Se para en cuanto se
