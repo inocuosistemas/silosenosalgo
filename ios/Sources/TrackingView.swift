@@ -201,6 +201,14 @@ struct TrackingView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Arriba, la MARCA y de quién es la baliza: el logo, el nombre
+                // completo de la app y, debajo, "Baliza" con el usuario —el enlace
+                // que se comparte lleva ese nombre—. Y "Salir" a la derecha.
+                Section {
+                    cabecera
+                        .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 0, trailing: 4))
+                        .listRowBackground(Color.clear)
+                }
                 Section {
                     // Si hay red o no. Va ARRIBA porque explica media pantalla:
                     // las previsiones, los eventos y los seguimientos viven en
@@ -1091,36 +1099,35 @@ struct TrackingView: View {
                      ? "Estás compartiendo tu ubicación. Al salir se detiene el seguimiento y se cierra la sesión."
                      : "Se cerrará tu sesión en este dispositivo.")
             }
-            // Arriba, la MARCA y de quién es la baliza: el logo y el nombre de la app,
-            // y debajo el usuario. Antes el título grande era solo el usuario, y la
-            // pantalla no decía de qué app era la baliza que se estaba armando.
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 8) {
-                        Image("MarcaApp")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 30, height: 30)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("SiLoSeNoSalgo")
-                                .font(.headline.weight(.bold))
-                                .foregroundStyle(Theme.slate100)
-                            if let nombre = auth.user?.username {
-                                Text(nombre)
-                                    .font(.caption)
-                                    .foregroundStyle(Theme.slate400)
-                            }
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Salir") { pendingLogout = true }
-                        .tint(Theme.sky500)
-                }
+            // Sin barra de navegación del sistema: en iOS 26 envuelve lo que se
+            // pone en ella en botones de cristal redondos, y la marca quedaba
+            // metida en un círculo, descentrada y sin sitio para el nombre ni el
+            // usuario. La cabecera va dentro, en la primera fila (ver `cabecera`).
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    /// La cabecera de la pantalla: marca, "Baliza · usuario" y salir de la cuenta.
+    private var cabecera: some View {
+        HStack(spacing: 12) {
+            Image("MarcaApp")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("SiLoSeNoSalgo")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(Theme.slate100)
+                Text(["Baliza", auth.user?.username].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.slate400)
+                    .lineLimit(1)
             }
+            Spacer(minLength: 8)
+            Button("Salir") { pendingLogout = true }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Theme.sky500)
         }
     }
 

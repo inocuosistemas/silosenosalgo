@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**543**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**543**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**545**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**545**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -85,6 +85,16 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 ---
 
 ## 2026-09-15
+
+### La cabecera de la baliza, con el nombre de la app, «Baliza» y el usuario
+
+**iOS y Android 545 · Mejora al actualizar.** La cabecera que estrenó la 543
+salía mal en iOS 26: el sistema mete lo que va en la barra de navegación en
+botones de cristal redondos, y el logo quedaba dentro de un círculo,
+descentrado, sin sitio para el nombre ni el usuario. Ahora la cabecera va
+dentro de la pantalla, sin barra del sistema: el logo, **SiLoSeNoSalgo** en
+grande y debajo **Baliza · usuario**, con «Salir» a la derecha. En Android, el
+mismo texto debajo del nombre.
 
 ### Cada punto guarda si llegó tarde: la materia prima del mapa de cobertura
 

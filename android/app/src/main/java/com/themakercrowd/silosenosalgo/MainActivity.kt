@@ -416,9 +416,13 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                         color = Paleta.slate100,
                     )
-                    usuario?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
-                    }
+                    // "Baliza" y de quién: la app hace más cosas, y el enlace que
+                    // se comparte lleva ese nombre.
+                    Text(
+                        listOfNotNull("Baliza", usuario).joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Paleta.slate400,
+                    )
                 }
             }
             // Se pregunta antes de salir, como en iOS: al lado del título es
