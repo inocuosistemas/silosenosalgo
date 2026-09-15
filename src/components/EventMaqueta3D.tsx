@@ -449,12 +449,13 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
  * Una chincheta clavada en `sitio` por la punta de su palo: `pie` dice en qué
  * fracción del ancho del dibujo está el palo (en las banderas, a la izquierda).
  *
- * Sin prueba de profundidad: una chincheta se ve siempre, aunque la loma de
- * delante la tape. Es lo que se viene a mirar, y en una maqueta girando, un
- * corredor que aparece y desaparece detrás del monte se pierde de vista.
+ * Con prueba de profundidad: un monte por medio la tapa, como en una maqueta
+ * de verdad. Se probó sin ella para que la gente se viera siempre, y desde
+ * bajo las chinchetas se veían a través de la pared y del suelo; peor. Por
+ * eso llevan palo alto: lo que las esconde es un monte, no una loma.
  */
 function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5): THREE.Sprite {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false, depthTest: false }))
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false }))
   s.renderOrder = 2
   s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
@@ -869,14 +870,13 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     // Los nombres de las poblaciones, de las más importantes: sobre sus
     // casas, un poco por encima del suelo.
-    // Los nombres sí se tapan con el monte —al contrario que las chinchetas
-    // de la gente—: vistos desde bajo, los de la otra vertiente se colaban a
-    // través de la ladera y no se entendía nada. Y se pueden quitar (`rotulos`).
+    // Los nombres se tapan con el monte como todo lo demás: vistos desde
+    // bajo, los de la otra vertiente se colaban a través de la ladera y no se
+    // entendía nada. Y se pueden quitar (`rotulos`).
     const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
       // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
       const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
       const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
-      s.material.depthTest = true
       s.renderOrder = 3
       s.userData.key = key
       s.userData.rotulo = true
