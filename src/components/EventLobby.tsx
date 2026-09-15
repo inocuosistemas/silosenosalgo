@@ -24,7 +24,7 @@ import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
 import { simplificaTrazado, trazadoBastaFino } from '../lib/eventPlan'
 import { BaseChangeNotice } from './BaseChangeNotice'
-import { AuthMenu } from './AuthMenu'
+import { EventCabecera } from './EventCabecera'
 import { enlaceDeVista, type VistaEvento } from '../lib/vistaEvento'
 import { listPlans } from '../lib/plansTransport'
 import { Dorsal, DorsalGrande, carreraDeBase, type DorsalCarrera } from './Dorsal'
@@ -723,14 +723,10 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
    */
   const barra = nav ? (
     <div
-      className="sticky top-0 z-40 -mx-4 -mt-6 mb-4 border-b border-slate-800 bg-slate-950/95 px-4 pb-2 backdrop-blur"
-      style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+      className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/95 px-4 pb-2 backdrop-blur"
+      style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
     >
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-bold text-slate-100">{event.name}</p>
-        <AuthMenu />
-      </div>
-      <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90">{nav}</div>
+      <EventCabecera nombre={event.name} nav={nav} />
     </div>
   ) : null
 
@@ -748,8 +744,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
       : null
     const ajustar = miPrevision ? `/?prevision=${encodeURIComponent(miPrevision.id)}&de=${encodeURIComponent(id)}` : planificar
     return (
-      <Shell>
-        {barra}
+      <Shell barra={barra}>
         <p className="text-[11px] uppercase tracking-wider text-slate-500">🧭 Mi plan</p>
         <h1 className="text-xl font-bold text-slate-100">{event.name}</h1>
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
@@ -826,8 +821,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   }
 
   return (
-    <Shell>
-      {barra}
+    <Shell barra={barra}>
       {event.hasPhoto && (
         <img
           // La versión sale del servidor (`event.photoAt`), no de un estado
@@ -2024,10 +2018,12 @@ function MemberRow({
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** La página de la parrilla. Con la barra del evento, esta va arriba de lado a lado y el contenido debajo. */
+function Shell({ children, barra = null }: { children: React.ReactNode; barra?: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-lg px-4 py-6">{children}</div>
+      {barra}
+      <div className={`mx-auto max-w-lg px-4 ${barra ? 'pb-6 pt-4' : 'py-6'}`}>{children}</div>
     </div>
   )
 }

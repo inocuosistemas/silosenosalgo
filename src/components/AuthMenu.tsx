@@ -113,13 +113,22 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                   Sesión iniciada como<br />
                   <span className="text-slate-300 font-medium">{user.username}</span>
                 </div>
-                {onOpenPlans && (
+                {onOpenPlans ? (
                   <button
                     onClick={() => { setMenuOpen(false); onOpenPlans() }}
                     className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                   >
                     📁 Previsiones
                   </button>
+                ) : (
+                  // Fuera del planificador —en un evento—, el camino de vuelta a
+                  // él: la portada de siempre, sin carrera.
+                  <a
+                    href="/"
+                    className="block w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                  >
+                    🌧️ Planificador
+                  </a>
                 )}
                 <button
                   onClick={() => { setMenuOpen(false); setShowEvents(true) }}

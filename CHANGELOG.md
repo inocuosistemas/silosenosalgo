@@ -86,6 +86,20 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### La cabecera del evento no se mueve, y lleva de vuelta al planificador
+
+**Web · desplegado · compatible.** La parrilla, tu plan, el mapa, la lista, la
+porra y los resultados comparten ahora la misma cabecera, en móvil y en
+ordenador: el logo y el nombre de la carrera a la izquierda, tu usuario a la
+derecha y las secciones debajo, centrada y del mismo ancho. Antes el menú de
+usuario cambiaba de lado según la sección, y en un ordenador las pestañas se
+iban a la otra punta. Sobre el mapa es la misma cabecera en forma de tarjeta,
+y los botones de encuadre y 3D se colocan debajo de ella.
+
+Desde un evento se vuelve al planificador de siempre tocando el logo, o con
+**🌧️ Planificador** en el menú de usuario. El enlace público y la demo
+conservan su cabecera.
+
 ### Todo lo de una carrera, en una sola barra
 
 **Web · desplegado · compatible.** Cada evento tiene ahora una barra fija con

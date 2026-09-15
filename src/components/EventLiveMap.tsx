@@ -32,6 +32,7 @@ import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
+import { EventCabecera } from './EventCabecera'
 import { Confeti } from './Confeti'
 import type { RunnerOutcome } from '../../shared/bets'
 import { resultadosDeCarrera } from '../lib/eventOutcomes'
@@ -1235,6 +1236,71 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       ? { bounds: L.latLngBounds(suyos), boundsOptions: { padding: MARGEN_POSICIONES } }
       : { center: suyos[0] ?? ([42.7, -0.52] as [number, number]), zoom: suyos.length === 1 ? 14 : 13 }
 
+  /** Bajo el nombre, sobre el mapa: la carrera terminada y sus números. */
+  const avisosDelMapa = (
+    <>
+              {endedAt !== null && view === 'mapa' && (
+                <button
+                  onClick={() => setFinPanelOpen(true)}
+                  className="flex w-full items-center gap-1.5 border-t border-slate-800 px-2.5 py-1 text-left text-[11px] text-amber-200 hover:bg-amber-950/20"
+                >
+                  🏁 Carrera terminada
+                  <span className="text-amber-300/70">· cómo quedó →</span>
+                </button>
+              )}
+              {raceStats && view === 'mapa' && (
+                <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
+                  {actividad && <span>{ICONO_ACTIVIDAD[actividad] ?? ''}</span>}
+                  <span>{raceStats.km.toFixed(1)} km</span>
+                  <span className="text-slate-600">·</span>
+                  <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
+                  {raceStats.limitMin !== null && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      {/* No es "duración": es lo que da la organización antes de
+                          cerrar meta, y por eso lleva la palabra delante. */}
+                      <span className="text-slate-400">límite {durLabel(raceStats.limitMin)}</span>
+                    </>
+                  )}
+                  {/* Los enlaces de la organización, en esta misma línea y no en
+                      una pastilla aparte: quien espera en meta los quiere —el
+                      seguimiento por dorsal es lo que dan las webs oficiales—
+                      pero dos palabras no valen una fila entera de la cabecera,
+                      que en un móvil es pantalla que le quitas al mapa. Se
+                      validan al pintar: en la base puede haber enlaces
+                      anteriores a la comprobación. */}
+                  {isHttpUrl(links.trackingUrl) && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
+                         className="text-sky-400 hover:text-sky-300">Oficial ↗</a>
+                    </>
+                  )}
+                  {isHttpUrl(links.websiteUrl) && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
+                         className="text-sky-400 hover:text-sky-300">Web ↗</a>
+                    </>
+                  )}
+                </p>
+              )}
+    </>
+  )
+  /** A quién sigue el mapa, y cómo soltarlo. */
+  const soltarSeguido = (
+    <>
+          {view === 'mapa' && followed && (
+            <button
+              onClick={() => setFollowing(null)}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-slate-800 px-2.5 py-1.5 text-[11px] text-sky-300 hover:bg-sky-950/30"
+            >
+              ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
+            </button>
+          )}
+    </>
+  )
+
   return (
     <div className={`relative h-[100dvh] w-full bg-slate-950 ${view === 'mapa' ? '' : 'flex flex-col'}`}>
       <Confeti activo={festejar} />
@@ -1476,7 +1542,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               </>
             )
           })()}
-          <Encuadre points={posiciones} route={route?.pts} esperaRuta={hayRuta && !route} />
+          <Encuadre points={posiciones} route={route?.pts} esperaRuta={hayRuta && !route} arriba={nav ? altoCabecera + 8 : undefined} />
         </MapContainer>
       ) : (
         // Fuera del mapa la cabecera NO flota: es una barra de verdad y el
@@ -1509,6 +1575,22 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             : 'order-first shrink-0 border-b border-slate-800 bg-slate-950/95'
         }`}
       >
+      {nav ? (
+        // La MISMA cabecera que en la parrilla y en tu plan (`EventCabecera`):
+        // sobre el mapa flota como tarjeta; en las demás vistas, barra fija.
+        <div
+          className={view === 'mapa' ? 'px-2 pb-2' : 'px-4 pb-2'}
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        >
+          <EventCabecera
+            nombre={eventName ?? 'Evento'}
+            nav={nav}
+            flotante={view === 'mapa'}
+            detalle={view === 'mapa' && !(waiting && panelOpen) && !(endedAt !== null && finPanelOpen) ? avisosDelMapa : null}
+            pie={soltarSeguido}
+          />
+        </div>
+      ) : (
       <div className="mx-auto flex max-w-5xl flex-wrap items-start justify-between gap-2 p-3">
         {/* Con el cuadro de la salida abierto, la pastilla de la carrera SOBRA:
             dice lo mismo que él —el cartel ya lleva el nombre— y encima le
@@ -1576,52 +1658,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   como los kilómetros, y flotando aparte se le cruzaba a todo lo
                   demás. Lleva a los resultados, que es lo que se busca al
                   leerlo. */}
-              {endedAt !== null && view === 'mapa' && (
-                <button
-                  onClick={() => setFinPanelOpen(true)}
-                  className="flex w-full items-center gap-1.5 border-t border-slate-800 px-2.5 py-1 text-left text-[11px] text-amber-200 hover:bg-amber-950/20"
-                >
-                  🏁 Carrera terminada
-                  <span className="text-amber-300/70">· cómo quedó →</span>
-                </button>
-              )}
-              {raceStats && view === 'mapa' && (
-                <p className="flex flex-wrap items-center gap-x-2 px-2.5 pb-1.5 pt-0.5 text-[11px] tabular-nums text-slate-300">
-                  {actividad && <span>{ICONO_ACTIVIDAD[actividad] ?? ''}</span>}
-                  <span>{raceStats.km.toFixed(1)} km</span>
-                  <span className="text-slate-600">·</span>
-                  <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
-                  {raceStats.limitMin !== null && (
-                    <>
-                      <span className="text-slate-600">·</span>
-                      {/* No es "duración": es lo que da la organización antes de
-                          cerrar meta, y por eso lleva la palabra delante. */}
-                      <span className="text-slate-400">límite {durLabel(raceStats.limitMin)}</span>
-                    </>
-                  )}
-                  {/* Los enlaces de la organización, en esta misma línea y no en
-                      una pastilla aparte: quien espera en meta los quiere —el
-                      seguimiento por dorsal es lo que dan las webs oficiales—
-                      pero dos palabras no valen una fila entera de la cabecera,
-                      que en un móvil es pantalla que le quitas al mapa. Se
-                      validan al pintar: en la base puede haber enlaces
-                      anteriores a la comprobación. */}
-                  {isHttpUrl(links.trackingUrl) && (
-                    <>
-                      <span className="text-slate-600">·</span>
-                      <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
-                         className="text-sky-400 hover:text-sky-300">Oficial ↗</a>
-                    </>
-                  )}
-                  {isHttpUrl(links.websiteUrl) && (
-                    <>
-                      <span className="text-slate-600">·</span>
-                      <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
-                         className="text-sky-400 hover:text-sky-300">Web ↗</a>
-                    </>
-                  )}
-                </p>
-              )}
+              {avisosDelMapa}
             </>
           )}
           {/* Dentro de la casa del evento, su barra: las mismas secciones que
@@ -1653,16 +1690,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               flotando debajo: flotando iba a una altura fija y la cabecera
               creció al meterle las pestañas, así que le caía encima. Y además
               es un modo del mapa —como las pestañas—, no un aviso suelto. */}
-          {view === 'mapa' && followed && (
-            <button
-              onClick={() => setFollowing(null)}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-slate-800 px-2.5 py-1.5 text-[11px] text-sky-300 hover:bg-sky-950/30"
-            >
-              ◎ Siguiendo a {followed.r.emoji ?? ''} {followed.r.username} · soltar
-            </button>
-          )}
+          {soltarSeguido}
         </div>
       </div>
+      )}
       </div>
 
       {/* La carrera en 3D, para girarla e inclinarla. Debajo de ⤢, con su
@@ -1673,7 +1704,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           title="Ver en 3D: girar e inclinar el mapa"
           aria-label="Ver en 3D"
           className="absolute right-2 z-[1000] grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm font-bold text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
-          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 162px)' }}
+          style={{ top: nav ? altoCabecera + 50 : 'calc(env(safe-area-inset-top, 0px) + 162px)' }}
         >
           3D
         </button>
@@ -2664,7 +2695,9 @@ function marginBox(min: number): string {
 const MARGEN_RUTA: [number, number] = [28, 28]
 const MARGEN_POSICIONES: [number, number] = [48, 48]
 
-function Encuadre({ points, route, esperaRuta }: {
+function Encuadre({ points, route, esperaRuta, arriba }: {
+  /** A qué altura va el botón: justo debajo de la cabecera, cuando se sabe cuánto mide. */
+  arriba?: number
   points: [number, number][]
   route?: [number, number][]
   /** Hay recorrido y aún no ha llegado: mejor esperarlo que encuadrar dos veces. */
@@ -2731,7 +2764,7 @@ function Encuadre({ points, route, esperaRuta }: {
       title="Ver toda la carrera"
       aria-label="Ver toda la carrera"
       className="absolute right-2 z-[500] grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
-      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 120px)' }}
+      style={{ top: arriba ?? 'calc(env(safe-area-inset-top, 0px) + 120px)' }}
     >
       ⤢
     </button>
