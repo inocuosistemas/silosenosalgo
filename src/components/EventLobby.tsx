@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, UserPlus, Shield, Download } from 'lucide-react'
+import { X, UserPlus, Shield, Download, Share2 } from 'lucide-react'
+import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
 import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, EVENT_NAME_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
@@ -118,6 +119,8 @@ export default function EventLobby({ id }: { id: string }) {
   }, [data])
   const [copied, setCopied] = useState(false)
   const [copiedPublic, setCopiedPublic] = useState(false)
+  /** Qué pasó con "Compartir seguimiento": copiar no se ve, y hay que decirlo. */
+  const [comoFueSeguimiento, setComoFueSeguimiento] = useState<ComoSeFueEnlace | null>(null)
   /** Foto elegida a la espera de encuadre (la sube el recortador, no el input). */
   const [cropping, setCropping] = useState<File | null>(null)
   /** La marca favorita de la cuenta, para ofrecer guardar la de aquí como tal. */
@@ -619,6 +622,24 @@ export default function EventLobby({ id }: { id: string }) {
     } catch { /* sin portapapeles: el enlace está a la vista para copiarlo a mano */ }
   }
 
+  /**
+   * El enlace de seguimiento, al grupo de la familia: el mismo que "Copiar
+   * enlace" de abajo, pero arriba y por el menú de compartir del móvil, que es
+   * lo que un participante busca cuando le preguntan "¿dónde te sigo?". La URL
+   * de esta pantalla no sirve para eso: sin cuenta pide iniciar sesión.
+   */
+  async function compartirSeguimiento() {
+    if (!event.publicToken) return
+    const fue = await comparteEnlace(
+      eventPublicLink(event.publicToken),
+      `${event.name} · en directo`,
+      `Sigue ${event.name} en directo, sin necesidad de cuenta:`,
+    )
+    if (fue === 'cancelado') return
+    setComoFueSeguimiento(fue)
+    window.setTimeout(() => setComoFueSeguimiento(null), 3000)
+  }
+
   async function copyInvite() {
     if (!event.inviteCode) return
     try {
@@ -700,6 +721,42 @@ export default function EventLobby({ id }: { id: string }) {
           Recorrido actualizado el {fmtDate(event.planUpdatedAt)}
         </p>
       )}
+
+      {/* Compartir el seguimiento, arriba y a la vista: es lo que un
+          participante necesita cuando la familia pregunta dónde seguirle.
+          Solo con el enlace publicado —eso lo decide quien organiza, y abajo
+          se explica—; a quien organiza y aún no lo ha publicado se le ofrece
+          crearlo aquí mismo. */}
+      {me && event.publicToken ? (
+        <div className="mt-3">
+          <button
+            onClick={() => void compartirSeguimiento()}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 py-2.5 text-sm font-semibold text-sky-300 transition-colors hover:bg-sky-900/50"
+          >
+            <Share2 size={15} />
+            {comoFueSeguimiento === 'copiado' ? 'Enlace copiado · pégalo en el grupo'
+              : comoFueSeguimiento === 'compartido' ? 'Compartido ✓'
+              : comoFueSeguimiento === 'fallido' ? 'No se ha podido compartir'
+              : 'Compartir seguimiento'}
+          </button>
+          <p className="mt-1 text-center text-[11px] text-slate-500">
+            Para que familia y amigos sigan la carrera en directo, sin cuenta
+          </p>
+        </div>
+      ) : event.isOwner && !event.publicToken ? (
+        <div className="mt-3">
+          <button
+            onClick={() => void togglePublic(true)}
+            disabled={busy}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-sky-800 py-2.5 text-sm text-sky-400 transition-colors hover:bg-sky-950/40 disabled:opacity-50"
+          >
+            <Share2 size={15} /> Crear enlace de seguimiento
+          </button>
+          <p className="mt-1 text-center text-[11px] text-slate-500">
+            Con él, cada participante podrá compartir la carrera con los suyos
+          </p>
+        </div>
+      ) : null}
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
 
