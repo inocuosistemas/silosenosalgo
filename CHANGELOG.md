@@ -86,6 +86,20 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### Cada punto guarda si llegó tarde: la materia prima del mapa de cobertura
+
+**Servidor · desplegado · compatible.** Una baliza sin señal guarda las
+posiciones y las manda juntas al recuperarla. Hasta ahora el servidor guardaba
+de cada punto solo la hora del GPS, así que no quedaba rastro de dónde no había
+cobertura. Ahora, si un punto llega **un minuto o más** después de grabarse,
+guarda también la hora de llegada (`r`, en `TrailPoint`). Los que llegan a
+tiempo no la llevan, para no engordar el rastro.
+
+Funciona con las apps que ya están instaladas: todas mandan así lo acumulado.
+Con los datos de la próxima carrera se verá si el mapa de cobertura por tramos
+sale fiable antes de usarlo en los avisos de silencio, la posición estimada y
+los abandonos. Ver `functions/lib/rastro.ts`.
+
 ### La baliza dice de qué app es, y las terminadas van con las tarjetas
 
 **iOS y Android 543 · Mejora al actualizar.** Arriba de la

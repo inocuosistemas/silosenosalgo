@@ -137,6 +137,11 @@ export interface TrailPoint {
    *  broadcaster didn't report one (legacy points / web). Drives the precision
    *  colour-coding of the trail in the viewer. */
   a?: number | null
+  /** Cuándo llegó al servidor (epoch ms), SOLO si llegó tarde: el móvil no
+   *  tenía señal al grabarlo y lo mandó al recuperarla. Sin `r`, llegó a
+   *  tiempo. Es lo que dibuja el mapa de cobertura del recorrido; ver
+   *  `functions/lib/rastro.ts`. */
+  r?: number
 }
 
 export interface CreateTrackResponse {
