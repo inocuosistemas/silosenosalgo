@@ -135,7 +135,8 @@ evento, que es a quien se lo permite el servidor. Desaparece el plegable
 
 Fuera también los botones que repetían la barra: **Ver el mapa del evento** en
 la parrilla, donde **Unir mi baliza** pasa a ser el botón principal, y
-**Volver al mapa** al final de la porra.
+**Volver al mapa** al final de la porra y, después, al final de los
+resultados.
 
 ### El dorsal se comparte de un toque
 

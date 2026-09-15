@@ -1182,7 +1182,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
       : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} planId={planShareId} nombre={eventName} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
-    <ResultsView stats={stats} endedAt={endedAt} controles={controles} onBack={() => setView('mapa')} />
+    <ResultsView stats={stats} endedAt={endedAt} controles={controles} />
   ) : view === 'porra' && eventId ? (
     <EventBets
       eventId={eventId}
@@ -2523,13 +2523,12 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
  * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
  * purgan y esto tiene que seguir contando quién ganó el sábado.
  */
-function ResultsView({ stats, endedAt, controles, onBack }: {
+function ResultsView({ stats, endedAt, controles }: {
   stats: EventStats
   endedAt: number | null
   /** Los controles de la carrera: los puntos con hora de cierre, que son los
    *  que la organización cronometra. */
   controles: { nombre: string; km: number }[]
-  onBack: () => void
 }) {
   return (
     <div className="h-full overflow-y-auto bg-slate-950 px-3 pb-6 pt-3 scrollbar-fantasma">
@@ -2546,13 +2545,6 @@ function ResultsView({ stats, endedAt, controles, onBack }: {
 
         <RecordDeKm stats={stats} />
         <ListaResultados stats={stats} controles={controles} />
-
-        <button
-          onClick={onBack}
-          className="mt-4 w-full rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
-        >
-          ← Volver al mapa
-        </button>
       </div>
     </div>
   )
