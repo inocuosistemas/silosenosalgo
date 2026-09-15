@@ -249,59 +249,44 @@ struct TrackingView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                         } else {
-                            HStack(spacing: 8) {
-                                Button {
-                                    Task { await store.pausa() }
-                                } label: {
-                                    Text("⏸  Pausa \(TrackingStore.pausaMax) min")
-                                        .font(.footnote.weight(.semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Theme.amber200)
-                                .background(Theme.amber950.opacity(0.5))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                                Button(role: .destructive) {
-                                    confirmandoAbandono = true
-                                } label: {
-                                    Text("⊘  Abandonar")
-                                        .font(.footnote.weight(.semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Theme.rose300)
-                                .background(Theme.rose950.opacity(0.5))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Button {
+                                Task { await store.pausa() }
+                            } label: {
+                                Text("⏸  Pausa \(TrackingStore.pausaMax) min")
+                                    .font(.footnote.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
                             }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.amber200)
+                            .background(Theme.amber950.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                             .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                            .confirmationDialog("¿Abandonas la carrera?",
-                                                isPresented: $confirmandoAbandono, titleVisibility: .visible) {
-                                Button("Sí, lo dejo", role: .destructive) {
-                                    Task { await store.abandona() }
-                                }
-                                Button("No, sigo", role: .cancel) {}
-                            } message: {
-                                Text("Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. Si solo te paras un rato, usa la pausa.")
-                            }
                         }
                     }
                     // El botón, junto al estado y no al final de la pantalla:
                     // es LA acción, y donde se lee "detenido" es donde se va a
                     // buscar cómo dejar de estarlo. Además deja la misma
                     // posición en las dos apps, que antes no coincidía.
+                    //
+                    // Corriendo una carrera, apagar ES bajarse de ella, y dicho
+                    // así queda en la clasificación con su hora y su kilómetro.
+                    // Fuera de carrera, antes de la salida o ya en meta no hay
+                    // de qué bajarse: ahí solo se deja de compartir.
+                    let abandonaAlParar = store.isSharing && !store.isStandby
+                        && store.selectedEventId != nil && !store.atFinish
                     Button {
                         Task {
-                            if store.isSharing {
+                            if abandonaAlParar {
+                                confirmandoAbandono = true
+                            } else if store.isSharing {
                                 await store.stopSharing()
                             } else {
                                 await store.startSharing(title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title)
                             }
                         }
                     } label: {
-                        Text(store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
+                        Text(abandonaAlParar ? "Abandonar" : store.isSharing ? "Dejar de compartir" : "Compartir mi ubicación")
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -310,6 +295,21 @@ struct TrackingView: View {
                     .foregroundStyle(.white)
                     .cornerRadius(12)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 6, trailing: 16))
+                    .confirmationDialog("¿Abandonas la carrera?",
+                                        isPresented: $confirmandoAbandono, titleVisibility: .visible) {
+                        Button("Sí, lo dejo", role: .destructive) {
+                            Task { await store.abandona() }
+                        }
+                        // La salida para quien ha acabado y la app no lo ha
+                        // visto —sin recorrido, o apaga antes de la meta—: sin
+                        // ella, apagar le obligaba a darse por retirado.
+                        Button("Solo apagar la baliza") {
+                            Task { await store.stopSharing() }
+                        }
+                        Button("No, sigo", role: .cancel) {}
+                    } message: {
+                        Text("Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. Si solo te paras un rato, usa la pausa.")
+                    }
                 } footer: {
                     if !store.isSharing {
                         Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 48 h para poder consultarlo (o para siempre si lo fijas con la chincheta).")

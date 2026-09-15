@@ -1094,29 +1094,36 @@ private fun EstadoCompacto(
                     TextButton(onClick = onSeguir) { Text("Seguir") }
                 }
             } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onPausar,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.ambar),
-                    ) { Text("⏸  Pausa ${TrackingRules.PAUSA_MAX_MIN} min") }
-                    OutlinedButton(
-                        onClick = { confirmaAbandono = true },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.rojo),
-                    ) { Text("⊘  Abandonar") }
-                }
+                OutlinedButton(
+                    onClick = onPausar,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.ambar),
+                ) { Text("⏸  Pausa ${TrackingRules.PAUSA_MAX_MIN} min") }
             }
         }
+        // Corriendo una carrera, apagar ES bajarse de ella, y dicho así queda en
+        // la clasificación con su hora y su kilómetro. Fuera de carrera, antes
+        // de la salida o ya en meta no hay de qué bajarse: ahí solo se deja de
+        // compartir.
+        val abandonaAlParar = estado.compartiendo && !estado.enEspera &&
+            estado.eventoId != null && !estado.enMeta
         if (confirmaAbandono) {
             AlertDialog(
                 onDismissRequest = { confirmaAbandono = false },
                 title = { Text("¿Abandonas la carrera?") },
                 text = {
-                    Text(
-                        "Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. " +
-                            "Si solo te paras un rato, usa la pausa.",
-                    )
+                    Column {
+                        Text(
+                            "Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. " +
+                                "Si solo te paras un rato, usa la pausa.",
+                        )
+                        // La salida para quien ha acabado y la app no lo ha
+                        // visto —sin recorrido, o apaga antes de la meta—: sin
+                        // ella, apagar le obligaba a darse por retirado.
+                        TextButton(onClick = { confirmaAbandono = false; onParar() }) {
+                            Text("Solo apagar la baliza", color = Paleta.slate400)
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = { confirmaAbandono = false; onAbandonar() }) { Text("Sí, lo dejo") }
@@ -1129,13 +1136,13 @@ private fun EstadoCompacto(
             // En rojo, no en el azul de todo lo demás: es la única acción que
             // DESHACE algo, y pulsarla por error corta la traza.
             Button(
-                onClick = onParar,
+                onClick = { if (abandonaAlParar) confirmaAbandono = true else onParar() },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Paleta.rojo,
                     contentColor = Paleta.slate950,
                 ),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Dejar de compartir") }
+            ) { Text(if (abandonaAlParar) "Abandonar" else "Dejar de compartir") }
         } else {
             Button(
                 onClick = onEmpezar,
