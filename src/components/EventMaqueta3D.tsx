@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { Captions, CaptionsOff, Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-react'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
-  LADO_MOSAICO, aligera, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
+  LADO_MOSAICO, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
   casasDeLugar, mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, picosDelRecorrido, reduceRejilla, rejillaDeMaqueta, sitioDeFraccion, sitioEnMaqueta, sitiosDeArboles,
   type Escala, type Malla, type Mosaico, type Rejilla, type Rgb,
 } from '../lib/maqueta3d'
@@ -63,6 +63,8 @@ const ROTULOS_MAX = TACTIL ? 16 : 30
 const CLASE_ES: Record<ClaseLugar, string> = { city: 'ciudad', town: 'pueblo', village: 'pueblo', hamlet: 'aldea' }
 /** Un pico cuenta como de la carrera si el recorrido pasa a menos de esto. */
 const PICO_CERCA_M = 300
+/** En cuántos tramos se tantea si el monte tapa una chincheta (ver `tapadaPorElMonte`). */
+const PASOS_TAPADO = TACTIL ? 64 : 96
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -79,6 +81,8 @@ interface Terreno {
   picos: PicoMaqueta[]
   escala: Escala
   malla: Malla
+  /** La Y del punto más alto de la loseta. */
+  cumbre: number
   /** Mosaicos que no llegaron: ahí la loseta es mar. */
   faltan: number
 }
@@ -193,6 +197,7 @@ function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null, 
       return {
         rejilla, alturas, mascara, lugares: paquete.cabecera.lugares, picos: paquete.cabecera.picos, escala,
         malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO, mascara), faltan: paquete.cabecera.faltan,
+        cumbre: escala.y(max),
       }
     })()
     p.then((t) => { if (!t) terrenos.delete(k) })
@@ -222,6 +227,38 @@ interface Escena {
   distancia: number | null
   /** Hasta dónde se puede llevar el centro de la vista con el paneo: la loseta y poco más. */
   limites: THREE.Box3
+}
+
+/**
+ * Si el monte tapa la cabeza de una chincheta desde donde está la cámara: se
+ * tantea el segmento de una a otra, mientras va por encima de la loseta, y
+ * en cuanto un punto cae por debajo del suelo, tapada. Con `pasos` tramos:
+ * en una loseta de dos unidades son un par de nodos por tramo, lo justo para
+ * que una cresta no se cuele. Lo que sale de la loseta ya no tapa, y por
+ * encima de la cumbre más alta tampoco hace falta seguir mirando.
+ */
+function tapadaPorElMonte(t: Terreno, cabeza: THREE.Vector3, camara: THREE.Vector3, pasos: number): boolean {
+  const { rejilla, alturas, escala } = t
+  const ax = (rejilla.anchoPx * escala.u) / 2
+  const az = (rejilla.altoPx * escala.u) / 2
+  let fin = 1
+  const recorta = (p: number, c: number, a: number) => {
+    if (c > a) fin = Math.min(fin, (a - p) / (c - p))
+    else if (c < -a) fin = Math.min(fin, (-a - p) / (c - p))
+  }
+  recorta(cabeza.x, camara.x, ax)
+  recorta(cabeza.z, camara.z, az)
+  if (fin <= 0) return false
+  const sube = camara.y > cabeza.y
+  for (let k = 1; k <= pasos; k++) {
+    const f = (fin * k) / pasos
+    const y = cabeza.y + (camara.y - cabeza.y) * f
+    if (sube && y > t.cumbre) return false
+    const x = cabeza.x + (camara.x - cabeza.x) * f
+    const z = cabeza.z + (camara.z - cabeza.z) * f
+    if (y < escala.y(alturaEn(rejilla, alturas, escala.px(x), escala.py(z)))) return true
+  }
+  return false
 }
 
 /** Los ocho vértices de la caja de la loseta, para encuadrarla entera. */
@@ -449,13 +486,15 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
  * Una chincheta clavada en `sitio` por la punta de su palo: `pie` dice en qué
  * fracción del ancho del dibujo está el palo (en las banderas, a la izquierda).
  *
- * Con prueba de profundidad: un monte por medio la tapa, como en una maqueta
- * de verdad. Se probó sin ella para que la gente se viera siempre, y desde
- * bajo las chinchetas se veían a través de la pared y del suelo; peor. Por
- * eso llevan palo alto: lo que las esconde es un monte, no una loma.
+ * Sin prueba de profundidad, pero no se ve a través del monte: una chincheta
+ * se ve ENTERA o no se ve, y lo decide solo el terreno (ver `tapadaPorElMonte`
+ * en el bucle). Con la prueba píxel a píxel, un pino o el palo de al lado se
+ * comían media pastilla y no se leía; sin nada, desde bajo se veían a través
+ * de la pared y del suelo. Esto es lo de en medio, que es lo que se espera de
+ * un cartel clavado en una maqueta.
  */
 function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5): THREE.Sprite {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false }))
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false, depthTest: false }))
   s.renderOrder = 2
   s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
@@ -596,6 +635,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     // Se pinta solo cuando algo cambia: una maqueta quieta no gasta batería.
     let cuadro = 0
+    const cabeza = new THREE.Vector3()
     const bucle = () => {
       cuadro = requestAnimationFrame(bucle)
       if (e.viaje) {
@@ -622,6 +662,14 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         controls.target.copy(dentro)
       }
       if (movio || e.sucio) {
+        // Qué chinchetas tapa el monte desde aquí (ver `chincheta`): la
+        // cabeza de cada una, que es lo que se lee.
+        if (e.terreno) {
+          for (const ch of e.chinchetas.children) {
+            cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
+            ch.visible = !(ch.userData.rotulo && !rotulosRef.current) && !tapadaPorElMonte(e.terreno, cabeza, camera.position, PASOS_TAPADO)
+          }
+        }
         renderer.render(scene, camera)
         e.sucio = false
       }
@@ -870,9 +918,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     // Los nombres de las poblaciones, de las más importantes: sobre sus
     // casas, un poco por encima del suelo.
-    // Los nombres se tapan con el monte como todo lo demás: vistos desde
-    // bajo, los de la otra vertiente se colaban a través de la ladera y no se
-    // entendía nada. Y se pueden quitar (`rotulos`).
+    // Los nombres, encima de las chinchetas de la gente y de las banderas; y
+    // se pueden quitar (`rotulos`, que mira el bucle al decidir qué se ve).
     const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
       // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
       const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
@@ -880,7 +927,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       s.renderOrder = 3
       s.userData.key = key
       s.userData.rotulo = true
-      s.visible = rotulosRef.current
       e.chinchetas.add(s)
       hechas.push(s)
     }
@@ -977,9 +1023,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   useEffect(() => {
     rotulosRef.current = rotulos
     const e = escena.current
-    if (!e) return
-    for (const ch of e.chinchetas.children) if (ch.userData.rotulo) ch.visible = rotulos
-    e.sucio = true
+    if (e) e.sucio = true
   }, [rotulos])
 
   // El nombre del evento, esculpido en el canto: en la pared sur, que es la
