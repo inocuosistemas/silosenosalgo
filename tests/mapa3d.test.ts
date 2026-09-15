@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D } from '../src/lib/mapa3d'
+import { COTA_NIEVE, COTA_ROCA, COTAS_FIJAS, coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, rangoDeAlturas, type Corredor3D } from '../src/lib/mapa3d'
 
 const corredor = (extra: Partial<Corredor3D> = {}): Corredor3D => ({
   key: 'k', punto: [42.7, -0.5], color: '#22c55e', emoji: '🦊', nombre: 'jie', apagado: false, detalle: 'km 12.0', ...extra,
@@ -44,5 +44,50 @@ describe('htmlPunto3D', () => {
   it('con cierre lo dice, y el nombre va escapado', () => {
     expect(htmlPunto3D({ lat: 0, lon: 0, nombre: 'CF<0230>', cierre: '02:30' })).toContain('CF&#60;0230&#62; · cierra 02:30')
     expect(htmlPunto3D({ lat: 0, lon: 0, nombre: 'Meta', cierre: null })).not.toContain('cierra')
+  })
+})
+
+describe('rangoDeAlturas', () => {
+  it('la cota más baja y la más alta, sin contar lo que no es un número', () => {
+    expect(rangoDeAlturas([820, NaN, 1450, 910])).toEqual({ min: 820, max: 1450 })
+  })
+
+  it('sin alturas de verdad, o casi llano, no hay rango', () => {
+    expect(rangoDeAlturas([])).toBeNull()
+    expect(rangoDeAlturas([0, 0, 0])).toBeNull()
+    expect(rangoDeAlturas([500, 540, 599])).toBeNull()
+  })
+})
+
+describe('coloresMaqueta', () => {
+  const cotasDe = (expr: unknown[]) => expr.slice(3).filter((_, i) => i % 2 === 0) as number[]
+
+  const ascendentes = (cotas: number[]) => cotas.every((c, i) => i === 0 || c > cotas[i - 1])
+
+  it('reparte la paleta entre las cotas de la carrera y sigue por encima', () => {
+    const cotas = cotasDe(coloresMaqueta({ min: 1000, max: 2000 }))
+    expect(cotas[1]).toBeLessThan(1000)
+    expect(cotas).toContain(1000)
+    expect(cotas[cotas.length - 1]).toBeGreaterThan(2000)
+    // Las paradas van de menor a mayor, que si no MapLibre no las acepta.
+    expect(ascendentes(cotas)).toBe(true)
+  })
+
+  it('el mar a cero, y ni la roca ni la nieve bajan de su cota aunque la carrera sea de costa', () => {
+    const cotas = cotasDe(coloresMaqueta({ min: 20, max: 600 }))
+    expect(cotas[0]).toBe(0)
+    expect(cotas[cotas.length - 2]).toBe(COTA_ROCA)
+    expect(cotas[cotas.length - 1]).toBe(COTA_NIEVE)
+  })
+
+  it('una carrera que sale del mar no deja paradas bajo el agua ni repetidas', () => {
+    const cotas = cotasDe(coloresMaqueta({ min: 0, max: 400 }))
+    expect(cotas[0]).toBe(0)
+    expect(ascendentes(cotas)).toBe(true)
+  })
+
+  it('sin cotas, una montaña cualquiera', () => {
+    expect(cotasDe(coloresMaqueta(null))).toContain(COTAS_FIJAS.min)
+    expect(coloresMaqueta(null)).toEqual(coloresMaqueta(COTAS_FIJAS))
   })
 })

@@ -38,7 +38,7 @@ import { buildPlannedCurve } from '../lib/ghostPacer'
 import { proyeccionFantasma, type Fantasma } from '../lib/proyeccionFantasma'
 import { losDeLaCarrera } from '../lib/encuadre'
 import { leeCadencia, plazosDe, silencioTexto } from '../../shared/cadencia'
-import type { Corredor3D, Punto3D } from '../lib/mapa3d'
+import { rangoDeAlturas, type Corredor3D, type Punto3D } from '../lib/mapa3d'
 
 /**
  * El mapa del evento: todos los participantes a la vez, cada uno con su color.
@@ -471,6 +471,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
     const pts = plan.track.points.map((p) => [p.lat, p.lon] as [number, number])
     return { pts, cumKm: plan.track.cumKm, totalKm: plan.track.totalDistanceKm }
   }, [plan])
+  /** Entre qué cotas va el recorrido: los colores de la maqueta 3D se reparten entre ellas. */
+  const cotas3D = useMemo(() => (plan ? rangoDeAlturas(plan.track.points.map((p) => p.ele)) : null), [plan])
   // Los cierres son de la CARRERA: se calculan una vez para todos, no por
   // corredor.
   const cutoffs = useMemo<EventCutoff[]>(() => (plan ? eventCutoffs(plan) : []), [plan])
@@ -1657,6 +1659,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
           <Suspense fallback={<CargandoMarca texto="Cargando el 3D…" />}>
             <EventMapa3D
               ruta={route?.pts ?? null}
+              cotas={cotas3D}
               corredores={corredores3D}
               puntos={puntos3D}
               fotos={fotos}

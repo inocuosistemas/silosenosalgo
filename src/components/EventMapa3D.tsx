@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Map as MapaGL, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type StyleSpecification } from 'maplibre-gl'
+import { Map as MapaGL, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type SkySpecification, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import { Map as IconoMapa, Mountain, Pause, RotateCw, X } from 'lucide-react'
+import { Map as IconoMapa, Mountain, Palette, Pause, RotateCw, X } from 'lucide-react'
 import type { EventFoto } from '../../shared/wireTypes'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
-import { encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type Punto3D } from '../lib/mapa3d'
+import { coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
 import { PUNTA, htmlExtremo, type TipoExtremo } from './SentidoRecorrido'
@@ -21,8 +21,12 @@ import { extremosDelRecorrido, marcasDeExtremos, type LadoRotulo, type MarcasExt
  * (ver `lib/relieve`).
  *
  * Mandos: dos dedos giran e inclinan; en el ordenador, Mayús + flechas o
- * arrastrar con el botón derecho. Y dos botones: girar alrededor sola, y
- * pasar de inclinado a desde arriba.
+ * arrastrar con el botón derecho. Y tres botones: girar alrededor sola, pasar
+ * de inclinado a desde arriba, y cambiar entre el mapa y la maqueta.
+ *
+ * La maqueta es el mismo relieve sin el mapa encima: coloreado por altura,
+ * con la luz fija y el fondo liso. Sirve para VER la carrera —por dónde sube,
+ * cuánto— más que para orientarse, que para eso está el mapa.
  */
 
 // El trabajador de MapLibre, empaquetado por Vite. Sin decírselo lo busca junto
@@ -43,41 +47,141 @@ const EMOJIS_HASTA = 20
 const ZOOM_ROTULOS = 12
 const ROTULOS_SIEMPRE_HASTA = 6
 
-const ESTILO: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['a', 'b', 'c'].map((s) => `https://${s}.tile.openstreetmap.org/{z}/{x}/{y}.png`),
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
-    },
-    // Una sola fuente para el volumen y el sombreado: con dos se bajaría cada
-    // mosaico de alturas dos veces.
-    alturas: {
-      type: 'raster-dem',
-      tiles: [URL_ALTURAS],
-      encoding: 'terrarium',
-      tileSize: 256,
-      maxzoom: ZOOM_MAX_ALTURAS,
-      attribution: 'Relieve: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">Terrain Tiles</a>',
+/** El fondo de la maqueta: gris verdoso, mate, como una mesa. */
+const FONDO_MAQUETA = '#6b8384'
+
+/**
+ * Lo que cambia entre el mapa y la maqueta. Está en una tabla y no en dos
+ * estilos porque el cambio se hace en caliente, propiedad a propiedad: cambiar
+ * el estilo entero se llevaría por delante el recorrido y las flechas, que se
+ * añaden después.
+ */
+const ASPECTO: Record<EstiloMapa3D, {
+  fondo: string
+  /** Cuánto se marca la sombra, y de qué color la umbría y la solana. */
+  sombra: number
+  umbria: string
+  solana: string
+  /** La luz, pegada al mapa (gira con él, como el sol) o a la pantalla. */
+  luz: 'map' | 'viewport'
+  cielo: SkySpecification
+}> = {
+  mapa: {
+    fondo: '#020617',
+    sombra: 0.35,
+    umbria: '#0f172a',
+    solana: '#ffffff',
+    luz: 'viewport',
+    cielo: {
+      'sky-color': '#7cb7e8',
+      'horizon-color': '#dbeafe',
+      'fog-color': '#e2e8f0',
+      'sky-horizon-blend': 0.5,
+      'horizon-fog-blend': 0.7,
+      'fog-ground-blend': 0.3,
+      'atmosphere-blend': 0.8,
     },
   },
-  layers: [
-    { id: 'osm', type: 'raster', source: 'osm' },
-    { id: 'sombra', type: 'hillshade', source: 'alturas', paint: { 'hillshade-exaggeration': 0.35, 'hillshade-shadow-color': '#0f172a' } },
-  ],
-  terrain: { source: 'alturas', exaggeration: EXAGERACION },
-  sky: {
-    'sky-color': '#7cb7e8',
-    'horizon-color': '#dbeafe',
-    'fog-color': '#e2e8f0',
-    'sky-horizon-blend': 0.5,
-    'horizon-fog-blend': 0.7,
-    'fog-ground-blend': 0.3,
-    'atmosphere-blend': 0.8,
+  maqueta: {
+    fondo: FONDO_MAQUETA,
+    sombra: 0.55,
+    umbria: '#2b3a1f',
+    solana: '#fff8e7',
+    luz: 'map',
+    // Todo del color del fondo y sin atmósfera: el relieve se funde con la
+    // mesa a lo lejos en vez de seguir hasta un horizonte con cielo.
+    cielo: {
+      'sky-color': FONDO_MAQUETA,
+      'horizon-color': FONDO_MAQUETA,
+      'fog-color': FONDO_MAQUETA,
+      'sky-horizon-blend': 1,
+      'horizon-fog-blend': 1,
+      'fog-ground-blend': 0.4,
+      'atmosphere-blend': 0,
+    },
   },
+}
+
+/** El estilo con el que nace el mapa. Lleva ya puesto el aspecto elegido: si
+ *  naciera como mapa y se cambiara después, se bajarían mosaicos de OSM que
+ *  no se van a ver. */
+function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): StyleSpecification {
+  const a = ASPECTO[estilo]
+  const maqueta = estilo === 'maqueta'
+  return {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['a', 'b', 'c'].map((s) => `https://${s}.tile.openstreetmap.org/{z}/{x}/{y}.png`),
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+      },
+      // Una sola fuente para el volumen, el sombreado y el color por altura:
+      // con varias se bajaría cada mosaico de alturas varias veces.
+      alturas: {
+        type: 'raster-dem',
+        tiles: [URL_ALTURAS],
+        encoding: 'terrarium',
+        tileSize: 256,
+        maxzoom: ZOOM_MAX_ALTURAS,
+        attribution: 'Relieve: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">Terrain Tiles</a>',
+      },
+    },
+    layers: [
+      { id: 'fondo', type: 'background', paint: { 'background-color': a.fondo } },
+      { id: 'maqueta', type: 'color-relief', source: 'alturas', layout: { visibility: maqueta ? 'visible' : 'none' }, paint: { 'color-relief-color': coloresMaqueta(cotas) } },
+      { id: 'osm', type: 'raster', source: 'osm', layout: { visibility: maqueta ? 'none' : 'visible' } },
+      {
+        id: 'sombra',
+        type: 'hillshade',
+        source: 'alturas',
+        paint: {
+          'hillshade-exaggeration': a.sombra,
+          'hillshade-shadow-color': a.umbria,
+          'hillshade-highlight-color': a.solana,
+          'hillshade-illumination-anchor': a.luz,
+        },
+      },
+    ],
+    terrain: { source: 'alturas', exaggeration: EXAGERACION },
+    sky: a.cielo,
+  }
+}
+
+/** Cambiar de aspecto con el mapa ya vivo: lo mismo que `construyeEstilo`,
+ *  pero tocando solo lo que cambia. */
+function aplicaEstilo(m: MapaGL, estilo: EstiloMapa3D, cotas: RangoAlturas | null) {
+  const a = ASPECTO[estilo]
+  const maqueta = estilo === 'maqueta'
+  m.setLayoutProperty('maqueta', 'visibility', maqueta ? 'visible' : 'none')
+  m.setLayoutProperty('osm', 'visibility', maqueta ? 'none' : 'visible')
+  m.setPaintProperty('maqueta', 'color-relief-color', coloresMaqueta(cotas))
+  m.setPaintProperty('fondo', 'background-color', a.fondo)
+  m.setPaintProperty('sombra', 'hillshade-exaggeration', a.sombra)
+  m.setPaintProperty('sombra', 'hillshade-shadow-color', a.umbria)
+  m.setPaintProperty('sombra', 'hillshade-highlight-color', a.solana)
+  m.setPaintProperty('sombra', 'hillshade-illumination-anchor', a.luz)
+  m.setSky(a.cielo)
+}
+
+/** Con qué aspecto se abrió la última vez: se recuerda por aparato, que quien
+ *  prefiere la maqueta la prefiere siempre. */
+const CLAVE_ESTILO = 'mapa3d.estilo'
+function estiloGuardado(): EstiloMapa3D {
+  try {
+    return localStorage.getItem(CLAVE_ESTILO) === 'maqueta' ? 'maqueta' : 'mapa'
+  } catch {
+    return 'mapa'
+  }
+}
+function guardaEstilo(estilo: EstiloMapa3D) {
+  try {
+    localStorage.setItem(CLAVE_ESTILO, estilo)
+  } catch {
+    // Sin sitio donde guardarlo, se pregunta cada vez: no es grave.
+  }
 }
 
 /** Los rótulos de los mandos de MapLibre, que vienen en inglés. */
@@ -101,6 +205,8 @@ const CSS = `
 
 interface Props {
   ruta: [number, number][] | null
+  /** Entre qué cotas se mueve el recorrido, para repartir los colores de la maqueta. */
+  cotas: RangoAlturas | null
   corredores: Corredor3D[]
   puntos: Punto3D[]
   fotos: EventFoto[]
@@ -108,11 +214,12 @@ interface Props {
   onCerrar: () => void
 }
 
-export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
+export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const mapa = useRef<MapaGL | null>(null)
   /** Con qué se encuadra al abrir; lo que llegue después ya no mueve la cámara. */
-  const inicio = useRef({ ruta, corredores })
+  const inicio = useRef({ ruta, corredores, cotas })
+  const [estilo, setEstilo] = useState<EstiloMapa3D>(estiloGuardado)
   const marcas = useRef(new Map<string, { marca: Marker; el: HTMLDivElement; firma: string }>())
   const [hayWebGL] = useState(() => {
     try {
@@ -133,11 +240,11 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
 
   useEffect(() => {
     if (!hayWebGL || !caja.current) return
-    const { ruta: ruta0, corredores: corredores0 } = inicio.current
+    const { ruta: ruta0, corredores: corredores0, cotas: cotas0 } = inicio.current
     const vista = encuadre3D(ruta0, corredores0.map((c) => c.punto))
     const m = new MapaGL({
       container: caja.current,
-      style: ESTILO,
+      style: construyeEstilo(estiloGuardado(), cotas0),
       ...('limites' in vista
         ? { bounds: vista.limites, fitBoundsOptions: { padding: 48 } }
         : { center: vista.centro, zoom: vista.zoom }),
@@ -172,6 +279,20 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
     const t = window.setTimeout(() => setAyuda(false), 9000)
     return () => window.clearTimeout(t)
   }, [])
+
+  // El aspecto se cambia en caliente. Al nacer ya va puesto en el estilo, así
+  // que esto solo hace algo cuando se pulsa el botón o llegan cotas nuevas.
+  useEffect(() => {
+    const m = mapa.current
+    if (!m || !listo) return
+    aplicaEstilo(m, estilo, cotas)
+  }, [estilo, cotas, listo])
+
+  const alternaEstilo = () => {
+    const nuevo: EstiloMapa3D = estilo === 'maqueta' ? 'mapa' : 'maqueta'
+    guardaEstilo(nuevo)
+    setEstilo(nuevo)
+  }
 
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCerrar() }
@@ -400,6 +521,9 @@ export default function EventMapa3D({ ruta, corredores, puntos, fotos, onAbrirFo
         <X size={14} /> Volver al mapa
       </button>
       <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)' }}>
+        <Redondo etiqueta={estilo === 'maqueta' ? 'Ver el mapa' : 'Ver como maqueta'} activo={estilo === 'maqueta'} onClick={alternaEstilo}>
+          <Palette size={16} />
+        </Redondo>
         <Redondo etiqueta={orbitando ? 'Parar el giro' : 'Girar alrededor'} activo={orbitando} onClick={alternaGiro}>
           {orbitando ? <Pause size={16} /> : <RotateCw size={16} />}
         </Redondo>

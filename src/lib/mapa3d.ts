@@ -1,9 +1,83 @@
+import type { ExpressionSpecification } from 'maplibre-gl'
+
 /**
  * Lo que dibuja la vista 3D del evento, sin MapLibre de por medio.
  *
  * Las marcas del 3D son HTML suelto (MapLibre las coloca sobre el relieve), y
  * llevan nombres que escribe la gente: todo texto pasa por `escapaHtml`.
  */
+
+/** Cómo se pinta el relieve: el mapa de verdad encima, o la maqueta —solo el
+ *  relieve, coloreado por altura, como una de esas de cartón de las oficinas
+ *  de turismo—. */
+export type EstiloMapa3D = 'mapa' | 'maqueta'
+
+export interface RangoAlturas { min: number; max: number }
+
+/**
+ * Las cotas entre las que se reparte la paleta de la maqueta: la más baja y la
+ * más alta del recorrido. Van con LA CARRERA y no con el mar: una que sube de
+ * 300 a 1.200 m tiene que verse tan verde abajo y tan pelada arriba como una
+ * del Pirineo.
+ *
+ * Sin alturas de verdad —un GPX sin ellas viene todo a cero— o con un desnivel
+ * de nada, `null`: ahí se pinta con las cotas fijas de montaña.
+ */
+export function rangoDeAlturas(eles: number[]): RangoAlturas | null {
+  let min = Infinity
+  let max = -Infinity
+  for (const e of eles) {
+    if (!Number.isFinite(e)) continue
+    if (e < min) min = e
+    if (e > max) max = e
+  }
+  return max - min >= 100 ? { min, max } : null
+}
+
+/** Sin recorrido con alturas, una montaña cualquiera. */
+export const COTAS_FIJAS: RangoAlturas = { min: 400, max: 2400 }
+
+/** Por debajo de esto no hay roca pelada ni nieve por mucho que la carrera sea
+ *  de costa: con la paleta relativa a secas, una de 20 a 600 m pintaba de gris
+ *  todo lo que pasara de 600 y de blanco lo que pasara de 800, y el interior
+ *  entero parecía el Ártico. */
+export const COTA_ROCA = 1600
+export const COTA_NIEVE = 2200
+
+/**
+ * Los colores de la maqueta por altura, listos para `color-relief-color`.
+ *
+ * Del verde del valle al ocre y al pardo de arriba; y por encima de la cota
+ * más alta de la carrera sigue a roca y nieve, que las cumbres de alrededor
+ * también salen. Por debajo de la más baja, verde más oscuro: el fondo del
+ * valle que la carrera no pisa. Y a cero o menos, agua: el mar de una carrera
+ * de costa, que las alturas lo traen como fondo marino y salía verde.
+ *
+ * Las paradas van estrictamente de menor a mayor —si no, MapLibre no las
+ * acepta—: si una carrera sale del mar, la de "por debajo del mínimo" cae
+ * bajo cero y hay que subirla por encima del agua.
+ */
+export function coloresMaqueta(rango: RangoAlturas | null): ExpressionSpecification {
+  const { min, max } = rango ?? COTAS_FIJAS
+  const cota = (parte: number) => Math.round(min + (max - min) * parte)
+  const paradas: [number, string][] = [
+    [0, '#5b8aa6'],
+    [cota(-0.25), '#476f37'],
+    [cota(0), '#6b9147'],
+    [cota(0.35), '#a3aa5c'],
+    [cota(0.6), '#c2a462'],
+    [cota(0.85), '#8f7050'],
+    [Math.max(cota(1.05), COTA_ROCA), '#9a948c'],
+    [Math.max(cota(1.3), COTA_NIEVE), '#ece9e2'],
+  ]
+  const salida: (number | string)[] = []
+  let previa = -Infinity
+  for (const [altura, color] of paradas) {
+    previa = Math.max(altura, previa + 1)
+    salida.push(previa, color)
+  }
+  return ['interpolate', ['linear'], ['elevation'], ...salida]
+}
 
 /** Un corredor tal como sale en 3D: donde lo pinta el mapa, con lo justo para reconocerlo. */
 export interface Corredor3D {
