@@ -353,6 +353,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
   // La ruta se descarga UNA vez: son cientos de KB y no cambia en toda la
   // carrera, al revés que las posiciones.
   const planLoaded = useRef<string | null>(null)
+  /** El id del recorrido que se está enseñando: la maqueta 3D guarda su paquete bajo él. */
+  const [planShareId, setPlanShareId] = useState<string | null>(null)
   /**
    * Esta carrera TIENE recorrido, aunque todavía no haya llegado.
    *
@@ -444,7 +446,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
       if (!shareId || planLoaded.current === shareId) return
       planLoaded.current = shareId
       setHayRuta(true)
-      try { setPlan(await getEventPlan(shareId)) } catch {
+      try { setPlan(await getEventPlan(shareId)); setPlanShareId(shareId) } catch {
         // Sin ruta se pinta igual, y sin esperarla: el mapa no se enseña hasta
         // tenerla, y un recorrido que no va a llegar lo dejaría en negro.
         setHayRuta(false)
@@ -1661,6 +1663,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               ruta={route?.pts ?? null}
               cotas={cotas3D}
               nombre={eventName}
+              planId={planShareId}
               corredores={corredores3D}
               puntos={puntos3D}
               fotos={fotos}

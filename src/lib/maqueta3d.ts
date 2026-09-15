@@ -1,5 +1,10 @@
 import { ZOOM_MAX_ALTURAS, metrosPorPixel } from './relieve'
-import { paradasMaqueta, type RangoAlturas } from './mapa3d'
+import { COLOR_AGUA, paradasMaqueta, type RangoAlturas } from './mapa3d'
+import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO, type RejillaMaqueta } from '../../shared/maquetaPaquete'
+
+/** La rejilla de alturas de una maqueta: dónde cae en los mosaicos y cuántos
+ *  nodos tiene. Vive en `shared` porque viaja en el paquete. */
+export type Rejilla = RejillaMaqueta
 
 /**
  * La maqueta de la carrera: el terreno recortado en una loseta, como una isla
@@ -52,21 +57,6 @@ export function proyecta(lat: number, lon: number, z: number): { x: number; y: n
   }
 }
 
-/** La rejilla de alturas de una maqueta: dónde cae en los mosaicos y cuántos nodos tiene. */
-export interface Rejilla {
-  z: number
-  /** Esquina noroeste y tamaño de la caja, en píxeles de mosaico al zoom `z`. */
-  x0: number
-  y0: number
-  anchoPx: number
-  altoPx: number
-  /** Nodos de la malla, a lo ancho y a lo alto. */
-  cols: number
-  filas: number
-  /** Metros que mide un píxel de mosaico en el centro de la caja. */
-  mpp: number
-}
-
 /**
  * A qué zoom se piden las alturas y con cuántos nodos se malla.
  *
@@ -87,7 +77,10 @@ export function rejillaDeMaqueta(caja: Caja, pxMax = 768, nodosMax = 384): Rejil
   const anchoPx = se.x - nw.x
   const altoPx = se.y - nw.y
   const largo = Math.max(anchoPx, altoPx)
-  const nodosLargo = Math.max(2, Math.min(nodosMax, Math.ceil(largo) + 1))
+  // Nunca menos de 256 nodos aunque la caja sea de pocos píxeles: las alturas
+  // no ganan detalle, pero el agua del mapa sí, y un ibón de una carrera
+  // corta salía con el borde a escalones.
+  const nodosLargo = Math.max(2, Math.min(nodosMax, Math.max(256, Math.ceil(largo) + 1)))
   const nodos = (px: number) => Math.max(2, Math.round((px / largo) * (nodosLargo - 1)) + 1)
   return {
     z,
@@ -239,15 +232,24 @@ export function tablaDeColores(paradas: [number, Rgb][], min: number, max: numbe
   return tabla
 }
 
+/** El verde del bosque con el que se tiñe el suelo bajo los árboles. */
+const BOSQUE: Rgb = [0x2f / 255, 0x5a / 255, 0x2a / 255]
+
 /**
  * La malla de la loseta: la capa de arriba con el relieve, las cuatro paredes
  * hasta la base y la base. Las paredes y la base llevan sus propios vértices,
  * del color del canto: así la luz las ve planas y el corte queda limpio, como
  * en una maqueta de cartón.
+ *
+ * Con máscara (ver `shared/maquetaPaquete`), los nodos de agua van del azul
+ * del mar y los de bosque, más oscuros: el color se interpola entre nodos,
+ * así que un ibón sale con el borde suave, como pintado.
  */
-export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala, rango: RangoAlturas | null, colorCanto: Rgb): Malla {
+export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala, rango: RangoAlturas | null, colorCanto: Rgb, mascara?: Uint8Array): Malla {
   const { cols, filas } = r
   const cantoLineal = colorCanto.map(aLineal) as Rgb
+  const aguaLineal = hexARgb(COLOR_AGUA).map(aLineal) as Rgb
+  const bosqueLineal = BOSQUE.map(aLineal) as Rgb
   const arriba = cols * filas
   const total = arriba + 2 * (2 * cols + 2 * filas) + 4
   const posiciones = new Float32Array(total * 3)
@@ -271,10 +273,20 @@ export function mallaDeMaqueta(r: Rejilla, alturas: Float32Array, escala: Escala
   for (let j = 0; j < filas; j++) {
     const z = Z(j)
     for (let i = 0; i < cols; i++) {
-      const h = alturas[j * cols + i]
+      const n = j * cols + i
+      const h = alturas[n]
       const k = Math.round((h - hMin) * porPaso) * 3
       posiciones[v * 3] = X(i); posiciones[v * 3 + 1] = escala.y(h); posiciones[v * 3 + 2] = z
-      colores[v * 3] = tabla[k]; colores[v * 3 + 1] = tabla[k + 1]; colores[v * 3 + 2] = tabla[k + 2]
+      const m = mascara ? mascara[n] : 0
+      if (m & (MASCARA_AGUA | MASCARA_RIO)) {
+        colores[v * 3] = aguaLineal[0]; colores[v * 3 + 1] = aguaLineal[1]; colores[v * 3 + 2] = aguaLineal[2]
+      } else if (m & MASCARA_BOSQUE) {
+        colores[v * 3] = tabla[k] * 0.45 + bosqueLineal[0] * 0.55
+        colores[v * 3 + 1] = tabla[k + 1] * 0.45 + bosqueLineal[1] * 0.55
+        colores[v * 3 + 2] = tabla[k + 2] * 0.45 + bosqueLineal[2] * 0.55
+      } else {
+        colores[v * 3] = tabla[k]; colores[v * 3 + 1] = tabla[k + 1]; colores[v * 3 + 2] = tabla[k + 2]
+      }
       v++
     }
   }
@@ -414,6 +426,64 @@ export function cordonSobreTerreno(
     if (dentro(px[i])) pon(px[i].x, px[i].y)
   }
   return salida
+}
+
+/**
+ * La misma loseta con menos nodos, para el móvil: el paquete se guarda con
+ * los del ordenador y aquí se vuelve a muestrear —las alturas entre nodos, la
+ * máscara del nodo más cercano—. La caja no cambia, así que todo lo demás
+ * (cordón, chinchetas) cae en el mismo sitio.
+ */
+export function reduceRejilla(r: Rejilla, alturas: Float32Array, mascara: Uint8Array, nodosMax: number): { rejilla: Rejilla; alturas: Float32Array; mascara: Uint8Array } {
+  const largo = Math.max(r.cols, r.filas)
+  if (largo <= nodosMax) return { rejilla: r, alturas, mascara }
+  const f = (nodosMax - 1) / (largo - 1)
+  const cols = Math.max(2, Math.round((r.cols - 1) * f) + 1)
+  const filas = Math.max(2, Math.round((r.filas - 1) * f) + 1)
+  const rejilla: Rejilla = { ...r, cols, filas }
+  const a = new Float32Array(cols * filas)
+  const m = new Uint8Array(cols * filas)
+  for (let j = 0; j < filas; j++) {
+    const py = r.y0 + (j / (filas - 1)) * r.altoPx
+    const vj = Math.round((j / (filas - 1)) * (r.filas - 1))
+    for (let i = 0; i < cols; i++) {
+      const px = r.x0 + (i / (cols - 1)) * r.anchoPx
+      a[j * cols + i] = alturaEn(r, alturas, px, py)
+      m[j * cols + i] = mascara[vj * r.cols + Math.round((i / (cols - 1)) * (r.cols - 1))]
+    }
+  }
+  return { rejilla, alturas: a, mascara: m }
+}
+
+/**
+ * Dónde plantar los árboles: en el bosque de la máscara, uno como mucho por
+ * celda de `celda`×`celda` nodos y no en todas, con un poco de azar en el
+ * sitio y el tamaño —siempre el mismo azar, que la maqueta de una carrera no
+ * cambie de un día a otro—. Devuelve, por árbol, X, Y del suelo, Z y su
+ * tamaño (de 0,7 a 1,3).
+ */
+export function sitiosDeArboles(r: Rejilla, alturas: Float32Array, mascara: Uint8Array, escala: Escala, celda: number, tope: number, probabilidad = 0.7): Float32Array {
+  const sitios: number[] = []
+  // Un generador de siempre (LCG), que `Math.random` cambia con cada abrir.
+  let semilla = 1234567
+  const azar = () => {
+    semilla = (semilla * 1103515245 + 12345) & 0x7fffffff
+    return semilla / 0x7fffffff
+  }
+  for (let cj = 0; cj < r.filas && sitios.length < tope * 4; cj += celda) {
+    for (let ci = 0; ci < r.cols; ci += celda) {
+      const i = ci + Math.floor(azar() * Math.min(celda, r.cols - ci))
+      const j = cj + Math.floor(azar() * Math.min(celda, r.filas - cj))
+      const tamano = 0.7 + azar() * 0.6
+      if (azar() > probabilidad) continue
+      if (!(mascara[j * r.cols + i] & MASCARA_BOSQUE)) continue
+      if (mascara[j * r.cols + i] & (MASCARA_AGUA | MASCARA_RIO)) continue
+      const px = r.x0 + (i / (r.cols - 1)) * r.anchoPx
+      const py = r.y0 + (j / (r.filas - 1)) * r.altoPx
+      sitios.push(escala.x(px), escala.y(alturaEn(r, alturas, px, py)), escala.z(py), tamano)
+    }
+  }
+  return new Float32Array(sitios.slice(0, tope * 4))
 }
 
 /** Como mucho `n` puntos, repartidos, con el primero y el último siempre. */

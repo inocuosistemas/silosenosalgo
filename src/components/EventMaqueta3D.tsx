@@ -5,9 +5,11 @@ import { Map as IconoMapa, Mountain, Pause, RotateCw, Share2 } from 'lucide-reac
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
   LADO_MOSAICO, aligera, cajaDeMaqueta, cintaSobreTerreno, claveDeMosaico, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta, largoEnMetros,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, rejillaDeMaqueta, sitioEnMaqueta,
+  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, reduceRejilla, rejillaDeMaqueta, sitioEnMaqueta, sitiosDeArboles,
   type Escala, type Malla, type Mosaico, type Rejilla, type Rgb,
 } from '../lib/maqueta3d'
+import { cargaMosaicosOsm, mascaraDeOsm } from '../lib/maquetaMascara'
+import { codificaPaquete, decodificaPaquete } from '../../shared/maquetaPaquete'
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 import { comparteImagen, type ComoSeFue } from '../lib/compartirImagen'
@@ -42,6 +44,12 @@ const TACTIL = typeof window !== 'undefined' && window.matchMedia?.('(pointer: c
 const NODOS_MAX = TACTIL ? 256 : 384
 const SOMBRA_PX = TACTIL ? 1024 : 2048
 const DPR_MAX = TACTIL ? 1.5 : 2
+/** El paquete se calcula siempre con los nodos del ordenador, sea quien sea
+ *  el primero en abrir la maqueta: se guarda para todos y el móvil lo reduce. */
+const NODOS_PAQUETE = 384
+/** Los árboles: uno como mucho por celda de tantos nodos, y hasta tantos. */
+const CELDA_ARBOL = TACTIL ? 5 : 4
+const ARBOLES_MAX = TACTIL ? 1200 : 3000
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -50,6 +58,8 @@ const VUELTAS_POR_MIN = 1
 interface Terreno {
   rejilla: Rejilla
   alturas: Float32Array
+  /** Agua y bosque por nodo (ver `shared/maquetaPaquete`). */
+  mascara: Uint8Array
   escala: Escala
   malla: Malla
   /** Mosaicos que no llegaron: ahí la loseta es mar. */
@@ -87,34 +97,78 @@ function cargaMosaico(m: Mosaico): Promise<Float32Array | null> {
   return p
 }
 
+type Paquete = NonNullable<ReturnType<typeof decodificaPaquete>>
+const urlPaquete = (planId: string) => `/api/share/${encodeURIComponent(planId)}/maqueta`
+
+/** El paquete que otro ya calculó y dejó en el servidor, si lo hay. */
+async function bajaPaquete(planId: string): Promise<Paquete | null> {
+  try {
+    const res = await fetch(urlPaquete(planId))
+    if (!res.ok) return null
+    return decodificaPaquete(new Uint8Array(await res.arrayBuffer()))
+  } catch {
+    return null
+  }
+}
+
+/** Se deja en el servidor sin esperar: la maqueta ya está en pantalla, y sin
+ *  sesión o sin red el siguiente lo volverá a calcular, que tampoco es grave. */
+function subePaquete(planId: string, bytes: Uint8Array) {
+  fetch(urlPaquete(planId), {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: bytes.slice().buffer,
+  }).catch(() => {})
+}
+
+/**
+ * Calcular el paquete aquí: las alturas de los mosaicos de relieve y el agua
+ * y el bosque de los del mapa. Solo se guarda si llegó todo: media máscara,
+ * o una loseta con un agujero de mar, se quedarían para siempre.
+ */
+async function calculaPaquete(ruta: [number, number][], cotas: RangoAlturas | null, planId: string | null): Promise<Paquete | null> {
+  const caja = cajaDeMaqueta(ruta)
+  if (!caja) return null
+  const rejilla = rejillaDeMaqueta(caja, 768, NODOS_PAQUETE)
+  const lista = mosaicosDeRejilla(rejilla)
+  const [cargados, osm] = await Promise.all([Promise.all(lista.map(cargaMosaico)), cargaMosaicosOsm(rejilla)])
+  const mosaicos = new Map<string, Float32Array>()
+  let faltan = 0
+  lista.forEach((m, i) => {
+    const h = cargados[i]
+    if (h) mosaicos.set(claveDeMosaico(m), h)
+    else faltan++
+  })
+  if (faltan === lista.length) return null
+  const alturas = muestreaAlturas(rejilla, mosaicos)
+  const mascara = osm ? mascaraDeOsm(rejilla, osm) : new Uint8Array(alturas.length)
+  // Pasa por el mismo formato que el guardado: así todos ven las mismas
+  // alturas, redondeadas igual.
+  const bytes = codificaPaquete({ rejilla, cotas, faltan, conMapa: osm !== null }, alturas, mascara)
+  if (planId && faltan === 0 && osm) subePaquete(planId, bytes)
+  return decodificaPaquete(bytes)
+}
+
 /** La loseta de una carrera, una vez: cerrar y volver a abrir la maqueta no la rehace. */
 const terrenos = new Map<string, Promise<Terreno | null>>()
-function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null): Promise<Terreno | null> {
+function construyeTerreno(ruta: [number, number][], cotas: RangoAlturas | null, planId: string | null): Promise<Terreno | null> {
   const caja = cajaDeMaqueta(ruta)
   if (!caja) return Promise.resolve(null)
-  const k = JSON.stringify([caja, cotas, NODOS_MAX])
+  const k = JSON.stringify([caja, cotas, NODOS_MAX, planId])
   let p = terrenos.get(k)
   if (!p) {
     p = (async () => {
-      const rejilla = rejillaDeMaqueta(caja, 768, NODOS_MAX)
-      const lista = mosaicosDeRejilla(rejilla)
-      const cargados = await Promise.all(lista.map(cargaMosaico))
-      const mosaicos = new Map<string, Float32Array>()
-      let faltan = 0
-      lista.forEach((m, i) => {
-        const h = cargados[i]
-        if (h) mosaicos.set(claveDeMosaico(m), h)
-        else faltan++
-      })
-      if (faltan === lista.length) return null
-      const alturas = muestreaAlturas(rejilla, mosaicos)
+      const paquete = (planId ? await bajaPaquete(planId) : null) ?? await calculaPaquete(ruta, cotas, planId)
+      if (!paquete) return null
+      const { rejilla, alturas, mascara } = reduceRejilla(paquete.cabecera.rejilla, paquete.alturas, paquete.mascara, NODOS_MAX)
       let min = Infinity
       let max = -Infinity
       for (const h of alturas) { if (h < min) min = h; if (h > max) max = h }
       const escala = escalaDeMaqueta(rejilla, min, exageracionMaqueta(largoEnMetros(rejilla), max - min), GROSOR)
       // Sin cotas del GPX, las de la propia loseta: mejor que una montaña fija.
-      const rango = cotas ?? (max - min >= 100 ? { min, max } : null)
-      return { rejilla, alturas, escala, malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO), faltan }
+      const rango = cotas ?? paquete.cabecera.cotas ?? (max - min >= 100 ? { min, max } : null)
+      return { rejilla, alturas, mascara, escala, malla: mallaDeMaqueta(rejilla, alturas, escala, rango, CANTO, mascara), faltan: paquete.cabecera.faltan }
     })()
     p.then((t) => { if (!t) terrenos.delete(k) })
     terrenos.set(k, p)
@@ -221,9 +275,11 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
   return lienzoBandera
 }
 
-function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number]): THREE.Sprite {
+/** Una chincheta clavada en `sitio` por la punta de su palo: `pie` dice en qué
+ *  fracción del ancho del dibujo está el palo (en las banderas, a la izquierda). */
+function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5): THREE.Sprite {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false }))
-  s.center.set(0.5, 0)
+  s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
   s.position.set(sitio[0], sitio[1], sitio[2])
   return s
@@ -248,12 +304,14 @@ const suave = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
 interface Props {
   ruta: [number, number][]
   cotas: RangoAlturas | null
+  /** El id del recorrido compartido: bajo él se guarda el paquete para todos. */
+  planId: string | null
   corredores: Corredor3D[]
   puntos: Punto3D[]
   nombre: string | null
 }
 
-export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre }: Props) {
+export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const escena = useRef<Escena | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'lista' | 'error'>('cargando')
@@ -406,7 +464,7 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
     if (!e) return
     let vigente = true
     setEstado('cargando')
-    construyeTerreno(ruta, cotas).then((terreno) => {
+    construyeTerreno(ruta, cotas, planId).then((terreno) => {
       if (!vigente) return
       const e = escena.current
       if (!e) return
@@ -447,6 +505,45 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
         e.loseta.add(cinta(CORDON_ANCHO * 1.7, CORDON_ALTO * 0.6, '#f8fafc'))
         e.loseta.add(cinta(CORDON_ANCHO, CORDON_ALTO, '#6d28d9'))
       }
+
+      // Los árboles, en el bosque: una copa de cono sobre un tronco, miles
+      // de copias de la misma pieza (instancias, un solo dibujo para la
+      // tarjeta), cada una con su tamaño, su giro y su verde. Grandes para
+      // lo que son —a esta escala un pino mide cien metros—, como en las
+      // maquetas de verdad, que si no no se verían.
+      const arboles = sitiosDeArboles(rejilla, alturas, terreno.mascara, escala, CELDA_ARBOL, ARBOLES_MAX)
+      const n = arboles.length / 4
+      if (n > 0) {
+        const copa = new THREE.ConeGeometry(0.0095, 0.026, 6)
+        copa.translate(0, 0.008 + 0.013, 0)
+        const tronco = new THREE.CylinderGeometry(0.0022, 0.0028, 0.009, 5)
+        tronco.translate(0, 0.0045, 0)
+        const copas = new THREE.InstancedMesh(copa, new THREE.MeshLambertMaterial({ color: 0xffffff }), n)
+        const troncos = new THREE.InstancedMesh(tronco, new THREE.MeshLambertMaterial({ color: 0x5b4634 }), n)
+        const matriz = new THREE.Matrix4()
+        const giro = new THREE.Quaternion()
+        const eje = new THREE.Vector3(0, 1, 0)
+        const sitio = new THREE.Vector3()
+        const tamano = new THREE.Vector3()
+        const oscuro = new THREE.Color('#3f7a3a')
+        const claro = new THREE.Color('#7fb45a')
+        const verde = new THREE.Color()
+        for (let k = 0; k < n; k++) {
+          const t = arboles[k * 4 + 3]
+          sitio.set(arboles[k * 4], arboles[k * 4 + 1], arboles[k * 4 + 2])
+          giro.setFromAxisAngle(eje, ((k * 0.618034) % 1) * Math.PI * 2)
+          tamano.set(t, t, t)
+          matriz.compose(sitio, giro, tamano)
+          copas.setMatrixAt(k, matriz)
+          troncos.setMatrixAt(k, matriz)
+          // Los grandes, más oscuros: da profundidad sin más geometría.
+          copas.setColorAt(k, verde.copy(claro).lerp(oscuro, (t - 0.7) / 0.6))
+        }
+        copas.castShadow = true
+        copas.receiveShadow = true
+        troncos.castShadow = true
+        e.loseta.add(copas, troncos)
+      }
       e.renderer.shadowMap.needsUpdate = true
 
       // La cámara mira al centro de la loseta, a media altura del relieve, y
@@ -463,7 +560,7 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
       setEstado('lista')
     })
     return () => { vigente = false }
-  }, [ruta, cotas])
+  }, [ruta, cotas, planId])
 
   // Las chinchetas fijas: salida, meta y los puntos del recorrido.
   useEffect(() => {
@@ -471,20 +568,23 @@ export default function EventMaqueta3D({ ruta, cotas, corredores, puntos, nombre
     if (!e || estado !== 'lista' || !e.terreno) return
     const { rejilla, alturas, escala } = e.terreno
     const hechas: THREE.Sprite[] = []
-    const pon = (c: HTMLCanvasElement, ancho: number, alto: number, lat: number, lon: number, key: string) => {
+    const pon = (c: HTMLCanvasElement, ancho: number, alto: number, lat: number, lon: number, key: string, pie = 0.5) => {
       const sitio = sitioEnMaqueta(rejilla, alturas, escala, lat, lon)
       if (!sitio) return
-      const s = chincheta(c, ancho, alto, sitio)
+      const s = chincheta(c, ancho, alto, sitio, pie)
       s.userData.key = key
       e.chinchetas.add(s)
       hechas.push(s)
     }
+    // El mástil de la bandera está a la izquierda del dibujo (ver
+    // `dibujaBandera`): se clava por ahí, que caiga justo sobre el cordón.
     const ext = extremosDelRecorrido(ruta)
+    const MASTIL = 10 / 72
     if (ext) {
-      if (ext.separadasM < 100) pon(dibujaBandera('salida-meta'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo')
+      if (ext.separadasM < 100) pon(dibujaBandera('salida-meta'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL)
       else {
-        pon(dibujaBandera('meta'), 0.12, 0.2, ext.meta[0], ext.meta[1], 'extremo')
-        pon(dibujaBandera('salida'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo')
+        pon(dibujaBandera('meta'), 0.12, 0.2, ext.meta[0], ext.meta[1], 'extremo', MASTIL)
+        pon(dibujaBandera('salida'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL)
       }
     }
     puntos.forEach((p, i) => pon(dibujaPunto(p), 0.06, 0.12, p.lat, p.lon, `punto:${i}`))

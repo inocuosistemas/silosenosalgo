@@ -255,6 +255,8 @@ interface Props {
   cotas: RangoAlturas | null
   /** El nombre del evento, para el fichero de la maqueta compartida. */
   nombre: string | null
+  /** El id del recorrido compartido: bajo él se guarda el paquete de la maqueta. */
+  planId: string | null
   corredores: Corredor3D[]
   puntos: Punto3D[]
   fotos: EventFoto[]
@@ -262,7 +264,7 @@ interface Props {
   onCerrar: () => void
 }
 
-export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
+export default function EventMapa3D({ ruta, cotas, nombre, planId, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const mapa = useRef<MapaGL | null>(null)
   /** Con qué se encuadra al abrir; lo que llegue después ya no mueve la cámara. */
@@ -580,7 +582,7 @@ export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, f
       {enMaqueta && (
         <div className="absolute inset-0 z-[6]">
           <Suspense fallback={<CargandoMarca texto="Cargando la maqueta…" />}>
-            <EventMaqueta3D ruta={ruta!} cotas={cotas} corredores={corredores} puntos={puntos} nombre={nombre} />
+            <EventMaqueta3D ruta={ruta!} cotas={cotas} planId={planId} corredores={corredores} puntos={puntos} nombre={nombre} />
           </Suspense>
         </div>
       )}

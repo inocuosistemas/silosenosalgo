@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   LADO_MOSAICO, aLineal, aligera, alturaEn, cajaDeMaqueta, cintaSobreTerreno, colorPorAltura, cordonSobreTerreno, escalaDeMaqueta, exageracionMaqueta,
-  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, rejillaDeMaqueta, sitioEnMaqueta, tablaDeColores,
+  mallaDeMaqueta, mosaicosDeRejilla, muestreaAlturas, paradasRgb, proyecta, reduceRejilla, rejillaDeMaqueta, sitioEnMaqueta,
+  sitiosDeArboles, tablaDeColores,
   type Rejilla,
 } from '../src/lib/maqueta3d'
 import { COLOR_AGUA } from '../src/lib/mapa3d'
+import { MASCARA_AGUA, MASCARA_BOSQUE, MASCARA_RIO } from '../shared/maquetaPaquete'
 
 describe('cajaDeMaqueta', () => {
   it('el rectángulo del recorrido con un 8 % de margen por cada lado', () => {
@@ -251,6 +253,69 @@ describe('cintaSobreTerreno', () => {
   it('la vuelta de píxeles a unidades es la inversa', () => {
     expect(escala.px(escala.x(300))).toBeCloseTo(300)
     expect(escala.py(escala.z(600))).toBeCloseTo(600)
+  })
+})
+
+describe('máscara en la malla', () => {
+  const r = rejillaSimple(3, 3)
+  const alturas = new Float32Array([500, 500, 500, 500, 500, 500, 500, 500, 500])
+  const escala = escalaDeMaqueta(r, 500, 2)
+
+  it('el agua va del azul del mar y el bosque, más oscuro que el suelo', () => {
+    const mascara = new Uint8Array([0, MASCARA_AGUA, MASCARA_BOSQUE, 0, MASCARA_RIO, 0, 0, 0, 0])
+    const m = mallaDeMaqueta(r, alturas, escala, { min: 400, max: 600 }, [0.8, 0.7, 0.6], mascara)
+    const color = (n: number) => [m.colores[n * 3], m.colores[n * 3 + 1], m.colores[n * 3 + 2]]
+    const agua = [0x5b, 0x8a, 0xa6].map((c) => aLineal(c / 255))
+    expect(color(1).map((c) => +c.toFixed(4))).toEqual(agua.map((c) => +c.toFixed(4)))
+    expect(color(4)).toEqual(color(1))
+    const suelo = color(0)
+    const bosque = color(2)
+    expect(bosque[0] + bosque[1] + bosque[2]).toBeLessThan(suelo[0] + suelo[1] + suelo[2])
+    expect(bosque).not.toEqual(suelo)
+  })
+})
+
+describe('reduceRejilla', () => {
+  it('con menos nodos guarda la caja, interpola alturas y copia la máscara', () => {
+    const r: Rejilla = { ...rejillaSimple(5, 5) }
+    const alturas = new Float32Array(25).map((_, n) => (n % 5) * 100)
+    const mascara = new Uint8Array(25).map((_, n) => (n % 5 === 4 ? MASCARA_BOSQUE : 0))
+    const red = reduceRejilla(r, alturas, mascara, 3)
+    expect(red.rejilla.cols).toBe(3)
+    expect(red.rejilla.filas).toBe(3)
+    expect(red.rejilla.anchoPx).toBe(r.anchoPx)
+    expect(Array.from(red.alturas.slice(0, 3))).toEqual([0, 200, 400])
+    expect(Array.from(red.mascara.slice(0, 3))).toEqual([0, 0, MASCARA_BOSQUE])
+    expect(reduceRejilla(r, alturas, mascara, 5).rejilla).toBe(r)
+  })
+})
+
+describe('sitiosDeArboles', () => {
+  const r = rejillaSimple(8, 8)
+  const alturas = new Float32Array(64).fill(1000)
+  const escala = escalaDeMaqueta(r, 1000, 2)
+
+  it('solo en el bosque, como mucho uno por celda, y siempre los mismos', () => {
+    const mascara = new Uint8Array(64)
+    for (let n = 0; n < 32; n++) mascara[n] = MASCARA_BOSQUE
+    const a = sitiosDeArboles(r, alturas, mascara, escala, 2, 100, 1)
+    expect(a.length % 4).toBe(0)
+    // 4 filas de bosque en celdas de 2 → 2 filas de celdas × 4 = 8 como mucho.
+    expect(a.length / 4).toBeLessThanOrEqual(8)
+    expect(a.length / 4).toBeGreaterThan(0)
+    for (let k = 0; k < a.length; k += 4) {
+      expect(a[k + 2]).toBeLessThan(0) // las filas de arriba son el norte: Z negativa
+      expect(a[k + 1]).toBeCloseTo(escala.y(1000))
+      expect(a[k + 3]).toBeGreaterThanOrEqual(0.7)
+      expect(a[k + 3]).toBeLessThanOrEqual(1.3)
+    }
+    expect(sitiosDeArboles(r, alturas, mascara, escala, 2, 100, 1)).toEqual(a)
+  })
+
+  it('sin bosque no hay árboles, y el tope manda', () => {
+    expect(sitiosDeArboles(r, alturas, new Uint8Array(64), escala, 2, 100).length).toBe(0)
+    const todo = new Uint8Array(64).fill(MASCARA_BOSQUE)
+    expect(sitiosDeArboles(r, alturas, todo, escala, 1, 5, 1).length).toBe(20)
   })
 })
 
