@@ -869,12 +869,14 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     // Los nombres de las poblaciones, de las más importantes: sobre sus
     // casas, un poco por encima del suelo.
-    // Un nombre se lee siempre, aunque haya un pino o una loma delante: por
-    // encima de todo y sin prueba de profundidad. Y se puede quitar (`rotulos`).
+    // Los nombres sí se tapan con el monte —al contrario que las chinchetas
+    // de la gente—: vistos desde bajo, los de la otra vertiente se colaban a
+    // través de la ladera y no se entendía nada. Y se pueden quitar (`rotulos`).
     const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
       // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
       const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
       const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
+      s.material.depthTest = true
       s.renderOrder = 3
       s.userData.key = key
       s.userData.rotulo = true
@@ -882,9 +884,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       e.chinchetas.add(s)
       hechas.push(s)
     }
+    // Con un palo que los sube por encima de los pinos, que si no un bosque
+    // delante se comía media pastilla.
     e.terreno.lugares.slice(0, ROTULOS_MAX).forEach((l, i) => {
-      const [x, y, z] = sitioDeFraccion(rejilla, alturas, escala, l.u, l.v)
-      rotulo(dibujaRotulo(l.n), [x, y + 0.02, z], `lugar:${i}`)
+      rotulo(dibujaRotulo(l.n, '#f8fafc', 40), sitioDeFraccion(rejilla, alturas, escala, l.u, l.v), `lugar:${i}`)
     })
     // Las cimas, con palo hasta el punto exacto y a tres alturas distintas,
     // que en una cresta van seguidas y las pastillas se pisaban.
