@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { X, UserPlus, Shield, Download, Share2 } from 'lucide-react'
 import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
 import { useAuth } from '../lib/AuthContext'
@@ -24,6 +24,9 @@ import { ListaResultados, RecordDeKm } from './EventResults'
 import { Plegable } from './Plegable'
 import { simplificaTrazado, trazadoBastaFino } from '../lib/eventPlan'
 import { BaseChangeNotice } from './BaseChangeNotice'
+import { AuthMenu } from './AuthMenu'
+import { enlaceDeVista, type VistaEvento } from '../lib/vistaEvento'
+import { listPlans } from '../lib/plansTransport'
 import { Dorsal, DorsalGrande, carreraDeBase, type DorsalCarrera } from './Dorsal'
 import { reviveSharePayload } from '../lib/sharePayload'
 import { downloadGpx } from '../lib/gpxSerialize'
@@ -45,7 +48,15 @@ import { downloadGpx } from '../lib/gpxSerialize'
 
 const REFRESH_MS = 15_000
 
-export default function EventLobby({ id }: { id: string }) {
+export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr }: {
+  id: string
+  /** Qué parte de la casa del evento se pinta: la parrilla o tu plan. */
+  seccion?: 'parrilla' | 'plan'
+  /** La barra de secciones del evento, arriba y fija. */
+  nav?: ReactNode
+  /** Cambiar de sección sin recargar; sin él, se navega a su dirección. */
+  onIr?: (vista: VistaEvento) => void
+}) {
   const { user, status } = useAuth()
   const [data, setData] = useState<EventDetailResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +73,16 @@ export default function EventLobby({ id }: { id: string }) {
   const [porras, setPorras] = useState<Map<string, string>>(new Map())
   /** Se está armando el GPX del recorrido para bajarlo. */
   const [bajandoGpx, setBajandoGpx] = useState(false)
+  /** Tu previsión guardada para esta carrera, para "Mi plan". `undefined` mientras se mira. */
+  const [miPrevision, setMiPrevision] = useState<Awaited<ReturnType<typeof listPlans>>[number] | null | undefined>(undefined)
+  useEffect(() => {
+    if (seccion !== 'plan' || !user) return
+    let vivo = true
+    listPlans()
+      .then((ps) => { if (vivo) setMiPrevision(ps.find((pl) => pl.eventId === id) ?? null) })
+      .catch(() => { if (vivo) setMiPrevision(null) })
+    return () => { vivo = false }
+  }, [seccion, id, user])
   /** Lo último que se subió como vista previa, para no repetir la subida. */
   const tarjetaSubida = useRef<string | null>(null)
 
@@ -299,7 +320,7 @@ export default function EventLobby({ id }: { id: string }) {
 
   if (!data) return <div className="h-dvh"><CargandoMarca texto="Cargando el evento…" /></div>
 
-  const { event, members: enParrilla, takenColors, takenEmojis, myPlanOverlay } = data
+  const { event, members: enParrilla, takenColors, takenEmojis } = data
   /**
    * La parrilla, por DORSAL.
    *
@@ -688,8 +709,125 @@ export default function EventLobby({ id }: { id: string }) {
     catch (e) { setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network')); setBusy(false) }
   }
 
+  const ir = onIr ?? ((vista: VistaEvento) => { window.location.href = enlaceDeVista(id, vista) })
+  /** Un enlace a otra sección: dirección de verdad, pero un toque normal no recarga. */
+  const alPulsar = (vista: VistaEvento) => (e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+    e.preventDefault()
+    ir(vista)
+  }
+
+  /**
+   * La barra del evento, arriba y fija: el nombre, quién mira y las
+   * secciones. Sale en la parrilla y en tu plan igual que sobre el mapa.
+   */
+  const barra = nav ? (
+    <div
+      className="sticky top-0 z-40 -mx-4 -mt-6 mb-4 border-b border-slate-800 bg-slate-950/95 px-4 pb-2 backdrop-blur"
+      style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+    >
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-sm font-bold text-slate-100">{event.name}</p>
+        <AuthMenu />
+      </div>
+      <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90">{nav}</div>
+    </div>
+  ) : null
+
+  /**
+   * MI PLAN: lo tuyo sobre la carrera de todos, en su propia sección.
+   *
+   * Antes era un bloque a mitad de la parrilla, y ajustar abría siempre una
+   * copia nueva del recorrido del evento: al guardarla pisaba los ritmos que ya
+   * tenías. Ahora dice si tienes previsión y de cuándo es, y "Ajustar" abre la
+   * TUYA. Planificar desde cero solo se ofrece a quien no tiene ninguna.
+   */
+  if (seccion === 'plan') {
+    const planificar = event.planShareId
+      ? `/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${event.startsAt ? `&salida=${event.startsAt}` : ''}`
+      : null
+    const ajustar = miPrevision ? `/?prevision=${encodeURIComponent(miPrevision.id)}&de=${encodeURIComponent(id)}` : planificar
+    return (
+      <Shell>
+        {barra}
+        <p className="text-[11px] uppercase tracking-wider text-slate-500">🧭 Mi plan</p>
+        <h1 className="text-xl font-bold text-slate-100">{event.name}</h1>
+        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+        {!me ? (
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-400">
+            El plan es de quien corre, y no estás en la parrilla de esta carrera.
+          </p>
+        ) : (
+          <>
+            <BaseChangeNotice
+              eventId={id}
+              planShareId={event.planShareId}
+              planUpdatedAt={event.planUpdatedAt}
+              planChange={event.planChange}
+              startsAt={event.startsAt}
+              soyParticipante
+            />
+            <section className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+              <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">Tu previsión</h2>
+              <p className="text-sm text-slate-300">
+                {miPrevision === undefined
+                  ? 'Mirando tus previsiones…'
+                  : miPrevision
+                    ? <>«{miPrevision.name}», guardada el {fmtDate(miPrevision.updatedAt)}. Lleva tus ritmos y objetivos para esta carrera.</>
+                    : 'Aún no tienes. Corres con los ritmos de la previsión del evento; ponte los tuyos sin cambiar nada a los demás.'}
+              </p>
+              {ajustar ? (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <a
+                    href={ajustar}
+                    className="flex items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500"
+                  >
+                    {miPrevision ? 'Ajustar mi previsión →' : 'Planificar mi salida →'}
+                  </a>
+                  {/* El GPX es el recorrido de la carrera: sin recorrido publicado no hay nada que bajar. */}
+                  {event.planShareId && (
+                  <button
+                    type="button"
+                    onClick={descargaGpx}
+                    disabled={bajandoGpx}
+                    title="Descargar el GPX del recorrido del evento, con los controles y los cierres dentro"
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-xs font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800/60 disabled:opacity-50"
+                  >
+                    <Download size={13} className="shrink-0" />
+                    {bajandoGpx ? 'Preparando…' : 'Descargar el GPX'}
+                  </button>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">La organización todavía no ha publicado el recorrido.</p>
+              )}
+              {miPrevision && planificar && (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  ¿Prefieres empezar de cero?{' '}
+                  <a href={planificar} className="text-sky-400 hover:underline">Abrir el recorrido del evento</a>
+                  : al guardar, sustituye a la que tienes.
+                </p>
+              )}
+            </section>
+            <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+              <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">En la baliza</h2>
+              <p className="text-xs leading-relaxed text-slate-400">
+                Al elegir esta carrera en la app, elige también tu previsión como ruta. Si no eliges ninguna, la baliza
+                corre con la del evento. El GPX lleva dentro los controles y los horarios de cierre, listo para el reloj.
+              </p>
+            </section>
+            <p className="mt-3 text-[11px] text-slate-500">
+              El recorrido, los controles y los horarios de cierre son de la carrera, iguales para todos. Los ritmos son tuyos y no se comparten.
+            </p>
+          </>
+        )}
+      </Shell>
+    )
+  }
+
   return (
     <Shell>
+      {barra}
       {event.hasPhoto && (
         <img
           // La versión sale del servidor (`event.photoAt`), no de un estado
@@ -1064,7 +1202,8 @@ export default function EventLobby({ id }: { id: string }) {
       {/* El directo: el mapa común y unir mi baliza */}
       <section className="mt-5 space-y-2">
         <a
-          href={`/?e=${encodeURIComponent(id)}&mapa=1`}
+          href={enlaceDeVista(id, 'mapa')}
+          onClick={alPulsar('mapa')}
           className="block rounded-lg bg-sky-600 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-sky-500"
         >
           Ver el mapa del evento
@@ -1114,66 +1253,20 @@ export default function EventLobby({ id }: { id: string }) {
         )}
       </section>
 
-      {/* Mi planificación: lo personal sobre la base común. De quien corre. */}
+      {/* Mi plan, a un toque: lo personal tiene su propia sección. */}
       {me && (
-      <section className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-        <h2 className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">Mi planificación</h2>
-        <p className="text-xs text-slate-400">
-          {myPlanOverlay
-            ? 'Tienes ritmos y objetivos propios sobre el recorrido del evento.'
-            : 'Corres con la previsión del evento. Puedes ponerte tus propios ritmos y objetivos sin cambiar nada a los demás.'}
-        </p>
-        {event.planShareId && (
-          <>
-            {/* LAS DOS COSAS QUE SE HACEN CON EL RECORRIDO, dichas a la vez.
-                Antes solo había el enlace al planificador, y en línea suelta
-                entre dos párrafos: se leía como una nota al pie y no como la
-                acción que es. El GPX, además, no estaba por ningún lado —quien
-                lo quería tenía que entrar al planificador y encontrarlo allí—,
-                y son dos intenciones distintas: llevarse el fichero al reloj no
-                es planificar. Una al lado de la otra y con su peso, porque en
-                este punto de la parrilla es exactamente lo que se viene a
-                buscar. */}
-            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={descargaGpx}
-                disabled={bajandoGpx}
-                title="Descargar el GPX del recorrido del evento, con los controles y los cierres dentro"
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-xs font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800/60 disabled:opacity-50"
-              >
-                <Download size={13} className="shrink-0" />
-                {bajandoGpx ? 'Preparando…' : 'Descargar el GPX'}
-              </button>
-              {/* El recorrido del evento se abre en el planificador como COPIA
-                  editable (el mismo camino que un enlace compartido): nadie
-                  puede tocar el del evento. */}
-              {/* `de=` marca la procedencia: al guardar la previsión quedará
-                  anotada como de este evento, y así la baliza sabrá cuál de
-                  todas es la de esta carrera. */}
-              {/* `salida=` es la hora oficial de la carrera. Sin ella se heredaba
-                  la de la previsión con la que el organizador montó el evento, que
-                  es la que él tenía puesta ese día y casi nunca la de la carrera:
-                  todo el mundo empezaba corrigiendo la fecha a mano. */}
-              <a
-                href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
-                  event.startsAt ? `&salida=${event.startsAt}` : ''
-                }`}
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-sky-800/70 bg-sky-950/40 px-3 py-2.5 text-xs font-medium text-sky-300 transition-colors hover:border-sky-700 hover:bg-sky-900/40"
-              >
-                Planificar mi salida →
-              </a>
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              El GPX lleva dentro los controles y los horarios de cierre, listo para el reloj o para otra aplicación.
-              Planificar abre el recorrido en el planificador con todo eso ya puesto: guárdala en tus previsiones y elígela al empezar a compartir.
-            </p>
-          </>
-        )}
-        <p className="mt-1.5 text-[11px] text-slate-500">
-          El recorrido, los controles y los horarios de cierre son de la carrera, iguales para todos. Los ritmos son tuyos y no se comparten.
-        </p>
-      </section>
+        <a
+          href={enlaceDeVista(id, 'plan')}
+          onClick={alPulsar('plan')}
+          className="mt-5 flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-left transition-colors hover:border-sky-800"
+        >
+          <span className="text-xl" aria-hidden>🧭</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-slate-100">Mi plan</span>
+            <span className="block text-[11px] text-slate-400">Tus ritmos y objetivos para esta carrera, y el GPX para el reloj.</span>
+          </span>
+          <span className="shrink-0 text-slate-500" aria-hidden>›</span>
+        </a>
       )}
 
       {/* La frontera, dicha. Todo lo de abajo lo ve TODO EL MUNDO cuando se

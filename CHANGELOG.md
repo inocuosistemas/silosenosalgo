@@ -86,6 +86,33 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### Todo lo de una carrera, en una sola barra
+
+**Web · desplegado · compatible.** Cada evento tiene ahora una barra fija con
+sus secciones: **Parrilla, Mapa, Lista, Porra y Mi plan**, y al acabar,
+**Resultados y Replay** en lugar de la lista. Es la misma en la parrilla y
+sobre el mapa, y cada sección tiene su dirección (`/?e=<id>&v=porra`), así que
+se puede mandar a alguien directo a la porra, y atrás y recargar funcionan.
+
+Sin sección en el enlace se abre la que toca: antes de la salida, la parrilla;
+con la carrera en marcha, el mapa; terminada, los resultados. El mismo enlace
+del grupo, y el botón «Parrilla» de las apps, sirven la víspera y durante. Los
+enlaces viejos con `&mapa=1` siguen abriendo el mapa.
+
+**Mi plan** sale de la parrilla a su propia sección. Dice si tienes previsión
+para esa carrera y de cuándo es, y **Ajustar mi previsión** abre la tuya
+(`/?prevision=<id>`). Antes abría siempre una copia nueva del recorrido del
+evento, que al guardar pisaba los ritmos que ya tenías. La barra del
+planificador vuelve a «Mi plan».
+
+En la portada, con sesión iniciada, sale **Tus carreras** debajo de la
+cabecera: la que se corre, las que vienen y las acabadas esta semana, a un
+toque, sin buscar el enlace en el grupo.
+
+Las apps no cambian. Que la baliza elija sola tu previsión, y abrir las
+secciones desde la app con la sesión iniciada, es la fase siguiente y pide
+versión nueva.
+
 ### La porra se puede retirar entera
 
 **Web · desplegado.** "Acaba" y "no acaba" se apagan tocándolos otra vez, y al

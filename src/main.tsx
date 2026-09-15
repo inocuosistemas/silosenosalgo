@@ -21,9 +21,9 @@ window.addEventListener('vite:preloadError', (e) => {
 // must not pull in the full planning App, and vice-versa.
 const App = lazy(() => import('./App'))
 const LiveViewer = lazy(() => import('./components/LiveViewer'))
-// La parrilla de un evento es otra pantalla lean: no arrastra el planificador
-// entero, igual que el visor.
-const EventLobby = lazy(() => import('./components/EventLobby'))
+// La casa de un evento —parrilla, mapa, porra, tu plan— es otra pantalla lean:
+// no arrastra el planificador entero, igual que el visor.
+const EventHub = lazy(() => import('./components/EventHub'))
 const EventJoin = lazy(() => import('./components/EventJoin'))
 // El mapa del evento arrastra Leaflet, así que va aparte de la parrilla: quien solo
 // entra a elegir color no tiene por qué descargarse un mapa entero.
@@ -86,9 +86,7 @@ createRoot(document.getElementById('root')!).render(
           // Con sesión, porque un evento es de sus participantes: la parrilla
           // necesita saber quién mira para decirle cuál es su color.
           <AuthProvider>
-            {params.get('mapa')
-              ? <EventLiveMap source={{ kind: 'member', id: eventId! }} />
-              : <EventLobby id={eventId!} />}
+            <EventHub id={eventId!} />
           </AuthProvider>
         ) : isDemo ? (
           demoBaliza

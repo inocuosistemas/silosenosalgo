@@ -31,6 +31,8 @@ import { fetchLocationForWaypoints } from './lib/places'
 import { ShareCard } from './components/ShareCard'
 import { CutoffStrategy } from './components/CutoffStrategy'
 import { EventPlanBar } from './components/EventPlanBar'
+import { TusCarreras } from './components/TusCarreras'
+import { getPlan } from './lib/plansTransport'
 import { PassingPlan } from './components/PassingPlan'
 import { BuddyTracker } from './components/BuddyTracker'
 import type { NextCutoffInfo } from './components/BuddyTracker'
@@ -1288,6 +1290,34 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Abrir TU previsión guardada: /?prevision=<id>&de=<evento> ─────────────
+  // Es el "Ajustar mi previsión" de la carrera. Abre la previsión con tus
+  // ritmos, no una copia nueva del recorrido del evento: esa, al guardarla
+  // desde la barra de la carrera, pisaba lo que ya tenías. Se limpia de la
+  // barra de direcciones igual que `?s=`.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('prevision')
+    if (!id || params.get('s')) return
+    setShareLoading(true)
+    setShareLoadError(null)
+    ;(async () => {
+      try {
+        applyRevivedShare(await getPlan(id))
+      } catch {
+        setShareLoadError('No se pudo abrir tu previsión. Revisa tu conexión, o ábrela desde Previsiones.')
+      } finally {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('prevision')
+        url.searchParams.delete('de')
+        window.history.replaceState({}, '', url.toString())
+        setShareLoading(false)
+      }
+    })()
+    // Mount-only, como `?s=`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── User-POI handlers ─────────────────────────────────────────────────────
   function handleAddPois(materialised: MaterialisedPoi[]) {
     if (!track) return
@@ -2231,12 +2261,15 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       {/* Vengo de una carrera: contexto + guardar de un toque. Debajo de la
           cabecera y pegada como ella, porque el planificador es largo y el
           "para qué estoy ajustando esto" no puede quedarse arriba del todo. */}
-      {planEventId && (
+      {planEventId ? (
         <EventPlanBar
           eventId={planEventId}
           hasTrack={!!track}
           getPayload={() => { try { return buildCurrentSharePayload() } catch { return null } }}
         />
+      ) : (
+        // Tus carreras a un toque al entrar, sin buscar el enlace en el grupo.
+        <TusCarreras />
       )}
 
       {/* ── Sim control bar (dev only) ─────────────────────────────────────── */}

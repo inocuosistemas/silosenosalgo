@@ -1901,7 +1901,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             justo lo que se pierde al saltar del mapa común a una baliza suelta. */}
         {eventId && (
           <a
-            href={`/?e=${encodeURIComponent(eventId)}&mapa=1`}
+            href={`/?e=${encodeURIComponent(eventId)}&v=mapa`}
             title={eventName ? `Volver al mapa de ${eventName}` : 'Volver al mapa del evento'}
             className="inline-flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-sky-800 bg-sky-950/50 px-2 py-0.5 text-[11px] text-sky-300 hover:bg-sky-900/50"
           >

@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { VistaMapa } from '../lib/vistaEvento'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
@@ -211,7 +212,14 @@ type Source =
    */
   | { kind: 'demo'; fichero: string; enMs: number }
 
-export default function EventLiveMap({ source }: { source: Source }) {
+export default function EventLiveMap({ source, vista, onVista, nav }: {
+  source: Source
+  /** La sección que pide la casa del evento (`EventHub`); sin ella, la lleva esta pantalla. */
+  vista?: VistaMapa
+  onVista?: (vista: VistaMapa) => void
+  /** La barra de secciones del evento: sustituye a las pestañas propias y al volver. */
+  nav?: ReactNode
+}) {
   const { user, status } = useAuth()
   // Todo lo que no es "soy del evento" se mira sin sesión y sin los mandos de
   // participante: el enlace público y la demo se comportan igual en eso.
@@ -249,7 +257,14 @@ export default function EventLiveMap({ source }: { source: Source }) {
   const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<'mapa' | 'lista' | 'porra' | 'meta' | 'replay'>('mapa')
+  const [vistaPropia, setVistaPropia] = useState<VistaMapa>(vista ?? 'mapa')
+  /**
+   * La vista de turno. Dentro de la casa del evento la manda ella —y con ella
+   * la dirección, para que atrás y recargar funcionen—; en el enlace público y
+   * en la demo, que no tienen casa, la lleva esta pantalla sola.
+   */
+  const view = vista ?? vistaPropia
+  const setView = (v: VistaMapa) => { if (onVista) onVista(v); else setVistaPropia(v) }
   /**
    * Cuánto ocupa la cabecera, medido.
    *
@@ -1527,7 +1542,8 @@ export default function EventLiveMap({ source }: { source: Source }) {
             pronostica con una cuenta, y sin saber cuál está abierta no se
             entiende por qué no se puede— pero es una consulta, no un camino. */}
         <div className="flex shrink-0 items-start gap-2">
-          {!isPublic && (
+          {/* Con la barra del evento sobra: la parrilla es una de sus pestañas. */}
+          {!isPublic && !nav && (
             <a
               href={`/?e=${encodeURIComponent((source as { kind: 'member'; id: string }).id)}`}
               aria-label="Volver a la parrilla"
@@ -1550,7 +1566,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
             resultados llevan su propio título, y con el cuadro de la salida
             abierto ese ya lo dice. Las pestañas van SIEMPRE, que son la
             navegación. */}
-        <div className="pointer-events-auto min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur sm:max-w-[22rem]">
+        <div className={`pointer-events-auto min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur ${
+          nav ? 'sm:max-w-[34rem]' : 'sm:max-w-[22rem]'
+        }`}>
           {view === 'mapa' && !(waiting && panelOpen) && !(endedAt !== null && finPanelOpen) && (
             <>
               <p className="truncate px-2.5 pt-1.5 text-sm font-bold text-slate-100">{eventName ?? 'Evento'}</p>
@@ -1606,6 +1624,9 @@ export default function EventLiveMap({ source }: { source: Source }) {
               )}
             </>
           )}
+          {/* Dentro de la casa del evento, su barra: las mismas secciones que
+              en la parrilla, y la parrilla y tu plan entre ellas. */}
+          {nav ?? (
           <div className="flex items-stretch gap-1 p-1">
             {([
               'mapa', 'lista',
@@ -1627,6 +1648,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
               </button>
             ))}
           </div>
+          )}
           {/* A quién sigue el mapa, y cómo soltarlo. DENTRO de la tarjeta y no
               flotando debajo: flotando iba a una altura fija y la cabecera
               creció al meterle las pestañas, así que le caía encima. Y además

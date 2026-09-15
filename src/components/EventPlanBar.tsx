@@ -4,6 +4,7 @@ import type { PlanMeta } from '../../shared/wireTypes'
 import { listPlans, createPlan, updatePlan } from '../lib/plansTransport'
 import { getEvent, setEventPlan, getEventPlan, eventsErrorMessage, EventsError } from '../lib/eventsTransport'
 import { stripToEventBase, describeBaseChange, isNotableChange } from '../lib/eventPlan'
+import { enlaceDeVista } from '../lib/vistaEvento'
 import { useAuth } from '../lib/AuthContext'
 
 /**
@@ -123,12 +124,15 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
   return (
     <div className="sticky top-0 z-[1090] border-b border-slate-800 bg-slate-900/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2">
+        {/* De vuelta a donde se vino: quien corre, a su plan en la carrera,
+            que es donde ve si ya lo tiene guardado; quien solo organiza, a la
+            parrilla. */}
         <a
-          href={`/?e=${encodeURIComponent(eventId)}`}
+          href={enlaceDeVista(eventId, corro ? 'plan' : 'parrilla')}
           className="shrink-0 text-xs text-slate-400 hover:text-sky-400"
-          title="Volver a la parrilla"
+          title={corro ? 'Volver a mi plan en la carrera' : 'Volver a la parrilla'}
         >
-          ← Parrilla
+          {corro ? '← Mi plan' : '← Parrilla'}
         </a>
         <p className="min-w-0 flex-1 truncate text-xs text-slate-300">
           🏁 Ajustando{' '}
