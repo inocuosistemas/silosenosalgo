@@ -445,10 +445,17 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
   return lienzoBandera
 }
 
-/** Una chincheta clavada en `sitio` por la punta de su palo: `pie` dice en qué
- *  fracción del ancho del dibujo está el palo (en las banderas, a la izquierda). */
+/**
+ * Una chincheta clavada en `sitio` por la punta de su palo: `pie` dice en qué
+ * fracción del ancho del dibujo está el palo (en las banderas, a la izquierda).
+ *
+ * Sin prueba de profundidad: una chincheta se ve siempre, aunque la loma de
+ * delante la tape. Es lo que se viene a mirar, y en una maqueta girando, un
+ * corredor que aparece y desaparece detrás del monte se pierde de vista.
+ */
 function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5): THREE.Sprite {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false }))
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false, depthTest: false }))
+  s.renderOrder = 2
   s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
   s.position.set(sitio[0], sitio[1], sitio[2])
@@ -868,7 +875,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
       const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
       const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
-      s.material.depthTest = false
       s.renderOrder = 3
       s.userData.key = key
       s.userData.rotulo = true
@@ -948,7 +954,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
       f.sprite.scale.set(tam, tam * 1.5, 1)
       f.sprite.position.set(sitio[0], sitio[1], sitio[2])
-      f.sprite.renderOrder = esElegido ? 2 : 1
+      // El elegido, por encima de todo, rótulos incluidos.
+      f.sprite.renderOrder = esElegido ? 4 : 2
     }
     for (const [key, f] of e.fichas) {
       if (quedan.has(key)) continue
