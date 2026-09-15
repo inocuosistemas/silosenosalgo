@@ -86,6 +86,14 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### «Salir de la cuenta», al final de la pantalla
+
+**iOS y Android · Mejora al actualizar (sin publicar todavía: irá con la
+próxima versión).** El botón de salir de la cuenta deja la cabecera, donde
+estaba al lado del nombre y era fácil rozarlo con prisa, y pasa al final de la
+pantalla de la baliza, encima de la versión. Se sigue preguntando antes de
+salir.
+
 ### Ya no se sale sin carrera por despiste
 
 **iOS y Android 546 · Mejora al actualizar.** Era fácil pulsar «Compartir»

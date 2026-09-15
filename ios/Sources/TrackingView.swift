@@ -942,6 +942,17 @@ struct TrackingView: View {
                 }
                 .listRowBackground(Theme.slate900)
 
+                // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era
+                // fácil rozarlo con prisa, y es lo que menos se hace. Se sigue
+                // preguntando antes, que en marcha además hay que detener la
+                // baliza. Igual que en Android.
+                Section {
+                    Button("Salir de la cuenta") { pendingLogout = true }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .foregroundStyle(Theme.sky500)
+                }
+                .listRowBackground(Theme.slate900)
+
                 // La versión, al pie y en pequeño. No es decoración: es lo
                 // primero que hay que preguntar cuando alguien dice que algo no
                 // le funciona, y hasta ahora no había forma de saberlo —el
@@ -1149,7 +1160,8 @@ struct TrackingView: View {
         return t.isEmpty ? nil : t
     }
 
-    /// La cabecera de la pantalla: marca, "Baliza · usuario" y salir de la cuenta.
+    /// La cabecera de la pantalla: marca y "Baliza · usuario". Salir de la cuenta
+    /// va al final (ver el `Form`).
     private var cabecera: some View {
         HStack(spacing: 12) {
             Image("MarcaApp")
@@ -1166,10 +1178,7 @@ struct TrackingView: View {
                     .foregroundStyle(Theme.slate400)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
-            Button("Salir") { pendingLogout = true }
-                .buttonStyle(.borderless)
-                .foregroundStyle(Theme.sky500)
+            Spacer(minLength: 0)
         }
     }
 

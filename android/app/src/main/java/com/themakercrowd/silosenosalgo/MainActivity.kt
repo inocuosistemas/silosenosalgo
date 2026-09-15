@@ -426,9 +426,6 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     )
                 }
             }
-            // Se pregunta antes de salir, como en iOS: al lado del título es
-            // fácil rozarlo, y en marcha además hay que detener la baliza.
-            TextButton(onClick = { confirmandoSalida = true }) { Text("Salir") }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -915,6 +912,15 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
             )
         }
+
+        // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era fácil
+        // rozarlo con prisa, y es lo que menos se hace. Se sigue preguntando
+        // antes, que en marcha además hay que detener la baliza. Igual que en iOS.
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { confirmandoSalida = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Salir de la cuenta") }
 
         // La versión, al pie y en pequeño. No es decoración: es lo primero que
         // hay que preguntar cuando alguien dice que algo no le funciona, y sin
