@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Map as MapaGL, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type SkySpecification, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import { Map as IconoMapa, Mountain, Palette, Pause, RotateCw, X } from 'lucide-react'
+import { Map as IconoMapa, Mountain, Pause, RotateCw, X } from 'lucide-react'
 import type { EventFoto } from '../../shared/wireTypes'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
-import { COLOR_AGUA, coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
+import { COLOR_AGUA, COLOR_MESA, EMOJIS_HASTA, coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
+import { BotonRedondo } from './BotonRedondo'
 import { PUNTA, htmlExtremo, type TipoExtremo } from './SentidoRecorrido'
 import { extremosDelRecorrido, marcasDeExtremos, type LadoRotulo, type MarcasExtremos } from '../lib/sentidoRecorrido'
 
@@ -21,12 +22,16 @@ import { extremosDelRecorrido, marcasDeExtremos, type LadoRotulo, type MarcasExt
  * (ver `lib/relieve`).
  *
  * Mandos: dos dedos giran e inclinan; en el ordenador, Mayús + flechas o
- * arrastrar con el botón derecho. Y tres botones: girar alrededor sola, pasar
- * de inclinado a desde arriba, y cambiar entre el mapa y la maqueta.
+ * arrastrar con el botón derecho. Dos botones: girar alrededor sola y pasar
+ * de inclinado a desde arriba. Y abajo, las tres formas de mirar:
  *
- * La maqueta es el mismo relieve sin el mapa encima: coloreado por altura,
- * con la luz fija y el fondo liso. Sirve para VER la carrera —por dónde sube,
- * cuánto— más que para orientarse, que para eso está el mapa.
+ * - Mapa: el de OSM sobre el relieve.
+ * - Relieve: el mismo relieve sin mapa encima, coloreado por altura, con la
+ *   luz fija y el fondo liso; con los lagos y los ríos, que las alturas no
+ *   los saben.
+ * - Maqueta: la carrera recortada en una loseta sobre una mesa, en Three.js
+ *   (ver `EventMaqueta3D`). Sirve para VER la carrera entera —por dónde sube,
+ *   cuánto— y para el póster; para orientarse está el mapa.
  */
 
 // El trabajador de MapLibre, empaquetado por Vite. Sin decírselo lo busca junto
@@ -40,23 +45,24 @@ const EXAGERACION = 1.5
 const INCLINACION = 60
 /** Una vuelta por minuto: se ve el relieve girar sin marear. */
 const GRADOS_POR_MS = 360 / 60_000
-/** Con más gente que esto, puntos: treinta emojis en un valle no se leen. */
-const EMOJIS_HASTA = 20
 /** Los nombres de los puntos, desde este zoom; con pocos puntos, siempre. De
  *  lejos y con la cámara inclinada se amontonan unos encima de otros. */
 const ZOOM_ROTULOS = 12
 const ROTULOS_SIEMPRE_HASTA = 6
 
-/** El fondo de la maqueta: gris verdoso, mate, como una mesa. */
-const FONDO_MAQUETA = '#6b8384'
+// La maqueta es Three.js, no MapLibre, y pesa: se baja solo al elegirla.
+const EventMaqueta3D = lazy(() => import('./EventMaqueta3D'))
+
+/** Los dos aspectos que pinta MapLibre; la maqueta va aparte. */
+type AspectoMapLibre = Exclude<EstiloMapa3D, 'maqueta'>
 
 /**
- * Lo que cambia entre el mapa y la maqueta. Está en una tabla y no en dos
+ * Lo que cambia entre el mapa y el relieve. Está en una tabla y no en dos
  * estilos porque el cambio se hace en caliente, propiedad a propiedad: cambiar
  * el estilo entero se llevaría por delante el recorrido y las flechas, que se
  * añaden después.
  */
-const ASPECTO: Record<EstiloMapa3D, {
+const ASPECTO: Record<AspectoMapLibre, {
   fondo: string
   /** Cuánto se marca la sombra, y de qué color la umbría y la solana. */
   sombra: number
@@ -82,8 +88,8 @@ const ASPECTO: Record<EstiloMapa3D, {
       'atmosphere-blend': 0.8,
     },
   },
-  maqueta: {
-    fondo: FONDO_MAQUETA,
+  relieve: {
+    fondo: COLOR_MESA,
     sombra: 0.55,
     umbria: '#2b3a1f',
     solana: '#fff8e7',
@@ -91,9 +97,9 @@ const ASPECTO: Record<EstiloMapa3D, {
     // Todo del color del fondo y sin atmósfera: el relieve se funde con la
     // mesa a lo lejos en vez de seguir hasta un horizonte con cielo.
     cielo: {
-      'sky-color': FONDO_MAQUETA,
-      'horizon-color': FONDO_MAQUETA,
-      'fog-color': FONDO_MAQUETA,
+      'sky-color': COLOR_MESA,
+      'horizon-color': COLOR_MESA,
+      'fog-color': COLOR_MESA,
       'sky-horizon-blend': 1,
       'horizon-fog-blend': 1,
       'fog-ground-blend': 0.4,
@@ -105,9 +111,9 @@ const ASPECTO: Record<EstiloMapa3D, {
 /** El estilo con el que nace el mapa. Lleva ya puesto el aspecto elegido: si
  *  naciera como mapa y se cambiara después, se bajarían mosaicos de OSM que
  *  no se van a ver. */
-function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): StyleSpecification {
+function construyeEstilo(estilo: AspectoMapLibre, cotas: RangoAlturas | null): StyleSpecification {
   const a = ASPECTO[estilo]
-  const maqueta = estilo === 'maqueta'
+  const maqueta = estilo === 'relieve'
   return {
     version: 8,
     sources: {
@@ -191,9 +197,9 @@ function construyeEstilo(estilo: EstiloMapa3D, cotas: RangoAlturas | null): Styl
 
 /** Cambiar de aspecto con el mapa ya vivo: lo mismo que `construyeEstilo`,
  *  pero tocando solo lo que cambia. */
-function aplicaEstilo(m: MapaGL, estilo: EstiloMapa3D, cotas: RangoAlturas | null) {
+function aplicaEstilo(m: MapaGL, estilo: AspectoMapLibre, cotas: RangoAlturas | null) {
   const a = ASPECTO[estilo]
-  const maqueta = estilo === 'maqueta'
+  const maqueta = estilo === 'relieve'
   for (const capa of ['maqueta', 'agua-lagos', 'agua-rios']) m.setLayoutProperty(capa, 'visibility', maqueta ? 'visible' : 'none')
   m.setLayoutProperty('osm', 'visibility', maqueta ? 'none' : 'visible')
   m.setPaintProperty('maqueta', 'color-relief-color', coloresMaqueta(cotas))
@@ -210,7 +216,8 @@ function aplicaEstilo(m: MapaGL, estilo: EstiloMapa3D, cotas: RangoAlturas | nul
 const CLAVE_ESTILO = 'mapa3d.estilo'
 function estiloGuardado(): EstiloMapa3D {
   try {
-    return localStorage.getItem(CLAVE_ESTILO) === 'maqueta' ? 'maqueta' : 'mapa'
+    const v = localStorage.getItem(CLAVE_ESTILO)
+    return v === 'maqueta' || v === 'relieve' ? v : 'mapa'
   } catch {
     return 'mapa'
   }
@@ -246,6 +253,8 @@ interface Props {
   ruta: [number, number][] | null
   /** Entre qué cotas se mueve el recorrido, para repartir los colores de la maqueta. */
   cotas: RangoAlturas | null
+  /** El nombre del evento, para el fichero de la maqueta compartida. */
+  nombre: string | null
   corredores: Corredor3D[]
   puntos: Punto3D[]
   fotos: EventFoto[]
@@ -253,12 +262,16 @@ interface Props {
   onCerrar: () => void
 }
 
-export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
+export default function EventMapa3D({ ruta, cotas, nombre, corredores, puntos, fotos, onAbrirFoto, onCerrar }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const mapa = useRef<MapaGL | null>(null)
   /** Con qué se encuadra al abrir; lo que llegue después ya no mueve la cámara. */
   const inicio = useRef({ ruta, corredores, cotas })
   const [estilo, setEstilo] = useState<EstiloMapa3D>(estiloGuardado)
+  /** Lo último que pintó MapLibre: mientras se mira la maqueta, sigue debajo tal cual. */
+  const aspecto = useRef<AspectoMapLibre>(estilo === 'maqueta' ? 'mapa' : estilo)
+  const hayRecorrido = !!ruta && ruta.length >= 2
+  const enMaqueta = estilo === 'maqueta' && hayRecorrido
   const marcas = useRef(new Map<string, { marca: Marker; el: HTMLDivElement; firma: string }>())
   const [hayWebGL] = useState(() => {
     try {
@@ -283,7 +296,7 @@ export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, on
     const vista = encuadre3D(ruta0, corredores0.map((c) => c.punto))
     const m = new MapaGL({
       container: caja.current,
-      style: construyeEstilo(estiloGuardado(), cotas0),
+      style: construyeEstilo(aspecto.current, cotas0),
       ...('limites' in vista
         ? { bounds: vista.limites, fitBoundsOptions: { padding: 48 } }
         : { center: vista.centro, zoom: vista.zoom }),
@@ -320,15 +333,16 @@ export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, on
   }, [])
 
   // El aspecto se cambia en caliente. Al nacer ya va puesto en el estilo, así
-  // que esto solo hace algo cuando se pulsa el botón o llegan cotas nuevas.
+  // que esto solo hace algo cuando se elige otro o llegan cotas nuevas. La
+  // maqueta no es de MapLibre: mientras está delante, el mapa se queda como estaba.
   useEffect(() => {
     const m = mapa.current
-    if (!m || !listo) return
+    if (!m || !listo || estilo === 'maqueta') return
+    aspecto.current = estilo
     aplicaEstilo(m, estilo, cotas)
   }, [estilo, cotas, listo])
 
-  const alternaEstilo = () => {
-    const nuevo: EstiloMapa3D = estilo === 'maqueta' ? 'mapa' : 'maqueta'
+  const eligeEstilo = (nuevo: EstiloMapa3D) => {
     guardaEstilo(nuevo)
     setEstilo(nuevo)
   }
@@ -548,9 +562,18 @@ export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, on
       {/* A lo alto y ancho, no con `absolute inset-0`: MapLibre le pone
           `position: relative` a su caja, que pisa el absolute y la deja con
           cero de alto — el mapa estaba ahí y no se veía. */}
-      <div ref={caja} className="h-full w-full" />
-      {!listo && (
+      {/* Con la maqueta delante, el mapa se esconde pero no se quita: al
+          volver está donde se dejó, sin volver a bajar nada. */}
+      <div ref={caja} className="h-full w-full" style={enMaqueta ? { visibility: 'hidden' } : undefined} />
+      {!listo && !enMaqueta && (
         <div className="pointer-events-none absolute inset-0 z-[5]"><CargandoMarca texto="Cargando el relieve…" /></div>
+      )}
+      {enMaqueta && (
+        <div className="absolute inset-0 z-[6]">
+          <Suspense fallback={<CargandoMarca texto="Cargando la maqueta…" />}>
+            <EventMaqueta3D ruta={ruta!} cotas={cotas} corredores={corredores} puntos={puntos} nombre={nombre} />
+          </Suspense>
+        </div>
       )}
       <button
         onClick={onCerrar}
@@ -559,21 +582,47 @@ export default function EventMapa3D({ ruta, cotas, corredores, puntos, fotos, on
       >
         <X size={14} /> Volver al mapa
       </button>
-      <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)' }}>
-        <Redondo etiqueta={estilo === 'maqueta' ? 'Ver el mapa' : 'Ver como maqueta'} activo={estilo === 'maqueta'} onClick={alternaEstilo}>
-          <Palette size={16} />
-        </Redondo>
-        <Redondo etiqueta={orbitando ? 'Parar el giro' : 'Girar alrededor'} activo={orbitando} onClick={alternaGiro}>
-          {orbitando ? <Pause size={16} /> : <RotateCw size={16} />}
-        </Redondo>
-        <Redondo etiqueta={inclinado ? 'Ver desde arriba' : 'Inclinar el mapa'} onClick={alternaInclinacion}>
-          {inclinado ? <IconoMapa size={16} /> : <Mountain size={16} />}
-        </Redondo>
+      {!enMaqueta && (
+        <div className="absolute right-3 z-10 flex flex-col gap-2" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 72px)' }}>
+          <BotonRedondo etiqueta={orbitando ? 'Parar el giro' : 'Girar alrededor'} activo={orbitando} onClick={alternaGiro}>
+            {orbitando ? <Pause size={16} /> : <RotateCw size={16} />}
+          </BotonRedondo>
+          <BotonRedondo etiqueta={inclinado ? 'Ver desde arriba' : 'Inclinar el mapa'} onClick={alternaInclinacion}>
+            {inclinado ? <IconoMapa size={16} /> : <Mountain size={16} />}
+          </BotonRedondo>
+        </div>
+      )}
+      {/* Las tres formas de mirar la carrera, abajo en medio: es la decisión
+          principal de esta pantalla y se ve sin buscarla. */}
+      <div
+        className="absolute inset-x-0 z-10 flex justify-center"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}
+      >
+        <div role="radiogroup" aria-label="Cómo se ve la carrera" className="flex gap-0.5 rounded-full border border-slate-700 bg-slate-900/90 p-1 shadow-lg backdrop-blur">
+          {([['mapa', 'Mapa'], ['relieve', 'Relieve'], ['maqueta', 'Maqueta']] as [EstiloMapa3D, string][]).map(([valor, texto]) => {
+            const puede = valor !== 'maqueta' || hayRecorrido
+            return (
+              <button
+                key={valor}
+                role="radio"
+                aria-checked={estilo === valor}
+                disabled={!puede}
+                title={puede ? undefined : 'Sin recorrido publicado no hay maqueta'}
+                onClick={() => eligeEstilo(valor)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  estilo === valor ? 'bg-sky-500/90 text-white' : puede ? 'text-slate-300 hover:text-white' : 'text-slate-600'
+                }`}
+              >
+                {texto}
+              </button>
+            )
+          })}
+        </div>
       </div>
-      {ayuda && listo && (
+      {ayuda && listo && !enMaqueta && (
         <div
           className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-16"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 64px)' }}
         >
           <p className="rounded-2xl bg-slate-900/85 px-3 py-1.5 text-center text-[11px] leading-snug text-slate-200 shadow-lg">
             Dos dedos para girar e inclinar · en el ordenador, Mayús + flechas o arrastrar con el botón derecho
@@ -603,24 +652,4 @@ function imagenFlecha(): ImageData {
   ctx.strokeStyle = '#1e1b4b'
   ctx.stroke(punta)
   return ctx.getImageData(0, 0, lado, lado)
-}
-
-function Redondo({ etiqueta, activo = false, onClick, children }: {
-  etiqueta: string
-  activo?: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={etiqueta}
-      aria-label={etiqueta}
-      className={`grid h-11 w-11 place-items-center rounded-full border shadow-lg backdrop-blur active:scale-95 ${
-        activo ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-700 bg-slate-900/90 text-slate-200'
-      }`}
-    >
-      {children}
-    </button>
-  )
 }

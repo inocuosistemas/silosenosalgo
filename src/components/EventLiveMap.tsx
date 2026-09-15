@@ -1660,6 +1660,7 @@ export default function EventLiveMap({ source }: { source: Source }) {
             <EventMapa3D
               ruta={route?.pts ?? null}
               cotas={cotas3D}
+              nombre={eventName}
               corredores={corredores3D}
               puntos={puntos3D}
               fotos={fotos}

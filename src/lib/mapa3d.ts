@@ -7,10 +7,11 @@ import type { ExpressionSpecification } from 'maplibre-gl'
  * llevan nombres que escribe la gente: todo texto pasa por `escapaHtml`.
  */
 
-/** Cómo se pinta el relieve: el mapa de verdad encima, o la maqueta —solo el
- *  relieve, coloreado por altura, como una de esas de cartón de las oficinas
- *  de turismo—. */
-export type EstiloMapa3D = 'mapa' | 'maqueta'
+/** Cómo se mira la carrera en 3D: el mapa de verdad sobre el relieve; el
+ *  relieve solo, coloreado por altura; o la maqueta —la carrera recortada
+ *  como una isla sobre una mesa, como las de cartón de las oficinas de
+ *  turismo (ver `maqueta3d`)—. */
+export type EstiloMapa3D = 'mapa' | 'relieve' | 'maqueta'
 
 export interface RangoAlturas { min: number; max: number }
 
@@ -36,6 +37,10 @@ export function rangoDeAlturas(eles: number[]): RangoAlturas | null {
 
 /** El azul del agua en la maqueta: el mar de la paleta y los lagos y ríos de OSM, que tienen que ser el mismo. */
 export const COLOR_AGUA = '#5b8aa6'
+/** La mesa sobre la que va la maqueta: gris verdoso, mate. */
+export const COLOR_MESA = '#6b8384'
+/** Con más gente que esto, puntos: treinta emojis en un valle no se leen. */
+export const EMOJIS_HASTA = 20
 
 /** Sin recorrido con alturas, una montaña cualquiera. */
 export const COTAS_FIJAS: RangoAlturas = { min: 400, max: 2400 }
@@ -61,6 +66,13 @@ export const COTA_NIEVE = 2200
  * bajo cero y hay que subirla por encima del agua.
  */
 export function coloresMaqueta(rango: RangoAlturas | null): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['elevation'], ...paradasMaqueta(rango).flat()]
+}
+
+/** Las paradas de la paleta —cota, color— de menor a mayor. Las mismas para
+ *  el relieve de MapLibre y para la isla de Three.js, que tienen que verse
+ *  del mismo color. */
+export function paradasMaqueta(rango: RangoAlturas | null): [number, string][] {
   const { min, max } = rango ?? COTAS_FIJAS
   const cota = (parte: number) => Math.round(min + (max - min) * parte)
   const paradas: [number, string][] = [
@@ -73,13 +85,11 @@ export function coloresMaqueta(rango: RangoAlturas | null): ExpressionSpecificat
     [Math.max(cota(1.05), COTA_ROCA), '#9a948c'],
     [Math.max(cota(1.3), COTA_NIEVE), '#ece9e2'],
   ]
-  const salida: (number | string)[] = []
   let previa = -Infinity
-  for (const [altura, color] of paradas) {
+  return paradas.map(([altura, color]) => {
     previa = Math.max(altura, previa + 1)
-    salida.push(previa, color)
-  }
-  return ['interpolate', ['linear'], ['elevation'], ...salida]
+    return [previa, color]
+  })
 }
 
 /** Un corredor tal como sale en 3D: donde lo pinta el mapa, con lo justo para reconocerlo. */
