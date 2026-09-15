@@ -55,7 +55,7 @@ function cuando(ms: number): string {
   return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${hora}`
 }
 
-export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, totalKm, recordKm, porraCongelada, proyecciones, onBack }: {
+export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, startsAt, limitMin, totalKm, recordKm, porraCongelada, proyecciones }: {
   eventId: string
   /** Para la tarjeta que se comparte: la carrera tiene que decir cuál es. */
   eventName: string | null
@@ -83,7 +83,6 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   recordKm: { username: string; minutos: number; desdeKm: number } | null
   /** Cómo acabaría cada uno al ritmo que lleva. Vacío fuera de carrera. */
   proyecciones: Proyeccion[]
-  onBack: () => void
 }) {
   const { user, login } = useAuth()
   const [showLogin, setShowLogin] = useState(false)
@@ -805,12 +804,6 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
         </ul>
       </details>
 
-      <button
-        onClick={onBack}
-        className="w-full rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
-      >
-        ← Volver al mapa
-      </button>
       </div>
     </div>
   )

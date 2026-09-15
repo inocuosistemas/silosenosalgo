@@ -854,41 +854,31 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </p>
       )}
 
-      {/* Compartir el seguimiento, arriba y a la vista: es lo que un
-          participante necesita cuando la familia pregunta dónde seguirle.
-          Solo con el enlace publicado —eso lo decide quien organiza, y abajo
-          se explica—; a quien organiza y aún no lo ha publicado se le ofrece
-          crearlo aquí mismo. */}
-      {me && event.publicToken ? (
-        <div className="mt-3">
-          <button
-            onClick={() => void compartirSeguimiento()}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 py-2.5 text-sm font-semibold text-sky-300 transition-colors hover:bg-sky-900/50"
-          >
-            <Share2 size={15} />
-            {comoFueSeguimiento === 'copiado' ? 'Enlace copiado · pégalo en el grupo'
-              : comoFueSeguimiento === 'compartido' ? 'Compartido ✓'
-              : comoFueSeguimiento === 'fallido' ? 'No se ha podido compartir'
-              : 'Compartir seguimiento'}
-          </button>
-          <p className="mt-1 text-center text-[11px] text-slate-500">
-            Para que familia y amigos sigan la carrera en directo, sin cuenta
-          </p>
-        </div>
-      ) : event.isOwner && !event.publicToken ? (
-        <div className="mt-3">
-          <button
-            onClick={() => void togglePublic(true)}
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-sky-800 py-2.5 text-sm text-sky-400 transition-colors hover:bg-sky-950/40 disabled:opacity-50"
-          >
-            <Share2 size={15} /> Crear enlace de seguimiento
-          </button>
-          <p className="mt-1 text-center text-[11px] text-slate-500">
-            Con él, cada participante podrá compartir la carrera con los suyos
-          </p>
-        </div>
-      ) : null}
+      {/* Compartir el seguimiento, arriba, a la vista y SIEMPRE en el mismo
+          sitio: es lo que se busca cuando la familia pregunta "¿dónde te
+          sigo?", y lo busca igual quien corre que quien organiza o mira. Crear
+          el enlace, regenerarlo o quitarlo es de la organización y vive allí;
+          sin enlace, el botón sigue en su sitio y dice por qué no va. */}
+      <div className="mt-3">
+        <button
+          onClick={() => void compartirSeguimiento()}
+          disabled={!event.publicToken}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-700 bg-sky-950/40 py-2.5 text-sm font-semibold text-sky-300 transition-colors hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900/40 disabled:text-slate-500"
+        >
+          <Share2 size={15} />
+          {comoFueSeguimiento === 'copiado' ? 'Enlace copiado · pégalo en el grupo'
+            : comoFueSeguimiento === 'compartido' ? 'Compartido ✓'
+            : comoFueSeguimiento === 'fallido' ? 'No se ha podido compartir'
+            : 'Compartir seguimiento'}
+        </button>
+        <p className="mt-1 text-center text-[11px] text-slate-500">
+          {event.publicToken
+            ? 'Para que familia y amigos sigan la carrera en directo, sin cuenta'
+            : event.isOwner
+              ? 'Aún no hay enlace público: créalo en Organización, más abajo'
+              : 'Aún no hay enlace público: lo crea quien organiza'}
+        </p>
+      </div>
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
 
@@ -1193,15 +1183,10 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </section>
       )}
 
-      {/* El directo: el mapa común y unir mi baliza */}
+      {/* El directo: unir mi baliza. El mapa ya está en la barra de arriba, y
+          un botón grande que llevaba a él le quitaba el sitio a lo único que
+          solo se puede hacer aquí. */}
       <section className="mt-5 space-y-2">
-        <a
-          href={enlaceDeVista(id, 'mapa')}
-          onClick={alPulsar('mapa')}
-          className="block rounded-lg bg-sky-600 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-sky-500"
-        >
-          Ver el mapa del evento
-        </a>
         {/* Se sale a correr como siempre y desde aquí se dice a qué carrera
             pertenece esta salida: no hace falta empezar la baliza "dentro" del
             evento, que en mitad de una salida ya empezada sería tarde. Nada de
@@ -1210,10 +1195,10 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         <button
           onClick={() => void toggleBeacon(!meLive)}
           disabled={busy}
-          className={`w-full rounded-lg border py-2 text-sm transition-colors disabled:opacity-50 ${
+          className={`w-full rounded-lg border text-sm transition-colors disabled:opacity-50 ${
             meLive
-              ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
-              : 'border-sky-800 text-sky-400 hover:bg-sky-950/40'
+              ? 'border-slate-700 py-2 text-slate-300 hover:bg-slate-800'
+              : 'border-sky-600 bg-sky-600 py-2.5 font-medium text-white hover:bg-sky-500'
           }`}
         >
           {meLive ? 'Quitar mi baliza del evento' : 'Unir mi baliza a este evento'}
@@ -1284,6 +1269,57 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           la lista y en el enlace que circula, y hasta ahora solo se escribía al
           crear la carrera. Corregir una errata obligaba a rehacer el evento
           entero, con código de unión nuevo y todos apuntándose otra vez. */}
+      {/* El ENLACE DE SEGUIMIENTO, para quien no corre: otra llave distinta de
+          la de unirse —con esta se mira, no se entra— que se puede regenerar o
+          quitar sin tocar el evento. Compartirlo lo hace cualquiera desde el
+          botón de arriba; crearlo, cambiarlo o apagarlo enseña o esconde la
+          carrera entera, y el servidor solo se lo deja a quien la creó. */}
+      {event.isOwner && (
+        <Plegable
+          orga
+          title="Enlace de seguimiento"
+          icon={<Share2 size={13} />}
+          summary={event.publicToken ? 'activo' : 'sin crear'}
+        >
+          {event.publicToken ? (
+            <>
+              <code className="block break-all rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300">
+                {eventPublicLink(event.publicToken)}
+              </code>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => void copyPublic()} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/50">
+                  {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('Se crea un enlace nuevo y el actual deja de funcionar para quien lo tenga. ¿Seguro?')) void togglePublic(true)
+                  }}
+                  disabled={busy}
+                  className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Generar otro
+                </button>
+                <button onClick={() => void togglePublic(false)} disabled={busy} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
+                  Dejar de compartir
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
+              </p>
+            </>
+          ) : (
+            <>
+              <button onClick={() => void togglePublic(true)} disabled={busy} className="rounded border border-sky-800 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
+                Crear enlace de seguimiento
+              </button>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Para que familia y amigos sigan la carrera sin cuenta. Con él, cada participante lo comparte desde el botón de arriba. Se puede quitar cuando quieras.
+              </p>
+            </>
+          )}
+        </Plegable>
+      )}
+
       {event.canOrganize && (
         <Plegable orga title="Nombre de la carrera" summary={event.name}>
           <NombreEditor
@@ -1573,63 +1609,6 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
-      {/* El enlace para quien NO participa: familia, amigos, la organización.
-          Es otra llave distinta de la de unirse — con esta se mira, no se
-          entra— y se puede quitar sin tocar el evento. */}
-      {(event.isOwner || event.publicToken || me) && (
-        <Plegable
-          title="Seguimiento para quien no corre"
-          summary={event.publicToken ? 'enlace activo' : 'sin publicar'}
-        >
-          {event.publicToken ? (
-            <>
-              <code className="block break-all rounded bg-slate-900 border border-slate-800 px-2 py-1.5 text-[11px] text-slate-300">
-                {eventPublicLink(event.publicToken)}
-              </code>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {/* Copiar lo puede TODO participante: cada uno reparte el enlace
-                    a los suyos, que para eso comparte su posición. Publicar,
-                    regenerar y revocar siguen siendo del organizador: eso
-                    enseña —o apaga— a la carrera entera de golpe. */}
-                <button onClick={() => void copyPublic()} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50">
-                  {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
-                </button>
-                {event.isOwner && (
-                  <>
-                    <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50">
-                      Generar otro
-                    </button>
-                    <button onClick={() => void togglePublic(false)} disabled={busy} className="px-2.5 py-1 rounded border border-slate-700 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
-                      Dejar de compartir
-                    </button>
-                  </>
-                )}
-              </div>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
-              </p>
-            </>
-          ) : event.isOwner ? (
-            <>
-              <button onClick={() => void togglePublic(true)} disabled={busy} className="px-2.5 py-1 rounded border border-sky-800 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
-                Crear enlace público
-              </button>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Para que la familia siga la carrera sin tener cuenta. Se puede revocar cuando quieras.
-              </p>
-            </>
-          ) : (
-            // Un participante no publica el evento entero —eso enseña a todos
-            // de golpe y es decisión de quien organiza— pero SÍ tiene una
-            // llave propia que repartir: la de su baliza, que solo le enseña a
-            // él y sale en la app al empezar a compartir.
-            <p className="text-[11px] text-slate-500">
-              Todavía no hay enlace de espectador: lo publica quien organiza. Para que los tuyos te sigan a TI,
-              comparte el enlace de tu baliza desde la app al empezar a compartir tu posición.
-            </p>
-          )}
-        </Plegable>
-      )}
 
 
       <div className="mt-6 flex gap-2">

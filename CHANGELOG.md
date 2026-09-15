@@ -86,6 +86,20 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-15
 
+### Compartir el seguimiento, siempre arriba; gestionarlo, en Organización
+
+**Web · desplegado · compatible.** El botón **Compartir seguimiento** de lo alto
+de la parrilla sale ahora a todos, siempre en el mismo sitio. Sin enlace
+público sigue ahí, apagado, y dice por qué. Crear el enlace, copiarlo,
+generar otro (con confirmación, porque el anterior deja de funcionar) y quitarlo
+pasan a **Organización → Enlace de seguimiento**, solo para quien creó el
+evento, que es a quien se lo permite el servidor. Desaparece el plegable
+«Seguimiento para quien no corre».
+
+Fuera también los botones que repetían la barra: **Ver el mapa del evento** en
+la parrilla, donde **Unir mi baliza** pasa a ser el botón principal, y
+**Volver al mapa** al final de la porra.
+
 ### El dorsal se comparte de un toque
 
 **Web · desplegado · compatible.** Al compartir el dorsal ya no sale la vista

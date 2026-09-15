@@ -1198,7 +1198,6 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // que se pueda rehacer aquí.
       porraCongelada={stats?.porra ?? null}
       proyecciones={proyecciones}
-      onBack={() => setView('mapa')}
     />
   ) : (
     // La MISMA parrilla que la del cuadro de la salida: barajada mientras nadie
