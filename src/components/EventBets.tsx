@@ -100,7 +100,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   const empezada = startsAt !== null && Date.now() >= startsAt
   useEffect(() => { if (empezada) setOraculosAbierto(true) }, [empezada])
 
-  const [saved, setSaved] = useState(false)
+  /** Lo que acaba de pasar al guardar, un par de segundos en el botón. */
+  const [hecho, setHecho] = useState<'apuntada' | 'retirada' | null>(null)
 
   // Lo que está eligiendo quien juega, antes de mandarlo.
   /** El orden de llegada que pronostica, del primero al último que quiera decir. */
@@ -226,28 +227,66 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
   /** El puesto de cada uno, compartido con quien lleve sus mismos puntos. */
   const puestos = useMemo(() => puestosDePorra(ranking), [ranking])
 
+  /**
+   * "Acaba" y "no acaba" se apagan tocándolos otra vez.
+   *
+   * Si te has equivocado —de carrera, o de cuenta, que pasa cuando uno mira
+   * el evento con la sesión de otro— tiene que poder no quedar nada, y con
+   * dos botones que solo encendían no había manera de volver al blanco. Al
+   * apagar se va también lo que colgaba de ahí, la hora o el kilómetro: si no,
+   * se quedaban escondidos y se mandaban igual.
+   */
+  const eligeAcaba = (nombre: string, acaba: boolean) => {
+    if (finish[nombre] !== acaba) { setFinish({ ...finish, [nombre]: acaba }); return }
+    setFinish(sin(finish, nombre))
+    setDurH(sin(durH, nombre))
+    setDurM(sin(durM, nombre))
+    setKmAbandono(sin(kmAbandono, nombre))
+  }
+
+  /**
+   * Lo que se mandaría ahora mismo, solo sobre quien sigue en la parrilla: el
+   * servidor rechaza ENTERA una porra que nombre a alguien que ya se fue del
+   * evento, y un pronóstico viejo sobre él dejaba la tuya sin poder tocarse.
+   */
+  const porraAMandar = () => {
+    const enParrilla = (n: string) => runners.some((r) => r.username === n)
+    const acaba: Record<string, boolean> = {}
+    const finishTime: Record<string, number> = {}
+    const abandonKm: Record<string, number> = {}
+    for (const r of runners) {
+      if (finish[r.username] !== undefined) acaba[r.username] = finish[r.username]
+      // Cada mitad solo vale con su mitad: la hora es de quien dices que
+      // acaba y el kilómetro de quien dices que no. Mandar las dos sería
+      // apostar a las dos cosas a la vez.
+      if (finish[r.username] === false) {
+        const km = Number(String(kmAbandono[r.username] ?? '').replace(',', '.'))
+        if (Number.isFinite(km) && km > 0) abandonKm[r.username] = km
+        continue
+      }
+      const min = minutosDe(durH[r.username], durM[r.username])
+      if (min === null || min <= 0) continue
+      finishTime[r.username] = (startsAt ?? 0) + min * 60_000
+    }
+    return {
+      order: order.filter(enParrilla), finish: acaba, finishTime, abandonKm,
+      fastestKm: miRecord && enParrilla(miRecord) ? miRecord : null,
+    }
+  }
+  const porra = porraAMandar()
+  /** Sin nada dentro. Guardar así RETIRA la porra, y el botón tiene que decirlo. */
+  const vacia = porra.order.length === 0 && Object.keys(porra.finish).length === 0
+    && Object.keys(porra.finishTime).length === 0 && Object.keys(porra.abandonKm).length === 0
+    && !porra.fastestKm
+
   const guardar = async () => {
     if (!startsAt) return
     setSaving(true)
     try {
-      const finishTime: Record<string, number> = {}
-      const abandonKm: Record<string, number> = {}
-      for (const r of runners) {
-        // Cada mitad solo vale con su mitad: la hora es de quien dices que
-        // acaba y el kilómetro de quien dices que no. Mandar las dos sería
-        // apostar a las dos cosas a la vez.
-        if (finish[r.username] === false) {
-          const km = Number(String(kmAbandono[r.username] ?? '').replace(',', '.'))
-          if (Number.isFinite(km) && km > 0) abandonKm[r.username] = km
-          continue
-        }
-        const min = minutosDe(durH[r.username], durM[r.username])
-        if (min === null || min <= 0) continue
-        finishTime[r.username] = startsAt + min * 60_000
-      }
-      await putEventBets(eventId, { order, finish, finishTime, abandonKm, fastestKm: miRecord })
-      setSaved(true)
-      window.setTimeout(() => setSaved(false), 2500)
+      const retira = vacia
+      await putEventBets(eventId, porraAMandar())
+      setHecho(retira ? 'retirada' : 'apuntada')
+      window.setTimeout(() => setHecho(null), 2500)
       await cargar()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -394,7 +433,8 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                       {([['si', 'acaba'], ['no', 'no acaba']] as const).map(([v, label]) => (
                         <button
                           key={v}
-                          onClick={() => setFinish({ ...finish, [r.username]: v === 'si' })}
+                          onClick={() => eligeAcaba(r.username, v === 'si')}
+                          aria-pressed={(acaba === true && v === 'si') || (acaba === false && v === 'no')}
                           className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
                             (acaba === true && v === 'si') || (acaba === false && v === 'no')
                               ? v === 'si' ? 'border-emerald-500 bg-emerald-500/15 text-emerald-200'
@@ -485,17 +525,21 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
             </div>
           </div>
 
+          {/* Vacía y con algo echado, el botón RETIRA: es la salida para quien
+              se metió por error, y no puede parecer una actualización más. */}
           <button
             onClick={() => void guardar()}
-            disabled={saving}
-            className="mt-3 w-full rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+            disabled={saving || (vacia && mios === 0)}
+            className={`mt-3 w-full rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+              vacia && mios > 0 ? 'bg-rose-700 hover:bg-rose-600' : 'bg-sky-600 hover:bg-sky-500'
+            }`}
           >
-            {saving ? 'Guardando…' : saved ? '✓ Apuntado' : mios > 0 ? 'Actualizar mi porra' : 'Echar mi porra'}
+            {saving ? 'Guardando…' : hecho === 'retirada' ? '✓ Retirada' : hecho === 'apuntada' ? '✓ Apuntado' : mios > 0 ? (vacia ? 'Retirar mi porra' : 'Actualizar mi porra') : 'Echar mi porra'}
           </button>
           <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
             Puedes cambiarla las veces que quieras hasta la salida
             {startsAt ? ` (${new Date(startsAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})` : ''}.
-            Se guarda entera: lo que quites, se quita.
+            Se guarda entera: lo que quites, se quita; y si la dejas vacía, se retira.
           </p>
           </div>
           )}
@@ -959,6 +1003,11 @@ function resumenPorra(
   }
   if (recordKm) trozos.push(`⚡ ${recordKm}`)
   return trozos.length > 0 ? trozos.join(' · ') : 'echada'
+}
+
+/** El mismo diccionario sin una clave, sin tocar el original. */
+function sin<T>(o: Record<string, T>, clave: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(o).filter(([k]) => k !== clave))
 }
 
 /** Los minutos que suman unas horas y unos minutos escritos a mano. */

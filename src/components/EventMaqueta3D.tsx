@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, RotateCw, Share2, Video } from 'lucide-react'
+import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, Play, RotateCw, Share2, Video } from 'lucide-react'
 import { durationLabel } from '../../shared/bets'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
 import {
@@ -18,6 +18,8 @@ import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 import { LOGO_APP, NOMBRE_APP } from '../lib/marcaApp'
 import { BotonRedondo } from './BotonRedondo'
 import { CargandoMarca } from './CargandoMarca'
+import { MUSICAS, creditoMusica, type MusicaVideo } from '../lib/musicaVideo'
+import type { EncodedPacket } from 'mediabunny'
 
 /**
  * La carrera como maqueta: el terreno recortado en una loseta, con su canto y
@@ -932,6 +934,8 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
   seguido: Corredor3D | null
   logo: HTMLImageElement | null
   marca: number
+  /** El crédito de la música, que la licencia pide a la vista: sale con la marca. */
+  credito: string | null
 }) {
   const u = Math.min(W, H) / 1080
   const fuente = (peso: number, px: number) => `${peso} ${Math.round(px)}px system-ui, -apple-system, "Segoe UI", sans-serif`
@@ -985,8 +989,42 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
     ctx.textAlign = 'left'
     ctx.fillStyle = '#f8fafc'
     ctx.fillText(NOMBRE_APP, x, y)
+    if (d.credito) {
+      const texto = `Música: ${d.credito}`
+      let tam = 19 * u
+      ctx.font = fuente(500, tam)
+      while (ctx.measureText(texto).width > W * 0.94 && tam > 12 * u) { tam -= u; ctx.font = fuente(500, tam) }
+      ctx.textAlign = 'center'
+      ctx.fillStyle = 'rgba(203,213,225,0.85)'
+      ctx.fillText(texto, W / 2, H - 22 * u)
+    }
   }
   ctx.restore()
+}
+
+/**
+ * La música del vídeo, que ya viene en AAC: sus paquetes se copian al MP4 tal
+ * cual, sin descodificar ni volver a codificar. Así no depende de que el
+ * navegador sepa codificar audio —Chrome en Linux, por ejemplo, no sabe AAC—
+ * y al móvil no le cuesta nada. Los tiempos se corren para que empiece en
+ * cero: el AAC lleva un relleno al principio que se puede leer en negativo.
+ */
+async function leeMusica(
+  mb: typeof import('mediabunny'), url: string,
+): Promise<{ config: AudioDecoderConfig; paquetes: EncodedPacket[] }> {
+  const respuesta = await fetch(url).catch(() => null)
+  if (!respuesta?.ok) throw new Error('sin-musica')
+  const input = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BufferSource(await respuesta.arrayBuffer()) })
+  const pista = await input.getPrimaryAudioTrack()
+  const config = pista?.codec === 'aac' ? await pista.getDecoderConfig() : null
+  if (!pista || !config) throw new Error('sin-musica')
+  const paquetes: EncodedPacket[] = []
+  for await (const paquete of new mb.EncodedPacketSink(pista).packets()) paquetes.push(paquete)
+  const desfase = Math.min(0, paquetes[0]?.timestamp ?? 0)
+  return {
+    config,
+    paquetes: desfase < 0 ? paquetes.map((q) => q.clone({ timestamp: q.timestamp - desfase })) : paquetes,
+  }
 }
 
 /**
@@ -1000,7 +1038,8 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
  * veinticuatro en los que corre la carrera entera —en plano general, con un
  * barrido lento, o siguiendo a quien se elija con la misma cámara que la
  * pantalla—; y tres de vuelta al plano general con la carrera acabada y la
- * marca de la app apareciendo.
+ * marca de la app apareciendo. Si lleva música, su pista va debajo tal cual
+ * (ver `leeMusica`), y su crédito sale con la marca.
  *
  * La escena es la misma de la pantalla —la loseta no se duplica—, pintada con
  * otro renderizador al tamaño del vídeo. Mientras dura, el bucle de la
@@ -1008,7 +1047,8 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
  */
 async function grabaVideo(
   e: Escena, video: VideoReplay, formato: FormatoVideo, seguir: string | null, nombre: string | null,
-  conRotulos: boolean, alProgreso: (fraccion: number) => void, cancelado: () => boolean,
+  conRotulos: boolean, musica: MusicaVideo | null,
+  alProgreso: (fraccion: number) => void, cancelado: () => boolean,
 ): Promise<Blob | null> {
   const t = e.terreno
   if (!t) return null
@@ -1020,6 +1060,9 @@ async function grabaVideo(
     if (await mb.canEncodeVideo('avc', { width: w, height: h, quality: mb.QUALITY_HIGH })) { W = w; H = h; break }
   }
   if (!W) throw new Error('sin-codificador')
+  // La música antes de pintar nada: si no llega, se dice ahora y no a los
+  // tres minutos.
+  const pistaMusica = musica ? await leeMusica(mb, musica.url) : null
 
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(1)
@@ -1038,6 +1081,10 @@ async function grabaVideo(
   const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() })
   const fuente = new mb.CanvasSource(lienzoVideo, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 })
   output.addVideoTrack(fuente, { frameRate: VIDEO_FPS })
+  const fuenteMusica = pistaMusica ? new mb.EncodedAudioPacketSource('aac') : null
+  if (fuenteMusica) output.addAudioTrack(fuenteMusica)
+  /** El siguiente paquete de música por meter: van a la par que los fotogramas. */
+  let paqueteMusica = 0
 
   const total = VIDEO_FPS * VIDEO_SEGUNDOS
   const intro = VIDEO_FPS * VIDEO_INTRO_S
@@ -1108,9 +1155,17 @@ async function grabaVideo(
       rotulaFotograma(ctx, W, H, {
         nombre, instante, desde: video.desde,
         seguido: s ? corredores.find((c) => c.key === s.key) ?? null : null,
-        logo, marca: final,
+        logo, marca: final, credito: musica ? creditoMusica(musica) : null,
       })
       await fuente.add(f / VIDEO_FPS, 1 / VIDEO_FPS)
+      if (fuenteMusica && pistaMusica) {
+        const hasta = (f + 1) / VIDEO_FPS
+        const { paquetes, config } = pistaMusica
+        while (paqueteMusica < paquetes.length && paquetes[paqueteMusica].timestamp < hasta) {
+          await fuenteMusica.add(paquetes[paqueteMusica], paqueteMusica === 0 ? { decoderConfig: config } : undefined)
+          paqueteMusica++
+        }
+      }
       if (f % 3 === 0) {
         alProgreso(f / total)
         await new Promise((r) => setTimeout(r, 0))
@@ -1169,6 +1224,37 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [progresoVideo, setProgresoVideo] = useState<number | null>(null)
   const [errorVideo, setErrorVideo] = useState<string | null>(null)
   const cancelaVideo = useRef(false)
+  /** La música elegida (su `id`, o null sin música) y la que suena de muestra. */
+  const [musicaVideo, setMusicaVideo] = useState<string | null>(MUSICAS[0].id)
+  const [sonando, setSonando] = useState<string | null>(null)
+  const muestra = useRef<HTMLAudioElement | null>(null)
+  const musicaElegida = MUSICAS.find((m) => m.id === musicaVideo) ?? null
+  const paraMuestra = () => {
+    muestra.current?.pause()
+    muestra.current = null
+    setSonando(null)
+  }
+  /**
+   * Elegir una música la hace sonar, que por el nombre no se sabe cómo es;
+   * tocar la que suena la calla. Al cerrar el panel, al generar y al salir
+   * de la maqueta, se calla sola.
+   */
+  const eligeMusica = (id: string | null) => {
+    if (id !== null && id === sonando) { paraMuestra(); return }
+    paraMuestra()
+    setMusicaVideo(id)
+    const m = MUSICAS.find((x) => x.id === id)
+    if (!m) return
+    const audio = new Audio(m.url)
+    audio.onended = () => { if (muestra.current === audio) { muestra.current = null; setSonando(null) } }
+    muestra.current = audio
+    setSonando(m.id)
+    void audio.play().catch(() => { if (muestra.current === audio) { muestra.current = null; setSonando(null) } })
+  }
+  useEffect(() => {
+    const r = muestra
+    return () => { r.current?.pause() }
+  }, [])
   /** Los corredores de la pantalla, para volver a ponerlos al acabar de grabar. */
   const corredoresRef = useRef(corredores)
   useEffect(() => { corredoresRef.current = corredores }, [corredores])
@@ -1176,6 +1262,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const generaVideo = async () => {
     const e = escena.current
     if (!e || !video || progresoVideo !== null) return
+    paraMuestra()
     video.alEmpezar?.()
     setSiguiendo(null)
     setGirando(false)
@@ -1184,11 +1271,14 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     setProgresoVideo(0)
     let hecho: Blob | null = null
     try {
-      hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, setProgresoVideo, () => cancelaVideo.current)
+      hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, musicaElegida, setProgresoVideo, () => cancelaVideo.current)
     } catch (err) {
-      setErrorVideo(err instanceof Error && err.message === 'sin-codificador'
+      const motivo = err instanceof Error ? err.message : ''
+      setErrorVideo(motivo === 'sin-codificador'
         ? 'Este navegador no sabe generar vídeo. Prueba con Chrome o Safari actualizados.'
-        : 'No se ha podido generar el vídeo.')
+        : motivo === 'sin-musica'
+          ? 'No se ha podido cargar la música. Prueba otra vez, o genéralo sin música.'
+          : 'No se ha podido generar el vídeo.')
     } finally {
       setProgresoVideo(null)
       const ahora = escena.current
@@ -1199,7 +1289,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     if (!hecho) return
     setPanelVideo(false)
-    await pideVideo(hecho, `replay-${nombreDeFichero(nombre)}.mp4`, nombre ? `${nombre} · replay` : 'Replay de la carrera')
+    await pideVideo(hecho, `replay-${nombreDeFichero(nombre)}.mp4`, nombre ? `${nombre} · replay` : 'Replay de la carrera', musicaElegida !== null)
   }
 
   // Empezar a seguir: la cámara se suelta de los mandos, que se pelearían con
@@ -1891,7 +1981,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           <BotonRedondo
             etiqueta="Grabar vídeo del replay"
             activo={panelVideo || progresoVideo !== null}
-            onClick={() => { if (progresoVideo === null) setPanelVideo((v) => !v); setEligiendoSeguir(false) }}
+            onClick={() => { if (progresoVideo === null) setPanelVideo((v) => !v); setEligiendoSeguir(false); paraMuestra() }}
           >
             <Clapperboard size={16} />
           </BotonRedondo>
@@ -1946,9 +2036,36 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
                     </button>
                   ))}
                 </div>
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Música</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => eligeMusica(null)}
+                    aria-pressed={musicaVideo === null}
+                    className={`rounded-full border px-3 py-1 text-xs ${musicaVideo === null ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    Sin música
+                  </button>
+                  {MUSICAS.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => eligeMusica(m.id)}
+                      aria-pressed={musicaVideo === m.id}
+                      title={sonando === m.id ? 'Parar la muestra' : 'Elegir y escuchar'}
+                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${musicaVideo === m.id ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                    >
+                      {sonando === m.id ? <Pause size={11} /> : <Play size={11} />}
+                      {m.nombre}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                  {musicaElegida
+                    ? <>«{musicaElegida.titulo}», de Kevin MacLeod (incompetech.com), con licencia CC BY 4.0: el crédito sale al final del vídeo.</>
+                    : 'El vídeo irá sin sonido.'}
+                </p>
                 {errorVideo && <p className="mt-2 text-xs text-red-400">{errorVideo}</p>}
                 <div className="mt-3 flex justify-end gap-2">
-                  <button onClick={() => setPanelVideo(false)} className="rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-300">
+                  <button onClick={() => { paraMuestra(); setPanelVideo(false) }} className="rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-300">
                     Cerrar
                   </button>
                   <button onClick={() => void generaVideo()} className="rounded-full bg-sky-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-sky-400">

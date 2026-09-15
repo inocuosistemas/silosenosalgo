@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Share2, X } from 'lucide-react'
+import { Share2, Volume2, X } from 'lucide-react'
 import { comparteImagen, comparteVideo, type ComoSeFue } from '../lib/compartirImagen'
 
 /**
@@ -18,7 +18,7 @@ import { comparteImagen, comparteVideo, type ComoSeFue } from '../lib/compartirI
  * pintar `{vistaPrevia}` en cualquier sitio del componente (va en un portal,
  * encima de todo) y cambiar `comparteImagen(...)` por `pide(...)`: devuelve lo
  * mismo, y `'cancelada'` si se cierra sin compartir. Para un vídeo,
- * `pideVideo(blob, fichero, titulo)`.
+ * `pideVideo(blob, fichero, titulo, conSonido)`.
  */
 
 interface Pedida {
@@ -26,6 +26,8 @@ interface Pedida {
   url: string
   /** El vídeo, si lo que se comparte es un vídeo. */
   video: Blob | null
+  /** Si el vídeo lleva música: entonces se enseña sonando. */
+  conSonido: boolean
   fichero: string
   titulo: string
   resolve: (fue: ComoSeFue) => void
@@ -36,13 +38,13 @@ export function useVistaPreviaCompartir() {
 
   const pide = useCallback(
     (url: string, fichero: string, titulo: string) =>
-      new Promise<ComoSeFue>((resolve) => setPedida({ url, video: null, fichero, titulo, resolve })),
+      new Promise<ComoSeFue>((resolve) => setPedida({ url, video: null, conSonido: false, fichero, titulo, resolve })),
     [],
   )
 
   const pideVideo = useCallback(
-    (video: Blob, fichero: string, titulo: string) =>
-      new Promise<ComoSeFue>((resolve) => setPedida({ url: URL.createObjectURL(video), video, fichero, titulo, resolve })),
+    (video: Blob, fichero: string, titulo: string, conSonido = false) =>
+      new Promise<ComoSeFue>((resolve) => setPedida({ url: URL.createObjectURL(video), video, conSonido, fichero, titulo, resolve })),
     [],
   )
 
@@ -65,6 +67,27 @@ export function useVistaPreviaCompartir() {
 
 function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: ComoSeFue) => void }) {
   const [enviando, setEnviando] = useState(false)
+  const refVideo = useRef<HTMLVideoElement>(null)
+  /** Si el vídeo está sonando callado (lo refleja `volumechange`). */
+  const [callado, setCallado] = useState(true)
+
+  /**
+   * Con música, se intenta arrancar sonando. El navegador puede negarse —solo
+   * deja sonar justo después de un toque, y generar el vídeo lleva minutos—,
+   * y entonces arranca callado y se ofrece un botón para oírlo.
+   */
+  useEffect(() => {
+    const v = refVideo.current
+    if (!v) return
+    v.muted = !pedida.conSonido
+    v.play()
+      .then(() => setCallado(v.muted))
+      .catch(() => {
+        v.muted = true
+        setCallado(true)
+        void v.play().catch(() => {})
+      })
+  }, [pedida])
 
   // Escape cancela la vista previa y nada más: el dorsal y la maqueta también
   // se cierran con Escape, y sin cortarlo aquí se iban los dos de golpe.
@@ -110,13 +133,13 @@ function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: C
       <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Así se va a compartir</p>
       {pedida.video ? (
         <video
+          ref={refVideo}
           src={pedida.url}
           className={clasesMedio}
-          autoPlay
-          muted
           loop
           playsInline
           controls
+          onVolumeChange={(e) => setCallado(e.currentTarget.muted)}
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
@@ -127,7 +150,20 @@ function VistaPrevia({ pedida, onTermina }: { pedida: Pedida; onTermina: (fue: C
           onClick={(e) => e.stopPropagation()}
         />
       )}
-      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {pedida.conSonido && callado && (
+          <button
+            onClick={() => {
+              const v = refVideo.current
+              if (!v) return
+              v.muted = false
+              void v.play().catch(() => {})
+            }}
+            className="flex items-center gap-1.5 rounded-full border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:text-white"
+          >
+            <Volume2 size={15} /> Oír la música
+          </button>
+        )}
         <button
           onClick={() => onTermina('cancelada')}
           disabled={enviando}

@@ -84,6 +84,31 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ---
 
+## 2026-09-15
+
+### La porra se puede retirar entera
+
+**Web · desplegado.** "Acaba" y "no acaba" se apagan tocándolos otra vez, y al
+apagarlos se va también la hora o el kilómetro que colgaba de ellos. Con la
+porra vacía, el botón pasa a **Retirar mi porra** y guardarla la borra del
+todo: quien se metió por error, o con la sesión de otro, ya puede no dejar
+nada. El servidor no cambia: siempre reemplazó la porra entera y una vacía ya
+la borraba; lo que faltaba era poder mandarla vacía. De paso, lo que se manda
+se limita a quien sigue en la parrilla: un pronóstico sobre alguien que ya no
+está hacía rechazar la porra entera.
+
+### El vídeo del replay lleva música
+
+**Web · desplegado.** Al generar el vídeo sobre la maqueta se elige música:
+cinco cortes de 30 s de Kevin MacLeod (incompetech.com, **CC BY 4.0**) —épica,
+rock, electrónica, motivadora y batucada— o ninguna. Tocar una la hace sonar de
+muestra. Van ya en AAC y se copian al MP4 sin recodificar, así que no dependen
+de que el navegador sepa codificar audio. La licencia pide el crédito a la
+vista, y sale escrito al final del vídeo junto a la marca de la app. La vista
+previa enseña el vídeo sonando, o con un botón para oírlo si el navegador no
+deja arrancar con sonido. Los cortes, y cómo se sacaron, están en
+`src/assets/musica/`. Son unos 2,5 MB más en la descarga OTA del visor de iOS.
+
 ## 2026-09-13
 
 ### El dorsal sale de la tira de chips del mapa
