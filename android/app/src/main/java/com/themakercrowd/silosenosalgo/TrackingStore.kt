@@ -1,6 +1,10 @@
 package com.themakercrowd.silosenosalgo
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import java.io.File
 import java.net.URLEncoder
 import kotlinx.coroutines.withContext
 import android.net.Uri
@@ -732,6 +736,35 @@ object TrackingStore {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             }
         }
+    }
+
+    /**
+     * El cartel de una carrera, guardado en el móvil.
+     *
+     * Se baja una vez por versión (`photoAt`) y se lee de disco después: la app
+     * se abre en la línea de salida, muchas veces sin cobertura, y ahí la
+     * tarjeta no puede quedarse en blanco. Sin red y sin la versión nueva, se
+     * enseña la anterior que haya. Espejo de `FotosDeCarrera` en iOS.
+     */
+    suspend fun fotoDeCarrera(ev: EventSummary): ImageBitmap? = withContext(Dispatchers.IO) {
+        if (ev.hasPhoto != true) return@withContext null
+        val ctx: Context = appCtx ?: return@withContext null
+        val dir = File(ctx.filesDir, "fotos-carreras").apply { mkdirs() }
+        val version = (ev.photoAt ?: 0.0).toLong()
+        val fichero = File(dir, "${ev.id}-$version.img")
+        val anteriores = { dir.listFiles { f -> f.name.startsWith("${ev.id}-") }.orEmpty().toList() }
+        fun lee(f: File) = runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull()
+
+        if (fichero.exists()) lee(fichero)?.let { return@withContext it }
+        val bytes = runCatching { api.fotoEvento(ev.id, version) }.getOrNull()
+        val nueva = bytes?.let { b -> runCatching { BitmapFactory.decodeByteArray(b, 0, b.size) }.getOrNull() }
+        if (bytes != null && nueva != null) {
+            // La nueva sustituye a las anteriores de esta carrera.
+            anteriores().forEach { it.delete() }
+            runCatching { fichero.writeBytes(bytes) }
+            return@withContext nueva.asImageBitmap()
+        }
+        anteriores().firstNotNullOfOrNull { lee(it) }
     }
 
     fun eligePlan(planId: String?) {

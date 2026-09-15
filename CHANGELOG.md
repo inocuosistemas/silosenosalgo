@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**539**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**539**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**540**) publicado en GitHub Releases el 2026-09-15 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**540**) subida a TestFlight el 2026-09-15 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -85,6 +85,20 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 ---
 
 ## 2026-09-15
+
+### «Mis carreras», con su cartel y la cuenta atrás en grande
+
+**iOS y Android 540 · Mejora al actualizar.** Cada carrera de «Mis carreras»
+es ahora una tarjeta como las de «Eventos» en la web: el cartel a lo ancho, el
+nombre, tu emoji y la fecha encima sobre un degradado, y debajo el recorrido y
+**Abrir**. La elegida para la baliza lleva borde azul y la etiqueta
+**Preparada**; si la organizas, **organizas**. La próxima que sale lleva la
+**cuenta atrás en grande**, en bloques de días, horas, minutos y segundos.
+
+El cartel se guarda en el móvil la primera vez que se ve y se lee de ahí: sin
+cobertura en la línea de salida la tarjeta sigue teniendo su foto. Solo se
+vuelve a bajar si la organización lo cambia. Las terminadas siguen plegadas y
+en pequeño.
 
 ### La carrera, a un toque desde la app, y con tu previsión puesta sola
 

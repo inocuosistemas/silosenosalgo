@@ -118,6 +118,11 @@ struct EventSummary: Codable, Identifiable, Equatable {
     /// vida (el de los tests) no las exige, y Codable las sigue leyendo.
     var betsEnabled: Bool? = nil
     var isMember: Bool? = nil
+    /// El cartel (y su versión, para no volver a bajarlo) y si la organizo:
+    /// lo que pinta la tarjeta de "Mis carreras".
+    var hasPhoto: Bool? = nil
+    var photoAt: Double? = nil
+    var isOwner: Bool? = nil
 
     var isOver: Bool { endedAt != nil }
 }

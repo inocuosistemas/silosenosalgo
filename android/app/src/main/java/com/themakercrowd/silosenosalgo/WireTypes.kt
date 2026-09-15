@@ -134,6 +134,11 @@ data class EventSummary(
      *  organiza): para ofrecer en "Abrir" solo lo que existe. */
     val betsEnabled: Boolean? = null,
     val isMember: Boolean? = null,
+    /** El cartel (y su versión, para no volver a bajarlo) y si la organizo:
+     *  lo que pinta la tarjeta de "Mis carreras". */
+    val hasPhoto: Boolean? = null,
+    val photoAt: Double? = null,
+    val isOwner: Boolean? = null,
 ) {
     val isOver: Boolean get() = endedAt != null
 }

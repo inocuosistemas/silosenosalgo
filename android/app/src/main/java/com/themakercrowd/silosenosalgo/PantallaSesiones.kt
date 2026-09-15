@@ -13,6 +13,14 @@
 package com.themakercrowd.silosenosalgo
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
@@ -625,46 +633,22 @@ fun SeccionCarreras(
         }
     }
 
+    // Una tarjeta por carrera, como en la web: el cartel manda. La próxima que
+    // sale lleva la cuenta atrás en grande; con una en cada tarjeta, la lista
+    // sería un tablero de relojes.
+    val proximaId = eventos
+        .filter { (it.startsAt ?: 0.0) > ahora }
+        .minByOrNull { it.startsAt ?: 0.0 }
+        ?.id
     eventos.forEach { ev ->
-        val esta = ev.id == elegido
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onElige(if (esta) null else ev.id) }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = esta, onClick = null)
-                Spacer(Modifier.width(6.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (ev.myEmoji != null) "${ev.myEmoji}  ${ev.name}" else ev.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Paleta.slate100,
-                        maxLines = 1,
-                    )
-                    Text(
-                        cuandoEsLaCarrera(ev.startsAt),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (esHoy(ev.startsAt)) Paleta.sky500 else Paleta.slate400,
-                    )
-                    // La cuenta atrás, debajo y en su color: es lo único de esta
-                    // lista que se mira la víspera.
-                    TrackingRules.cuentaAtras(ev.startsAt, ahora)?.let { falta ->
-                        Text(
-                            "faltan $falta",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Paleta.sky500,
-                        )
-                    }
-                }
-            }
-            MenuDeCarrera(ev, onAbrir)
-        }
+        TarjetaCarrera(
+            ev = ev,
+            elegida = ev.id == elegido,
+            proxima = ev.id == proximaId,
+            ahora = ahora,
+            onElige = onElige,
+            onAbrir = onAbrir,
+        )
     }
 
     // Las terminadas, plegadas: ya no se pueden correr, pero su parrilla sigue
@@ -712,6 +696,151 @@ fun SeccionCarreras(
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,
     )
+}
+
+/**
+ * Una carrera de "Mis carreras", como en la web: el cartel a lo ancho, el
+ * nombre y la fecha encima sobre un degradado, y debajo el recorrido y
+ * "Abrir". La elegida para la baliza lleva borde azul y "Preparada"; la
+ * próxima, la cuenta atrás en grande. Espejo de `TarjetaCarrera` en iOS.
+ */
+@Composable
+private fun TarjetaCarrera(
+    ev: EventSummary,
+    elegida: Boolean,
+    proxima: Boolean,
+    ahora: Double,
+    onElige: (String?) -> Unit,
+    onAbrir: (String, String) -> Unit,
+) {
+    val forma = RoundedCornerShape(14.dp)
+    val foto by produceState<ImageBitmap?>(initialValue = null, ev.id, ev.photoAt) {
+        value = TrackingStore.fotoDeCarrera(ev)
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp)
+            .clip(forma)
+            .background(Paleta.slate950)
+            .border(if (elegida) 2.dp else 1.dp, if (elegida) Paleta.sky500 else Paleta.slate800, forma)
+            .clickable { onElige(if (elegida) null else ev.id) },
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(3f)) {
+            val f = foto
+            if (f != null) {
+                Image(f, contentDescription = null, modifier = Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+            } else {
+                Box(Modifier.matchParentSize().background(Paleta.slate800), contentAlignment = Alignment.Center) {
+                    Text("🏁", fontSize = 22.sp, color = Paleta.slate400)
+                }
+            }
+            Box(
+                Modifier.matchParentSize().background(
+                    Brush.verticalGradient(
+                        0.2f to Color.Transparent,
+                        0.65f to Paleta.slate950.copy(alpha = 0.75f),
+                        1f to Paleta.slate950,
+                    ),
+                ),
+            )
+            Row(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (ev.myEmoji != null) "${ev.myEmoji}  ${ev.name}" else ev.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Paleta.slate100,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        cuandoEsLaCarrera(ev.startsAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (esHoy(ev.startsAt)) Paleta.sky500 else Paleta.slate400,
+                    )
+                }
+                if (ev.isOwner == true) EtiquetaCarrera("organizas", Paleta.ambar)
+                if (elegida) EtiquetaCarrera("Preparada", Paleta.sky500)
+            }
+        }
+        if (proxima) ContadorGrande(ev.startsAt, ahora)
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                ev.planName ?: "Sin recorrido todavía",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            MenuDeCarrera(ev, onAbrir)
+        }
+    }
+}
+
+@Composable
+private fun EtiquetaCarrera(texto: String, color: Color) {
+    Text(
+        texto,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        modifier = Modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(color.copy(alpha = 0.18f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * La cuenta atrás de la próxima salida, en grande: días, horas, minutos y
+ * segundos en bloques, como el cuadro de la salida del mapa de la web. Se
+ * repinta con el reloj de la lista y desaparece al llegar la hora.
+ */
+@Composable
+private fun ContadorGrande(salidaMs: Double?, ahora: Double) {
+    val ms = salidaMs?.takeIf { it > 0.0 } ?: return
+    val restan = ((ms - ahora) / 1000.0).toLong()
+    if (restan <= 0L) return
+    Column(
+        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("SALIDA EN", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Paleta.slate400, letterSpacing = 1.2.sp)
+        Row(verticalAlignment = Alignment.Top) {
+            BloqueContador(restan / 86_400, "D")
+            SeparadorContador()
+            BloqueContador((restan % 86_400) / 3_600, "H")
+            SeparadorContador()
+            BloqueContador((restan % 3_600) / 60, "MIN")
+            SeparadorContador()
+            BloqueContador(restan % 60, "S")
+        }
+    }
+}
+
+@Composable
+private fun BloqueContador(valor: Long, unidad: String) {
+    Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "%02d".format(valor),
+            fontSize = 32.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace,
+            color = Paleta.slate100,
+        )
+        Text(unidad, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = Paleta.slate400)
+    }
+}
+
+@Composable
+private fun SeparadorContador() {
+    Text(":", fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Paleta.slate700)
 }
 
 /**

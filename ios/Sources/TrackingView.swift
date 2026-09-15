@@ -15,6 +15,16 @@ struct TrackingView: View {
         }
     }
 
+    /// La próxima carrera que sale, la única que lleva la cuenta atrás en grande:
+    /// con una en cada tarjeta, la lista sería un tablero de relojes.
+    private var proximaCarreraId: String? {
+        let ahora = Date().timeIntervalSince1970 * 1000
+        return store.events
+            .filter { ($0.startsAt ?? 0) > ahora }
+            .min { ($0.startsAt ?? 0) < ($1.startsAt ?? 0) }?
+            .id
+    }
+
     /// "Abrir": las secciones de la carrera en la web, sin pasar por la parrilla.
     private func menuDeCarrera(_ ev: EventSummary) -> some View {
         Menu {
@@ -89,14 +99,14 @@ struct TrackingView: View {
     }
 
     /// ¿La carrera es HOY? Es lo que más se mira de la lista el día que toca.
-    private static func isToday(_ startsAtMs: Double?) -> Bool {
+    static func isToday(_ startsAtMs: Double?) -> Bool {
         guard let ms = startsAtMs, ms > 0 else { return false }
         return Calendar.current.isDateInToday(Date(timeIntervalSince1970: ms / 1000))
     }
 
     /// "sáb 13 sep · 08:00", o "hoy · 22:00" el día de la carrera. Sin hora
     /// puesta lo dice: es justo lo que impide que la baliza se quede armada.
-    private static func whenLabel(_ startsAtMs: Double?) -> String {
+    static func whenLabel(_ startsAtMs: Double?) -> String {
         guard let ms = startsAtMs, ms > 0 else { return "Sin hora de salida" }
         let d = Date(timeIntervalSince1970: ms / 1000)
         let hora = d.formatted(date: .omitted, time: .shortened)
@@ -382,46 +392,22 @@ struct TrackingView: View {
                 // de arriba, con el nombre y la ruta ya decididos.
                 if !store.events.isEmpty || !store.pastEvents.isEmpty {
                     Section {
+                        // Una tarjeta por carrera, como en la web: el cartel manda.
+                        // Tocarla la prepara para la baliza; "Abrir" lleva a la web.
                         ForEach(store.events) { ev in
-                            HStack(spacing: 10) {
-                                Button {
-                                    store.setEvent(store.selectedEventId == ev.id ? nil : ev.id)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: store.selectedEventId == ev.id
-                                              ? "largecircle.fill.circle" : "circle")
-                                            .foregroundStyle(store.selectedEventId == ev.id
-                                                             ? Theme.sky500 : Theme.slate400)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(ev.myEmoji.map { "\($0)  \(ev.name)" } ?? ev.name)
-                                                .foregroundStyle(Theme.slate100)
-                                                .lineLimit(1)
-                                            Text(Self.whenLabel(ev.startsAt))
-                                                .font(.caption2)
-                                                .foregroundStyle(Self.isToday(ev.startsAt)
-                                                                 ? Theme.sky500 : Theme.slate400)
-                                            // La cuenta atrás, al segundo. Es lo
-                                            // único de esta lista que se mira la
-                                            // víspera. `TimelineView` la repinta
-                                            // sola y solo mientras se ve: no hay
-                                            // temporizador que apagar.
-                                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                                if let falta = TrackingRules.countdown(
-                                                    startsAtMs: ev.startsAt, now: ctx.date
-                                                ) {
-                                                    Text("faltan \(falta)")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(Theme.sky500)
-                                                }
-                                            }
-                                        }
-                                        Spacer()
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
+                            TarjetaCarrera(
+                                ev: ev,
+                                cuando: Self.whenLabel(ev.startsAt),
+                                hoy: Self.isToday(ev.startsAt),
+                                elegida: store.selectedEventId == ev.id,
+                                proxima: ev.id == proximaCarreraId,
+                                onElegir: { store.setEvent(store.selectedEventId == ev.id ? nil : ev.id) }
+                            ) {
                                 menuDeCarrera(ev)
                             }
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
 
                         // Las terminadas, plegadas: ya no se pueden correr, pero

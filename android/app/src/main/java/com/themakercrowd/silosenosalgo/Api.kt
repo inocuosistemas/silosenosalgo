@@ -276,6 +276,20 @@ class Api(
         }
     }
 
+    /** El cartel de una carrera, tal cual. Público y con caché larga cuando va versionado. */
+    suspend fun fotoEvento(eventId: String, version: Long): ByteArray = withContext(Dispatchers.IO) {
+        val url = "$baseUrl/api/events/$eventId/photo" + if (version > 0) "?v=$version" else ""
+        val req = Request.Builder().url(url).build()
+        try {
+            client.newCall(req).execute().use { resp ->
+                if (!ok(resp.code)) throw ApiException(resp.code, "not_found")
+                resp.body?.bytes() ?: ByteArray(0)
+            }
+        } catch (e: IOException) {
+            throw ApiException(0, "network")
+        }
+    }
+
     // ── Eventos ──────────────────────────────────────────────────────────────
 
     /** Los eventos en los que participo. Al mejor esfuerzo desde la interfaz:
