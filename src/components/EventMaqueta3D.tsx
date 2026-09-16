@@ -678,9 +678,15 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
  */
 /**
  * El palo de una chincheta. Va suelto y en tres dimensiones a propósito: la
- * cabeza es un cartel que siempre mira a la cámara y está a una sola
- * profundidad, así que o se tapa entera o no se tapa nada. El palo, siendo
- * geometría de verdad, lo va comiendo el monte por donde toca.
+ * cabeza es un cartel plano que se pinta por encima de todo, así que o se tapa
+ * entera o no se tapa nada. El palo, siendo geometría de verdad, lo va
+ * comiendo el monte por donde pasa por delante.
+ *
+ * Pero se planta mirando a la cámara, igual que la cabeza, y NO hacia el cielo
+ * (ver `preparaChinchetas`). La cabeza crece hacia arriba en la PANTALLA; un
+ * palo que creciera hacia arriba en el MUNDO se escoraría y se acortaría por
+ * la perspectiva en cuanto la cámara se inclinase, y cabeza y palo se
+ * separarían. En el plano de la cabeza van pegados siempre, midan lo que midan.
  */
 function creaPalo(): THREE.Mesh {
   // De radio uno: el grosor y el largo se los pone quien lo coloca, que es
@@ -688,7 +694,13 @@ function creaPalo(): THREE.Mesh {
   const g = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true)
   // Crece hacia arriba desde su base, que es donde se clava.
   g.translate(0, 0.5, 0)
-  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x0f172a }))
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+    color: 0x0f172a,
+    // Mirando a la cámara, el palo está a la misma distancia que el punto donde
+    // se clava, así que su base pelea con el suelo por el mismo píxel y
+    // parpadea. Un pelín hacia la cámara y se acabó.
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }))
 }
 
 /** `palo`: qué fracción de la altura del dibujo ocupa el palo, si lo lleva. */
@@ -929,6 +941,9 @@ function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulo
   const t = e.terreno
   if (!t) return
   const cabeza = new THREE.Vector3()
+  // Cómo está girada la cámara: los palos se plantan en su plano, el mismo en
+  // el que se pintan las cabezas. Se pregunta una vez, no una por chincheta.
+  const miraCamara = camara.getWorldQuaternion(new THREE.Quaternion())
   for (const ch of e.chinchetas.children) {
     const base = ch.userData.escalaBase as THREE.Vector2 | undefined
     let k = 1
@@ -955,6 +970,10 @@ function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulo
         e.palos.add(palo)
       }
       palo.position.copy(ch.position)
+      // De pie en el plano de la cabeza, que es un cartel que mira a la cámara:
+      // así el palo ocupa exactamente la parte de abajo del dibujo y no se
+      // despega nunca de ella (ver `creaPalo`).
+      palo.quaternion.copy(miraCamara)
       const gordo = Math.max(GROSOR_PALO_MIN, ch.scale.y * GROSOR_PALO)
       palo.scale.set(gordo, ch.scale.y * fraccion, gordo)
       palo.visible = !apagada

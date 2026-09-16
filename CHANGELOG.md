@@ -86,6 +86,34 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### Las chinchetas no se despegan de su palo
+
+**Web · Compatible.** Cada una se iba por su lado: la cabeza flotando arriba y
+el palo por debajo, escorado y sin llegar a tocarla. Pasaba en cuanto se
+inclinaba la cámara, y cuanto más desde arriba se mirase, peor.
+
+La causa conviene tenerla escrita, porque es de manual y volverá a aparecer. La
+cabeza de una chincheta es un cartel que **siempre mira a la cámara**: crece
+hacia arriba *en la pantalla*. El palo que se le puso era geometría y crecía
+hacia arriba *en el mundo*. Las dos cosas solo coinciden mirando la maqueta de
+canto; en cuanto la cámara se inclina, la perspectiva escora el palo y lo
+acorta mientras la cabeza sigue tiesa. Compartían el punto donde se clavan y
+nada más.
+
+El arreglo es plantar el palo **en el mismo plano que la cabeza**, girándolo con
+la cámara. Sigue siendo geometría, así que el monte lo sigue tapando por donde
+pasa por delante —que era el motivo de sacarlo del dibujo—, pero ocupa
+exactamente la franja de abajo del cartel, midan lo que midan los dos. No es que
+encajen bien: es que no pueden separarse.
+
+Un detalle que salió de ahí: mirando a la cámara, el palo queda a la misma
+distancia que el punto donde se clava, así que su base se peleaba con el suelo
+por el mismo píxel y parpadeaba. Se le da un pelín de ventaja hacia la cámara y
+se acabó.
+
+Se comprobó en los dos encuadres que fallaban —cenital y de ladera—, no en el de
+partida, que era justo el único donde el defecto no se veía.
+
 ### Al monte le tapa el palo de las chinchetas, como debe ser
 
 **Web · Compatible.** El palo de una chincheta se veía entero por encima de la
@@ -97,9 +125,10 @@ dibujo es un cartel que siempre mira a la cámara, a una sola profundidad. Da
 igual lo que haya delante: o se tapa entero o no se tapa nada. Lo único que lo
 escondía era una comprobación aparte que mira si el monte tapa **la cabeza**.
 
-Ahora el palo es **geometría de verdad**, un cilindro plantado en el suelo, así
-que el terreno lo va comiendo por donde pasa por delante, sin que nadie tenga
-que calcular nada. Se les ha quitado el palo pintado a las cuatro clases de
+Ahora el palo es **geometría de verdad**, un cilindro clavado en el punto que
+señala (plantado mirando a la cámara, ver la entrada de arriba), así que el
+terreno lo va comiendo por donde pasa por delante, sin que nadie tenga que
+calcular nada. Se les ha quitado el palo pintado a las cuatro clases de
 chincheta: los puntos del recorrido, las banderas de salida y meta, los nombres
 de pueblos y cimas, y las fichas de los corredores.
 
