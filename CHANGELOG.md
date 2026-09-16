@@ -86,6 +86,51 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### La luz de la maqueta, con mapeo de tonos
+
+**Web · Compatible.** La maqueta pinta ahora con **mapeo de tonos filmico
+(ACES)** y algo más de exposición, en la pantalla y en el vídeo que se comparte,
+para que lo que se manda se vea como lo que se estaba mirando.
+
+Qué cambia: antes, todo lo que pasaba de uno se recortaba de golpe, y eso
+aplanaba las laderas al sol en un amarillo plano y quemaba los neveros. Ahora
+las luces altas se comprimen como en una cámara, así que las crestas tienen
+degradado y la nieve conserva el detalle. Es lo que más acerca esto a luz de
+verdad sin pasar a materiales PBR, que en el móvil no salen a cuenta: por eso
+todo sigue siendo Lambert.
+
+**La noche hubo que volver a medirla.** El mapeo de tonos también hunde las
+luces bajas, y la noche ya iba floja: la maqueta salía casi negra, sin forma en
+el monte y sin árboles. Se ha subido la luna y, sobre todo, la luz de cielo. La
+regla, por si se vuelve a tocar: **la noche se hace de noche por el color —azul
+frío y poco contraste—, no por falta de luz.**
+
+Un aviso para quien venga: **`PCFSoftShadowMap` ya no existe** en la versión de
+three de este proyecto. Si se pide, three avisa por consola y usa `PCFShadowMap`
+igualmente, así que no se gana nada. Para ablandar una sombra hay que ir por
+`shadow.radius`.
+
+### El vídeo del replay ya no se atasca en Safari
+
+**Web · Compatible.** Generar el vídeo se plantaba en el 1 % en Safari del Mac,
+con música y sin ella, mientras que en Chrome salía entero.
+
+La causa no era el codificador ni el audio: era **no cederle el hilo al
+navegador**. El bucle pinta y codifica novecientos fotogramas seguidos y solo
+paraba a respirar cada tres. Safari entrega lo que codifica en tareas del bucle
+de eventos y su cola de codificación es corta, así que se le llenaba a los
+pocos fotogramas; a partir de ahí `fuente.add` esperaba a que se vaciara y,
+como el bucle no volvía nunca al bucle de eventos, no se vaciaba: bloqueo
+mutuo. El 1 % de novecientos fotogramas son nueve, que es justo lo que cabía
+antes de atascarse. Chrome no lo notaba porque su cola es mucho mayor.
+
+Ahora se cede el hilo en **cada** fotograma. En Chrome cuesta unos segundos más
+de generación; en Safari es la diferencia entre haber vídeo y no haberlo.
+
+Para la próxima: un bucle largo que alimente a WebCodecs tiene que volver al
+bucle de eventos a menudo, y lo que en un navegador es una optimización en otro
+es un cuelgue.
+
 ### Una carrerita corriendo por la maqueta, y el día pasando
 
 **Web · Compatible.** La maqueta tiene un botón de **dar la salida**. Se pulsa,

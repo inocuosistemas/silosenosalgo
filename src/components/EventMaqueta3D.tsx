@@ -114,6 +114,12 @@ const PASOS_TAPADO = TACTIL ? 64 : 96
  */
 const GROSOR_PALO = 0.016
 const GROSOR_PALO_MIN = 0.0015
+/**
+ * La exposición del mapeo de tonos. ACES comprime las luces altas, así que
+ * con la misma luz la escena sale algo más apagada que sin él: se sube un
+ * poco para compensar y que la maqueta no pierda alegría.
+ */
+const EXPOSICION = 1.25
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -1112,12 +1118,16 @@ function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number): bo
   // Cuánto de día es: 0 con el sol en el horizonte, 1 bien alto.
   const dia = Math.min(1, Math.max(0, altitude / 0.45))
   if (deNoche) {
-    e.sol.color.setHex(0xbcc9ff)
-    e.sol.intensity = 0.55
-    e.cielo.color.setHex(0x26324b)
-    e.cielo.groundColor.setHex(0x11161f)
-    e.cielo.intensity = 0.55
-    e.scene.background = new THREE.Color(0x0b1220)
+    // La noche se hace de noche por el COLOR —azul frío y poco contraste—, no
+    // por falta de luz. Con el mapeo de tonos, que además hunde las bajas, una
+    // luna floja dejaba la maqueta en negro: el monte perdía la forma, los
+    // árboles desaparecían y solo se leían los rótulos.
+    e.sol.color.setHex(0xc7d4ff)
+    e.sol.intensity = 1.15
+    e.cielo.color.setHex(0x3d4c6e)
+    e.cielo.groundColor.setHex(0x1b2330)
+    e.cielo.intensity = 1.15
+    e.scene.background = new THREE.Color(0x111a2b)
   } else {
     // Al ras, el sol tira a naranja y pierde fuerza; alto, blanco cálido.
     e.sol.color.lerpColors(new THREE.Color(0xff9d5c), new THREE.Color(0xfff3dc), dia)
@@ -1504,6 +1514,10 @@ async function grabaVideo(
   renderer.shadowMap.autoUpdate = false
   renderer.shadowMap.needsUpdate = true
   renderer.outputColorSpace = THREE.SRGBColorSpace
+  // La misma luz que la pantalla (ver el montaje de la escena): lo que se
+  // comparte tiene que verse como lo que se está mirando.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = EXPOSICION
   const lienzoVideo = document.createElement('canvas')
   lienzoVideo.width = W
   lienzoVideo.height = H
@@ -1598,10 +1612,15 @@ async function grabaVideo(
           paqueteMusica++
         }
       }
-      if (f % 3 === 0) {
-        alProgreso(f / total)
-        await new Promise((r) => setTimeout(r, 0))
-      }
+      // Se le cede el hilo al navegador en CADA fotograma, no cada tres.
+      // Safari entrega lo que codifica en tareas del bucle de eventos y su
+      // cola de codificación es corta: con un respiro cada tres fotogramas se
+      // le llenaba a los pocos, `fuente.add` se quedaba esperando a que se
+      // vaciara y, como no volvíamos al bucle de eventos, no se vaciaba nunca.
+      // El vídeo se plantaba en el 1 % —unos nueve fotogramas de novecientos—
+      // mientras que en Chrome pasaba de largo porque su cola es mucho mayor.
+      if (f % 3 === 0) alProgreso(f / total)
+      await new Promise((r) => setTimeout(r, 0))
     }
     await output.finalize()
     const buffer = output.target.buffer
@@ -1776,9 +1795,19 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, DPR_MAX))
     renderer.shadowMap.enabled = true
+    // PCF a secas: `PCFSoftShadowMap` se quitó de three en esta versión y, si
+    // se pide, avisa por consola y usa este mismo. Para ablandar la sombra hay
+    // que ir por `shadow.radius`, no por el tipo.
     renderer.shadowMap.type = THREE.PCFShadowMap
-    // La sombra se calcula cuando cambia la loseta, no en cada fotograma: la
-    // luz no se mueve y las chinchetas no dan sombra.
+    // Mapeo de tonos filmico: en vez de recortar de golpe lo que pasa de uno
+    // —que es lo que aplana las laderas al sol y quema los blancos—, comprime
+    // las luces altas como una cámara. Es lo que más acerca esto a luz de
+    // verdad sin pagar materiales PBR, que en el móvil no salen a cuenta.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = EXPOSICION
+    // La sombra se calcula cuando cambia la loseta, no en cada fotograma: las
+    // chinchetas no dan sombra, y cuando el sol se mueve (la carrerita) se
+    // pide a mano que se rehaga.
     renderer.shadowMap.autoUpdate = false
     renderer.outputColorSpace = THREE.SRGBColorSpace
     const canvas = renderer.domElement
