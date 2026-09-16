@@ -269,6 +269,21 @@ struct TrackingView: View {
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                     statusContent
+                    // El ENLACE, a un toque: es lo que se busca en cuanto alguien
+                    // pregunta "¿dónde te sigo?", y estaba al final de la pantalla.
+                    if store.isSharing, let link = store.shareLink {
+                        ShareLink(item: link) {
+                            Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                                .font(.footnote.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.sky500)
+                        .background(Theme.sky500.opacity(0.16))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    }
                     // Bajarse o pararse: las dos cosas que se hacen EN CARRERA
                     // y que hasta ahora no se podían decir. Apagar la baliza
                     // valía para las dos, y no son lo mismo: quien la apaga deja
@@ -299,16 +314,16 @@ struct TrackingView: View {
                             Button {
                                 Task { await store.pausa() }
                             } label: {
-                                Text("⏸  Pausa \(TrackingStore.pausaMax) min")
-                                    .font(.footnote.weight(.semibold))
+                                Text("⏸  Pausar \(TrackingStore.pausaMax) min")
+                                    .fontWeight(.semibold)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
+                                    .padding(.vertical, 14)
                             }
                             .buttonStyle(.plain)
-                            .foregroundStyle(Theme.amber200)
-                            .background(Theme.amber950.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                            .background(Color(red: 0.96, green: 0.62, blue: 0.04))
+                            .foregroundStyle(Theme.slate950)
+                            .cornerRadius(12)
+                            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
                         }
                     }
                     // El botón, junto al estado y no al final de la pantalla:
@@ -863,37 +878,21 @@ struct TrackingView: View {
                             .font(.footnote)
                             .foregroundStyle(Theme.slate400)
                             .textSelection(.enabled)
-                        ShareLink("Compartir enlace", item: link)
-                            .foregroundStyle(Theme.sky500)
                     } header: {
                         Text("Enlace para compartir").foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
 
                     Section {
-                        if let viewers = store.activeViewers {
-                            LabeledContent("Seguidores activos") {
-                                Label("\(viewers)", systemImage: "eye.fill")
-                                    .foregroundStyle(viewers > 0 ? .green : Theme.slate400)
-                            }
-                        }
+                        // Seguidores, último envío y cola viven ARRIBA, con el
+                        // estado (ver `resumenEnVivo`): aquí queda el detalle que
+                        // se mira despacio, no con la carrera en marcha.
                         LabeledContent("Posiciones enviadas", value: "\(store.pingCount)")
                         if let last = store.lastSentAt {
-                            // Show the clock time AND how long ago it was, colour-coded
-                            // by freshness so a glance tells whether followers are
-                            // getting live updates (green) or falling behind (red).
-                            let elapsed = Date().timeIntervalSince(last)
-                            LabeledContent("Último envío") {
-                                Text("\(last.formatted(date: .omitted, time: .shortened)) · hace \(gapTimeLabel(elapsed))")
-                                    .foregroundStyle(sendFreshnessTint(elapsed))
-                            }
+                            LabeledContent("Último envío", value: last.formatted(date: .omitted, time: .shortened))
                         }
                         if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
                             LabeledContent("Precisión GPS", value: String(format: "± %.0f m", loc.horizontalAccuracy))
-                        }
-                        if store.pendingCount > 0 {
-                            LabeledContent("En cola (sin cobertura)", value: "\(store.pendingCount)")
-                                .foregroundStyle(.orange)
                         }
                         if store.heldReadings > 0 {
                             // Lecturas que no superaron el ruido del GPS y se
@@ -1234,6 +1233,36 @@ struct TrackingView: View {
         if store.isSharing, store.batteryLevel >= 0 {
             batteryRow
         }
+        if store.isSharing { resumenEnVivo }
+    }
+
+    /// Lo que se mira de un vistazo mientras se emite: quién te está siguiendo,
+    /// cuándo salió tu última posición y si queda algo por mandar.
+    ///
+    /// Estaba al final de la pantalla, en "Estado", que es donde nadie mira con
+    /// la carrera en marcha: aquí va en una línea, pegado al "compartiendo en
+    /// directo" que contesta la misma pregunta.
+    @ViewBuilder
+    private var resumenEnVivo: some View {
+        let atrasado = store.pendingCount > 0
+        HStack(spacing: 14) {
+            if let viewers = store.activeViewers {
+                Label("\(viewers)", systemImage: "eye.fill")
+                    .foregroundStyle(viewers > 0 ? .green : Theme.slate400)
+            }
+            if let last = store.lastSentAt {
+                let elapsed = Date().timeIntervalSince(last)
+                Label("hace \(gapTimeLabel(elapsed))", systemImage: "arrow.up.circle")
+                    .foregroundStyle(sendFreshnessTint(elapsed))
+            }
+            if atrasado {
+                Label("\(store.pendingCount) en cola", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .foregroundStyle(.orange)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.footnote)
+        .labelStyle(.titleAndIcon)
     }
 
     /// Race tip: enabling iOS Low Power Mode extends autonomy and does NOT break

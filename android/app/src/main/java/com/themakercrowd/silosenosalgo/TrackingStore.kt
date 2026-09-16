@@ -1,6 +1,9 @@
 package com.themakercrowd.silosenosalgo
 
 import android.content.Context
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -287,6 +290,18 @@ object TrackingStore {
             ?.firstOrNull { it.isActive && it.id != mia }
     }
 
+    /**
+     * El nombre de una salida a la que no se le puso ninguno: la marca y cuándo
+     * empezó.
+     *
+     * "Sin nombre" no distingue una salida de otra en la lista de seguimientos
+     * ni en el enlace que se comparte, y ponerle nombre es justo lo que no se
+     * hace con prisa. Espejo de `nombrePorDefecto` en iOS.
+     */
+    fun nombrePorDefecto(inicioMs: Double): String =
+        "SiLoSeNoSalgo · " + SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
+            .format(Date(inicioMs.toLong()))
+
     suspend fun empieza(
         titulo: String?,
         planId: String? = _estado.value.planId,
@@ -297,8 +312,11 @@ object TrackingStore {
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
         return runCatching {
+            // Sin nombre puesto, uno con la marca y la hora: en la lista de
+            // seguimientos y en el enlace, "Sin nombre" no distingue nada.
+            val nombre = titulo ?: nombrePorDefecto(salidaMs)
             val res = api.createTrack(
-                t, titulo, planId, salidaMs, actividad, _estado.value.eventoId, nombreDeEsteAparato(),
+                t, nombre, planId, salidaMs, actividad, _estado.value.eventoId, nombreDeEsteAparato(),
             )
             pendientes = emptyList()
             traza = emptyList()
@@ -320,7 +338,7 @@ object TrackingStore {
                 compartiendo = true,
                 enEspera = enEspera,
                 sessionId = res.id,
-                titulo = titulo,
+                titulo = nombre,
                 perfil = _estado.value.perfil,
                 ritmo = _estado.value.ritmo,
                 actividad = actividad,

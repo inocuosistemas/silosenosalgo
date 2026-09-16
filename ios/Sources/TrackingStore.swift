@@ -720,6 +720,16 @@ final class TrackingStore: ObservableObject {
     /// Empezar a compartir. `force` salta el aviso de relevo: lo pone la vista
     /// cuando quien usa la app ya ha dicho que sí a quitarle la baliza al otro
     /// móvil.
+    /// El nombre de una salida a la que no se le puso ninguno: la marca y
+    /// cuándo empezó.
+    ///
+    /// "Sin nombre" no distingue una salida de otra en la lista de seguimientos
+    /// ni en el enlace que se comparte, y ponerle nombre es justo lo que no se
+    /// hace con prisa. Espejo de `nombrePorDefecto` en Android.
+    static func nombrePorDefecto(_ inicio: Date) -> String {
+        "SiLoSeNoSalgo · " + inicio.formatted(.dateTime.day().month(.abbreviated).year().hour().minute())
+    }
+
     func startSharing(title: String?, force: Bool = false) async {
         lastError = nil
         // ¿Hay otra baliza viva en esta cuenta? Se pregunta ANTES de crear la
@@ -735,7 +745,10 @@ final class TrackingStore: ObservableObject {
             // If the user didn't set a departure time, use "now" at share time
             // (not the stale value from when the screen opened).
             let start = startAtTouched ? startAt : Date()
-            let res = try await API.createTrack(token: token, title: title, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId, device: Self.deviceName)
+            // Sin nombre puesto, uno con la marca y la hora: en la lista de
+            // seguimientos y en el enlace, "Sin nombre" no distingue nada.
+            let nombre = title ?? Self.nombrePorDefecto(start)
+            let res = try await API.createTrack(token: token, title: nombre, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId, device: Self.deviceName)
             sessionToken = res.id
             activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
             isSharing = true
@@ -762,8 +775,8 @@ final class TrackingStore: ObservableObject {
             persistPendingNotes()
             persistPendingNoteDeletes()
             persistPendingMedia()
-            activeTitle = title
-            ViewerDataProvider.shared.register(token: res.id, title: title, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
+            activeTitle = nombre
+            ViewerDataProvider.shared.register(token: res.id, title: nombre, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
             ViewerDataProvider.shared.setActivity(token: res.id, activity: activity)
             cachePlanBytes(for: res.id, planId: selectedPlanId)
             // If the planned start is still ahead (beyond the lead margin), arm

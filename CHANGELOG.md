@@ -86,6 +86,28 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### En vivo, lo importante de un vistazo (iOS)
+
+**iOS · Mejora al actualizar (sin publicar todavía).** Con la baliza emitiendo,
+la tarjeta de arriba lleva ahora, además del estado, **cuánta gente te sigue,
+hace cuánto salió tu última posición y cuántas quedan en cola** sin cobertura.
+Estaban al final de la pantalla, en «Estado», que no es donde se mira con la
+carrera en marcha; allí queda el detalle que se mira despacio.
+
+Debajo, **«Compartir enlace» a un toque**: era lo que se buscaba en cuanto
+alguien pregunta «¿dónde te sigo?» y había que bajar a buscarlo. Y **«Pausar
+10 min» pasa a ser un botón de verdad**, ámbar y del mismo tamaño que el rojo
+de dejar de compartir, en vez de una franja fina.
+
+### Una salida sin nombre ya no se llama «Sin nombre»
+
+**iOS y Android · Mejora al actualizar (sin publicar todavía).** Al empezar a
+compartir sin escribir un nombre, la salida se llama **«SiLoSeNoSalgo · 16 sept
+2026, 07:05»**, con su fecha y hora de inicio. En la lista de seguimientos y en
+el enlace que se comparte, «Sin nombre» no distinguía una salida de otra, y
+ponerle nombre es justo lo que no se hace con prisa. Se puede renombrar como
+siempre.
+
 ### La baliza se siente: un golpecito al elegir carrera y al empezar y parar
 
 **iOS 548 · Mejora al actualizar. En Android irá con la próxima.** Elegir
