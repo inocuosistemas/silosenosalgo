@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CORREDORES_CARRERITA, MINUTOS_POR_SEGUNDO, VUELTA_S,
+  CORREDORES_CARRERITA, HORAS_CARRERITA, VUELTA_S, minutosPorSegundo,
   avanceEn, finDeCarrera, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita,
 } from '../src/lib/carrerita'
 
@@ -129,14 +129,19 @@ describe('instanteDe', () => {
 
   it('arranca en la hora de salida', () => {
     const salida = Date.UTC(2026, 8, 16, 7, 0, 0)
-    expect(instanteDe(salida, 0)!.getTime()).toBe(salida)
+    expect(instanteDe(salida, 0, 200)!.getTime()).toBe(salida)
   })
 
-  it('el reloj corre mucho más rápido que el de verdad', () => {
+  it('el día entero cuadra con la carrera: al llegar el último se ha cumplido', () => {
     const salida = Date.UTC(2026, 8, 16, 7, 0, 0)
-    const pasado = instanteDe(salida, 60)!.getTime() - salida
-    expect(pasado).toBe(60 * MINUTOS_POR_SEGUNDO * 60_000)
-    expect(pasado).toBeGreaterThan(60_000)
+    const fin = 200
+    const pasado = instanteDe(salida, fin, fin)!.getTime() - salida
+    expect(pasado).toBe(HORAS_CARRERITA * 60 * 60_000)
+  })
+
+  it('una carrera más larga hace correr el reloj más despacio', () => {
+    expect(minutosPorSegundo(100)).toBeGreaterThan(minutosPorSegundo(300))
+    expect(minutosPorSegundo(0)).toBe(0)
   })
 })
 

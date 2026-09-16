@@ -84,6 +84,59 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ---
 
+## 2026-09-17
+
+### El día entero cuadra con la carrera, y quien llega se retira
+
+**Web · Compatible.** Dos arreglos a la carrerita de la maqueta.
+
+**El reloj ya no va a ritmo fijo.** Iba a doce minutos de carrera por segundo,
+con lo que el sol daba **vuelta y media** antes de que llegara el último y la
+carrera terminaba a una hora cualquiera. Ahora el ritmo se deriva de lo que
+dure la carrera (`minutosPorSegundo`), de modo que el ciclo de luz completo
+—veinticuatro horas, de la salida al mismo momento del día siguiente— se cumple
+**justo** cuando cruza la meta el último. Si algún día se cambia el reparto de
+velocidades, esto se ajusta solo.
+
+**Y al llegar a meta, se retiran.** Antes se quedaban clavados en la línea.
+Ahora desaparecen al cruzarla, con su sombra. En una malla instanciada no se
+puede esconder una instancia suelta, así que se le deja la escala a cero: sin
+superficie que dibujar, deja de existir sin sacarla de la malla.
+
+### Y mueven las piernas y los bastones
+
+**Web · Compatible.** Los corredores ya no van de una pieza: las piernas hacen
+tijera, los brazos van al contrario y los bastones acompañan a la mano.
+
+**Se articulan en el shader, no con esqueleto.** Blender puede rigar y glTF
+exporta animación, pero three **no sabe instanciar mallas con esqueleto**:
+habría que pasar de cinco dibujos a catorce mallas con sus huesos
+recalculándose cada fotograma, y a doce píxeles de alto eso no compra nada. En
+su lugar, los `.glb` traen marcada la articulación con atributos por vértice
+—`_PIERNA` y `_BRAZO` como pesos de 0 a 1, `_LADO` para saber qué miembro es de
+qué lado, `_BASTON` para los bastones— y el vertex shader los gira alrededor de
+la cadera y del hombro. Se sigue dibujando una malla por variante.
+
+No se podía deducir del modelo: el color del pantalón cambia en cada variante y
+en algunas coincide con el del pelo, así que clasificar los vértices por color
+habría fallado en la mitad. Los atributos vienen del `.blend`.
+
+Cada corredor lleva **su propia fase** (`aFase`, por instancia): sin eso, los
+tres de una misma variante movían la pierna a la vez, como un cuerpo de baile.
+
+Dos cosas aprendidas, por si alguien toca esto:
+
+- **Los pivotes hay que llevarlos a la escala de la geometría.** Vienen en
+  unidades del modelo y la geometría ya está escalada al tamaño de la maqueta.
+  Pasarlos tal cual hace que «vértice − eje» salga unas cuarenta veces mayor de
+  lo debido y la rotación manda los triángulos a kilómetros: la maqueta se
+  llena de láminas de colores. **Ni los tipos ni el compilador del shader lo
+  detectan** —es aritmética correcta sobre datos en la escala equivocada—, solo
+  se ve mirándolo.
+- **La amplitud, corta.** Con medio radián el paso se leía muy bien de lejos,
+  pero de cerca el pie se despegaba del gemelo: al girar el miembro como una
+  pieza rígida, el peso llega a 1 en la bamba y se abre la junta.
+
 ## 2026-09-16
 
 ### Cinco corredores distintos, modelados en Blender

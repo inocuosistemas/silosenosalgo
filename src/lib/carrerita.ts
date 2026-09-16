@@ -22,11 +22,23 @@ export const CORREDORES_CARRERITA = 14
 export const VUELTA_S = 100
 
 /**
- * Cuántos minutos de carrera pasan por cada segundo de reloj. Con esto y una
- * vuelta de `VUELTA_S`, una carrera entera cabe en un rato de mirarla y da
- * tiempo a que el sol se mueva de verdad: es lo que hace que anochezca.
+ * Cuántas horas de luz cubre la carrerita entera: un día completo, de la
+ * salida al mismo momento del día siguiente.
  */
-export const MINUTOS_POR_SEGUNDO = 12
+export const HORAS_CARRERITA = 24
+
+/**
+ * A qué ritmo corre el reloj, en minutos de carrera por segundo de reloj.
+ *
+ * NO es una constante: se deriva de lo que dure la carrera para que el día
+ * cuadre **exactamente** con ella. Con un ritmo fijo, el sol daba vuelta y
+ * media antes de que llegara el último, y la carrera acababa a una hora
+ * cualquiera. Así, cuando cruza la meta el último, se ha cumplido justo el
+ * ciclo de luz entero.
+ */
+export function minutosPorSegundo(finSegundos: number): number {
+  return finSegundos > 0 ? (HORAS_CARRERITA * 60) / finSegundos : 0
+}
 
 /** Lo que le toca a cada corredor: lo rápido que va y con cuánto retraso sale. */
 export interface CorredorCarrerita {
@@ -164,7 +176,7 @@ export function puntoDelCarril(carril: Carril, f: number): SitioEnCarril {
  * rápido. Sin hora de salida no hay nada que simular y se devuelve `null`:
  * quien llame decide qué luz poner entonces.
  */
-export function instanteDe(salidaMs: number | null, segundos: number): Date | null {
+export function instanteDe(salidaMs: number | null, segundos: number, finSegundos: number): Date | null {
   if (salidaMs === null || !Number.isFinite(salidaMs)) return null
-  return new Date(salidaMs + segundos * MINUTOS_POR_SEGUNDO * 60_000)
+  return new Date(salidaMs + segundos * minutosPorSegundo(finSegundos) * 60_000)
 }

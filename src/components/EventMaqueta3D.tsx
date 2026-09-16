@@ -1011,11 +1011,11 @@ const ESCALA_MUNECO = ALTO_MUNECO / ALTO_NATURAL_MUNECO
  * estatura, así que cada variante lleva la suya.
  */
 const VARIANTES = [
-  { archivo: 'corredor-a.glb', frente: new THREE.Vector3(0, 1.765, 0.273) },
-  { archivo: 'corredor-b.glb', frente: new THREE.Vector3(0, 1.557, 0.232) },
-  { archivo: 'corredor-c.glb', frente: new THREE.Vector3(0, 1.576, 0.244) },
-  { archivo: 'corredor-d.glb', frente: new THREE.Vector3(0, 1.671, 0.249) },
-  { archivo: 'corredor-e.glb', frente: new THREE.Vector3(0, 1.680, 0.260) },
+  { archivo: 'corredor-a.glb', frente: new THREE.Vector3(0, 1.765, 0.273), cadera: new THREE.Vector3(0.105, 0.977, 0), hombro: new THREE.Vector3(0.221, 1.471, 0.074), zurda: true },
+  { archivo: 'corredor-b.glb', frente: new THREE.Vector3(0, 1.557, 0.232), cadera: new THREE.Vector3(0.097, 0.857, 0), hombro: new THREE.Vector3(0.176, 1.293, 0.065), zurda: false },
+  { archivo: 'corredor-c.glb', frente: new THREE.Vector3(0, 1.576, 0.244), cadera: new THREE.Vector3(0.094, 0.868, 0), hombro: new THREE.Vector3(0.197, 1.308, 0.066), zurda: true },
+  { archivo: 'corredor-d.glb', frente: new THREE.Vector3(0, 1.671, 0.249), cadera: new THREE.Vector3(0.104, 0.925, 0), hombro: new THREE.Vector3(0.189, 1.392, 0.070), zurda: false },
+  { archivo: 'corredor-e.glb', frente: new THREE.Vector3(0, 1.680, 0.260), cadera: new THREE.Vector3(0.100, 0.930, 0), hombro: new THREE.Vector3(0.210, 1.400, 0.070), zurda: false },
 ]
 /** Cuántos corren. En el móvil, menos: son instancias, pero cada una lleva su mancha de sombra. */
 const MUNECOS = TACTIL ? 8 : CORREDORES_CARRERITA
@@ -1081,9 +1081,64 @@ function cargaCorredores(): Promise<(THREE.BufferGeometry | null)[]> {
  * teñiría también la piel, las bambas y los palos. Aquí ese trozo se sustituye
  * por una mezcla que solo deja pasar el tinte donde `_camiseta` vale 1.
  */
-function materialCorredor(): THREE.MeshLambertMaterial {
+function materialCorredor(v: (typeof VARIANTES)[number]): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })
+  // La fase de la zancada. Va en el material —uno por variante— y cada
+  // corredor le suma la suya (`aFase`), que si no los tres de una misma
+  // variante moverían la pierna a la vez, como un cuerpo de baile.
+  // Los pivotes vienen en unidades del MODELO y la geometría ya está escalada
+  // al tamaño de la maqueta (ver `cargaCorredores`), así que hay que llevarlos
+  // a la misma escala. Sin esto, restar «vértice − eje» da un vector unas
+  // cuarenta veces mayor de lo debido y la rotación manda los triángulos a
+  // kilómetros: la maqueta se llena de láminas de colores. No lo detectan ni
+  // los tipos ni el compilador del shader —es aritmética correcta sobre datos
+  // en la escala equivocada—, solo se ve mirándolo.
+  const uniforms = {
+    uFase: { value: 0 },
+    uCadera: { value: v.cadera.clone().multiplyScalar(ESCALA_MUNECO) },
+    uHombro: { value: v.hombro.clone().multiplyScalar(ESCALA_MUNECO) },
+  }
+  m.userData.uniforms = uniforms
   m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms)
+    // Piernas y brazos giran alrededor de su eje (cadera y hombro), en
+    // sentidos opuestos, con la amplitud repartida por el peso que trae el
+    // modelo: 0 arriba del muslo y 1 en la bamba, así la rodilla acompaña.
+    // Los bastones llevan `_brazo` a 1, así que siguen a la mano sin más.
+    //
+    // La pose exportada ya tiene una pierna adelantada, o sea que el ciclo
+    // oscila alrededor de ella y no de una pose neutra. A doce píxeles de alto
+    // eso no se distingue, y evita tener que exportar una pose de reposo.
+    shader.vertexShader = `
+      attribute float _pierna;
+      attribute float _brazo;
+      attribute float _lado;
+      attribute float aFase;
+      uniform float uFase;
+      uniform vec3 uCadera;
+      uniform vec3 uHombro;
+      vec3 giraEnX( vec3 p, vec3 eje, float ang ) {
+        vec3 d = p - eje;
+        float c = cos( ang ), s = sin( ang );
+        return eje + vec3( d.x, d.y * c - d.z * s, d.y * s + d.z * c );
+      }
+    ` + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      if ( _lado != 0.0 ) {
+        // Amplitud corta a propósito. Con medio radián la zancada se leía muy
+        // bien de lejos, pero de cerca el pie se despegaba del gemelo y la
+        // mano de la manga: al girar el miembro entero como una pieza rígida,
+        // el peso llega a 1 en la bamba y se abre la junta. Con esto se sigue
+        // notando el paso y no se descoyunta nadie.
+        float ang = sin( uFase + aFase ) * 0.30 * _lado;
+        // El eje está a un lado u otro según de quién sea el miembro.
+        vec3 cad = vec3( -_lado * abs( uCadera.x ), uCadera.y, uCadera.z );
+        vec3 hom = vec3( -_lado * abs( uHombro.x ), uHombro.y, uHombro.z );
+        transformed = giraEnX( transformed, cad, ang * _pierna );
+        transformed = giraEnX( transformed, hom, -ang * _brazo );
+      }`,
+    )
     shader.vertexShader = `attribute float _camiseta;\n${shader.vertexShader}`.replace(
       '#ifdef USE_INSTANCING_COLOR\n\n\t\tvColor.rgb *= instanceColor.rgb;\n\n\t#endif',
       '#ifdef USE_INSTANCING_COLOR\n\n\t\tvColor.rgb *= mix( vec3( 1.0 ), instanceColor.rgb, _camiseta );\n\n\t#endif',
@@ -1192,6 +1247,8 @@ const EJE_Y = new THREE.Vector3(0, 1, 0)
 const sitioMuneco = new THREE.Vector3()
 const giroMuneco = new THREE.Quaternion()
 const tamanoMuneco = new THREE.Vector3(1, 1, 1)
+/** La escala de quien ya ha llegado: sin superficie, o sea invisible. */
+const TAMANO_CERO = new THREE.Vector3(0, 0, 0)
 const matrizMuneco = new THREE.Matrix4()
 
 /**
@@ -1288,13 +1345,18 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
   const t = e.terreno
   if (!t || !c.carril || c.porVariante.length === 0) return false
   for (let i = 0; i < c.gente.length; i++) {
-    const p = puntoDelCarril(c.carril, avanceEn(c.gente[i], segundos))
+    const avance = avanceEn(c.gente[i], segundos)
+    const p = puntoDelCarril(c.carril, avance)
     // El bote de la zancada: no se les articulan las piernas —a este tamaño no
     // se vería— pero el sube y baja sí se nota, y es lo que los pone a correr.
     const bote = Math.abs(Math.sin(segundos * 9 + i * 1.7)) * ALTO_MUNECO * 0.12
     sitioMuneco.set(p.x, p.y + bote, p.z)
     giroMuneco.setFromAxisAngle(EJE_Y, p.rumbo)
-    matrizMuneco.compose(sitioMuneco, giroMuneco, tamanoMuneco)
+    // Al cruzar la meta se retira: en una malla instanciada no se puede
+    // esconder una instancia suelta, así que se le deja la escala a cero y
+    // deja de tener superficie que dibujar.
+    const enMeta = avance >= 1
+    matrizMuneco.compose(sitioMuneco, giroMuneco, enMeta ? TAMANO_CERO : tamanoMuneco)
     // Cada corredor escribe en la malla de SU variante, en su propio índice.
     // El frontal va con la misma matriz: pegado a la cabeza que bota y
     // mirando hacia donde corre, sin volver a calcular nada.
@@ -1304,10 +1366,21 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
     v.frontales.setMatrixAt(indice, matrizMuneco)
     v.haces.setMatrixAt(indice, matrizMuneco)
     const sombra = c.sombras[i]
-    if (sombra) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
+    if (sombra) {
+      sombra.visible = !enMeta
+      if (!enMeta) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
+    }
+  }
+  // El reloj va atado a lo que dure la carrera: cuando cruza la meta el
+  // último, se ha cumplido justo el ciclo de luz entero (ver `minutosPorSegundo`).
+  const fin = finDeCarrera(c.gente)
+  // La zancada: unos nueve pasos por segundo, al ritmo del bote del cuerpo.
+  for (const v of c.porVariante) {
+    const u = (v.malla.material as THREE.Material).userData.uniforms as { uFase: { value: number } } | undefined
+    if (u) u.uFase.value = segundos * 9
   }
   // En cuanto el sol se pone, se encienden los frontales.
-  const deNoche = poneLaLuz(e, instanteDe(c.salidaMs, segundos), c.lat, c.lon)
+  const deNoche = poneLaLuz(e, instanteDe(c.salidaMs, segundos, fin), c.lat, c.lon)
   for (const v of c.porVariante) {
     v.malla.instanceMatrix.needsUpdate = true
     v.frontales.instanceMatrix.needsUpdate = true
@@ -1321,7 +1394,7 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
     e.renderer.shadowMap.needsUpdate = true
   }
   // Se corre hasta que llega el ÚLTIMO, no hasta que se cumple un reloj.
-  return segundos < Math.min(finDeCarrera(c.gente), TOPE_CARRERITA_S)
+  return segundos < Math.min(fin, TOPE_CARRERITA_S)
 }
 
 /**
@@ -2465,7 +2538,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Una malla por variante. Nacen con la geometría vacía y se les pone la
     // suya cuando llegan los ficheros: así el efecto sigue siendo síncrono.
     const porVariante = VARIANTES.map((v, iv) => {
-      const malla = new THREE.InstancedMesh(new THREE.BufferGeometry(), materialCorredor(), Math.max(1, cuenta[iv]))
+      const malla = new THREE.InstancedMesh(new THREE.BufferGeometry(), materialCorredor(v), Math.max(1, cuenta[iv]))
       // No dan sombra de verdad: el mapa de sombras está congelado y se
       // quedarían estampados donde salieron. Llevan la suya pintada.
       malla.castShadow = false
@@ -2495,6 +2568,11 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       if (!e.carrerita.parent) return
       geos.forEach((g, iv) => {
         if (!g) return
+        // Media zancada de diferencia entre unos y otros, fija: la misma
+        // carrera se ve siempre igual y el pelotón no va al unísono.
+        const fases = new Float32Array(Math.max(1, cuenta[iv]))
+        for (let k = 0; k < fases.length; k++) fases[k] = k * 1.7 + iv * 0.9
+        g.setAttribute('aFase', new THREE.InstancedBufferAttribute(fases, 1))
         porVariante[iv].malla.geometry.dispose()
         porVariante[iv].malla.geometry = g
       })
