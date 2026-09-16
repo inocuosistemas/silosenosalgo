@@ -1052,16 +1052,58 @@ function geometriaMuneco(): THREE.BufferGeometry {
  * lleva su rumbo: en ese sistema, la marcha es el +Z de la pieza.
  */
 function geometriaFrontal(): THREE.BufferGeometry {
-  const largo = 0.020
-  const haz = new THREE.ConeGeometry(0.0060, largo, 8, 1, true)
+  const largo = 0.026
+  // Solo el haz. El punto de luz de la frente se dibuja aparte: el cono lleva
+  // ahora una textura que se desvanece a lo largo, y una esfera fundida con él
+  // cogería ese degradado por donde no toca.
+  const g = new THREE.ConeGeometry(0.0075, largo, 10, 1, true)
     .translate(0, -largo / 2, 0)
     .rotateX(-Math.PI / 2)
     .translate(0, 0.0215, 0.0026)
-  const piezas = [new THREE.SphereGeometry(0.0013, 6, 4).translate(0, 0.0215, 0.0026), haz]
-  const g = mergeGeometries(piezas)!
-  for (const p of piezas) p.dispose()
   g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
   return g
+}
+
+/** El puntito de luz de la frente, que es lo que se ve encendido de lejos. */
+function geometriaNucleo(): THREE.BufferGeometry {
+  return new THREE.SphereGeometry(0.0016, 6, 4)
+    .translate(0, 0.0215, 0.0026)
+    .scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
+}
+
+/**
+ * El degradado del haz: opaco al salir de la frente y apagándose hacia el
+ * final, para que no se corte de golpe en la punta.
+ *
+ * Se probó a hacer esto con un material de foco volumétrico de librería
+ * (`@pmndrs/vanilla`) y salió PEOR: ese shader está pensado para un foco de
+ * metros visto a escala humana, y aquí el haz mide cuatro píxeles en pantalla.
+ * Todo lo que hace bien —suavizar bordes, atenuar— a ese tamaño solo disuelve
+ * la forma, y los catorce haces se fundían en una raya pálida. Esto aguanta
+ * por ser tosco. Si alguien vuelve a intentarlo, que mire una captura de noche
+ * con el pelotón estirado antes de darlo por bueno.
+ *
+ * En un cono de three la `v` vale 1 en el vértice y 0 en la base; aquí el
+ * vértice es la frente, así que el degradado va de blanco arriba a
+ * transparente abajo.
+ */
+let texturaDelHaz: THREE.CanvasTexture | null = null
+function texturaHaz(): THREE.CanvasTexture {
+  if (texturaDelHaz) return texturaDelHaz
+  const c = document.createElement('canvas')
+  c.width = 4
+  c.height = 256
+  const ctx = c.getContext('2d')!
+  const g = ctx.createLinearGradient(0, 0, 0, 256)
+  g.addColorStop(0, 'rgba(255,255,255,0.95)')
+  g.addColorStop(0.25, 'rgba(255,255,255,0.55)')
+  g.addColorStop(0.6, 'rgba(255,255,255,0.16)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 4, 256)
+  texturaDelHaz = new THREE.CanvasTexture(c)
+  texturaDelHaz.colorSpace = THREE.SRGBColorSpace
+  return texturaDelHaz
 }
 
 /** Los colores de camiseta, que se repartan y se distingan unos de otros. */
@@ -1075,8 +1117,10 @@ interface EstadoCarrerita {
   carril: Carril | null
   gente: CorredorCarrerita[]
   malla: THREE.InstancedMesh | null
-  /** Los frontales, encendidos solo de noche. */
+  /** Los puntos de luz de la frente, encendidos solo de noche. */
   frontales: THREE.InstancedMesh | null
+  /** Los haces de los frontales, en una sola malla instanciada. */
+  haces: THREE.InstancedMesh | null
   sombras: THREE.Group[]
   /** Desde dónde se mira el sol: el primer punto del recorrido. */
   lat: number
@@ -1200,6 +1244,7 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
     // El frontal va con la misma matriz: pegado a la cabeza que bota y
     // mirando hacia donde corre, sin volver a calcular nada.
     c.frontales?.setMatrixAt(i, matrizMuneco)
+    c.haces?.setMatrixAt(i, matrizMuneco)
     const sombra = c.sombras[i]
     if (sombra) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
   }
@@ -1209,6 +1254,10 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
   if (c.frontales) {
     c.frontales.instanceMatrix.needsUpdate = true
     c.frontales.visible = deNoche
+  }
+  if (c.haces) {
+    c.haces.instanceMatrix.needsUpdate = true
+    c.haces.visible = deNoche
   }
   // El mapa de sombras solo se rehace cuando el sol se ha movido de verdad.
   if (Math.abs(e.sol.position.y - c.ultimoSol) > SOL_PASO_SOMBRA) {
@@ -1535,9 +1584,6 @@ async function grabaVideo(
     // cuando no da abasto, que en un vídeo decorativo de treinta segundos no
     // se nota, y a cambio no se queda clavado.
     latencyMode: 'realtime',
-    // Lo que de verdad se le pide a WebCodecs. Va a la consola a propósito:
-    // es la única forma de ver qué hace Safari sin tener Safari delante.
-    onEncoderConfig: (config) => console.log('[video] configuración del codificador', JSON.stringify(config)),
   })
   output.addVideoTrack(fuente, { frameRate: VIDEO_FPS })
   const fuenteMusica = pistaMusica ? new mb.EncodedAudioPacketSource('aac') : null
@@ -2369,13 +2415,21 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     // Los frontales: mezcla aditiva y sin escribir profundidad, que es lo que
     // hace que un haz parezca luz y no un cucurucho de plástico.
-    const frontales = new THREE.InstancedMesh(geometriaFrontal(), new THREE.MeshBasicMaterial({
-      color: 0xfff4d0, transparent: true, opacity: 0.55,
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    const frontales = new THREE.InstancedMesh(geometriaNucleo(), new THREE.MeshBasicMaterial({
+      color: 0xfff6dc, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false,
     }), MUNECOS)
     frontales.frustumCulled = false
-    frontales.renderOrder = 1
+    frontales.renderOrder = 2
     frontales.visible = false
+    const haces = new THREE.InstancedMesh(geometriaFrontal(), new THREE.MeshBasicMaterial({
+      map: texturaHaz(), color: 0xfff4d0, transparent: true, opacity: 0.8,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    }), MUNECOS)
+    haces.frustumCulled = false
+    haces.renderOrder = 1
+    haces.visible = false
+    e.carrerita.add(haces)
     e.carrerita.add(malla, frontales)
     // Nacen quietos y escondidos: la salida la da el botón, no el reloj. Antes
     // arrancaba sola al abrir y se paraba al primer toque, y como lo primero
@@ -2386,7 +2440,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     carreritaRef.current = {
       corriendo: false, t0: 0, carril, gente: repartoCarrerita(MUNECOS),
-      malla, frontales, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
+      malla, frontales, haces, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
       alAcabar: () => { setCorriendoCarrera(false); setCuentaAtras(null) },
     }
     setHayCarrerita(true)
@@ -2397,9 +2451,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       setHayCarrerita(false)
       setCorriendoCarrera(false)
       setCuentaAtras(null)
-      e.carrerita.remove(malla, frontales)
+      e.carrerita.remove(malla, frontales, haces)
       tira(malla)
       tira(frontales)
+      tira(haces)
       for (const s of sombras) { e.sombras.remove(s); tiraSombra(s) }
       e.sucio = true
     }

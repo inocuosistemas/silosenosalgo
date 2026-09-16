@@ -86,6 +86,31 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### Los frontales alumbran más lejos, y por qué no se usó una librería
+
+**Web · Compatible.** El haz de los frontales es ahora más largo y **se apaga
+con la distancia** en vez de cortarse de golpe en la punta: ese filo recto era
+lo que delataba que era geometría y no luz. El punto de luz de la frente va
+aparte, en su propia malla, para que el degradado del haz no le afecte.
+
+**Y un intento que salió mal, que conviene no repetir.** Para hacerlo "hiper
+realista" se trajo `@pmndrs/vanilla` y su `SpotLightMaterial`, un foco
+volumétrico de verdad, con atenuación y bordes desvanecidos. Se probó con dos
+juegos de parámetros distintos y **las dos veces se veía peor**: los catorce
+haces se fundían en una raya pálida sin forma, donde antes se contaban nueve o
+diez con silueta propia.
+
+La razón, que es lo que hay que recordar: ese shader está pensado para un foco
+de **metros** visto a escala humana. Aquí el haz mide 0,045 unidades sobre una
+loseta de 2, visto desde 1,7: son cuatro píxeles en pantalla. Todo lo que ese
+material hace bien —suavizar bordes, atenuar suavemente— a ese tamaño solo
+sirve para disolver la forma. El cono aditivo con degradado duro aguanta
+precisamente **por ser tosco**. La dependencia se desinstaló.
+
+Para la próxima: a escala de maqueta, una técnica más sofisticada puede dar un
+resultado peor, y la única forma de saberlo es mirar una captura de noche con
+el pelotón estirado. No se decide leyendo la documentación.
+
 ### La luz de la maqueta, con mapeo de tonos
 
 **Web · Compatible.** La maqueta pinta ahora con **mapeo de tonos filmico
@@ -128,22 +153,23 @@ Ahora se cede el hilo en **cada** fotograma. En Chrome cuesta unos segundos más
 de generación; en Safari debería ser la diferencia entre haber vídeo y no
 haberlo.
 
-**Y una segunda palanca, porque lo anterior podría no bastar.** El codificador
-iba en `latencyMode: 'quality'`, que es lo de serie y que tiene **prohibido
-descartar fotogramas**: si se satura, su única salida es esperar. En Safari eso
-se convierte en esperar para siempre. Ahora va en `'realtime'`, donde puede
-soltar alguno cuando no da abasto; en un vídeo decorativo de treinta segundos
-no se nota, y a cambio no se queda clavado.
+**Y esto era lo que faltaba, confirmado en Safari.** El codificador iba en
+`latencyMode: 'quality'`, que es lo de serie y que tiene **prohibido descartar
+fotogramas**: si se satura, su única salida es esperar, y en Safari eso se
+convertía en esperar para siempre. Ahora va en `'realtime'`, donde puede soltar
+alguno cuando no da abasto; en un vídeo decorativo de treinta segundos no se
+nota, y a cambio no se queda clavado. Con esto, Safari genera el vídeo.
 
-Mientras se confirma la causa, `onEncoderConfig` escribe en la consola lo que
-de verdad se le pide a WebCodecs —codec, tamaño, bitrate—, que es la única
-forma de ver qué hace Safari sin tener Safari delante. **Ese registro hay que
-quitarlo en cuanto esté resuelto.**
+Cómo se encontró, porque el método sirve para la próxima: no se podía probar
+Safari desde el banco, así que se dejó `onEncoderConfig` escribiendo en consola
+la configuración real que se le pasa a WebCodecs, para leerla desde el
+navegador de quien sí lo tenía. En Chrome salía `avc1.640028` (perfil High,
+nivel 4.0) a 1080×1920 con `bitrateMode: 'quantizer'`. Ese registro ya se ha
+quitado: era diagnóstico, no producción.
 
-Si aun así se atascara, lo siguiente es el tamaño: se pide 1080×1920, y el
-codificador por hardware de Safari es frágil justo ahí. Bajar a 720×1280, o
-forzar `hardwareAcceleration: 'prefer-software'`, son las dos palancas que
-quedan.
+Si algún día vuelve a aparecer algo parecido, quedan dos palancas sin usar:
+bajar de 1080×1920 a 720×1280 —el codificador por hardware de Safari es frágil
+justo ahí— y forzar `hardwareAcceleration: 'prefer-software'`.
 
 Para la próxima: un bucle largo que alimente a WebCodecs tiene que volver al
 bucle de eventos a menudo, y lo que en un navegador es una optimización, en
