@@ -1718,6 +1718,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               planId={planShareId}
               corredores={corredores3D}
               puntos={puntos3D}
+              salidaMs={startsAt}
               fotos={fotos}
               onAbrirFoto={setFotoAbierta}
               onCerrar={() => setEn3D(false)}

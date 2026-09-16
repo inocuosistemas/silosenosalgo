@@ -86,6 +86,51 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### Una carrerita corriendo por la maqueta, y el día pasando
+
+**Web · Compatible.** Al abrir la maqueta salen unos corredores de juguete que
+toman la salida, se estiran por el recorrido como en una carrera de verdad
+—cada uno con su velocidad y su retraso al cruzar la línea— y, mientras dan la
+vuelta, el sol cruza el cielo: amanece, es de día y se hace de noche.
+
+Es **adorno y solo adorno**, y conviene que quede dicho para que nadie lo lea
+como información: no representa a ningún participante ni a ningún ritmo real.
+Por eso se calla en cuanto hay algo de verdad que enseñar —en el replay, que
+trae su propio reloj, y siempre que haya corredores reales en la maqueta—, y
+por eso el reparto de velocidades es un azar **fijo**: la misma maqueta enseña
+siempre la misma carrerita, que si no dos capturas de la misma carrera no se
+parecerían.
+
+El sol es el de verdad: la hora de salida de la carrera, la fecha y el punto
+del recorrido, pasados por SunCalc, que ya estaba en el proyecto. El reloj
+corre a doce minutos por segundo, así que en el rato que dura el espectáculo
+cabe un día entero.
+
+**La batería manda.** La maqueta se pinta solo cuando algo cambia, y esto la
+pone a pintar siempre; así que la carrerita se para sola a los 75 segundos, y
+se para también en cuanto se toca la maqueta: quien viene a mirar el relieve no
+tiene por qué esperar a que los muñecos acaben.
+
+Tres decisiones que no se ven pero que hay que respetar si se toca esto:
+
+- Los muñecos **no dan sombra de verdad**. El mapa de sombras está congelado a
+  propósito, y se quedarían estampados en el suelo donde salieron; llevan la
+  mancha falsa que ya usaban las chinchetas. Por lo mismo, el mapa solo se
+  rehace cuando el sol se ha movido de verdad: con el reloj acelerado, si no,
+  se recalcularía varias veces por segundo.
+- Viven en **su propio grupo**, no en la loseta: la loseta se vacía entera al
+  cambiar de carrera y se los llevaría por delante a media zancada.
+- Son **más altos que un pino**, y eso rompe a posta la escala del resto. La
+  primera versión los hizo del tamaño de un árbol, que ya es una exageración
+  enorme —una persona de verdad mediría una diezmilésima de la loseta—, y a la
+  distancia a la que se mira la maqueta **no se veía ni uno**: los árboles se
+  leen porque son miles y hacen textura, catorce figuras sueltas no.
+
+Una nota de método, porque vuelve a ser la misma de esta mañana: la carrerita
+se dio por rota dos veces mirando capturas mal encuadradas, cuando preguntarle
+a la página decía que los muñecos estaban donde tenían que estar, moviéndose y
+con la luz cambiando. Ante algo que "no se ve": medir primero, mirar después.
+
 ### El perfil de la carrera, tallado en el canto
 
 **Web · Compatible.** La maqueta lleva ahora, en una de sus paredes, la carrera

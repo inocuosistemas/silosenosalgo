@@ -14,6 +14,11 @@ import {
 import { capasDeOsm, cargaMosaicosOsm } from '../lib/maquetaMascara'
 import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta, type PicoMaqueta } from '../../shared/maquetaPaquete'
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
+import SunCalc from 'suncalc'
+import {
+  CORREDORES_CARRERITA, avanceEn, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita,
+  type Carril, type CorredorCarrerita,
+} from '../lib/carrerita'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
 import type { ComoSeFue } from '../lib/compartirImagen'
 import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
@@ -278,6 +283,16 @@ interface Escena {
   limites: THREE.Box3
   /** A quién sigue la cámara, si sigue a alguien (ver `sigueCorredor`). */
   seguir: Seguimiento | null
+  /** El sol y la luz de cielo: se guardan porque la carrerita los mueve para
+   *  que amanezca y anochezca (ver `poneLaLuz`). */
+  sol: THREE.DirectionalLight
+  cielo: THREE.HemisphereLight
+  /** Hacia dónde cae en el suelo la sombra de algo que se levanta una unidad.
+   *  Sale del sol, así que cambia con él y no puede ser una constante. */
+  caidaSombra: THREE.Vector2
+  /** Los muñecos de la carrerita decorativa, en su propio grupo: la loseta se
+   *  vacía entera al cambiar de carrera y se los llevaría por delante. */
+  carrerita: THREE.Group
 }
 
 /** La cámara siguiendo a un corredor. */
@@ -896,8 +911,6 @@ function imagenParaCompartir(e: Escena): string {
 
 /** Dónde está el sol de la escena (y desde dónde da sombra), mirando al centro de la loseta. */
 const SOL = new THREE.Vector3(-1.3, 2.6, 1.5)
-/** Hacia dónde cae en el suelo la sombra de algo que se levanta una unidad: lejos del sol. */
-const CAIDA_SOMBRA = new THREE.Vector2(-SOL.x / SOL.y, -SOL.z / SOL.y)
 
 /** La mancha de sombra, difuminada del centro al borde; una sola para todas. */
 let manchaSombra: THREE.CanvasTexture | null = null
@@ -951,14 +964,185 @@ const alturaDelSuelo = (t: Terreno, x: number, z: number) =>
   t.escala.y(alturaEn(t.rejilla, t.alturas, t.escala.px(x), t.escala.py(z)))
 
 /** Pone la sombra de una aguja clavada en `pie` que se levanta `alto`, a la escala `k` de su chincheta. */
-function colocaSombra(sombra: THREE.Group, t: Terreno, pie: THREE.Vector3, alto: number, k: number) {
+function colocaSombra(sombra: THREE.Group, t: Terreno, pie: THREE.Vector3, alto: number, k: number, caida: THREE.Vector2) {
   const [alPie, deLaCabeza] = sombra.children as THREE.Mesh[]
   alPie.position.set(pie.x, alturaDelSuelo(t, pie.x, pie.z) + 0.002, pie.z)
   alPie.scale.setScalar(0.045 * k)
-  const x = pie.x + CAIDA_SOMBRA.x * alto
-  const z = pie.z + CAIDA_SOMBRA.y * alto
+  const x = pie.x + caida.x * alto
+  const z = pie.z + caida.y * alto
   deLaCabeza.position.set(x, alturaDelSuelo(t, x, z) + 0.002, z)
   deLaCabeza.scale.setScalar(0.09 * k)
+}
+
+/* ── La carrerita decorativa ────────────────────────────────────────────── */
+
+/**
+ * Lo que mide un muñeco. Grande para lo que es, como los árboles y las casas:
+ * a la escala de verdad una persona mide una diezmilésima de la loseta y sería
+ * invisible. Aquí es como un pino bajito, que es lo que la hace mirable.
+ */
+const ALTO_MUNECO = 0.040
+/** Cuántos corren. En el móvil, menos: son instancias, pero cada una lleva su mancha de sombra. */
+const MUNECOS = TACTIL ? 8 : CORREDORES_CARRERITA
+/** Lo que dura el espectáculo antes de pararse solo, en segundos. */
+const DURACION_CARRERITA_S = 75
+/**
+ * Cuánto tiene que moverse el sol para rehacer el mapa de sombras. Está
+ * congelado a propósito (ver el montaje de la escena) y rehacerlo cuesta; con
+ * el reloj acelerado el sol corre tanto que, sin este freno, se recalcularía
+ * varias veces por segundo y en el móvil se notaría.
+ */
+const SOL_PASO_SOMBRA = TACTIL ? 0.20 : 0.10
+
+/**
+ * Un corredor de juguete: dos piernas, el tronco, los brazos y la cabeza,
+ * todo fundido en una sola pieza para que los catorce sean un solo dibujo.
+ *
+ * Flaco a propósito. La primera versión llevaba el tronco gordo y de cerca
+ * leían como pastillas de colores: las piernas no se veían y la cabeza se
+ * fundía con el cuerpo. Lo que hace que una silueta diminuta se lea como una
+ * persona es el cuello y el hueco entre las piernas, no el detalle.
+ */
+function geometriaMuneco(): THREE.BufferGeometry {
+  const pierna = new THREE.CapsuleGeometry(0.0013, 0.0060, 2, 5)
+  const brazo = new THREE.CapsuleGeometry(0.0010, 0.0050, 2, 4)
+  const piezas = [
+    pierna.clone().translate(-0.0020, 0.0043, 0),
+    pierna.clone().translate(0.0020, 0.0043, 0),
+    // Los brazos, abiertos hacia fuera: marcan los hombros y de lejos ensanchan
+    // justo donde tiene que ensanchar una persona.
+    brazo.clone().rotateZ(0.45).translate(-0.0040, 0.0138, 0),
+    brazo.clone().rotateZ(-0.45).translate(0.0040, 0.0138, 0),
+    new THREE.CapsuleGeometry(0.0029, 0.0058, 3, 6).translate(0, 0.0128, 0),
+    new THREE.SphereGeometry(0.0027, 6, 4).translate(0, 0.0203, 0),
+  ]
+  const g = mergeGeometries(piezas)!
+  pierna.dispose()
+  brazo.dispose()
+  for (const p of piezas) p.dispose()
+  // Las medidas de arriba dan un muñeco de 0,023 de alto; se escala al tamaño
+  // que mande `ALTO_MUNECO`, que es quien manda también en el bote de la
+  // zancada y en la mancha de sombra. Así hay un solo número que tocar.
+  const f = ALTO_MUNECO / 0.023
+  g.scale(f, f, f)
+  return g
+}
+
+/** Los colores de camiseta, que se repartan y se distingan unos de otros. */
+const CAMISETAS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f8fafc'].map((c) => new THREE.Color(c))
+
+/** Lo que la maqueta necesita recordar entre fotograma y fotograma. */
+interface EstadoCarrerita {
+  corriendo: boolean
+  /** Cuándo se dio la salida (reloj de la página). */
+  t0: number
+  carril: Carril | null
+  gente: CorredorCarrerita[]
+  malla: THREE.InstancedMesh | null
+  sombras: THREE.Group[]
+  /** Desde dónde se mira el sol: el primer punto del recorrido. */
+  lat: number
+  lon: number
+  salidaMs: number | null
+  /** La altura del sol la última vez que se rehízo el mapa de sombras. */
+  ultimoSol: number
+}
+
+const EJE_Y = new THREE.Vector3(0, 1, 0)
+const sitioMuneco = new THREE.Vector3()
+const giroMuneco = new THREE.Quaternion()
+const tamanoMuneco = new THREE.Vector3(1, 1, 1)
+const matrizMuneco = new THREE.Matrix4()
+
+/**
+ * Pone la luz que toca al instante `cuando`, con el sol de verdad para ese día
+ * y ese sitio (SunCalc). De día, la luz cálida de siempre; al ras del suelo,
+ * anaranjada y rasante; de noche, una luna azul y floja y el cielo oscuro.
+ *
+ * Sin instante —una carrera sin hora de salida— no se toca nada: se queda la
+ * luz de tarde con la que nace la maqueta.
+ */
+function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number) {
+  if (!cuando) return
+  const { altitude, azimuth } = SunCalc.getPosition(cuando, lat, lon)
+  // El acimut de SunCalc se mide desde el sur y crece hacia el oeste. En la
+  // loseta, el sur es +Z y el oeste es −X (ver `escala` en `maqueta3d`).
+  const llano = Math.cos(altitude)
+  const dir = new THREE.Vector3(-Math.sin(azimuth) * llano, Math.sin(altitude), Math.cos(azimuth) * llano)
+  // De noche el sol se pone debajo de la loseta y la dejaría negra por arriba:
+  // la luna se coloca en su sitio pero por encima del horizonte.
+  const deNoche = altitude <= 0
+  if (deNoche) dir.y = Math.max(0.35, -dir.y * 0.5)
+  e.sol.position.copy(dir).multiplyScalar(4)
+  // Cuánto de día es: 0 con el sol en el horizonte, 1 bien alto.
+  const dia = Math.min(1, Math.max(0, altitude / 0.45))
+  if (deNoche) {
+    e.sol.color.setHex(0xbcc9ff)
+    e.sol.intensity = 0.55
+    e.cielo.color.setHex(0x26324b)
+    e.cielo.groundColor.setHex(0x11161f)
+    e.cielo.intensity = 0.55
+    e.scene.background = new THREE.Color(0x0b1220)
+  } else {
+    // Al ras, el sol tira a naranja y pierde fuerza; alto, blanco cálido.
+    e.sol.color.lerpColors(new THREE.Color(0xff9d5c), new THREE.Color(0xfff3dc), dia)
+    e.sol.intensity = 1.1 + dia * 1.5
+    e.cielo.color.lerpColors(new THREE.Color(0xc9ccd6), new THREE.Color(0xe6eef2), dia)
+    e.cielo.groundColor.setHex(0x4c5a5c)
+    e.cielo.intensity = 0.7 + dia * 0.55
+    e.scene.background = new THREE.Color(COLOR_MESA).lerp(new THREE.Color(0x2a3550), 1 - dia)
+  }
+  // Las manchas de sombra caen al lado contrario del sol. Con el sol muy bajo
+  // se irían al infinito, así que la caída se recorta.
+  const y = Math.max(0.35, e.sol.position.y)
+  e.caidaSombra.set(
+    Math.max(-3, Math.min(3, -e.sol.position.x / y)),
+    Math.max(-3, Math.min(3, -e.sol.position.z / y)),
+  )
+}
+
+/**
+ * Recoge la carrerita: los muñecos se van y la maqueta vuelve a estar quieta,
+ * que es su estado normal. La luz se queda a la hora a la que se llegó —si
+ * anocheció, anochecido—: devolverla de golpe a la luz de tarde sería un
+ * fogonazo, y la maqueta a oscuras es justo lo que se ha venido a enseñar.
+ */
+function paraCarrerita(e: Escena, c: EstadoCarrerita) {
+  c.corriendo = false
+  e.carrerita.visible = false
+  for (const s of c.sombras) s.visible = false
+  e.sucio = true
+}
+
+/**
+ * Mueve la carrerita al segundo `segundos` de haberse dado la salida: coloca
+ * cada muñeco en su punto del carril mirando hacia donde va, le da el bote de
+ * la zancada y le pone su mancha de sombra debajo. Devuelve si sigue habiendo
+ * carrera o si ya ha durado bastante.
+ */
+function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolean {
+  const t = e.terreno
+  if (!t || !c.carril || !c.malla) return false
+  for (let i = 0; i < c.gente.length; i++) {
+    const p = puntoDelCarril(c.carril, avanceEn(c.gente[i], segundos))
+    // El bote de la zancada: no se les articulan las piernas —a este tamaño no
+    // se vería— pero el sube y baja sí se nota, y es lo que los pone a correr.
+    const bote = Math.abs(Math.sin(segundos * 9 + i * 1.7)) * ALTO_MUNECO * 0.12
+    sitioMuneco.set(p.x, p.y + bote, p.z)
+    giroMuneco.setFromAxisAngle(EJE_Y, p.rumbo)
+    matrizMuneco.compose(sitioMuneco, giroMuneco, tamanoMuneco)
+    c.malla.setMatrixAt(i, matrizMuneco)
+    const sombra = c.sombras[i]
+    if (sombra) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
+  }
+  c.malla.instanceMatrix.needsUpdate = true
+  poneLaLuz(e, instanteDe(c.salidaMs, segundos), c.lat, c.lon)
+  // El mapa de sombras solo se rehace cuando el sol se ha movido de verdad.
+  if (Math.abs(e.sol.position.y - c.ultimoSol) > SOL_PASO_SOMBRA) {
+    c.ultimoSol = e.sol.position.y
+    e.renderer.shadowMap.needsUpdate = true
+  }
+  return segundos < DURACION_CARRERITA_S
 }
 
 /**
@@ -1044,7 +1228,7 @@ function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulo
     const apagada = !!(ch.userData.rotulo && !conRotulos)
     ch.visible = !apagada && !tapadaPorElMonte(t, cabeza, camara.position, PASOS_TAPADO)
     const sombra = ch.userData.sombra as THREE.Group | undefined
-    if (sombra) colocaSombra(sombra, t, ch.position, ch.scale.y * 0.8, k)
+    if (sombra) colocaSombra(sombra, t, ch.position, ch.scale.y * 0.8, k, e.caidaSombra)
     // El palo, si lleva: se hace la primera vez que hace falta y a partir de
     // ahí solo se estira. No se esconde cuando la cabeza se tapa —de eso ya
     // se encarga el monte, tapándolo por donde pasa por delante—, solo
@@ -1378,9 +1562,12 @@ interface Props {
   margenAbajo?: number
   /** En el replay: con esto la maqueta puede grabar su vídeo (ver `grabaVideo`). */
   video?: VideoReplay
+  /** Cuándo sale la carrera (epoch ms). Es la hora a la que arranca el reloj
+   *  de la carrerita decorativa, y con ella el sol: ver `src/lib/carrerita`. */
+  salidaMs?: number | null
 }
 
-export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0, video }: Props) {
+export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0, video, salidaMs = null }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const escena = useRef<Escena | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'lista' | 'error'>('cargando')
@@ -1394,6 +1581,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   /** Los nombres de pueblos y picos, que tapan cuando lo que se quiere ver es el relieve. */
   const [rotulos, setRotulos] = useState(true)
   const rotulosRef = useRef(true)
+  /** La carrerita decorativa: lo que hay que recordar de un fotograma al otro. */
+  const carreritaRef = useRef<EstadoCarrerita | null>(null)
   /** A quién sigue la cámara (su `key`), y si está abierta la tira para elegirlo. */
   const [siguiendo, setSiguiendo] = useState<string | null>(null)
   const [eligiendoSeguir, setEligiendoSeguir] = useState(false)
@@ -1557,7 +1746,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Luz de tarde, alta y desde el suroeste: a la izquierda de donde nace la
     // cámara, que es lo que da volumen a las laderas sin dejarlas a oscuras;
     // y un cielo suave para que la umbría no sea negra.
-    scene.add(new THREE.HemisphereLight(0xe6eef2, 0x4c5a5c, 1.25))
+    const cielo = new THREE.HemisphereLight(0xe6eef2, 0x4c5a5c, 1.25)
+    scene.add(cielo)
     const sol = new THREE.DirectionalLight(0xfff3dc, 2.6)
     sol.position.copy(SOL)
     sol.castShadow = true
@@ -1578,11 +1768,14 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const chinchetas = new THREE.Group()
     const palos = new THREE.Group()
     const sombras = new THREE.Group()
-    scene.add(loseta, sombras, palos, chinchetas)
+    const carrerita = new THREE.Group()
+    scene.add(loseta, sombras, carrerita, palos, chinchetas)
 
     const e: Escena = {
       renderer, scene, camera, controls, mesa, loseta, chinchetas, palos, sombras, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
       grabando: false,
+      sol, cielo, carrerita,
+      caidaSombra: new THREE.Vector2(-SOL.x / SOL.y, -SOL.z / SOL.y),
       limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
     }
     escena.current = e
@@ -1630,6 +1823,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           e.sucio = true
         }
       }
+      // La carrerita, mientras dure: mueve los muñecos y la luz del día.
+      const carrera = carreritaRef.current
+      if (carrera?.corriendo) {
+        if (!mueveCarrerita(e, carrera, (ahora - carrera.t0) / 1000)) paraCarrerita(e, carrera)
+        e.sucio = true
+      }
       const movio = controls.update()
       // El paneo no saca el centro de la loseta: si se pasa, se recorta y la
       // cámara se corre lo mismo, que el encuadre no salte.
@@ -1647,6 +1846,13 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     bucle()
     const alMover = () => setDesdeArriba(controls.getPolarAngle() < 0.35)
     controls.addEventListener('change', alMover)
+    // Tocar la maqueta manda sobre el adorno: quien viene a mirar el relieve
+    // no tiene por qué esperar a que los muñecos terminen su vuelta.
+    const alTocar = () => {
+      const carrera = carreritaRef.current
+      if (carrera?.corriendo) paraCarrerita(e, carrera)
+    }
+    controls.addEventListener('start', alTocar)
 
     // El zoom: la distancia a la que se quiere estar, que el bucle persigue.
     const quiereDistancia = (factor: number) => {
@@ -1719,6 +1925,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       cancelAnimationFrame(cuadro)
       observador.disconnect()
       controls.removeEventListener('change', alMover)
+      controls.removeEventListener('start', alTocar)
       canvas.removeEventListener('wheel', rueda)
       canvas.removeEventListener('pointerdown', abajo)
       canvas.removeEventListener('pointermove', mueve)
@@ -2021,6 +2228,54 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const e = escena.current
     if (e) e.sucio = true
   }, [rotulos])
+
+  // La carrerita: unos muñecos toman la salida y se van estirando por el
+  // recorrido mientras el sol cruza el cielo y se hace de noche. Es adorno y
+  // solo adorno, así que se calla en cuanto hay algo de verdad que enseñar:
+  // en el replay, que trae su propio reloj, y mientras haya corredores reales.
+  //
+  // Arranca sola al abrir y se para sola: una maqueta quieta no gasta batería.
+  // Y se para también en cuanto se toca, que quien viene a mirar el relieve
+  // manda sobre el espectáculo.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno || video || corredores.length > 0 || ruta.length < 2) return
+    const { rejilla, alturas, escala } = e.terreno
+    const carril = preparaCarril(cordonSobreTerreno(
+      rejilla, alturas, escala, aligera(ruta, 3000), Math.max(rejilla.anchoPx, rejilla.altoPx) / 500,
+    ))
+    if (!carril) return
+
+    const malla = new THREE.InstancedMesh(geometriaMuneco(), new THREE.MeshLambertMaterial({ color: 0xffffff }), MUNECOS)
+    // No dan sombra de verdad: el mapa de sombras está congelado y se
+    // quedarían estampados en el suelo donde salieron. Llevan la suya pintada.
+    malla.castShadow = false
+    malla.receiveShadow = false
+    // Se mueven cada fotograma y su caja de partida no vale para descartarlos.
+    malla.frustumCulled = false
+    const sombras: THREE.Group[] = []
+    for (let i = 0; i < MUNECOS; i++) {
+      malla.setColorAt(i, CAMISETAS[i % CAMISETAS.length])
+      const s = creaSombra()
+      sombras.push(s)
+      e.sombras.add(s)
+    }
+    e.carrerita.add(malla)
+    e.carrerita.visible = true
+
+    carreritaRef.current = {
+      corriendo: true, t0: performance.now(), carril, gente: repartoCarrerita(MUNECOS),
+      malla, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
+    }
+    e.sucio = true
+    return () => {
+      carreritaRef.current = null
+      e.carrerita.remove(malla)
+      tira(malla)
+      for (const s of sombras) { e.sombras.remove(s); tiraSombra(s) }
+      e.sucio = true
+    }
+  }, [estado, ruta, video, corredores.length, salidaMs])
 
   // El perfil de la carrera, tallado en la pared de enfrente del nombre: la
   // ruta vista de lado, de la salida a la meta, con la misma piedra y el mismo
