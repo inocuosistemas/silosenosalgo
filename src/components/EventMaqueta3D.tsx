@@ -1525,7 +1525,20 @@ async function grabaVideo(
   const logo = await cargaLogo()
 
   const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() })
-  const fuente = new mb.CanvasSource(lienzoVideo, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 })
+  const fuente = new mb.CanvasSource(lienzoVideo, {
+    codec: 'avc',
+    quality: mb.QUALITY_HIGH,
+    keyFrameInterval: 2,
+    // En `'quality'` —lo de serie— el codificador tiene PROHIBIDO descartar
+    // fotogramas: si se satura, la única salida es esperar. En Safari eso se
+    // convertía en esperar para siempre. En `'realtime'` puede soltar alguno
+    // cuando no da abasto, que en un vídeo decorativo de treinta segundos no
+    // se nota, y a cambio no se queda clavado.
+    latencyMode: 'realtime',
+    // Lo que de verdad se le pide a WebCodecs. Va a la consola a propósito:
+    // es la única forma de ver qué hace Safari sin tener Safari delante.
+    onEncoderConfig: (config) => console.log('[video] configuración del codificador', JSON.stringify(config)),
+  })
   output.addVideoTrack(fuente, { frameRate: VIDEO_FPS })
   const fuenteMusica = pistaMusica ? new mb.EncodedAudioPacketSource('aac') : null
   if (fuenteMusica) output.addAudioTrack(fuenteMusica)

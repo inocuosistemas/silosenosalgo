@@ -125,11 +125,29 @@ mutuo. El 1 % de novecientos fotogramas son nueve, que es justo lo que cabía
 antes de atascarse. Chrome no lo notaba porque su cola es mucho mayor.
 
 Ahora se cede el hilo en **cada** fotograma. En Chrome cuesta unos segundos más
-de generación; en Safari es la diferencia entre haber vídeo y no haberlo.
+de generación; en Safari debería ser la diferencia entre haber vídeo y no
+haberlo.
+
+**Y una segunda palanca, porque lo anterior podría no bastar.** El codificador
+iba en `latencyMode: 'quality'`, que es lo de serie y que tiene **prohibido
+descartar fotogramas**: si se satura, su única salida es esperar. En Safari eso
+se convierte en esperar para siempre. Ahora va en `'realtime'`, donde puede
+soltar alguno cuando no da abasto; en un vídeo decorativo de treinta segundos
+no se nota, y a cambio no se queda clavado.
+
+Mientras se confirma la causa, `onEncoderConfig` escribe en la consola lo que
+de verdad se le pide a WebCodecs —codec, tamaño, bitrate—, que es la única
+forma de ver qué hace Safari sin tener Safari delante. **Ese registro hay que
+quitarlo en cuanto esté resuelto.**
+
+Si aun así se atascara, lo siguiente es el tamaño: se pide 1080×1920, y el
+codificador por hardware de Safari es frágil justo ahí. Bajar a 720×1280, o
+forzar `hardwareAcceleration: 'prefer-software'`, son las dos palancas que
+quedan.
 
 Para la próxima: un bucle largo que alimente a WebCodecs tiene que volver al
-bucle de eventos a menudo, y lo que en un navegador es una optimización en otro
-es un cuelgue.
+bucle de eventos a menudo, y lo que en un navegador es una optimización, en
+otro es un cuelgue.
 
 ### Una carrerita corriendo por la maqueta, y el día pasando
 
