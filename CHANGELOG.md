@@ -88,10 +88,12 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ### Una carrerita corriendo por la maqueta, y el día pasando
 
-**Web · Compatible.** Al abrir la maqueta salen unos corredores de juguete que
-toman la salida, se estiran por el recorrido como en una carrera de verdad
-—cada uno con su velocidad y su retraso al cruzar la línea— y, mientras dan la
-vuelta, el sol cruza el cielo: amanece, es de día y se hace de noche.
+**Web · Compatible.** La maqueta tiene un botón de **dar la salida**. Se pulsa,
+hay una cuenta atrás de tres, dos, uno y ¡Ya!, y salen unos corredores de
+juguete que se estiran por el recorrido como en una carrera de verdad —cada uno
+con su velocidad y su retraso al cruzar la línea—. Al arrancar, **la luz salta
+a la hora de salida de la carrera** y desde ahí el sol cruza el cielo: amanece,
+es de día y se hace de noche. Al terminar, la luz vuelve a la de siempre.
 
 Es **adorno y solo adorno**, y conviene que quede dicho para que nadie lo lea
 como información: no representa a ningún participante ni a ningún ritmo real.
@@ -106,10 +108,17 @@ del recorrido, pasados por SunCalc, que ya estaba en el proyecto. El reloj
 corre a doce minutos por segundo, así que en el rato que dura el espectáculo
 cabe un día entero.
 
-**La batería manda.** La maqueta se pinta solo cuando algo cambia, y esto la
-pone a pintar siempre; así que la carrerita se para sola a los 75 segundos, y
-se para también en cuanto se toca la maqueta: quien viene a mirar el relieve no
-tiene por qué esperar a que los muñecos acaben.
+**La batería manda, y por eso la salida se pide.** La maqueta se pinta solo
+cuando algo cambia, y esto la pone a pintar siempre; así que la carrerita solo
+corre cuando alguien la pide, y se para sola a los 75 segundos.
+
+La primera versión la arrancaba sola al abrir y la paraba al primer toque, y
+salió mal por una razón que conviene no repetir: **lo primero que hace
+cualquiera con una maqueta es girarla**, así que la carrera moría en el primer
+segundo y lo único que se veía era el resultado —nadie corriendo y la luz
+congelada a la hora de salida, que en una carrera de madrugada es de noche—.
+Una maqueta negra y vacía. Por eso ahora la luz **vuelve** a la de siempre al
+acabar, en vez de quedarse donde llegó el reloj.
 
 Tres decisiones que no se ven pero que hay que respetar si se toca esto:
 
@@ -162,6 +171,13 @@ perfil es paralela a la pared, así que recibe la misma luz y **lo que dibuja la
 montaña es el filo, no el relleno**. Con las letras no pasa porque una letra es
 casi todo borde. Por eso el perfil sale más de la pared que las letras y con
 más chaflán: es lo único que le da lectura.
+
+**La silueta se apoya en la base de la loseta**, no centrada en la franja. Al
+centrarla quedaba flotando, y en el hueco de debajo asomaba el canto inferior
+de la pieza —que mira hacia abajo y no recibe luz— como una raya negra de lado
+a lado. Al apoyarla, ese canto cae a ras de la cara de abajo de la maqueta y
+deja de verse. Al apoyo se le descuenta el chaflán, que si no el bisel asoma
+por debajo como un labio.
 
 ### Las chinchetas no se despegan de su palo
 

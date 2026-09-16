@@ -63,6 +63,9 @@ const CURVAS_LETRA = 4
 const ALTO_PERFIL = 0.72
 const ANCHO_PERFIL = 0.9
 const NODOS_PERFIL = 240
+/** Lo que se le achaflana el filo. Se descuenta al apoyarlo, que si no el
+ *  bisel asoma por debajo de la loseta como un labio. */
+const BISEL_PERFIL = GROSOR * 0.022
 /**
  * El perfil sale más de la pared que las letras, y con más chaflán. Una letra
  * se lee porque tiene filos verticales por todos lados; un perfil es un solo
@@ -481,7 +484,7 @@ function repartoDelCanto(t: Terreno) {
  * acumulado: con la malla de treinta y tantos metros los toboganes cortos se
  * pierden y la cifra saldría corta. Por eso aquí no se escribe ningún número.
  */
-function siluetaDelPerfil(t: Terreno, ruta: [number, number][], ancho: number, alto: number): THREE.Shape | null {
+function siluetaDelPerfil(t: Terreno, ruta: [number, number][], ancho: number, alto: number, suelo: number): THREE.Shape | null {
   // El recorrido tendido sobre la loseta, con su distancia acumulada.
   const dist: number[] = []
   const altura: number[] = []
@@ -513,12 +516,16 @@ function siluetaDelPerfil(t: Terreno, ruta: [number, number][], ancho: number, a
   for (const y of ys) { if (y < min) min = y; if (y > max) max = y }
   // Una carrera sin desnivel no da silueta: mejor pared lisa que una raya.
   if (!(max > min)) return null
+  // `suelo` es la altura a la que se apoya la silueta, en el sistema de la
+  // placa. Va a ras de la cara de abajo de la loseta: centrada dejaba un
+  // escalón flotando, y el canto inferior de la pieza —que mira hacia abajo y
+  // no recibe luz— se veía como una raya negra en ese hueco.
   const s = new THREE.Shape()
-  s.moveTo(-ancho / 2, -alto / 2)
+  s.moveTo(-ancho / 2, suelo)
   for (let i = 0; i < ys.length; i++) {
-    s.lineTo(-ancho / 2 + (i / NODOS_PERFIL) * ancho, -alto / 2 + ((ys[i] - min) / (max - min)) * alto)
+    s.lineTo(-ancho / 2 + (i / NODOS_PERFIL) * ancho, suelo + ((ys[i] - min) / (max - min)) * alto)
   }
-  s.lineTo(ancho / 2, -alto / 2)
+  s.lineTo(ancho / 2, suelo)
   s.closePath()
   return s
 }
@@ -1046,6 +1053,9 @@ interface EstadoCarrerita {
   salidaMs: number | null
   /** La altura del sol la última vez que se rehízo el mapa de sombras. */
   ultimoSol: number
+  /** Aviso de que la carrera se ha acabado: el bucle vive fuera de React y el
+   *  botón tiene que enterarse para volver a decir "dar la salida". */
+  alAcabar?: () => void
 }
 
 const EJE_Y = new THREE.Vector3(0, 1, 0)
@@ -1102,16 +1112,35 @@ function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number) {
 }
 
 /**
- * Recoge la carrerita: los muñecos se van y la maqueta vuelve a estar quieta,
- * que es su estado normal. La luz se queda a la hora a la que se llegó —si
- * anocheció, anochecido—: devolverla de golpe a la luz de tarde sería un
- * fogonazo, y la maqueta a oscuras es justo lo que se ha venido a enseñar.
+ * La luz con la que nace la maqueta: tarde alta desde el suroeste. Es a la que
+ * se vuelve cuando la carrerita termina.
+ *
+ * Esto no es un adorno del adorno, es necesario: sin volver, la maqueta se
+ * quedaba a la hora a la que hubiera llegado el reloj, y en una carrera con
+ * salida de madrugada eso significa quedarse **a oscuras** sin que nadie lo
+ * haya pedido. Se probó al revés y era exactamente lo que parecía: una
+ * maqueta negra y sin nadie corriendo.
  */
+function luzDeSiempre(e: Escena) {
+  e.sol.position.copy(SOL)
+  e.sol.color.setHex(0xfff3dc)
+  e.sol.intensity = 2.6
+  e.cielo.color.setHex(0xe6eef2)
+  e.cielo.groundColor.setHex(0x4c5a5c)
+  e.cielo.intensity = 1.25
+  e.scene.background = new THREE.Color(COLOR_MESA)
+  e.caidaSombra.set(-SOL.x / SOL.y, -SOL.z / SOL.y)
+  e.renderer.shadowMap.needsUpdate = true
+  e.sucio = true
+}
+
+/** Recoge la carrerita: los muñecos se van y vuelve la luz de siempre. */
 function paraCarrerita(e: Escena, c: EstadoCarrerita) {
   c.corriendo = false
   e.carrerita.visible = false
   for (const s of c.sombras) s.visible = false
-  e.sucio = true
+  luzDeSiempre(e)
+  c.alAcabar?.()
 }
 
 /**
@@ -1583,6 +1612,16 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const rotulosRef = useRef(true)
   /** La carrerita decorativa: lo que hay que recordar de un fotograma al otro. */
   const carreritaRef = useRef<EstadoCarrerita | null>(null)
+  /** Si hay muñecos listos (no los hay en el replay ni con corredores reales). */
+  const [hayCarrerita, setHayCarrerita] = useState(false)
+  const [corriendoCarrera, setCorriendoCarrera] = useState(false)
+  /** La cuenta atrás: 3, 2, 1 y 0, que se lee "¡Ya!". `null` es que no la hay. */
+  const [cuentaAtras, setCuentaAtras] = useState<number | null>(null)
+  const relojes = useRef<number[]>([])
+  const limpiaRelojes = () => {
+    for (const t of relojes.current) window.clearTimeout(t)
+    relojes.current = []
+  }
   /** A quién sigue la cámara (su `key`), y si está abierta la tira para elegirlo. */
   const [siguiendo, setSiguiendo] = useState<string | null>(null)
   const [eligiendoSeguir, setEligiendoSeguir] = useState(false)
@@ -1846,13 +1885,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     bucle()
     const alMover = () => setDesdeArriba(controls.getPolarAngle() < 0.35)
     controls.addEventListener('change', alMover)
-    // Tocar la maqueta manda sobre el adorno: quien viene a mirar el relieve
-    // no tiene por qué esperar a que los muñecos terminen su vuelta.
-    const alTocar = () => {
-      const carrera = carreritaRef.current
-      if (carrera?.corriendo) paraCarrerita(e, carrera)
-    }
-    controls.addEventListener('start', alTocar)
 
     // El zoom: la distancia a la que se quiere estar, que el bucle persigue.
     const quiereDistancia = (factor: number) => {
@@ -1925,7 +1957,6 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       cancelAnimationFrame(cuadro)
       observador.disconnect()
       controls.removeEventListener('change', alMover)
-      controls.removeEventListener('start', alTocar)
       canvas.removeEventListener('wheel', rueda)
       canvas.removeEventListener('pointerdown', abajo)
       canvas.removeEventListener('pointermove', mueve)
@@ -2261,15 +2292,26 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       e.sombras.add(s)
     }
     e.carrerita.add(malla)
-    e.carrerita.visible = true
+    // Nacen quietos y escondidos: la salida la da el botón, no el reloj. Antes
+    // arrancaba sola al abrir y se paraba al primer toque, y como lo primero
+    // que hace cualquiera es girar la maqueta, lo único que se veía era el
+    // resultado: nadie corriendo y la luz parada a la hora de salida.
+    e.carrerita.visible = false
+    for (const s of sombras) s.visible = false
 
     carreritaRef.current = {
-      corriendo: true, t0: performance.now(), carril, gente: repartoCarrerita(MUNECOS),
+      corriendo: false, t0: 0, carril, gente: repartoCarrerita(MUNECOS),
       malla, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
+      alAcabar: () => { setCorriendoCarrera(false); setCuentaAtras(null) },
     }
+    setHayCarrerita(true)
     e.sucio = true
     return () => {
       carreritaRef.current = null
+      limpiaRelojes()
+      setHayCarrerita(false)
+      setCorriendoCarrera(false)
+      setCuentaAtras(null)
       e.carrerita.remove(malla)
       tira(malla)
       for (const s of sombras) { e.sombras.remove(s); tiraSombra(s) }
@@ -2286,13 +2328,18 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     if (!e || estado !== 'lista' || !e.terreno || ruta.length < 8) return
     const terreno = e.terreno
     const reparto = repartoDelCanto(terreno)
-    const silueta = siluetaDelPerfil(terreno, ruta, reparto.largoOtra * ANCHO_PERFIL, GROSOR * ALTO_PERFIL)
+    // La placa se centra en la franja del canto (ver `repartoDelCanto`), así
+    // que el suelo de la silueta cae media franja más abajo: justo en la cara
+    // de abajo de la loseta, menos el chaflán.
+    const silueta = siluetaDelPerfil(
+      terreno, ruta, reparto.largoOtra * ANCHO_PERFIL, GROSOR * ALTO_PERFIL, -GROSOR / 2 + BISEL_PERFIL,
+    )
     if (!silueta) return
     const geo = new THREE.ExtrudeGeometry(silueta, {
       depth: RELIEVE_PERFIL,
       bevelEnabled: true,
       bevelThickness: RELIEVE_PERFIL * 0.45,
-      bevelSize: GROSOR * 0.022,
+      bevelSize: BISEL_PERFIL,
       bevelOffset: 0,
       bevelSegments: 1,
     })
@@ -2471,6 +2518,35 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     e.distancia = null
   }
 
+  /**
+   * Da la salida: tres, dos, uno y a correr. El botón, mientras corren, la
+   * recoge. La luz salta a la hora de salida de la carrera en cuanto arrancan
+   * (lo hace `poneLaLuz` en el primer fotograma) y vuelve a la de siempre al
+   * terminar; sin hora de salida los muñecos corren igual y la luz no se toca.
+   */
+  const daLaSalida = () => {
+    const e = escena.current
+    const carrera = carreritaRef.current
+    if (!e || !carrera) return
+    if (carrera.corriendo) { paraCarrerita(e, carrera); return }
+    if (cuentaAtras !== null) return
+    limpiaRelojes()
+    setCuentaAtras(3)
+    const pon = (n: number, ms: number) => relojes.current.push(window.setTimeout(() => setCuentaAtras(n), ms))
+    pon(2, 800)
+    pon(1, 1600)
+    relojes.current.push(window.setTimeout(() => {
+      setCuentaAtras(0)
+      carrera.t0 = performance.now()
+      carrera.corriendo = true
+      e.carrerita.visible = true
+      for (const s of carrera.sombras) s.visible = true
+      e.sucio = true
+      setCorriendoCarrera(true)
+    }, 2400))
+    relojes.current.push(window.setTimeout(() => setCuentaAtras(null), 3100))
+  }
+
   const alternaGiro = () => {
     const e = escena.current
     if (!e) return
@@ -2554,6 +2630,15 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
             <Clapperboard size={16} />
           </BotonRedondo>
         )}
+        {hayCarrerita && (
+          <BotonRedondo
+            etiqueta={corriendoCarrera ? 'Parar la carrera' : 'Dar la salida'}
+            activo={corriendoCarrera}
+            onClick={daLaSalida}
+          >
+            {corriendoCarrera ? <Pause size={16} /> : <Play size={16} />}
+          </BotonRedondo>
+        )}
         <BotonRedondo etiqueta={girando ? 'Parar el giro' : 'Girar alrededor'} activo={girando} onClick={alternaGiro}>
           {girando ? <Pause size={16} /> : <RotateCw size={16} />}
         </BotonRedondo>
@@ -2561,6 +2646,15 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           {desdeArriba ? <Mountain size={16} /> : <IconoMapa size={16} />}
         </BotonRedondo>
       </div>
+      {/* La cuenta atrás de la salida, en grande y en medio de la maqueta. No
+          se deja pulsar a través de ella: es un cartel, no un mando. */}
+      {cuentaAtras !== null && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
+          <span className="text-7xl font-black tabular-nums text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.9)]">
+            {cuentaAtras > 0 ? cuentaAtras : '¡Ya!'}
+          </span>
+        </div>
+      )}
       {/* El vídeo del replay: formato, cámara y generar; y mientras se
           genera, cuánto va. A la izquierda de la columna de botones. */}
       {video && (panelVideo || progresoVideo !== null) && estado === 'lista' && (
