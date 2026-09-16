@@ -102,10 +102,22 @@ maqueta no las recalcula.
 
 **El nombre del canto.** Era una plancha de 512×48 divisiones cuyos vértices se
 levantaban con un mapa de desplazamiento sacado de un lienzo desenfocado; de
-ahí los bordes rasgados y como derretidos. Ahora son **letras talladas de
-verdad** (`TextGeometry`), con fondo y el filo rematado en pendiente, que es lo
-que las hace brillar por arriba y sombrear por abajo. Se tallan una vez al
-construir la maqueta y no cuestan nada al girarla.
+ahí los bordes rasgados y como derretidos.
+
+Ahora son **letras esculpidas de verdad**: el contorno sale de la tipografía,
+se les da fondo y se les remata el filo en pendiente, así que salen de la pared
+con volumen propio y la luz les saca brillo arriba y sombra abajo. Van del
+**mismo color que el canto**, que es lo que las integra: se leen por su relieve
+y no por llevar otro tono, que era lo que las hacía parecer pegadas encima.
+
+Y llenan la franja: las mayúsculas ocupan el **86% del canto** en vez de la
+mitad, con el interletraje más suelto, que una inscripción en mayúsculas va más
+suelta que un texto corrido. Con nombres muy largos manda el ancho y las letras
+salen más bajas; en una sola línea no hay más remedio.
+
+De camino se probó el grabado hundido —una losa con las letras caladas y el
+fondo del surco más oscuro, que es como se talla la piedra de verdad— y quedaba
+muy integrado, pero se descartó: hacia afuera luce más en una maqueta.
 
 Los números, contados pieza a pieza y no a ojo:
 
@@ -113,19 +125,28 @@ Los números, contados pieza a pieza y no a ojo:
 |---|---|---|
 | Un árbol | 32 triángulos | 44 el pino, 32 la frondosa |
 | El bosque entero (ordenador) | 96.000 | ~118.000 |
-| El nombre del canto | 49.152 | 4.584 (nombre corto), ~12.500 (larguísimo) |
+| El nombre del canto | 49.152 | 12.256 (nombre corto), ~60.000 (larguísimo) |
 
-Es decir: el bosque suma unos 22.000 triángulos y las letras quitan más de
-44.000. **La maqueta acaba con menos carga que antes**, no con más.
+Es decir: con un nombre corto la maqueta queda más o menos como estaba; con uno
+larguísimo, el nombre solo ya se va a unos 60.000. **Y da igual**: son cifras
+ridículas para cualquier tarjeta gráfica, que mueve millones de triángulos por
+fotograma, y además la escena solo se redibuja cuando algo cambia y las sombras
+están congeladas. Se dejó el máximo detalle de curvas a propósito.
 
-Lo que no se pudo comprobar aquí: si el cambio se nota al girar. El banco de
-pruebas sin pantalla dibuja por software y su ruido entre dos pasadas del mismo
-código (7,2 y 8,1 fotogramas por segundo) es mayor que el efecto que se busca
-medir, así que no distingue nada. Hay que mirarlo en una máquina de verdad.
+Una nota para la próxima vez, que costó caro aprenderla: el banco de pruebas
+sin pantalla dibuja **por software, sin tarjeta gráfica**, así que allí el
+número de triángulos parece importar muchísimo y no es verdad. Encima su ruido
+entre dos pasadas del mismo código (7,2 y 8,1 fotogramas por segundo) es mayor
+que lo que se quiere medir. Para juzgar si algo se nota al girar hay que
+mirarlo en una máquina de verdad; lo que sí vale la pena vigilar de un cambio
+así no son los triángulos, es **lo que pesa la descarga**.
 
-La tipografía es **Archivo Black**, de licencia abierta, en `public/fuentes/`
-junto con su licencia y una nota de cómo se convirtió. Son 75 KB y viajan en el
-trozo de la maqueta, que solo se descarga cuando alguien la abre.
+La tipografía es **Carter One**, de licencia abierta, en `public/fuentes/` junto
+con su licencia y una nota de cómo se convirtió. Se eligió por el trazo grueso:
+el relieve necesita materia para hacer sombra, y con astas finas se queda soso.
+Son 264 KB —redondeando las coordenadas a enteros en vez de dos decimales, que
+ahorra un 38% sin que se note— y viajan en el trozo de la maqueta, que solo se
+descarga cuando alguien la abre.
 
 ### En vivo, lo importante de un vistazo (iOS)
 

@@ -3,7 +3,6 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { FontLoader, type Font, type FontData } from 'three/addons/loaders/FontLoader.js'
-import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, Play, RotateCw, Share2, Video } from 'lucide-react'
 import { durationLabel } from '../../shared/bets'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
@@ -41,6 +40,16 @@ import type { EncodedPacket } from 'mediabunny'
 const CANTO: Rgb = [0.8, 0.72, 0.58]
 /** Lo que baja la loseta por debajo del punto más bajo: la pared donde va el nombre. */
 const GROSOR = 0.16
+/**
+ * El nombre esculpido en el canto. Las mayúsculas llenan casi toda la franja,
+ * con un poco de aire de más entre letras, que una inscripción en mayúsculas
+ * va más suelta que un texto corrido. Y cuánto sobresalen de la pared.
+ */
+const ALTO_MAYUSCULA = 0.86
+const AIRE_LETRA = 0.1
+const ALTO_RELIEVE = 0.01
+/** En cuántos tramos se parte cada curva de una letra al tallarla. */
+const CURVAS_LETRA = 4
 /** Desde dónde se mira al abrir: un poco al este del sur y a media altura,
  *  que es la cara que enseña la carrera entera y deja leer el nombre. */
 const AZIMUT_INICIAL = 0.45
@@ -387,14 +396,16 @@ function repartoDelCanto(t: Terreno) {
   const y = t.escala.base + GROSOR / 2
   /** Pega una placa a la pared, con su centro en `s`. En la este, la placa
    *  gira un cuarto de vuelta y se lee hacia −Z. */
-  const coloca = (placa: THREE.Mesh, s: number) => {
-    if (enSur) placa.position.set(s, y, altoU / 2 + 0.001)
+  //  `fuera` separa la pieza de la pared, para lo que se apoya encima de la
+  //  losa del grabado en vez de sobre el muro pelado.
+  const coloca = (placa: THREE.Object3D, s: number, fuera = 0) => {
+    if (enSur) placa.position.set(s, y, altoU / 2 + 0.001 + fuera)
     else {
-      placa.position.set(anchoU / 2 + 0.001, y, -s)
+      placa.position.set(anchoU / 2 + 0.001 + fuera, y, -s)
       placa.rotation.y = Math.PI / 2
     }
   }
-  return { anchoNombre, sNombre: -total / 2 + anchoNombre / 2, anchoMarca, sMarca: total / 2 - anchoMarca / 2, coloca }
+  return { largo, anchoNombre, sNombre: -total / 2 + anchoNombre / 2, anchoMarca, sMarca: total / 2 - anchoMarca / 2, coloca }
 }
 
 /** Los ocho vértices de la caja de la loseta, para encuadrarla entera. */
@@ -695,12 +706,12 @@ const suave = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
 
 /**
  * La tipografía del nombre del canto, traída una sola vez y guardada. Es
- * Archivo Black, de licencia abierta (ver `public/fuentes/`), pasada al
- * formato de contornos que sabe leer three. Si no llega, el canto se queda
- * liso: es un adorno, no vale estropear la maqueta por él.
+ * Carter One, de licencia abierta (ver `public/fuentes/`), pasada al formato
+ * de contornos que sabe leer three. Si no llega, el canto se queda liso: es
+ * un adorno, no vale estropear la maqueta por él.
  */
 let fuenteCargada: Promise<Font | null> | null = null
-const cargaFuente = () => (fuenteCargada ??= fetch('/fuentes/archivoblack.typeface.json')
+const cargaFuente = () => (fuenteCargada ??= fetch('/fuentes/canto.typeface.json')
   .then((r) => (r.ok ? (r.json() as Promise<FontData>) : Promise.reject(new Error(`${r.status}`))))
   .then((datos) => new FontLoader().parse(datos))
   .catch(() => {
@@ -709,6 +720,41 @@ const cargaFuente = () => (fuenteCargada ??= fetch('/fuentes/archivoblack.typefa
     fuenteCargada = null
     return null
   }))
+
+/** Los puntos de un contorno, corridos. */
+const mueve = (ps: THREE.Vector2[], dx: number, dy: number) => ps.map((p) => new THREE.Vector2(p.x + dx, p.y + dy))
+
+/** Cuánto levanta una mayúscula en esta tipografía, a tamaño uno. */
+function altoDeMayuscula(fuente: Font): number {
+  let alto = 0
+  for (const f of fuente.generateShapes('H', 1)) for (const p of f.getPoints(1)) alto = Math.max(alto, p.y)
+  return alto || 0.7
+}
+
+/**
+ * El texto vuelto contornos, letra a letra para poder soltar el interletraje.
+ * De cada una, su silueta y lo que lleva dentro —el ojo de la O, el de la A—,
+ * que al tallar no se quita: se queda como isla de piedra sin cortar.
+ */
+function contornosDelTexto(fuente: Font, texto: string, tam: number, aire: number) {
+  const escala = tam / fuente.data.resolution
+  const letras: { fuera: THREE.Vector2[], dentro: THREE.Vector2[][] }[] = []
+  let x = 0
+  for (const letra of texto) {
+    const glifo = fuente.data.glyphs[letra] ?? fuente.data.glyphs['?']
+    if (!glifo) continue
+    if (letra.trim()) {
+      for (const f of fuente.generateShapes(letra, tam)) {
+        letras.push({
+          fuera: mueve(f.getPoints(CURVAS_LETRA), x, 0),
+          dentro: f.holes.map((h) => mueve(h.getPoints(CURVAS_LETRA), x, 0)),
+        })
+      }
+    }
+    x += glifo.ha * escala + aire
+  }
+  return { letras, ancho: Math.max(0, x - aire) }
+}
 
 /** El logo ya cargado como imagen, una vez: para dibujarlo en lo que se comparte. */
 let logoCargado: Promise<HTMLImageElement | null> | null = null
@@ -1816,65 +1862,83 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   // que mira a la cámara al abrir, o en la este si la loseta es mucho más
   // alta que ancha. A media altura del grosor que tiene seguro la base.
   //
-  // Son letras de verdad, talladas: el contorno de cada una sale de la
-  // tipografía, se le da fondo y se le remata el filo en pendiente (el
-  // bisel), que es lo que las hace brillar por arriba y sombrear por abajo.
-  // Se talla una vez al construir la maqueta y no cuesta nada al girarla.
+  // Las letras salen de la pared, esculpidas, y llenan casi toda la franja.
+  // Son de la misma piedra que el canto: se leen por su propio relieve y no
+  // por llevar otro color, que es lo que las haría parecer pegadas encima. El
+  // filo va achaflanado, para que la luz les saque brillo arriba y sombra
+  // abajo. Se esculpen al construir la maqueta y girarla no cuesta nada.
   useEffect(() => {
     const e = escena.current
     const texto = nombre?.trim()
     if (!e || estado !== 'lista' || !e.terreno || !texto) return
     let vigente = true
-    let placa: THREE.Mesh | null = null
+    let grabado: THREE.Group | null = null
     cargaFuente().then((fuente) => {
       const terreno = e.terreno
       if (!vigente || !fuente || !terreno) return
-      // Tan ancho como la pared deje —con la marca de la app a su derecha— y
-      // tan alto como el grosor de la base (ver `repartoDelCanto`).
+      // Tan ancho como la pared deje, con la marca de la app a su derecha.
       const reparto = repartoDelCanto(terreno)
       const mayusculas = texto.toUpperCase()
-      // Se talla dos veces: la primera, de tamaño uno, solo para medir cuánto
-      // ocupa; la segunda, ya al tamaño que cabe. Así el filo guarda siempre
-      // la misma proporción con la letra, sea el nombre corto o larguísimo.
-      const tanteo = new TextGeometry(mayusculas, { font: fuente, size: 1, depth: 0.2, bevelEnabled: false })
-      tanteo.computeBoundingBox()
-      const caja = tanteo.boundingBox
-      tanteo.dispose()
-      if (!caja) return
-      const tam = Math.min(reparto.anchoNombre / Math.max(1e-6, caja.max.x - caja.min.x), (GROSOR * 0.5) / Math.max(1e-6, caja.max.y - caja.min.y))
-      const geo = new TextGeometry(mayusculas, {
-        font: fuente,
-        size: tam,
-        // Lo que sobresale de la pared, y el filo: poco: es un grabado, no un
-        // cartel. Con dos pasadas de bisel basta para que el canto se vea.
-        depth: 0.009,
-        curveSegments: 3,
-        bevelEnabled: true,
-        bevelThickness: 0.0035,
-        bevelSize: tam * 0.035,
-        bevelOffset: 0,
-        bevelSegments: 2,
+      let tam = (GROSOR * ALTO_MAYUSCULA) / altoDeMayuscula(fuente)
+      let letras = contornosDelTexto(fuente, mayusculas, tam, tam * AIRE_LETRA)
+      // Si el nombre es largo y no cabe a lo ancho, manda el ancho y las
+      // letras salen más bajas: es lo que hay en una línea sola.
+      if (letras.ancho > reparto.anchoNombre) {
+        tam *= reparto.anchoNombre / letras.ancho
+        letras = contornosDelTexto(fuente, mayusculas, tam, tam * AIRE_LETRA)
+      }
+      if (letras.letras.length === 0) return
+      // Centrado en su hueco: `coloca` da el centro, no la esquina.
+      let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+      for (const l of letras.letras) {
+        for (const p of l.fuera) {
+          if (p.x < xMin) xMin = p.x
+          if (p.x > xMax) xMax = p.x
+          if (p.y < yMin) yMin = p.y
+          if (p.y > yMax) yMax = p.y
+        }
+      }
+      if (!Number.isFinite(xMin)) return
+      const dx = -(xMin + xMax) / 2
+      const dy = -(yMin + yMax) / 2
+
+      // La losa cubre el canto entero, de esquina a esquina. Si solo tapara el
+      // hueco del nombre, su borde se vería como una junta en mitad de la
+      // pared; así los cantos caen en las esquinas de la maqueta, y el chaflán
+      // del borde los funde con el muro en vez de escalonarlos.
+      // Cada letra, con su silueta y lo que lleva dentro —el ojo de la O, el
+      // de la A—, sacada de la pared como una pieza suelta.
+      const formas = letras.letras.map((l) => {
+        const s = new THREE.Shape(mueve(l.fuera, dx, dy))
+        s.holes = l.dentro.map((d) => new THREE.Path(mueve(d, dx, dy)))
+        return s
       })
-      geo.computeBoundingBox()
-      const c = geo.boundingBox
-      if (!c) { geo.dispose(); return }
-      // Centrada en su sitio: `coloca` da el centro, no la esquina.
-      geo.translate(-(c.min.x + c.max.x) / 2, -(c.min.y + c.max.y) / 2, 0)
-      // Piedra clara, mate como el resto de la maqueta (aquí no hace falta
-      // PBR: el relieve ya lo pone la geometría, no un reflejo).
-      placa = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xe9dfc9 }))
-      placa.castShadow = true
-      placa.receiveShadow = true
-      reparto.coloca(placa, reparto.sNombre)
-      e.loseta.add(placa)
+      const geo = new THREE.ExtrudeGeometry(formas, {
+        depth: ALTO_RELIEVE,
+        bevelEnabled: true,
+        bevelThickness: ALTO_RELIEVE * 0.45,
+        bevelSize: tam * 0.03,
+        bevelOffset: 0,
+        bevelSegments: 1,
+      })
+      // La misma piedra que el canto: se leen por su propio relieve y no por
+      // llevar otro color, que es lo que las haría parecer pegadas encima.
+      const piedra = new THREE.Color().setRGB(CANTO[0], CANTO[1], CANTO[2], THREE.SRGBColorSpace)
+      const cara = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: piedra }))
+      cara.castShadow = true
+      cara.receiveShadow = true
+      grabado = new THREE.Group()
+      grabado.add(cara)
+      reparto.coloca(grabado, reparto.sNombre)
+      e.loseta.add(grabado)
       e.renderer.shadowMap.needsUpdate = true
       e.sucio = true
     })
     return () => {
       vigente = false
-      if (!placa) return
-      e.loseta.remove(placa)
-      tira(placa)
+      if (!grabado) return
+      e.loseta.remove(grabado)
+      tira(grabado)
       e.renderer.shadowMap.needsUpdate = true
       e.sucio = true
     }
