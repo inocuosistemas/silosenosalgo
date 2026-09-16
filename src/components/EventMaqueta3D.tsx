@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { FontLoader, type Font, type FontData } from 'three/addons/loaders/FontLoader.js'
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, Play, RotateCw, Share2, Video } from 'lucide-react'
 import { durationLabel } from '../../shared/bets'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
@@ -560,48 +563,10 @@ function dibujaRotulo(texto: string, tinta = '#f8fafc', palo = 0): HTMLCanvasEle
   return lienzoRotulo
 }
 
-/** El lienzo del nombre del evento: 1024 de ancho por esto de alto. */
+/** La proporción del hueco del nombre en el canto: 1024 de ancho por esto de
+ *  alto. Las letras ya no se dibujan en un lienzo —se tallan—, pero esta
+ *  proporción sigue diciendo cuánto sitio se les guarda (`repartoDelCanto`). */
 const INSCRIPCION_ALTO = 96
-
-/**
- * El nombre del evento para el canto, en mayúsculas gruesas que se encogen
- * hasta caber. Dos dibujos del mismo texto: el de `color`, las letras en
- * piedra clara con el borde oscuro; y el de `relieve`, blanco sobre negro
- * con el borde difuminado, que es lo que las levanta de la pared (ver la
- * placa en el componente).
- */
-function dibujaInscripcion(texto: string, modo: 'color' | 'relieve'): HTMLCanvasElement {
-  const [lienzoPlaca, ctx] = lienzo(1024, INSCRIPCION_ALTO)
-  const t = texto.toUpperCase()
-  let tam = 68
-  const fuente = () => `900 ${tam}px "Arial Black", "Helvetica Neue", Arial, sans-serif`
-  const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
-  c.letterSpacing = '6px'
-  ctx.font = fuente()
-  while (ctx.measureText(t).width > 1024 * 0.9 && tam > 14) { tam -= 2; ctx.font = fuente() }
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  const y = INSCRIPCION_ALTO / 2 + 2
-  if (modo === 'relieve') {
-    ctx.fillStyle = '#000'
-    ctx.fillRect(0, 0, 1024, INSCRIPCION_ALTO)
-    // El halo hace la pendiente del canto de cada letra; el trazo nítido, la cara.
-    ctx.shadowColor = '#fff'
-    ctx.shadowBlur = 6
-    ctx.fillStyle = '#fff'
-    for (let k = 0; k < 3; k++) ctx.fillText(t, 512, y)
-    ctx.shadowBlur = 0
-    ctx.fillText(t, 512, y)
-  } else {
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 5
-    ctx.strokeStyle = '#3b3128'
-    ctx.strokeText(t, 512, y)
-    ctx.fillStyle = '#efe6d3'
-    ctx.fillText(t, 512, y)
-  }
-  return lienzoPlaca
-}
 
 /** El lienzo de la marca de la app: 512 de ancho por esto de alto. */
 const MARCA_ALTO = 96
@@ -727,6 +692,23 @@ function tira(o: THREE.Object3D) {
 }
 
 const suave = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
+
+/**
+ * La tipografía del nombre del canto, traída una sola vez y guardada. Es
+ * Archivo Black, de licencia abierta (ver `public/fuentes/`), pasada al
+ * formato de contornos que sabe leer three. Si no llega, el canto se queda
+ * liso: es un adorno, no vale estropear la maqueta por él.
+ */
+let fuenteCargada: Promise<Font | null> | null = null
+const cargaFuente = () => (fuenteCargada ??= fetch('/fuentes/archivoblack.typeface.json')
+  .then((r) => (r.ok ? (r.json() as Promise<FontData>) : Promise.reject(new Error(`${r.status}`))))
+  .then((datos) => new FontLoader().parse(datos))
+  .catch(() => {
+    // Un tropiezo no se da por perdido para siempre: se olvida, y la
+    // siguiente maqueta lo vuelve a intentar.
+    fuenteCargada = null
+    return null
+  }))
 
 /** El logo ya cargado como imagen, una vez: para dibujarlo en lo que se comparte. */
 let logoCargado: Promise<HTMLImageElement | null> | null = null
@@ -1597,43 +1579,87 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         e.loseta.add(cinta(CORDON_ANCHO, CORDON_ALTO, '#6d28d9'))
       }
 
-      // Los árboles, en el bosque: una copa de cono sobre un tronco, miles
-      // de copias de la misma pieza (instancias, un solo dibujo para la
-      // tarjeta), cada una con su tamaño, su giro y su verde. Grandes para
-      // lo que son —a esta escala un pino mide cien metros—, como en las
-      // maquetas de verdad, que si no no se verían.
+      // Los árboles, en el bosque: pinos en lo alto y copas redondas abajo,
+      // miles de copias de dos piezas (instancias, un dibujo por especie
+      // para la tarjeta), cada una con su tamaño, su giro y su verde.
+      // Grandes para lo que son —a esta escala un pino mide cien metros—,
+      // como en las maquetas de verdad, que si no no se verían.
       const arboles = sitiosDeArboles(rejilla, alturas, terreno.mascara, escala, CELDA_ARBOL, ARBOLES_MAX)
       const n = arboles.length / 4
       if (n > 0) {
-        const copa = new THREE.ConeGeometry(0.0095, 0.026, 6)
-        copa.translate(0, 0.008 + 0.013, 0)
-        const tronco = new THREE.CylinderGeometry(0.0022, 0.0028, 0.009, 5)
-        tronco.translate(0, 0.0045, 0)
-        const copas = new THREE.InstancedMesh(copa, new THREE.MeshLambertMaterial({ color: 0xffffff }), n)
+        // Quién es pino: casi todos arriba y casi ninguno abajo, con un azar
+        // fijo que difumina la frontera para que no se vea la raya.
+        let bajo = Infinity
+        let cima = -Infinity
+        for (let k = 0; k < n; k++) {
+          const y = arboles[k * 4 + 1]
+          if (y < bajo) bajo = y
+          if (y > cima) cima = y
+        }
+        const esPino = new Uint8Array(n)
+        let nPinos = 0
+        let semilla = 99991
+        for (let k = 0; k < n; k++) {
+          semilla = (semilla * 1103515245 + 12345) & 0x7fffffff
+          const cota = cima > bajo ? (arboles[k * 4 + 1] - bajo) / (cima - bajo) : 1
+          esPino[k] = semilla / 0x7fffffff < 0.2 + cota * 0.75 ? 1 : 0
+          nPinos += esPino[k]
+        }
+        // Tres faldones en vez de un cono suelto: es lo que le da al pino su
+        // silueta. Fundidos, siguen siendo una sola pieza y un solo dibujo.
+        const copaPino = mergeGeometries([
+          new THREE.ConeGeometry(0.0108, 0.0150, 8, 1, true).translate(0, 0.0135, 0),
+          new THREE.ConeGeometry(0.0086, 0.0140, 8, 1, true).translate(0, 0.0215, 0),
+          new THREE.ConeGeometry(0.0058, 0.0135, 8, 1).translate(0, 0.0298, 0),
+        ])
+        // Sin afinar más: con las caras planas, veinte ya leen como copa, y
+        // cuesta la cuarta parte que redondearla de verdad.
+        const copaFrondosa = new THREE.IcosahedronGeometry(0.0125, 0).scale(1, 0.85, 1).translate(0, 0.0200, 0)
+        // El tronco, sin tapas: no se le ve ni el pie, enterrado, ni la
+        // cabeza, que queda dentro de la copa.
+        const tronco = new THREE.CylinderGeometry(0.0022, 0.0030, 0.010, 6, 1, true).translate(0, 0.005, 0)
+        // Con las caras planas, cada faldón se ve: es lo que los define.
+        const hoja = () => new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true })
+        const pinos = new THREE.InstancedMesh(copaPino, hoja(), nPinos)
+        const frondosas = new THREE.InstancedMesh(copaFrondosa, hoja(), n - nPinos)
         const troncos = new THREE.InstancedMesh(tronco, new THREE.MeshLambertMaterial({ color: 0x5b4634 }), n)
         const matriz = new THREE.Matrix4()
         const giro = new THREE.Quaternion()
         const eje = new THREE.Vector3(0, 1, 0)
         const sitio = new THREE.Vector3()
         const tamano = new THREE.Vector3()
-        const oscuro = new THREE.Color('#3f7a3a')
-        const claro = new THREE.Color('#7fb45a')
+        const pinoOscuro = new THREE.Color('#2f6b3a')
+        const pinoClaro = new THREE.Color('#5f9f4a')
+        const hojaOscura = new THREE.Color('#4d8b32')
+        const hojaClara = new THREE.Color('#93c356')
         const verde = new THREE.Color()
+        let iPino = 0
+        let iFrondosa = 0
         for (let k = 0; k < n; k++) {
           const t = arboles[k * 4 + 3]
           sitio.set(arboles[k * 4], arboles[k * 4 + 1], arboles[k * 4 + 2])
           giro.setFromAxisAngle(eje, ((k * 0.618034) % 1) * Math.PI * 2)
-          tamano.set(t, t, t)
+          // Ni todos igual de esbeltos: unos tiran a alto y otros a ancho.
+          tamano.set(t, t * (0.88 + ((k * 0.381966) % 1) * 0.3), t)
           matriz.compose(sitio, giro, tamano)
-          copas.setMatrixAt(k, matriz)
           troncos.setMatrixAt(k, matriz)
           // Los grandes, más oscuros: da profundidad sin más geometría.
-          copas.setColorAt(k, verde.copy(claro).lerp(oscuro, (t - 0.7) / 0.6))
+          const mezcla = (t - 0.7) / 0.6
+          if (esPino[k]) {
+            pinos.setMatrixAt(iPino, matriz)
+            pinos.setColorAt(iPino, verde.copy(pinoClaro).lerp(pinoOscuro, mezcla))
+            iPino++
+          } else {
+            frondosas.setMatrixAt(iFrondosa, matriz)
+            frondosas.setColorAt(iFrondosa, verde.copy(hojaClara).lerp(hojaOscura, mezcla))
+            iFrondosa++
+          }
         }
-        copas.castShadow = true
-        copas.receiveShadow = true
-        troncos.castShadow = true
-        e.loseta.add(copas, troncos)
+        for (const m of [pinos, frondosas, troncos]) {
+          m.castShadow = true
+          m.receiveShadow = true
+        }
+        e.loseta.add(pinos, frondosas, troncos)
       }
 
       // Las poblaciones: un puñado de casitas alrededor de cada punto, más
@@ -1790,41 +1816,63 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   // que mira a la cámara al abrir, o en la este si la loseta es mucho más
   // alta que ancha. A media altura del grosor que tiene seguro la base.
   //
-  // Son letras de verdad, con volumen: una plancha muy subdividida pegada a
-  // la pared cuyos vértices se levantan donde el dibujo del texto es blanco
-  // (mapa de desplazamiento), con el borde difuminado para que el canto de
-  // cada letra salga en pendiente. Lo que no es letra se descarta por
-  // transparencia, y las letras dan sombra sobre la pared.
+  // Son letras de verdad, talladas: el contorno de cada una sale de la
+  // tipografía, se le da fondo y se le remata el filo en pendiente (el
+  // bisel), que es lo que las hace brillar por arriba y sombrear por abajo.
+  // Se talla una vez al construir la maqueta y no cuesta nada al girarla.
   useEffect(() => {
     const e = escena.current
     const texto = nombre?.trim()
     if (!e || estado !== 'lista' || !e.terreno || !texto) return
-    // Tan ancha como la pared deje —con la marca de la app a su derecha— y
-    // tan alta como el grosor de la base (ver `repartoDelCanto`).
-    const reparto = repartoDelCanto(e.terreno)
-    const color = dibujaInscripcion(texto, 'color')
-    const relieve = texturaDe(dibujaInscripcion(texto, 'relieve'))
-    relieve.colorSpace = THREE.NoColorSpace
-    const ancho = reparto.anchoNombre
-    const alto = (ancho * color.height) / color.width
-    const placa = new THREE.Mesh(
-      new THREE.PlaneGeometry(ancho, alto, 512, 48),
-      new THREE.MeshLambertMaterial({
-        map: texturaDe(color),
-        transparent: true,
-        alphaTest: 0.4,
-        displacementMap: relieve,
-        displacementScale: 0.022,
-        bumpMap: relieve,
-        bumpScale: 0.01,
-      }),
-    )
-    placa.castShadow = true
-    reparto.coloca(placa, reparto.sNombre)
-    e.loseta.add(placa)
-    e.renderer.shadowMap.needsUpdate = true
-    e.sucio = true
+    let vigente = true
+    let placa: THREE.Mesh | null = null
+    cargaFuente().then((fuente) => {
+      const terreno = e.terreno
+      if (!vigente || !fuente || !terreno) return
+      // Tan ancho como la pared deje —con la marca de la app a su derecha— y
+      // tan alto como el grosor de la base (ver `repartoDelCanto`).
+      const reparto = repartoDelCanto(terreno)
+      const mayusculas = texto.toUpperCase()
+      // Se talla dos veces: la primera, de tamaño uno, solo para medir cuánto
+      // ocupa; la segunda, ya al tamaño que cabe. Así el filo guarda siempre
+      // la misma proporción con la letra, sea el nombre corto o larguísimo.
+      const tanteo = new TextGeometry(mayusculas, { font: fuente, size: 1, depth: 0.2, bevelEnabled: false })
+      tanteo.computeBoundingBox()
+      const caja = tanteo.boundingBox
+      tanteo.dispose()
+      if (!caja) return
+      const tam = Math.min(reparto.anchoNombre / Math.max(1e-6, caja.max.x - caja.min.x), (GROSOR * 0.5) / Math.max(1e-6, caja.max.y - caja.min.y))
+      const geo = new TextGeometry(mayusculas, {
+        font: fuente,
+        size: tam,
+        // Lo que sobresale de la pared, y el filo: poco: es un grabado, no un
+        // cartel. Con dos pasadas de bisel basta para que el canto se vea.
+        depth: 0.009,
+        curveSegments: 3,
+        bevelEnabled: true,
+        bevelThickness: 0.0035,
+        bevelSize: tam * 0.035,
+        bevelOffset: 0,
+        bevelSegments: 2,
+      })
+      geo.computeBoundingBox()
+      const c = geo.boundingBox
+      if (!c) { geo.dispose(); return }
+      // Centrada en su sitio: `coloca` da el centro, no la esquina.
+      geo.translate(-(c.min.x + c.max.x) / 2, -(c.min.y + c.max.y) / 2, 0)
+      // Piedra clara, mate como el resto de la maqueta (aquí no hace falta
+      // PBR: el relieve ya lo pone la geometría, no un reflejo).
+      placa = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xe9dfc9 }))
+      placa.castShadow = true
+      placa.receiveShadow = true
+      reparto.coloca(placa, reparto.sNombre)
+      e.loseta.add(placa)
+      e.renderer.shadowMap.needsUpdate = true
+      e.sucio = true
+    })
     return () => {
+      vigente = false
+      if (!placa) return
       e.loseta.remove(placa)
       tira(placa)
       e.renderer.shadowMap.needsUpdate = true

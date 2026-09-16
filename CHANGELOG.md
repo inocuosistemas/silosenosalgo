@@ -86,6 +86,47 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### El bosque se distingue y el nombre está tallado de verdad
+
+**Web · Compatible.** Dos arreglos de aspecto en la maqueta, y los dos salen
+más baratos de lo que parecen.
+
+**Los árboles.** Eran todos el mismo cono de seis lados. Ahora hay dos
+especies: **pinos de tres faldones** —que es lo que le da al pino su silueta— y
+**copas redondeadas** para las frondosas, con las caras planas para que cada
+faldón se distinga. Los pinos salen en lo alto y las frondosas ladera abajo,
+con un azar fijo que difumina la frontera para que no se vea una raya recta.
+Van fundidos en una sola pieza por especie, así que el bosque entero sigue
+siendo **tres dibujos** (antes dos) y las sombras siguen congeladas: girar la
+maqueta no las recalcula.
+
+**El nombre del canto.** Era una plancha de 512×48 divisiones cuyos vértices se
+levantaban con un mapa de desplazamiento sacado de un lienzo desenfocado; de
+ahí los bordes rasgados y como derretidos. Ahora son **letras talladas de
+verdad** (`TextGeometry`), con fondo y el filo rematado en pendiente, que es lo
+que las hace brillar por arriba y sombrear por abajo. Se tallan una vez al
+construir la maqueta y no cuestan nada al girarla.
+
+Los números, contados pieza a pieza y no a ojo:
+
+| | Antes | Ahora |
+|---|---|---|
+| Un árbol | 32 triángulos | 44 el pino, 32 la frondosa |
+| El bosque entero (ordenador) | 96.000 | ~118.000 |
+| El nombre del canto | 49.152 | 4.584 (nombre corto), ~12.500 (larguísimo) |
+
+Es decir: el bosque suma unos 22.000 triángulos y las letras quitan más de
+44.000. **La maqueta acaba con menos carga que antes**, no con más.
+
+Lo que no se pudo comprobar aquí: si el cambio se nota al girar. El banco de
+pruebas sin pantalla dibuja por software y su ruido entre dos pasadas del mismo
+código (7,2 y 8,1 fotogramas por segundo) es mayor que el efecto que se busca
+medir, así que no distingue nada. Hay que mirarlo en una máquina de verdad.
+
+La tipografía es **Archivo Black**, de licencia abierta, en `public/fuentes/`
+junto con su licencia y una nota de cómo se convirtió. Son 75 KB y viajan en el
+trozo de la maqueta, que solo se descarga cuando alguien la abre.
+
 ### En vivo, lo importante de un vistazo (iOS)
 
 **iOS 550 · Mejora al actualizar.** Con la baliza emitiendo,
