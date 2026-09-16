@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { FontLoader, type Font, type FontData } from 'three/addons/loaders/FontLoader.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { Captions, CaptionsOff, Clapperboard, Map as IconoMapa, Mountain, Pause, Play, RotateCw, Share2, Video } from 'lucide-react'
 import { durationLabel } from '../../shared/bets'
 import { URL_ALTURAS, alturasTerrarium } from '../lib/relieve'
@@ -16,7 +17,7 @@ import { codificaPaquete, decodificaPaquete, type ClaseLugar, type LugarMaqueta,
 import { COLOR_MESA, EMOJIS_HASTA, type Corredor3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import SunCalc from 'suncalc'
 import {
-  CORREDORES_CARRERITA, avanceEn, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita,
+  CORREDORES_CARRERITA, avanceEn, finDeCarrera, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita, varianteDe,
   type Carril, type CorredorCarrerita,
 } from '../lib/carrerita'
 import { extremosDelRecorrido } from '../lib/sentidoRecorrido'
@@ -995,14 +996,36 @@ function colocaSombra(sombra: THREE.Group, t: Terreno, pie: THREE.Vector3, alto:
  * invisible. Aquí es como un pino bajito, que es lo que la hace mirable.
  */
 const ALTO_MUNECO = 0.040
-/** Lo que mide el muñeco tal como está dibujado, antes de escalarlo: así hay
- *  un solo número que tocar, `ALTO_MUNECO`, y el frontal le sigue solo. */
-const ALTO_NATURAL_MUNECO = 0.023
+/** El alto de referencia de los modelos. La escala es la MISMA para las cinco
+ *  variantes a propósito: normalizando cada una a `ALTO_MUNECO` se perdería la
+ *  diferencia de estatura, que es justo lo que las hace parecer gente. */
+const ALTO_NATURAL_MUNECO = 1.77
 const ESCALA_MUNECO = ALTO_MUNECO / ALTO_NATURAL_MUNECO
+
+/**
+ * Los cinco corredores, modelados en Blender. Cada uno con su estatura y su
+ * complexión, tres con palos y dos sin ellos, y tres en espejo (pierna derecha
+ * delante) para que el pelotón no parezca una fila de clones.
+ *
+ * `frente` es dónde llevan el frontal, en unidades del modelo: cambia con la
+ * estatura, así que cada variante lleva la suya.
+ */
+const VARIANTES = [
+  { archivo: 'corredor-a.glb', frente: new THREE.Vector3(0, 1.765, 0.273) },
+  { archivo: 'corredor-b.glb', frente: new THREE.Vector3(0, 1.557, 0.232) },
+  { archivo: 'corredor-c.glb', frente: new THREE.Vector3(0, 1.576, 0.244) },
+  { archivo: 'corredor-d.glb', frente: new THREE.Vector3(0, 1.671, 0.249) },
+  { archivo: 'corredor-e.glb', frente: new THREE.Vector3(0, 1.680, 0.260) },
+]
 /** Cuántos corren. En el móvil, menos: son instancias, pero cada una lleva su mancha de sombra. */
 const MUNECOS = TACTIL ? 8 : CORREDORES_CARRERITA
-/** Lo que dura el espectáculo antes de pararse solo, en segundos. */
-const DURACION_CARRERITA_S = 75
+/**
+ * El tope absoluto, en segundos. La carrera dura lo que tarde el último en
+ * cruzar la meta (ver `finDeCarrera`), que con el reparto de siempre son unos
+ * tres minutos; esto solo está para que un reparto raro no la deje corriendo
+ * indefinidamente.
+ */
+const TOPE_CARRERITA_S = 300
 /**
  * Cuánto tiene que moverse el sol para rehacer el mapa de sombras. Está
  * congelado a propósito (ver el montaje de la escena) y rehacerlo cuesta; con
@@ -1020,25 +1043,53 @@ const SOL_PASO_SOMBRA = TACTIL ? 0.20 : 0.10
  * fundía con el cuerpo. Lo que hace que una silueta diminuta se lea como una
  * persona es el cuello y el hueco entre las piernas, no el detalle.
  */
-function geometriaMuneco(): THREE.BufferGeometry {
-  const pierna = new THREE.CapsuleGeometry(0.0013, 0.0060, 2, 5)
-  const brazo = new THREE.CapsuleGeometry(0.0010, 0.0050, 2, 4)
-  const piezas = [
-    pierna.clone().translate(-0.0020, 0.0043, 0),
-    pierna.clone().translate(0.0020, 0.0043, 0),
-    // Los brazos, abiertos hacia fuera: marcan los hombros y de lejos ensanchan
-    // justo donde tiene que ensanchar una persona.
-    brazo.clone().rotateZ(0.45).translate(-0.0040, 0.0138, 0),
-    brazo.clone().rotateZ(-0.45).translate(0.0040, 0.0138, 0),
-    new THREE.CapsuleGeometry(0.0029, 0.0058, 3, 6).translate(0, 0.0128, 0),
-    new THREE.SphereGeometry(0.0027, 6, 4).translate(0, 0.0203, 0),
-  ]
-  const g = mergeGeometries(piezas)!
-  pierna.dispose()
-  brazo.dispose()
-  for (const p of piezas) p.dispose()
-  g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
-  return g
+/**
+ * El corredor, modelado aparte en Blender: mochila, dos palos y una zancada
+ * fija. Se baja una vez y se queda cacheado, como la tipografía del canto.
+ *
+ * Trae sus colores por vértice (`COLOR_0`: piel, pantalón, bambas, palos) y un
+ * atributo `_camiseta` que vale 1 solo en la camiseta y las mangas. Eso es lo
+ * que permite teñir a cada corredor de su color sin pintarle también la piel
+ * (ver `materialCorredor`). GLTFLoader nombra los atributos sueltos en
+ * minúsculas conservando el guion bajo, de ahí `_camiseta`.
+ */
+let corredoresCargados: Promise<(THREE.BufferGeometry | null)[]> | null = null
+function cargaCorredores(): Promise<(THREE.BufferGeometry | null)[]> {
+  return (corredoresCargados ??= Promise.all(VARIANTES.map((v) => new GLTFLoader()
+    .loadAsync(`/modelos/${v.archivo}`)
+    .then((gltf) => {
+      let geo: THREE.BufferGeometry | null = null
+      gltf.scene.traverse((o) => { if (!geo && (o as THREE.Mesh).isMesh) geo = (o as THREE.Mesh).geometry })
+      if (!geo) return null
+      const g = geo as THREE.BufferGeometry
+      g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
+      return g
+    })
+    .catch(() => null)))
+    .then((gs) => {
+      if (gs.every((g) => g === null)) corredoresCargados = null
+      return gs
+    }))
+}
+
+/**
+ * El material del corredor: colores por vértice, y el tinte de cada uno SOLO
+ * en la camiseta.
+ *
+ * Three multiplica el color de instancia sobre todos los vértices
+ * (`vColor.rgb *= instanceColor.rgb` en su fragmento `color_vertex`), lo que
+ * teñiría también la piel, las bambas y los palos. Aquí ese trozo se sustituye
+ * por una mezcla que solo deja pasar el tinte donde `_camiseta` vale 1.
+ */
+function materialCorredor(): THREE.MeshLambertMaterial {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = `attribute float _camiseta;\n${shader.vertexShader}`.replace(
+      '#ifdef USE_INSTANCING_COLOR\n\n\t\tvColor.rgb *= instanceColor.rgb;\n\n\t#endif',
+      '#ifdef USE_INSTANCING_COLOR\n\n\t\tvColor.rgb *= mix( vec3( 1.0 ), instanceColor.rgb, _camiseta );\n\n\t#endif',
+    )
+  }
+  return m
 }
 
 /**
@@ -1051,23 +1102,24 @@ function geometriaMuneco(): THREE.BufferGeometry {
  * encendida. Mira hacia delante porque reutiliza la matriz del muñeco, que ya
  * lleva su rumbo: en ese sistema, la marcha es el +Z de la pieza.
  */
-function geometriaFrontal(): THREE.BufferGeometry {
-  const largo = 0.026
+function geometriaFrontal(frente: THREE.Vector3): THREE.BufferGeometry {
+  // En unidades del modelo, que es donde vive la frente.
+  const largo = 1.15
   // Solo el haz. El punto de luz de la frente se dibuja aparte: el cono lleva
   // ahora una textura que se desvanece a lo largo, y una esfera fundida con él
   // cogería ese degradado por donde no toca.
-  const g = new THREE.ConeGeometry(0.0075, largo, 10, 1, true)
+  const g = new THREE.ConeGeometry(0.34, largo, 10, 1, true)
     .translate(0, -largo / 2, 0)
     .rotateX(-Math.PI / 2)
-    .translate(0, 0.0215, 0.0026)
+    .translate(frente.x, frente.y, frente.z)
   g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
   return g
 }
 
 /** El puntito de luz de la frente, que es lo que se ve encendido de lejos. */
-function geometriaNucleo(): THREE.BufferGeometry {
-  return new THREE.SphereGeometry(0.0016, 6, 4)
-    .translate(0, 0.0215, 0.0026)
+function geometriaNucleo(frente: THREE.Vector3): THREE.BufferGeometry {
+  return new THREE.SphereGeometry(0.075, 6, 4)
+    .translate(frente.x, frente.y, frente.z)
     .scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
 }
 
@@ -1116,11 +1168,14 @@ interface EstadoCarrerita {
   t0: number
   carril: Carril | null
   gente: CorredorCarrerita[]
-  malla: THREE.InstancedMesh | null
-  /** Los puntos de luz de la frente, encendidos solo de noche. */
-  frontales: THREE.InstancedMesh | null
-  /** Los haces de los frontales, en una sola malla instanciada. */
-  haces: THREE.InstancedMesh | null
+  /**
+   * Una malla instanciada por variante de corredor, con sus frontales y sus
+   * haces: cada variante tiene su estatura, así que lleva la luz a su propia
+   * altura de frente. `sitio[i]` dice en qué variante corre el corredor `i` y
+   * con qué índice dentro de ella.
+   */
+  porVariante: { malla: THREE.InstancedMesh; frontales: THREE.InstancedMesh; haces: THREE.InstancedMesh }[]
+  sitio: { variante: number; indice: number }[]
   sombras: THREE.Group[]
   /** Desde dónde se mira el sol: el primer punto del recorrido. */
   lat: number
@@ -1231,7 +1286,7 @@ function paraCarrerita(e: Escena, c: EstadoCarrerita) {
  */
 function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolean {
   const t = e.terreno
-  if (!t || !c.carril || !c.malla) return false
+  if (!t || !c.carril || c.porVariante.length === 0) return false
   for (let i = 0; i < c.gente.length; i++) {
     const p = puntoDelCarril(c.carril, avanceEn(c.gente[i], segundos))
     // El bote de la zancada: no se les articulan las piernas —a este tamaño no
@@ -1240,31 +1295,33 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
     sitioMuneco.set(p.x, p.y + bote, p.z)
     giroMuneco.setFromAxisAngle(EJE_Y, p.rumbo)
     matrizMuneco.compose(sitioMuneco, giroMuneco, tamanoMuneco)
-    c.malla.setMatrixAt(i, matrizMuneco)
+    // Cada corredor escribe en la malla de SU variante, en su propio índice.
     // El frontal va con la misma matriz: pegado a la cabeza que bota y
     // mirando hacia donde corre, sin volver a calcular nada.
-    c.frontales?.setMatrixAt(i, matrizMuneco)
-    c.haces?.setMatrixAt(i, matrizMuneco)
+    const { variante, indice } = c.sitio[i]
+    const v = c.porVariante[variante]
+    v.malla.setMatrixAt(indice, matrizMuneco)
+    v.frontales.setMatrixAt(indice, matrizMuneco)
+    v.haces.setMatrixAt(indice, matrizMuneco)
     const sombra = c.sombras[i]
     if (sombra) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
   }
-  c.malla.instanceMatrix.needsUpdate = true
   // En cuanto el sol se pone, se encienden los frontales.
   const deNoche = poneLaLuz(e, instanteDe(c.salidaMs, segundos), c.lat, c.lon)
-  if (c.frontales) {
-    c.frontales.instanceMatrix.needsUpdate = true
-    c.frontales.visible = deNoche
-  }
-  if (c.haces) {
-    c.haces.instanceMatrix.needsUpdate = true
-    c.haces.visible = deNoche
+  for (const v of c.porVariante) {
+    v.malla.instanceMatrix.needsUpdate = true
+    v.frontales.instanceMatrix.needsUpdate = true
+    v.haces.instanceMatrix.needsUpdate = true
+    v.frontales.visible = deNoche
+    v.haces.visible = deNoche
   }
   // El mapa de sombras solo se rehace cuando el sol se ha movido de verdad.
   if (Math.abs(e.sol.position.y - c.ultimoSol) > SOL_PASO_SOMBRA) {
     c.ultimoSol = e.sol.position.y
     e.renderer.shadowMap.needsUpdate = true
   }
-  return segundos < DURACION_CARRERITA_S
+  // Se corre hasta que llega el ÚLTIMO, no hasta que se cumple un reloj.
+  return segundos < Math.min(finDeCarrera(c.gente), TOPE_CARRERITA_S)
 }
 
 /**
@@ -2399,38 +2456,58 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     ))
     if (!carril) return
 
-    const malla = new THREE.InstancedMesh(geometriaMuneco(), new THREE.MeshLambertMaterial({ color: 0xffffff }), MUNECOS)
-    // No dan sombra de verdad: el mapa de sombras está congelado y se
-    // quedarían estampados en el suelo donde salieron. Llevan la suya pintada.
-    malla.castShadow = false
-    malla.receiveShadow = false
-    // Se mueven cada fotograma y su caja de partida no vale para descartarlos.
-    malla.frustumCulled = false
+    // A qué variante le toca cada corredor, y con qué índice dentro de ella.
+    const cuenta = VARIANTES.map(() => 0)
+    const sitio = Array.from({ length: MUNECOS }, (_, i) => {
+      const variante = varianteDe(i, VARIANTES.length)
+      return { variante, indice: cuenta[variante]++ }
+    })
+    // Una malla por variante. Nacen con la geometría vacía y se les pone la
+    // suya cuando llegan los ficheros: así el efecto sigue siendo síncrono.
+    const porVariante = VARIANTES.map((v, iv) => {
+      const malla = new THREE.InstancedMesh(new THREE.BufferGeometry(), materialCorredor(), Math.max(1, cuenta[iv]))
+      // No dan sombra de verdad: el mapa de sombras está congelado y se
+      // quedarían estampados donde salieron. Llevan la suya pintada.
+      malla.castShadow = false
+      malla.receiveShadow = false
+      // Se mueven cada fotograma y su caja de partida no vale para descartarlos.
+      malla.frustumCulled = false
+      // Los frontales: mezcla aditiva y sin escribir profundidad, que es lo que
+      // hace que un haz parezca luz y no un cucurucho de plástico.
+      const frontales = new THREE.InstancedMesh(geometriaNucleo(v.frente), new THREE.MeshBasicMaterial({
+        color: 0xfff6dc, transparent: true, opacity: 0.95,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }), Math.max(1, cuenta[iv]))
+      frontales.frustumCulled = false
+      frontales.renderOrder = 2
+      const haces = new THREE.InstancedMesh(geometriaFrontal(v.frente), new THREE.MeshBasicMaterial({
+        map: texturaHaz(), color: 0xfff4d0, transparent: true, opacity: 0.8,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      }), Math.max(1, cuenta[iv]))
+      haces.frustumCulled = false
+      haces.renderOrder = 1
+      frontales.visible = false
+      haces.visible = false
+      e.carrerita.add(haces, malla, frontales)
+      return { malla, frontales, haces }
+    })
+    void cargaCorredores().then((geos) => {
+      if (!e.carrerita.parent) return
+      geos.forEach((g, iv) => {
+        if (!g) return
+        porVariante[iv].malla.geometry.dispose()
+        porVariante[iv].malla.geometry = g
+      })
+      e.sucio = true
+    })
     const sombras: THREE.Group[] = []
     for (let i = 0; i < MUNECOS; i++) {
-      malla.setColorAt(i, CAMISETAS[i % CAMISETAS.length])
+      const { variante, indice } = sitio[i]
+      porVariante[variante].malla.setColorAt(indice, CAMISETAS[i % CAMISETAS.length])
       const s = creaSombra()
       sombras.push(s)
       e.sombras.add(s)
     }
-    // Los frontales: mezcla aditiva y sin escribir profundidad, que es lo que
-    // hace que un haz parezca luz y no un cucurucho de plástico.
-    const frontales = new THREE.InstancedMesh(geometriaNucleo(), new THREE.MeshBasicMaterial({
-      color: 0xfff6dc, transparent: true, opacity: 0.95,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }), MUNECOS)
-    frontales.frustumCulled = false
-    frontales.renderOrder = 2
-    frontales.visible = false
-    const haces = new THREE.InstancedMesh(geometriaFrontal(), new THREE.MeshBasicMaterial({
-      map: texturaHaz(), color: 0xfff4d0, transparent: true, opacity: 0.8,
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    }), MUNECOS)
-    haces.frustumCulled = false
-    haces.renderOrder = 1
-    haces.visible = false
-    e.carrerita.add(haces)
-    e.carrerita.add(malla, frontales)
     // Nacen quietos y escondidos: la salida la da el botón, no el reloj. Antes
     // arrancaba sola al abrir y se paraba al primer toque, y como lo primero
     // que hace cualquiera es girar la maqueta, lo único que se veía era el
@@ -2440,7 +2517,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     carreritaRef.current = {
       corriendo: false, t0: 0, carril, gente: repartoCarrerita(MUNECOS),
-      malla, frontales, haces, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
+      porVariante, sitio, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
       alAcabar: () => { setCorriendoCarrera(false); setCuentaAtras(null) },
     }
     setHayCarrerita(true)
@@ -2451,10 +2528,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       setHayCarrerita(false)
       setCorriendoCarrera(false)
       setCuentaAtras(null)
-      e.carrerita.remove(malla, frontales, haces)
-      tira(malla)
-      tira(frontales)
-      tira(haces)
+      for (const v of porVariante) {
+        e.carrerita.remove(v.malla, v.frontales, v.haces)
+        tira(v.malla)
+        tira(v.frontales)
+        tira(v.haces)
+      }
       for (const s of sombras) { e.sombras.remove(s); tiraSombra(s) }
       e.sucio = true
     }

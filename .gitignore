@@ -37,3 +37,6 @@ dist-ssr
 
 # Local test fixtures (large GPX files)
 test-data/
+
+# Copias de seguridad que Blender crea al guardar
+*.blend1

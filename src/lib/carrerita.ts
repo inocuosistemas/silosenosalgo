@@ -10,6 +10,13 @@
  * Aquí no hay nada de three.js a propósito: son cuentas, y así se prueban.
  */
 
+/**
+ * A qué variante de corredor le toca cada uno. Se reparten en rueda para que
+ * salgan todas: con ocho muñecos —los del móvil— y cinco variantes, salen las
+ * cinco.
+ */
+export const varianteDe = (i: number, variantes: number) => i % variantes
+
 /** Cuántos muñecos corren, y lo que tarda el primero en dar la vuelta entera. */
 export const CORREDORES_CARRERITA = 14
 export const VUELTA_S = 100
@@ -71,8 +78,18 @@ export function repartoCarrerita(n = CORREDORES_CARRERITA, semilla = 20260916): 
 export function avanceEn(c: CorredorCarrerita, segundos: number): number {
   const corriendo = segundos - c.salidaS
   if (corriendo <= 0) return 0
-  const vueltas = (corriendo * c.velocidad) / VUELTA_S
-  return vueltas - Math.floor(vueltas)
+  return Math.min(1, (corriendo * c.velocidad) / VUELTA_S)
+}
+
+/**
+ * Cuándo cruza la meta el último, en segundos desde que se da la salida. La
+ * carrera dura eso: no se corta por reloj ni se vuelve a empezar, que una
+ * carrera en la que nadie llega no es una carrera.
+ */
+export function finDeCarrera(gente: readonly CorredorCarrerita[]): number {
+  let fin = 0
+  for (const c of gente) fin = Math.max(fin, c.salidaS + VUELTA_S / c.velocidad)
+  return fin
 }
 
 /** El recorrido tendido sobre el terreno, con la cuenta de lo que mide. */

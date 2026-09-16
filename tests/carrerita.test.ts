@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CORREDORES_CARRERITA, MINUTOS_POR_SEGUNDO, VUELTA_S,
-  avanceEn, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita,
+  avanceEn, finDeCarrera, instanteDe, preparaCarril, puntoDelCarril, repartoCarrerita,
 } from '../src/lib/carrerita'
 
 describe('repartoCarrerita', () => {
@@ -39,8 +39,10 @@ describe('avanceEn', () => {
     expect(avanceEn(uno, 2 + VUELTA_S / 2)).toBeCloseTo(0.5)
   })
 
-  it('al llegar al final vuelve a empezar, que esto no termina', () => {
-    expect(avanceEn(uno, 2 + VUELTA_S * 1.25)).toBeCloseTo(0.25)
+  it('al llegar a la meta se queda en ella: no vuelve a empezar', () => {
+    expect(avanceEn(uno, 2 + VUELTA_S)).toBe(1)
+    expect(avanceEn(uno, 2 + VUELTA_S * 1.25)).toBe(1)
+    expect(avanceEn(uno, 2 + VUELTA_S * 10)).toBe(1)
   })
 
   it('el que va más lento lleva menos recorrido en el mismo instante', () => {
@@ -52,6 +54,20 @@ describe('avanceEn', () => {
     const gente = reparteDePrueba()
     const hueco = (s: number) => avanceEn(gente[0], s) - avanceEn(gente[gente.length - 1], s)
     expect(hueco(VUELTA_S * 0.4)).toBeGreaterThan(hueco(VUELTA_S * 0.1))
+  })
+})
+
+describe('finDeCarrera', () => {
+  it('es cuando cruza la meta el último, no el primero', () => {
+    const gente = reparteDePrueba()
+    const fin = finDeCarrera(gente)
+    for (const c of gente) expect(avanceEn(c, fin)).toBe(1)
+  })
+
+  it('un poco antes todavía queda alguien corriendo', () => {
+    const gente = reparteDePrueba()
+    const fin = finDeCarrera(gente)
+    expect(gente.some((c) => avanceEn(c, fin - 1) < 1)).toBe(true)
   })
 })
 

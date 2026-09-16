@@ -86,6 +86,53 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### Cinco corredores distintos, modelados en Blender
+
+**Web · Compatible.** Los muñecos de palos y cápsulas se sustituyen por cinco
+corredores modelados: distinta estatura y complexión, tres con bastones y dos
+sin ellos, tres en espejo —pierna derecha delante— para que el pelotón no
+parezca una fila de clones. Llevan mochila y su color de camiseta.
+
+**Requiere actualizar (iOS y Android).** Las apps traen su propia copia del
+visor: hasta que no se recompilen y se repartan, ahí se seguirá viendo el
+muñeco viejo. En la web se ve al recargar.
+
+Tres decisiones que conviene respetar si se toca esto:
+
+- **La escala es la misma para las cinco** (`ALTO_MUNECO / 1.77`). Normalizar
+  cada una a la misma altura habría borrado la diferencia de estatura, que es
+  justo lo que hace que parezcan personas distintas y no un molde repetido.
+- **Una malla instanciada por variante**, con los corredores repartidos en
+  rueda: con catorce salen 3/3/3/3/2 y con ocho —el móvil— salen las cinco. Son
+  cinco dibujos en vez de uno, nada al lado de los miles de árboles.
+- **El tinte de cada corredor cae solo en la camiseta.** Three multiplica el
+  color de instancia sobre todos los vértices, lo que teñiría también la piel,
+  las bambas y los bastones; se sustituye su fragmento `color_vertex` por una
+  mezcla que solo deja pasar el tinte donde el atributo `_camiseta` vale 1.
+  GLTFLoader nombra los atributos sueltos en minúsculas conservando el guion
+  bajo, de ahí ese nombre.
+
+El fichero de Blender del que salen (`modelos-fuente/corredores.blend`) va en
+el repositorio, **fuera de `public/`** para que no se despliegue ni acabe en las
+apps. De ahí se exportan los cinco `.glb`: glTF con Y arriba, la marcha hacia
++Z, origen en el suelo, sin materiales, caras planas y los atributos `COLOR_0`
+y `_CAMISETA` (la camiseta, en blanco).
+
+**Qué se lee y qué no, a tamaño de maqueta.** Comprobado de día y de noche con
+el pelotón estirado: se distinguen la silueta, la estatura, el color de la
+camiseta, los bastones y hacia dónde corren. Lo que **no** se resuelve es el
+detalle fino —la coleta, por ejemplo—: acercando la cámara todo lo que permite,
+un corredor ocupa una docena de píxeles. No es un defecto del modelado; es el
+techo del tamaño, y conviene saberlo antes de pedir más detalle en Blender.
+
+### La carrerita corre hasta que llega el último
+
+**Web · Compatible.** Antes los corredores daban vueltas y el espectáculo se
+cortaba por reloj a los 75 segundos. Ahora cada uno se queda en la meta al
+cruzarla y la carrera termina cuando llega **el último**, que con el reparto de
+siempre son unos tres minutos. Queda un tope absoluto por si algún reparto raro
+la dejara corriendo indefinidamente.
+
 ### Los frontales alumbran más lejos, y por qué no se usó una librería
 
 **Web · Compatible.** El haz de los frontales es ahora más largo y **se apaga
