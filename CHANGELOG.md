@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**546**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**548**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**550**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**550**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -88,7 +88,7 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ### En vivo, lo importante de un vistazo (iOS)
 
-**iOS · Mejora al actualizar (sin publicar todavía).** Con la baliza emitiendo,
+**iOS 550 · Mejora al actualizar.** Con la baliza emitiendo,
 la tarjeta de arriba lleva ahora, además del estado, **cuánta gente te sigue,
 hace cuánto salió tu última posición y cuántas quedan en cola** sin cobertura.
 Estaban al final de la pantalla, en «Estado», que no es donde se mira con la
@@ -101,7 +101,7 @@ de dejar de compartir, en vez de una franja fina.
 
 ### Una salida sin nombre ya no se llama «Sin nombre»
 
-**iOS y Android · Mejora al actualizar (sin publicar todavía).** Al empezar a
+**iOS y Android 550 · Mejora al actualizar.** Al empezar a
 compartir sin escribir un nombre, la salida se llama **«SiLoSeNoSalgo · 16 sept
 2026, 07:05»**, con su fecha y hora de inicio. En la lista de seguimientos y en
 el enlace que se comparte, «Sin nombre» no distinguía una salida de otra, y
@@ -110,7 +110,7 @@ siempre.
 
 ### La baliza se siente: un golpecito al elegir carrera y al empezar y parar
 
-**iOS 548 · Mejora al actualizar. En Android irá con la próxima.** Elegir
+**iOS 548 y Android 550 · Mejora al actualizar.** Elegir
 una carrera, empezar a compartir y parar dan ahora un aviso por el tacto. La
 baliza se maneja con prisa, con guantes y sin mirar —en la línea de salida, o al
 llegar—, y el golpecito confirma que el toque ha entrado sin tener que leer la
@@ -124,7 +124,7 @@ vibración y respeta a quien la tenga apagada. Ver `Vibra.swift` y
 
 ### «Salir de la cuenta», al final de la pantalla
 
-**iOS 548 · Mejora al actualizar. En Android irá con la próxima.** El
+**iOS 548 y Android 550 · Mejora al actualizar.** El
 botón de salir de la cuenta deja la cabecera, donde
 estaba al lado del nombre y era fácil rozarlo con prisa, y pasa al final de la
 pantalla de la baliza, encima de la versión. Se sigue preguntando antes de
