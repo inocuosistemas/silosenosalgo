@@ -989,6 +989,10 @@ function colocaSombra(sombra: THREE.Group, t: Terreno, pie: THREE.Vector3, alto:
  * invisible. Aquí es como un pino bajito, que es lo que la hace mirable.
  */
 const ALTO_MUNECO = 0.040
+/** Lo que mide el muñeco tal como está dibujado, antes de escalarlo: así hay
+ *  un solo número que tocar, `ALTO_MUNECO`, y el frontal le sigue solo. */
+const ALTO_NATURAL_MUNECO = 0.023
+const ESCALA_MUNECO = ALTO_MUNECO / ALTO_NATURAL_MUNECO
 /** Cuántos corren. En el móvil, menos: son instancias, pero cada una lleva su mancha de sombra. */
 const MUNECOS = TACTIL ? 8 : CORREDORES_CARRERITA
 /** Lo que dura el espectáculo antes de pararse solo, en segundos. */
@@ -1027,11 +1031,30 @@ function geometriaMuneco(): THREE.BufferGeometry {
   pierna.dispose()
   brazo.dispose()
   for (const p of piezas) p.dispose()
-  // Las medidas de arriba dan un muñeco de 0,023 de alto; se escala al tamaño
-  // que mande `ALTO_MUNECO`, que es quien manda también en el bote de la
-  // zancada y en la mancha de sombra. Así hay un solo número que tocar.
-  const f = ALTO_MUNECO / 0.023
-  g.scale(f, f, f)
+  g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
+  return g
+}
+
+/**
+ * El frontal de un corredor: el punto de luz en la frente y el haz corto que
+ * sale hacia delante. Se enciende solo de noche (ver `mueveCarrerita`).
+ *
+ * No es una luz de verdad: catorce focos dinámicos costarían un disgusto y
+ * además el mapa de sombras está congelado. Es geometría con mezcla aditiva,
+ * que sobre una maqueta a oscuras es exactamente lo que se lee como una luz
+ * encendida. Mira hacia delante porque reutiliza la matriz del muñeco, que ya
+ * lleva su rumbo: en ese sistema, la marcha es el +Z de la pieza.
+ */
+function geometriaFrontal(): THREE.BufferGeometry {
+  const largo = 0.020
+  const haz = new THREE.ConeGeometry(0.0060, largo, 8, 1, true)
+    .translate(0, -largo / 2, 0)
+    .rotateX(-Math.PI / 2)
+    .translate(0, 0.0215, 0.0026)
+  const piezas = [new THREE.SphereGeometry(0.0013, 6, 4).translate(0, 0.0215, 0.0026), haz]
+  const g = mergeGeometries(piezas)!
+  for (const p of piezas) p.dispose()
+  g.scale(ESCALA_MUNECO, ESCALA_MUNECO, ESCALA_MUNECO)
   return g
 }
 
@@ -1046,6 +1069,8 @@ interface EstadoCarrerita {
   carril: Carril | null
   gente: CorredorCarrerita[]
   malla: THREE.InstancedMesh | null
+  /** Los frontales, encendidos solo de noche. */
+  frontales: THREE.InstancedMesh | null
   sombras: THREE.Group[]
   /** Desde dónde se mira el sol: el primer punto del recorrido. */
   lat: number
@@ -1072,8 +1097,8 @@ const matrizMuneco = new THREE.Matrix4()
  * Sin instante —una carrera sin hora de salida— no se toca nada: se queda la
  * luz de tarde con la que nace la maqueta.
  */
-function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number) {
-  if (!cuando) return
+function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number): boolean {
+  if (!cuando) return false
   const { altitude, azimuth } = SunCalc.getPosition(cuando, lat, lon)
   // El acimut de SunCalc se mide desde el sur y crece hacia el oeste. En la
   // loseta, el sur es +Z y el oeste es −X (ver `escala` en `maqueta3d`).
@@ -1109,6 +1134,7 @@ function poneLaLuz(e: Escena, cuando: Date | null, lat: number, lon: number) {
     Math.max(-3, Math.min(3, -e.sol.position.x / y)),
     Math.max(-3, Math.min(3, -e.sol.position.z / y)),
   )
+  return deNoche
 }
 
 /**
@@ -1161,11 +1187,19 @@ function mueveCarrerita(e: Escena, c: EstadoCarrerita, segundos: number): boolea
     giroMuneco.setFromAxisAngle(EJE_Y, p.rumbo)
     matrizMuneco.compose(sitioMuneco, giroMuneco, tamanoMuneco)
     c.malla.setMatrixAt(i, matrizMuneco)
+    // El frontal va con la misma matriz: pegado a la cabeza que bota y
+    // mirando hacia donde corre, sin volver a calcular nada.
+    c.frontales?.setMatrixAt(i, matrizMuneco)
     const sombra = c.sombras[i]
     if (sombra) colocaSombra(sombra, t, sitioMuneco, ALTO_MUNECO, 0.3, e.caidaSombra)
   }
   c.malla.instanceMatrix.needsUpdate = true
-  poneLaLuz(e, instanteDe(c.salidaMs, segundos), c.lat, c.lon)
+  // En cuanto el sol se pone, se encienden los frontales.
+  const deNoche = poneLaLuz(e, instanteDe(c.salidaMs, segundos), c.lat, c.lon)
+  if (c.frontales) {
+    c.frontales.instanceMatrix.needsUpdate = true
+    c.frontales.visible = deNoche
+  }
   // El mapa de sombras solo se rehace cuando el sol se ha movido de verdad.
   if (Math.abs(e.sol.position.y - c.ultimoSol) > SOL_PASO_SOMBRA) {
     c.ultimoSol = e.sol.position.y
@@ -2291,7 +2325,16 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       sombras.push(s)
       e.sombras.add(s)
     }
-    e.carrerita.add(malla)
+    // Los frontales: mezcla aditiva y sin escribir profundidad, que es lo que
+    // hace que un haz parezca luz y no un cucurucho de plástico.
+    const frontales = new THREE.InstancedMesh(geometriaFrontal(), new THREE.MeshBasicMaterial({
+      color: 0xfff4d0, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    }), MUNECOS)
+    frontales.frustumCulled = false
+    frontales.renderOrder = 1
+    frontales.visible = false
+    e.carrerita.add(malla, frontales)
     // Nacen quietos y escondidos: la salida la da el botón, no el reloj. Antes
     // arrancaba sola al abrir y se paraba al primer toque, y como lo primero
     // que hace cualquiera es girar la maqueta, lo único que se veía era el
@@ -2301,7 +2344,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     carreritaRef.current = {
       corriendo: false, t0: 0, carril, gente: repartoCarrerita(MUNECOS),
-      malla, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
+      malla, frontales, sombras, lat: ruta[0][0], lon: ruta[0][1], salidaMs, ultimoSol: e.sol.position.y,
       alAcabar: () => { setCorriendoCarrera(false); setCuentaAtras(null) },
     }
     setHayCarrerita(true)
@@ -2312,8 +2355,9 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       setHayCarrerita(false)
       setCorriendoCarrera(false)
       setCuentaAtras(null)
-      e.carrerita.remove(malla)
+      e.carrerita.remove(malla, frontales)
       tira(malla)
+      tira(frontales)
       for (const s of sombras) { e.sombras.remove(s); tiraSombra(s) }
       e.sucio = true
     }

@@ -108,6 +108,15 @@ del recorrido, pasados por SunCalc, que ya estaba en el proyecto. El reloj
 corre a doce minutos por segundo, así que en el rato que dura el espectáculo
 cabe un día entero.
 
+**Y cuando se hace de noche, encienden los frontales**: un punto de luz en la
+frente y un haz corto hacia donde corren, que se apagan solos al amanecer. No
+son luces de verdad —catorce focos dinámicos costarían un disgusto, y además el
+mapa de sombras está congelado—: es geometría con mezcla aditiva, que sobre una
+maqueta a oscuras es justo lo que se lee como una luz encendida. Van en su
+propia malla de instancias, un solo dibujo para los catorce, y reutilizan la
+matriz del muñeco, así que salen pegados a la cabeza que bota y apuntando a la
+marcha sin calcular nada aparte.
+
 **La batería manda, y por eso la salida se pide.** La maqueta se pinta solo
 cuando algo cambia, y esto la pone a pintar siempre; así que la carrerita solo
 corre cuando alguien la pide, y se para sola a los 75 segundos.
