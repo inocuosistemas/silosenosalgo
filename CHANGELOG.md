@@ -53,7 +53,7 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
 | Android · APK de reparto | 1.0 (**546**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**546**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
+| iOS | 1.0 (**548**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -86,10 +86,24 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### La baliza se siente: un golpecito al elegir carrera y al empezar y parar
+
+**iOS 548 · Mejora al actualizar. En Android irá con la próxima.** Elegir
+una carrera, empezar a compartir y parar dan ahora un aviso por el tacto. La
+baliza se maneja con prisa, con guantes y sin mirar —en la línea de salida, o al
+llegar—, y el golpecito confirma que el toque ha entrado sin tener que leer la
+pantalla. Son tres distintos: seco al elegir o soltar una carrera, afirmativo al
+empezar y otro al parar o abandonar, para que no se confundan.
+
+La carrera que la app propone sola al abrir NO vibra: no la ha tocado nadie. En
+Android lo da el sistema a través de la vista, así que no pide permiso de
+vibración y respeta a quien la tenga apagada. Ver `Vibra.swift` y
+`Vibracion.kt`.
+
 ### «Salir de la cuenta», al final de la pantalla
 
-**iOS y Android · Mejora al actualizar (sin publicar todavía: irá con la
-próxima versión).** El botón de salir de la cuenta deja la cabecera, donde
+**iOS 548 · Mejora al actualizar. En Android irá con la próxima.** El
+botón de salir de la cuenta deja la cabecera, donde
 estaba al lado del nombre y era fácil rozarlo con prisa, y pasa al final de la
 pantalla de la baliza, encima de la versión. Se sigue preguntando antes de
 salir.

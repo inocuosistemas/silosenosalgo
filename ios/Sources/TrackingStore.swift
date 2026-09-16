@@ -519,6 +519,9 @@ final class TrackingStore: ObservableObject {
         // otra vez sería no haber escuchado. Elegir uno a mano borra el rechazo:
         // ya no hay nada que evitar.
         if !auto { rejectedEventId = eventId == nil ? previous : nil }
+        // Elegir (o soltar) una carrera se SIENTE, y solo cuando lo hace la mano:
+        // la que se propone sola al abrir no se anuncia con un golpecito.
+        if !auto && previous != eventId { Vibra.eleccion() }
         selectedEventId = eventId
         eventPickedAutomatically = auto && eventId != nil
         applyEventStart(previous: previous)

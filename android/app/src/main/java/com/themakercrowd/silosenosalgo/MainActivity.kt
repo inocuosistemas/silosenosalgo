@@ -5,6 +5,7 @@ package com.themakercrowd.silosenosalgo
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
@@ -1045,6 +1046,7 @@ private fun EstadoCompacto(
     var confirmaAbandono by remember { mutableStateOf(false) }
     // Salir sin carrera con una cerca se pregunta: sin ella no se sale en su mapa.
     var preguntaCarrera by remember { mutableStateOf(false) }
+    val vista = LocalView.current
     Seccion {
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
@@ -1153,13 +1155,13 @@ private fun EstadoCompacto(
                         // La salida para quien ha acabado y la app no lo ha
                         // visto —sin recorrido, o apaga antes de la meta—: sin
                         // ella, apagar le obligaba a darse por retirado.
-                        TextButton(onClick = { confirmaAbandono = false; onParar() }) {
+                        TextButton(onClick = { confirmaAbandono = false; Vibracion.fin(vista); onParar() }) {
                             Text("Solo apagar la baliza", color = Paleta.slate400)
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { confirmaAbandono = false; onAbandonar() }) { Text("Sí, lo dejo") }
+                    TextButton(onClick = { confirmaAbandono = false; Vibracion.fin(vista); onAbandonar() }) { Text("Sí, lo dejo") }
                 },
                 dismissButton = { TextButton(onClick = { confirmaAbandono = false }) { Text("No, sigo") } },
             )
@@ -1172,7 +1174,7 @@ private fun EstadoCompacto(
                 text = {
                     Column {
                         Text("Con la carrera apareces en su mapa, con su hora de salida y tu previsión.")
-                        TextButton(onClick = { preguntaCarrera = false; onEmpezar() }) {
+                        TextButton(onClick = { preguntaCarrera = false; Vibracion.exito(vista); onEmpezar() }) {
                             Text("No, es una salida suelta", color = Paleta.slate400)
                         }
                     }
@@ -1180,6 +1182,7 @@ private fun EstadoCompacto(
                 confirmButton = {
                     TextButton(onClick = {
                         preguntaCarrera = false
+                        Vibracion.exito(vista)
                         onElegirCarrera(cerca.id)
                         onEmpezar()
                     }) { Text("Sí, para esta carrera") }
@@ -1192,7 +1195,14 @@ private fun EstadoCompacto(
             // En rojo, no en el azul de todo lo demás: es la única acción que
             // DESHACE algo, y pulsarla por error corta la traza.
             Button(
-                onClick = { if (abandonaAlParar) confirmaAbandono = true else onParar() },
+                onClick = {
+                    if (abandonaAlParar) {
+                        confirmaAbandono = true
+                    } else {
+                        Vibracion.fin(vista)
+                        onParar()
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Paleta.rojo,
                     contentColor = Paleta.slate950,
@@ -1201,7 +1211,14 @@ private fun EstadoCompacto(
             ) { Text(if (abandonaAlParar) "Abandonar" else "Dejar de compartir") }
         } else {
             Button(
-                onClick = { if (carreraAPreguntar != null) preguntaCarrera = true else onEmpezar() },
+                onClick = {
+                    if (carreraAPreguntar != null) {
+                        preguntaCarrera = true
+                    } else {
+                        Vibracion.exito(vista)
+                        onEmpezar()
+                    }
+                },
                 enabled = hayPermiso && !arrancando,
                 modifier = Modifier.fillMaxWidth(),
             ) {

@@ -327,12 +327,14 @@ struct TrackingView: View {
                             if abandonaAlParar {
                                 confirmandoAbandono = true
                             } else if store.isSharing {
+                                Vibra.fin()
                                 await store.stopSharing()
                             } else if store.selectedEventId == nil, let cerca = TrackingRules.nearbyEvent(store.events) {
                                 // Sin carrera elegida y con una cerca: se pregunta
                                 // antes, que sin ella la salida no sale en su mapa.
                                 carreraAPreguntar = cerca
                             } else {
+                                Vibra.exito()
                                 await store.startSharing(title: tituloLimpio)
                             }
                         }
@@ -359,9 +361,11 @@ struct TrackingView: View {
                     ) { ev in
                         Button("Sí, para \(ev.name)") {
                             store.setEvent(ev.id)
+                            Vibra.exito()
                             Task { await store.startSharing(title: tituloLimpio) }
                         }
                         Button("No, es una salida suelta") {
+                            Vibra.exito()
                             Task { await store.startSharing(title: tituloLimpio) }
                         }
                         Button("Cancelar", role: .cancel) {}
@@ -371,12 +375,14 @@ struct TrackingView: View {
                     .confirmationDialog("¿Abandonas la carrera?",
                                         isPresented: $confirmandoAbandono, titleVisibility: .visible) {
                         Button("Sí, lo dejo", role: .destructive) {
+                            Vibra.fin()
                             Task { await store.abandona() }
                         }
                         // La salida para quien ha acabado y la app no lo ha
                         // visto —sin recorrido, o apaga antes de la meta—: sin
                         // ella, apagar le obligaba a darse por retirado.
                         Button("Solo apagar la baliza") {
+                            Vibra.fin()
                             Task { await store.stopSharing() }
                         }
                         Button("No, sigo", role: .cancel) {}

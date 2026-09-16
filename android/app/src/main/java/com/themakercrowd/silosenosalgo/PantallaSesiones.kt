@@ -66,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -714,6 +715,7 @@ private fun TarjetaCarrera(
     onAbrir: (String, String) -> Unit,
 ) {
     val forma = RoundedCornerShape(14.dp)
+    val vista = LocalView.current
     val foto by produceState<ImageBitmap?>(initialValue = null, ev.id, ev.photoAt) {
         value = TrackingStore.fotoDeCarrera(ev)
     }
@@ -724,7 +726,10 @@ private fun TarjetaCarrera(
             .clip(forma)
             .background(Paleta.slate950)
             .border(if (elegida) 2.dp else 1.dp, if (elegida) Paleta.sky500 else Paleta.slate800, forma)
-            .clickable { onElige(if (elegida) null else ev.id) },
+            .clickable {
+                Vibracion.eleccion(vista)
+                onElige(if (elegida) null else ev.id)
+            },
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f)) {
             val f = foto
