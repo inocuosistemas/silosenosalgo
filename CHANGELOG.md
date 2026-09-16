@@ -96,8 +96,14 @@ carrera en marcha; allí queda el detalle que se mira despacio.
 
 Debajo, **«Compartir enlace» a un toque**: era lo que se buscaba en cuanto
 alguien pregunta «¿dónde te sigo?» y había que bajar a buscarlo. Y **«Pausar
-10 min» pasa a ser un botón de verdad**, ámbar y del mismo tamaño que el rojo
-de dejar de compartir, en vez de una franja fina.
+10 min» pasa a ser un botón de verdad**, ámbar apagado y del mismo tamaño que
+el rojo de dejar de compartir, en vez de una franja fina.
+
+**Sin publicar todavía:** la sección «Estado» desaparece y sus datos suben
+enteros a la tarjeta, en dos líneas de iconos —seguidores, frescura del último
+envío, posiciones enviadas, cola sin cobertura, precisión del GPS, a qué
+distancia te ven y lecturas descartadas—, con el aviso de sin cobertura solo
+cuando hay retraso de verdad.
 
 ### Una salida sin nombre ya no se llama «Sin nombre»
 

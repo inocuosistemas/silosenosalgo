@@ -314,13 +314,16 @@ struct TrackingView: View {
                             Button {
                                 Task { await store.pausa() }
                             } label: {
-                                Text("⏸  Pausar \(TrackingStore.pausaMax) min")
+                                Text("Pausar \(TrackingStore.pausaMax) min")
                                     .fontWeight(.semibold)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
                             }
                             .buttonStyle(.plain)
-                            .background(Color(red: 0.96, green: 0.62, blue: 0.04))
+                            // Ámbar apagado, no el amarillo de aviso: es una
+                            // acción normal, y al lado del rojo de parar no
+                            // tiene que gritar más que él.
+                            .background(Color(red: 0.85, green: 0.65, blue: 0.30))
                             .foregroundStyle(Theme.slate950)
                             .cornerRadius(12)
                             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
@@ -883,38 +886,6 @@ struct TrackingView: View {
                     }
                     .listRowBackground(Theme.slate900)
 
-                    Section {
-                        // Seguidores, último envío y cola viven ARRIBA, con el
-                        // estado (ver `resumenEnVivo`): aquí queda el detalle que
-                        // se mira despacio, no con la carrera en marcha.
-                        LabeledContent("Posiciones enviadas", value: "\(store.pingCount)")
-                        if let last = store.lastSentAt {
-                            LabeledContent("Último envío", value: last.formatted(date: .omitted, time: .shortened))
-                        }
-                        if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
-                            LabeledContent("Precisión GPS", value: String(format: "± %.0f m", loc.horizontalAccuracy))
-                        }
-                        if store.heldReadings > 0 {
-                            // Lecturas que no superaron el ruido del GPS y se
-                            // registraron manteniendo la posición (como Android):
-                            // si andando salen muchas, el umbral está alto.
-                            LabeledContent("Lecturas descartadas", value: "\(store.heldReadings)")
-                        }
-                        if let gap = store.followerGapMeters {
-                            let stale = store.lastSentAt.map { Date().timeIntervalSince($0) } ?? 0
-                            let behind = store.pendingCount > 0 || gap > 150
-                            LabeledContent("Seguidores te ven a", value: "\(distanceLabel(gap)) · hace \(gapTimeLabel(stale))")
-                                .foregroundStyle(behind ? .orange : Theme.slate400)
-                        }
-                    } header: {
-                        Text("Estado").foregroundStyle(Theme.slate400)
-                    } footer: {
-                        if let gap = store.followerGapMeters, store.pendingCount > 0 || gap > 150 {
-                            Text("Sin cobertura: tu posición real va por delante de la que ven tus seguidores. Se pondrá al día al recuperar señal.")
-                                .font(.caption).foregroundStyle(Theme.slate400)
-                        }
-                    }
-                    .listRowBackground(Theme.slate900)
                 }
 
                 if let err = store.lastError {
@@ -1236,33 +1207,60 @@ struct TrackingView: View {
         if store.isSharing { resumenEnVivo }
     }
 
-    /// Lo que se mira de un vistazo mientras se emite: quién te está siguiendo,
-    /// cuándo salió tu última posición y si queda algo por mandar.
+    /// TODO lo que hay que saber mientras se emite, arriba y en dos líneas.
     ///
-    /// Estaba al final de la pantalla, en "Estado", que es donde nadie mira con
-    /// la carrera en marcha: aquí va en una línea, pegado al "compartiendo en
-    /// directo" que contesta la misma pregunta.
+    /// Esto vivía al final de la pantalla, en una sección "Estado" con una fila
+    /// por dato, y con la carrera en marcha nadie baja hasta allí. Aquí cabe
+    /// entero al lado del "compartiendo en directo", que es lo que se mira: a
+    /// cuánta gente llega, si llega fresco y si el GPS va fino. El aviso de sin
+    /// cobertura solo aparece cuando de verdad hay retraso.
     @ViewBuilder
     private var resumenEnVivo: some View {
+        let retraso = store.lastSentAt.map { Date().timeIntervalSince($0) } ?? 0
         let atrasado = store.pendingCount > 0
-        HStack(spacing: 14) {
-            if let viewers = store.activeViewers {
-                Label("\(viewers)", systemImage: "eye.fill")
-                    .foregroundStyle(viewers > 0 ? .green : Theme.slate400)
+            || (store.followerGapMeters.map { $0 > 150 } ?? false)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                if let viewers = store.activeViewers {
+                    dato("\(viewers)", "eye.fill", viewers > 0 ? .green : Theme.slate400)
+                }
+                if store.lastSentAt != nil {
+                    dato("hace \(gapTimeLabel(retraso))", "arrow.up.circle", sendFreshnessTint(retraso))
+                }
+                dato("\(store.pingCount)", "paperplane.fill", Theme.slate400)
+                if store.pendingCount > 0 {
+                    dato("\(store.pendingCount) en cola", "antenna.radiowaves.left.and.right.slash", .orange)
+                }
+                Spacer(minLength: 0)
             }
-            if let last = store.lastSentAt {
-                let elapsed = Date().timeIntervalSince(last)
-                Label("hace \(gapTimeLabel(elapsed))", systemImage: "arrow.up.circle")
-                    .foregroundStyle(sendFreshnessTint(elapsed))
+            HStack(spacing: 12) {
+                if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
+                    dato(String(format: "± %.0f m", loc.horizontalAccuracy), "location.circle", Theme.slate400)
+                }
+                if let gap = store.followerGapMeters {
+                    dato("te ven a \(distanceLabel(gap))", "binoculars.fill", atrasado ? .orange : Theme.slate400)
+                }
+                if store.heldReadings > 0 {
+                    dato("\(store.heldReadings) descartadas", "xmark.circle", Theme.slate400)
+                }
+                Spacer(minLength: 0)
             }
             if atrasado {
-                Label("\(store.pendingCount) en cola", systemImage: "antenna.radiowaves.left.and.right.slash")
-                    .foregroundStyle(.orange)
+                Text("Sin cobertura: tu posición real va por delante de la que ven tus seguidores. Se pondrá al día al recuperar señal.")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.slate400)
             }
-            Spacer(minLength: 0)
         }
         .font(.footnote)
-        .labelStyle(.titleAndIcon)
+    }
+
+    /// Un dato del resumen: icono y cifra, sin etiqueta. La etiqueta la dice el
+    /// icono, y así caben todos en dos líneas.
+    private func dato(_ texto: String, _ icono: String, _ color: Color) -> some View {
+        Label(texto, systemImage: icono)
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(color)
+            .lineLimit(1)
     }
 
     /// Race tip: enabling iOS Low Power Mode extends autonomy and does NOT break
