@@ -86,6 +86,38 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### El perfil de la carrera, tallado en el canto
+
+**Web · Compatible.** La maqueta lleva ahora, en una de sus paredes, la carrera
+vista de lado: de la salida a la meta, con la misma piedra y el mismo relieve
+que el nombre.
+
+Es **decorativo a propósito, pero la fisonomía es la de verdad**: la silueta
+sale del mismo relieve que la maqueta, así que dónde está el puerto largo,
+dónde el repecho y dónde el descenso tendido es exacto. Lo que no sale de ahí
+es el desnivel acumulado: con la malla de treinta y tantos metros los toboganes
+cortos se pierden y la cifra saldría corta. Por eso **en el perfil no se
+escribe ningún número**, y no se debe añadir ninguno sin traer antes las cotas
+del GPX hasta la maqueta.
+
+El recorrido se remuestrea a pasos iguales de distancia, no punto a punto: el
+GPX trae los puntos apelotonados en las curvas y, sin eso, el perfil sale
+estirado justo donde la carrera va más revirada.
+
+**En qué pared, y por qué no en la de enfrente.** El sol está en (−1.3, 2.6,
+1.5): viene del sur y del oeste, y solo esas dos caras reciben luz direccional.
+La primera versión puso el perfil enfrente del nombre, en la norte, y allí es
+**invisible**: a esa pared no le llega el sol, se queda con la luz de
+hemisferio —un degradado liso y sin dirección— y sobre una pared vertical no
+hace ni una sombra. Estaba perfectamente tallado y no se veía. Va en la oeste,
+que es la otra cara con sol.
+
+Una limitación que conviene saber antes de tocarlo: la cara levantada del
+perfil es paralela a la pared, así que recibe la misma luz y **lo que dibuja la
+montaña es el filo, no el relleno**. Con las letras no pasa porque una letra es
+casi todo borde. Por eso el perfil sale más de la pared que las letras y con
+más chaflán: es lo único que le da lectura.
+
 ### Las chinchetas no se despegan de su palo
 
 **Web · Compatible.** Cada una se iba por su lado: la cabeza flotando arriba y

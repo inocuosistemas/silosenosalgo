@@ -50,6 +50,22 @@ const AIRE_LETRA = 0.1
 const ALTO_RELIEVE = 0.01
 /** En cuántos tramos se parte cada curva de una letra al tallarla. */
 const CURVAS_LETRA = 4
+/**
+ * El perfil de desnivel tallado en el canto de enfrente: qué parte de la
+ * franja ocupa de alto, cuánto del largo de la pared coge, y en cuántos
+ * tramos se parte el recorrido para dibujarlo.
+ */
+const ALTO_PERFIL = 0.72
+const ANCHO_PERFIL = 0.9
+const NODOS_PERFIL = 240
+/**
+ * El perfil sale más de la pared que las letras, y con más chaflán. Una letra
+ * se lee porque tiene filos verticales por todos lados; un perfil es un solo
+ * filo largo y casi tumbado, así que con el mismo relieve que el nombre se
+ * queda en un alambre. Sacándolo más, la cara de arriba coge luz y la de abajo
+ * sombra, y entonces se lee como una pieza y no como una raya.
+ */
+const RELIEVE_PERFIL = 0.016
 /** Desde dónde se mira al abrir: un poco al este del sur y a media altura,
  *  que es la cara que enseña la carrera entera y deja leer el nombre. */
 const AZIMUT_INICIAL = 0.45
@@ -416,7 +432,80 @@ function repartoDelCanto(t: Terreno) {
       placa.rotation.y = Math.PI / 2
     }
   }
-  return { largo, anchoNombre, sNombre: -total / 2 + anchoNombre / 2, anchoMarca, sMarca: total / 2 - anchoMarca / 2, coloca }
+  /**
+   * La otra pared donde se puede tallar algo: NO la de enfrente, la de al lado.
+   *
+   * El sol está en (−1.3, 2.6, 1.5), o sea que viene del sur y del oeste, y
+   * solo ilumina de verdad esas dos caras. A la pared de enfrente del nombre
+   * —la norte— no le llega nada de la luz direccional: se queda con la de
+   * hemisferio, que es un degradado liso y sin dirección, y sobre una pared
+   * vertical no hace ni una sombra. Un relieve tallado ahí está perfectamente
+   * puesto y no se ve, que es lo que pasó la primera vez.
+   */
+  const largoOtra = enSur ? altoU : anchoU
+  const colocaEnLaOtraCara = (placa: THREE.Object3D, s: number, fuera = 0) => {
+    if (enSur) {
+      // La oeste: la placa mira a −X, y su ancho corre a lo largo de Z.
+      placa.position.set(-anchoU / 2 - 0.001 - fuera, y, s)
+      placa.rotation.y = -Math.PI / 2
+    } else {
+      // Si el nombre está en la este, la otra cara con sol es la sur.
+      placa.position.set(s, y, altoU / 2 + 0.001 + fuera)
+    }
+  }
+  return { largo, largoOtra, anchoNombre, sNombre: -total / 2 + anchoNombre / 2, anchoMarca, sMarca: total / 2 - anchoMarca / 2, coloca, colocaEnLaOtraCara }
+}
+
+/**
+ * La silueta del perfil de la carrera, para tallarla en el canto: la altura
+ * del terreno a lo largo del recorrido, de la salida a la meta.
+ *
+ * Es decorativo, y la fisonomía es la de verdad: sale del mismo relieve que
+ * la maqueta, así que dónde está el puerto largo, dónde el repecho y dónde el
+ * descenso tendido es exacto. Lo que NO sale de aquí es el desnivel
+ * acumulado: con la malla de treinta y tantos metros los toboganes cortos se
+ * pierden y la cifra saldría corta. Por eso aquí no se escribe ningún número.
+ */
+function siluetaDelPerfil(t: Terreno, ruta: [number, number][], ancho: number, alto: number): THREE.Shape | null {
+  // El recorrido tendido sobre la loseta, con su distancia acumulada.
+  const dist: number[] = []
+  const altura: number[] = []
+  let total = 0
+  let ax = 0, az = 0, hay = false
+  for (const [lat, lon] of ruta) {
+    const p = sitioEnMaqueta(t.rejilla, t.alturas, t.escala, lat, lon)
+    if (!p) continue
+    if (hay) total += Math.hypot(p[0] - ax, p[2] - az)
+    dist.push(total)
+    altura.push(p[1])
+    ax = p[0]; az = p[2]; hay = true
+  }
+  if (dist.length < 8 || total <= 0) return null
+  // A pasos iguales de distancia, no de punto: el GPX trae los puntos
+  // apelotonados en las curvas, y sin esto el perfil sale estirado justo
+  // donde la carrera va más revirada.
+  const paso = total / NODOS_PERFIL
+  const ys: number[] = []
+  let j = 0
+  for (let i = 0; i <= NODOS_PERFIL; i++) {
+    const d = i * paso
+    while (j < dist.length - 2 && dist[j + 1] < d) j++
+    const tramo = dist[j + 1] - dist[j]
+    const f = tramo > 0 ? Math.min(1, Math.max(0, (d - dist[j]) / tramo)) : 0
+    ys.push(altura[j] + (altura[j + 1] - altura[j]) * f)
+  }
+  let min = Infinity, max = -Infinity
+  for (const y of ys) { if (y < min) min = y; if (y > max) max = y }
+  // Una carrera sin desnivel no da silueta: mejor pared lisa que una raya.
+  if (!(max > min)) return null
+  const s = new THREE.Shape()
+  s.moveTo(-ancho / 2, -alto / 2)
+  for (let i = 0; i < ys.length; i++) {
+    s.lineTo(-ancho / 2 + (i / NODOS_PERFIL) * ancho, -alto / 2 + ((ys[i] - min) / (max - min)) * alto)
+  }
+  s.lineTo(ancho / 2, -alto / 2)
+  s.closePath()
+  return s
 }
 
 /** Los ocho vértices de la caja de la loseta, para encuadrarla entera. */
@@ -1932,6 +2021,43 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     const e = escena.current
     if (e) e.sucio = true
   }, [rotulos])
+
+  // El perfil de la carrera, tallado en la pared de enfrente del nombre: la
+  // ruta vista de lado, de la salida a la meta, con la misma piedra y el mismo
+  // relieve que las letras. Se talla al construir la maqueta y girarla no
+  // cuesta nada.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno || ruta.length < 8) return
+    const terreno = e.terreno
+    const reparto = repartoDelCanto(terreno)
+    const silueta = siluetaDelPerfil(terreno, ruta, reparto.largoOtra * ANCHO_PERFIL, GROSOR * ALTO_PERFIL)
+    if (!silueta) return
+    const geo = new THREE.ExtrudeGeometry(silueta, {
+      depth: RELIEVE_PERFIL,
+      bevelEnabled: true,
+      bevelThickness: RELIEVE_PERFIL * 0.45,
+      bevelSize: GROSOR * 0.022,
+      bevelOffset: 0,
+      bevelSegments: 1,
+    })
+    const piedra = new THREE.Color().setRGB(CANTO[0], CANTO[1], CANTO[2], THREE.SRGBColorSpace)
+    const cara = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: piedra }))
+    cara.castShadow = true
+    cara.receiveShadow = true
+    const grabado = new THREE.Group()
+    grabado.add(cara)
+    reparto.colocaEnLaOtraCara(grabado, 0)
+    e.loseta.add(grabado)
+    e.renderer.shadowMap.needsUpdate = true
+    e.sucio = true
+    return () => {
+      e.loseta.remove(grabado)
+      tira(grabado)
+      e.renderer.shadowMap.needsUpdate = true
+      e.sucio = true
+    }
+  }, [ruta, estado])
 
   // El nombre del evento, esculpido en el canto: en la pared sur, que es la
   // que mira a la cámara al abrir, o en la este si la loseta es mucho más
