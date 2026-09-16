@@ -52,8 +52,8 @@ sustituir**; repartir la app; y solo entonces, mucho después, retirar lo viejo.
 |---|---|---|
 | Web | continuo (`npm run deploy`) | sí |
 | Android · móvil propio | debug, del 281 | **no**: el de desarrollo se queda como estaba; se pone al día con `./gradlew installDebug` |
-| Android · APK de reparto | 1.0 (**550**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
-| iOS | 1.0 (**550**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
+| Android · APK de reparto | 1.0 (**552**) publicado en GitHub Releases el 2026-09-16 | sí. **Enlace fijo al último APK**, el que se manda a quien prueba: `https://github.com/inocuosistemas/silosenosalgo/releases/latest/download/SiLoSeNoSalgo.apk`. El compañero sigue con el **271** |
+| iOS | 1.0 (**552**) subida a TestFlight el 2026-09-16 | sí, en cuanto salga de *Processing* |
 
 El `versionCode` de Android es el número de commits (`build.gradle.kts`), así
 que sirve para saber exactamente qué lleva dentro un APK: el 271 se compiló en
@@ -99,7 +99,7 @@ alguien pregunta «¿dónde te sigo?» y había que bajar a buscarlo. Y **«Paus
 10 min» pasa a ser un botón de verdad**, ámbar apagado y del mismo tamaño que
 el rojo de dejar de compartir, en vez de una franja fina.
 
-**Sin publicar todavía:** la sección «Estado» desaparece y sus datos suben
+**Y en la 552:** la sección «Estado» desaparece y sus datos suben
 enteros a la tarjeta, en dos líneas de iconos —seguidores, frescura del último
 envío, posiciones enviadas, cola sin cobertura, precisión del GPS, a qué
 distancia te ven y lecturas descartadas—, con el aviso de sin cobertura solo
