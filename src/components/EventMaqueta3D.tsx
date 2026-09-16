@@ -82,6 +82,14 @@ const CLASE_ES: Record<ClaseLugar, string> = { city: 'ciudad', town: 'pueblo', v
 const PICO_CERCA_M = 300
 /** En cuántos tramos se tantea si el monte tapa una chincheta (ver `tapadaPorElMonte`). */
 const PASOS_TAPADO = TACTIL ? 64 : 96
+/**
+ * Lo gordo que es el palo de una chincheta: en proporción a lo alta que sea,
+ * como cuando iba pintado, pero sin bajar de un mínimo. Los rótulos son los
+ * sprites más bajos (0,084 de alto un pueblo, 0,057 una cima), así que sin ese
+ * suelo su palo se queda en medio píxel y se pierde al alejarse.
+ */
+const GROSOR_PALO = 0.016
+const GROSOR_PALO_MIN = 0.0015
 /** Con la cámara inclinada así se ve el relieve; más y las laderas se aplanan. */
 const INCLINACION = 1.08
 /** Una vuelta por minuto, como en el mapa 3D. */
@@ -233,6 +241,9 @@ interface Escena {
   /** Lo que hay que quitar al cambiar de carrera. */
   loseta: THREE.Group
   chinchetas: THREE.Group
+  /** Los palos de las chinchetas, aparte: son geometría de verdad, para que
+   *  el monte los tape por píxeles, y así el clic y el escalado no los ven. */
+  palos: THREE.Group
   /** Las sombras de las agujas de la gente, en el suelo (ver `creaSombra`). */
   sombras: THREE.Group
   fichas: Map<string, { sprite: THREE.Sprite; firma: string; sombra: THREE.Group }>
@@ -518,9 +529,8 @@ function dibujaFicha(c: Corredor3D, conEmoji: boolean, elegido: boolean): HTMLCa
   // arriba y salía cortado.
   const cy = 40
   ctx.globalAlpha = c.apagado ? 0.5 : 1
-  ctx.strokeStyle = '#0f172a'
-  ctx.lineWidth = 3
-  ctx.beginPath(); ctx.moveTo(cx, cy + r); ctx.lineTo(cx, 144); ctx.stroke()
+  // El palo no se pinta aquí: va suelto y en 3D, para que el monte lo tape
+  // por donde pase por delante (ver `creaPalo`).
   if (elegido) {
     ctx.beginPath(); ctx.arc(cx, cy, r + 7, 0, Math.PI * 2); ctx.fillStyle = '#f8fafc'; ctx.fill()
   }
@@ -559,18 +569,8 @@ function dibujaRotulo(texto: string, tinta = '#f8fafc', palo = 0): HTMLCanvasEle
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(texto, ancho / 2, 16)
-  if (palo > 0) {
-    ctx.strokeStyle = 'rgba(15,23,42,0.9)'
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(ancho / 2, ROTULO_ALTO)
-    ctx.lineTo(ancho / 2, ROTULO_ALTO + palo - 3)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.arc(ancho / 2, ROTULO_ALTO + palo - 3, 3.5, 0, Math.PI * 2)
-    ctx.fillStyle = tinta
-    ctx.fill()
-  }
+  // El palo no se pinta aquí, aunque siga alargando el lienzo: va suelto y en
+  // 3D, para que el monte lo tape por donde pase por delante (`creaPalo`).
   return lienzoRotulo
 }
 
@@ -637,8 +637,8 @@ function dibujaMarca(logo: HTMLImageElement | null, modo: 'color' | 'relieve'): 
 /** Un punto del recorrido: una bolita en un palo, naranja si tiene cierre. */
 function dibujaPunto(p: Punto3D): HTMLCanvasElement {
   const [lienzoPunto, ctx] = lienzo(48, 96)
-  ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 3
-  ctx.beginPath(); ctx.moveTo(24, 22); ctx.lineTo(24, 96); ctx.stroke()
+  // El palo no se pinta aquí: va suelto y en 3D, para que el monte lo tape
+  // por donde pase por delante (ver `creaPalo`).
   ctx.beginPath(); ctx.arc(24, 14, 13, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill()
   ctx.beginPath(); ctx.arc(24, 14, 10, 0, Math.PI * 2); ctx.fillStyle = p.cierre ? '#f59e0b' : '#8b5cf6'; ctx.fill()
   return lienzoPunto
@@ -647,8 +647,7 @@ function dibujaPunto(p: Punto3D): HTMLCanvasElement {
 /** La bandera de la salida (verde), la meta (a cuadros) o las dos juntas. */
 function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasElement {
   const [lienzoBandera, ctx] = lienzo(72, 120)
-  ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4
-  ctx.beginPath(); ctx.moveTo(10, 4); ctx.lineTo(10, 120); ctx.stroke()
+  // El mástil no se pinta aquí: va suelto y en 3D (ver `creaPalo`).
   const x = 12, y = 6, w = 54, h = 36
   if (tipo === 'salida') {
     ctx.fillStyle = '#16a34a'; ctx.fillRect(x, y, w, h)
@@ -677,9 +676,26 @@ function dibujaBandera(tipo: 'salida' | 'meta' | 'salida-meta'): HTMLCanvasEleme
  * de la pared y del suelo. Esto es lo de en medio, que es lo que se espera de
  * un cartel clavado en una maqueta.
  */
-function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5): THREE.Sprite {
+/**
+ * El palo de una chincheta. Va suelto y en tres dimensiones a propósito: la
+ * cabeza es un cartel que siempre mira a la cámara y está a una sola
+ * profundidad, así que o se tapa entera o no se tapa nada. El palo, siendo
+ * geometría de verdad, lo va comiendo el monte por donde toca.
+ */
+function creaPalo(): THREE.Mesh {
+  // De radio uno: el grosor y el largo se los pone quien lo coloca, que es
+  // quien sabe lo grande que se está viendo la chincheta.
+  const g = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true)
+  // Crece hacia arriba desde su base, que es donde se clava.
+  g.translate(0, 0.5, 0)
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x0f172a }))
+}
+
+/** `palo`: qué fracción de la altura del dibujo ocupa el palo, si lo lleva. */
+function chincheta(c: HTMLCanvasElement, ancho: number, alto: number, sitio: [number, number, number], pie = 0.5, palo = 0): THREE.Sprite {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaDe(c), transparent: true, depthWrite: false, depthTest: false }))
   s.renderOrder = 2
+  if (palo > 0) s.userData.palo = palo
   s.center.set(pie, 0)
   s.scale.set(ancho, alto, 1)
   // El tamaño de partida: al acercar la cámara se encoge desde aquí (ver el bucle).
@@ -882,6 +898,11 @@ function colocaFichas(e: Escena, corredores: Corredor3D[], elegido: string | nul
     const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
     f.sprite.scale.set(tam, tam * 1.5, 1)
     f.sprite.userData.escalaBase = new THREE.Vector2(tam, tam * 1.5)
+    // El palo va del suelo a la base del círculo: el dibujo mide 96×144 con el
+    // centro en y=40 (ver `dibujaFicha`). Se fija aquí, y no al crear la ficha,
+    // porque el radio cambia si se dejan de enseñar los emojis y el sprite se
+    // reaprovecha: si no, la fracción se quedaría vieja.
+    f.sprite.userData.palo = (144 - (40 + (conEmoji && c.emoji ? 30 : 16))) / 144
     f.sprite.position.set(sitio[0], sitio[1], sitio[2])
     // El elegido, por encima de todo, rótulos incluidos.
     f.sprite.renderOrder = esElegido ? 4 : 2
@@ -916,9 +937,37 @@ function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulo
       ch.scale.set(base.x * k, base.y * k, 1)
     }
     cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
-    ch.visible = !(ch.userData.rotulo && !conRotulos) && !tapadaPorElMonte(t, cabeza, camara.position, PASOS_TAPADO)
+    const apagada = !!(ch.userData.rotulo && !conRotulos)
+    ch.visible = !apagada && !tapadaPorElMonte(t, cabeza, camara.position, PASOS_TAPADO)
     const sombra = ch.userData.sombra as THREE.Group | undefined
     if (sombra) colocaSombra(sombra, t, ch.position, ch.scale.y * 0.8, k)
+    // El palo, si lleva: se hace la primera vez que hace falta y a partir de
+    // ahí solo se estira. No se esconde cuando la cabeza se tapa —de eso ya
+    // se encarga el monte, tapándolo por donde pasa por delante—, solo
+    // cuando se quitan los nombres.
+    const fraccion = ch.userData.palo as number | undefined
+    if (fraccion) {
+      let palo = ch.userData.paloMalla as THREE.Mesh | undefined
+      if (!palo) {
+        palo = creaPalo()
+        palo.userData.duenyo = ch
+        ch.userData.paloMalla = palo
+        e.palos.add(palo)
+      }
+      palo.position.copy(ch.position)
+      const gordo = Math.max(GROSOR_PALO_MIN, ch.scale.y * GROSOR_PALO)
+      palo.scale.set(gordo, ch.scale.y * fraccion, gordo)
+      palo.visible = !apagada
+    }
+  }
+  // Los palos cuyo dueño ya no está (se cambió de carrera, o de puntos) se
+  // van con él: el grupo de chinchetas es quien manda.
+  for (const p of [...e.palos.children]) {
+    const duenyo = p.userData.duenyo as THREE.Object3D | undefined
+    if (!duenyo || duenyo.parent !== e.chinchetas) {
+      e.palos.remove(p)
+      tira(p)
+    }
   }
 }
 
@@ -1419,11 +1468,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
 
     const loseta = new THREE.Group()
     const chinchetas = new THREE.Group()
+    const palos = new THREE.Group()
     const sombras = new THREE.Group()
-    scene.add(loseta, sombras, chinchetas)
+    scene.add(loseta, sombras, palos, chinchetas)
 
     const e: Escena = {
-      renderer, scene, camera, controls, mesa, loseta, chinchetas, sombras, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
+      renderer, scene, camera, controls, mesa, loseta, chinchetas, palos, sombras, fichas: new Map(), terreno: null, sucio: true, viaje: null, distancia: null, seguir: null,
       grabando: false,
       limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
     }
@@ -1763,10 +1813,10 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     if (!e || estado !== 'lista' || !e.terreno) return
     const { rejilla, alturas, escala } = e.terreno
     const hechas: THREE.Sprite[] = []
-    const pon = (c: HTMLCanvasElement, ancho: number, alto: number, lat: number, lon: number, key: string, pie = 0.5) => {
+    const pon = (c: HTMLCanvasElement, ancho: number, alto: number, lat: number, lon: number, key: string, pie = 0.5, palo = 0) => {
       const sitio = sitioEnMaqueta(rejilla, alturas, escala, lat, lon)
       if (!sitio) return
-      const s = chincheta(c, ancho, alto, sitio, pie)
+      const s = chincheta(c, ancho, alto, sitio, pie, palo)
       s.userData.key = key
       e.chinchetas.add(s)
       hechas.push(s)
@@ -1775,11 +1825,13 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // `dibujaBandera`): se clava por ahí, que caiga justo sobre el cordón.
     const ext = extremosDelRecorrido(ruta)
     const MASTIL = 10 / 72
+    // El mástil ocupa casi todo el alto del dibujo (de y=4 a y=120 de 120).
+    const ALTO_MASTIL = 116 / 120
     if (ext) {
-      if (ext.separadasM < 100) pon(dibujaBandera('salida-meta'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL)
+      if (ext.separadasM < 100) pon(dibujaBandera('salida-meta'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL, ALTO_MASTIL)
       else {
-        pon(dibujaBandera('meta'), 0.12, 0.2, ext.meta[0], ext.meta[1], 'extremo', MASTIL)
-        pon(dibujaBandera('salida'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL)
+        pon(dibujaBandera('meta'), 0.12, 0.2, ext.meta[0], ext.meta[1], 'extremo', MASTIL, ALTO_MASTIL)
+        pon(dibujaBandera('salida'), 0.12, 0.2, ext.salida[0], ext.salida[1], 'extremo', MASTIL, ALTO_MASTIL)
       }
     }
     // Los nombres de las poblaciones, de las más importantes: sobre sus
@@ -1787,9 +1839,12 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     // Los nombres, encima de las chinchetas de la gente y de las banderas; y
     // se pueden quitar (`rotulos`, que mira el bucle al decidir qué se ve).
     const rotulo = (c: HTMLCanvasElement, sitio: [number, number, number], key: string) => {
-      // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el dibujo.
+      // La pastilla mide siempre lo mismo; el palo, si lo hay, alarga el
+      // dibujo. Lo que sobra por debajo de la pastilla es palo, y de ahí sale
+      // su fracción (el lienzo va a doble resolución, de ahí el por dos).
       const alto = (0.036 * c.height) / (ROTULO_ALTO * 2)
-      const s = chincheta(c, (alto * c.width) / c.height, alto, sitio)
+      const palo = Math.max(0, (c.height - ROTULO_ALTO * 2) / c.height)
+      const s = chincheta(c, (alto * c.width) / c.height, alto, sitio, 0.5, palo)
       s.renderOrder = 3
       s.userData.key = key
       s.userData.rotulo = true
@@ -1826,7 +1881,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     puntos.forEach((p, i) => {
       const sitio = sitioEnMaqueta(rejilla, alturas, escala, p.lat, p.lon)
       if (!sitio) return
-      const s = chincheta(dibujaPunto(p), 0.06, 0.12, sitio)
+      // El palo va del suelo a la base de la bola (de y=96 a y=27 de 96).
+      const s = chincheta(dibujaPunto(p), 0.06, 0.12, sitio, 0.5, 69 / 96)
       s.userData.key = `punto:${i}`
       e.chinchetas.add(s)
       hechas.push(s)

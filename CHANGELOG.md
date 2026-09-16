@@ -86,6 +86,44 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-16
 
+### Al monte le tapa el palo de las chinchetas, como debe ser
+
+**Web · Compatible.** El palo de una chincheta se veía entero por encima de la
+montaña aunque pasara por detrás de ella, y solo desaparecía de golpe cuando el
+monte tapaba la chincheta entera. Ese todo o nada era lo que delataba el truco.
+
+La causa: el palo iba **pintado dentro del mismo dibujo que la cabeza**, y ese
+dibujo es un cartel que siempre mira a la cámara, a una sola profundidad. Da
+igual lo que haya delante: o se tapa entero o no se tapa nada. Lo único que lo
+escondía era una comprobación aparte que mira si el monte tapa **la cabeza**.
+
+Ahora el palo es **geometría de verdad**, un cilindro plantado en el suelo, así
+que el terreno lo va comiendo por donde pasa por delante, sin que nadie tenga
+que calcular nada. Se les ha quitado el palo pintado a las cuatro clases de
+chincheta: los puntos del recorrido, las banderas de salida y meta, los nombres
+de pueblos y cimas, y las fichas de los corredores.
+
+Tres detalles que no se ven pero importan:
+
+- Los palos viven en **un grupo aparte**, fuera del alcance del ratón: si
+  estuvieran con las chinchetas, pinchar un palo dejaría de seleccionar al
+  corredor.
+- Se limpian solos cuando su chincheta desaparece, mirando quién es su dueño.
+- La imagen que se comparte los conserva, porque se pinta con la misma cámara
+  que acaba de colocarlos.
+
+El grosor va en proporción a lo alta que sea la chincheta, como cuando iba
+pintado, pero con un mínimo: los rótulos son los dibujos más bajos y sin ese
+suelo su palo se queda en medio píxel y se pierde al alejarse.
+
+Una nota de método, porque costó: el arreglo funcionó a la primera y aun así se
+dio por fallido tres veces seguidas. Se estaba comprobando en un primer plano de
+un valle donde los palos quedaban **legítimamente escondidos** tras una loma —el
+tapado haciendo su trabajo— y se leyó como si no se dibujaran, cambiando números
+que no hacían falta. Lo resolvió preguntarle a la página cuántos palos había y
+con qué medidas, no mirar más capturas. Para la próxima: ante algo que "no se
+ve", medir el objeto antes de tocar su aspecto.
+
 ### El bosque se distingue y el nombre está tallado de verdad
 
 **Web · Compatible.** Dos arreglos de aspecto en la maqueta, y los dos salen
