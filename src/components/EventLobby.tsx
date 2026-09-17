@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { X, UserPlus, Shield, Download, Share2 } from 'lucide-react'
+import { X, UserPlus, Shield, Download, Share2, MessageSquare } from 'lucide-react'
 import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
@@ -11,10 +11,10 @@ import {
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
   setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado,
-  expulsaDelEvento, setEventOrganizer, getEventBets,
+  expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
-import { isHttpUrl } from '../../shared/validate'
+import { isHttpUrl, BOCADILLO_MAX } from '../../shared/validate'
 import { ANDROID_APK_URL } from '../../shared/config'
 import { durationLabel } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
@@ -148,6 +148,9 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   const [fav, setFav] = useState<{ favEmoji: string | null; favColor: string | null } | null>(null)
   /** Participante cuya marca está editando el organizador (su userId). */
   const [editing, setEditing] = useState<string | null>(null)
+  /** Qué frase está desplegada: solo una a la vez, que si no la lista se
+   *  convierte en un muro y deja de leerse de un vistazo. */
+  const [bocadilloAbierto, setBocadilloAbierto] = useState<string | null>(null)
   /** El tablón, en edición (solo quien organiza). */
   const [editandoNotas, setEditandoNotas] = useState(false)
   /** Llega con `&marca=1` desde la unión cuando su emoji favorito estaba cogido. */
@@ -587,6 +590,26 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   }
 
   /** Pide el dorsal y lo guarda. Vacío lo quita. */
+  /**
+   * La frase que uno cuelga de su nombre. Se pide con el mismo gesto que el
+   * dorsal y los enlaces: en una lista, un diálogo del sistema es más rápido
+   * que desplegar un formulario, y aquí se escribe una vez y no se toca más.
+   */
+  async function pedirBocadillo(actual: string) {
+    const valor = window.prompt(
+      `Tu frase en la parrilla (máx. ${BOCADILLO_MAX}; vacío para quitarla)`,
+      actual,
+    )
+    if (valor === null) return
+    setBusy(true); setError(null)
+    try {
+      await setBocadillo(id, valor.trim().slice(0, BOCADILLO_MAX))
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   async function pedirDorsal(userId: string, actual: string) {
     const valor = window.prompt('Dorsal de la carrera (vacío para quitarlo)', actual)
     if (valor === null) return
@@ -958,6 +981,9 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               // dorsales se reparten juntos y quien los tiene delante es él.
               canEditBib={m.userId === user.id || event.isOwner}
               onBib={(userId, actual) => void pedirDorsal(userId, actual)}
+              abierto={bocadilloAbierto === m.userId}
+              onToggleBocadillo={() => setBocadilloAbierto(bocadilloAbierto === m.userId ? null : m.userId)}
+              onBocadillo={() => void pedirBocadillo(m.bocadillo ?? '')}
               onDorsal={() => setDorsal(m.userId)}
               // Sacar de la parrilla: quien organiza y quien administra, y
               // nunca a uno mismo —para eso está "salir del evento", que dice
@@ -1771,6 +1797,7 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
 
 function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib, onDorsal,
+  abierto, onToggleBocadillo, onBocadillo,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
   canRetire, onRetire, ajustando, onAjustar, puntos, onPunto,
@@ -1784,6 +1811,11 @@ function MemberRow({
   onBib: (userId: string, bib: string) => void
   /** Sacar su dorsal en grande. */
   onDorsal: () => void
+  /** Si su frase está desplegada (solo una a la vez en toda la parrilla). */
+  abierto: boolean
+  onToggleBocadillo: () => void
+  /** Escribir o cambiar LA PROPIA. El de los demás solo se lee. */
+  onBocadillo: () => void
   canEditMark: boolean
   editing: boolean
   onToggleMark: () => void
@@ -1840,6 +1872,29 @@ function MemberRow({
       <span className="text-sm text-slate-200 truncate">
         {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
       </span>
+      {/* Su frase, colgada del nombre. Solo se ve la burbuja —que ya dice que
+          hay algo— y el texto se abre al PULSARLA, no al pasar el ratón: en el
+          móvil no hay `hover`, y un mensaje que solo se lee con ratón no lo lee
+          la mitad de la gente. El suyo lo escribe cada uno; el de los demás,
+          solo se lee. */}
+      {m.bocadillo ? (
+        <button
+          onClick={onToggleBocadillo}
+          title={isMe ? 'Tu frase · pulsa para verla o cambiarla' : `Lo que dice ${m.username}`}
+          aria-label={`Ver lo que dice ${m.username}`}
+          className={`shrink-0 transition-colors ${abierto ? 'text-sky-400' : 'text-slate-500 hover:text-sky-400'}`}
+        >
+          <MessageSquare size={14} />
+        </button>
+      ) : isMe ? (
+        <button
+          onClick={onBocadillo}
+          title="Escribir tu frase"
+          className="shrink-0 text-slate-700 transition-colors hover:text-sky-400"
+        >
+          <MessageSquare size={14} />
+        </button>
+      ) : null}
       {/* Quién manda aquí, dicho en su fila. Sin esto, "organizador" es un
           permiso invisible: nadie sabe a quién preguntarle por el enlace. */}
       {m.isOwner && (
@@ -1893,6 +1948,24 @@ function MemberRow({
       {/* ¿Dónde lo dejó? Señalar un punto del recorrido en vez de teclear un
           kilómetro: el sitio se recuerda y el número no. De ahí salen el
           kilómetro y —mirando su traza— la hora. */}
+      {/* La frase abierta. Ocupa su propia línea debajo, no un globo flotante:
+          en una lista estrecha un globo tapa las filas de al lado justo cuando
+          hace falta verlas, y en el móvil se sale de la pantalla. */}
+      {abierto && m.bocadillo && (
+        <div className="mt-1.5 flex w-full items-start gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 py-1.5">
+          <MessageSquare size={13} className="mt-0.5 shrink-0 text-sky-400/70" />
+          <p className="min-w-0 flex-1 text-[12px] leading-snug text-slate-300">{m.bocadillo}</p>
+          {isMe && (
+            <button
+              onClick={onBocadillo}
+              disabled={busy}
+              className="shrink-0 text-[11px] text-slate-500 transition-colors hover:text-sky-400 disabled:opacity-40"
+            >
+              cambiar
+            </button>
+          )}
+        </div>
+      )}
       {ajustando && (
         <div className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 p-2">
           <p className="text-[11px] text-slate-400">

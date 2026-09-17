@@ -1,0 +1,12 @@
+-- El bocadillo de cada participante: una frase suya, visible en la parrilla.
+--
+-- Va en `event_members` y no en `users` a propósito: es de ESTA carrera. Lo que
+-- uno quiere decir en la del club no tiene por qué valer en la del pueblo de al
+-- lado, y al terminar el evento se queda con él, como el dorsal o el emoji.
+--
+-- Nullable = todavía no ha escrito nada, que es el estado normal: el bocadillo
+-- solo se dibuja en quien tiene algo que decir.
+--
+-- Corto a propósito (140 en el servidor, ver `shared/validate.ts`): es una
+-- frase, no un tablón. El tablón del evento ya existe y es otra cosa.
+ALTER TABLE event_members ADD COLUMN bocadillo TEXT;

@@ -428,6 +428,14 @@ export interface EventMember {
   username: string
   /** Dorsal de la carrera. Lo pone cada uno, y el organizador para cualquiera. */
   bib: string | null
+  /**
+   * Su frase en la parrilla, colgada de su nombre como un bocadillo.
+   *
+   * A diferencia del dorsal, esto lo escribe **solo su dueño**: un dorsal se
+   * reparte, lo que uno quiere decir no. null = todavía no ha escrito nada, que
+   * es lo normal; la burbuja solo se dibuja en quien tiene algo que decir.
+   */
+  bocadillo: string | null
   /** Slug de la paleta (shared/eventColors.ts); null = aún sin color asignado.
    *  Ya NO es único dentro del evento: identifica el emoji, y el color agrupa. */
   color: string | null
@@ -553,6 +561,10 @@ export interface EventInfo {
 export interface EventPublicRunner {
   username: string
   bib: string | null
+  /** Su frase, la misma que cuelga de su nombre en la parrilla. Viaja también
+   *  aquí porque el enlace público lo abre gente sin cuenta, y lo que cada uno
+   *  quiso decir es parte de la carrera que están mirando. */
+  bocadillo: string | null
   color: string | null
   emoji: string | null
   status: EventRunnerStatus

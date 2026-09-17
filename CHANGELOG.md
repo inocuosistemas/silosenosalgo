@@ -86,6 +86,38 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-17
 
+### Cada uno puede colgar una frase de su nombre en la parrilla
+
+**Web · Compatible.** En la parrilla, junto a cada participante, aparece una
+burbuja pequeña cuando esa persona ha escrito algo. Al **pulsarla** —no al pasar
+el ratón— se despliega su frase debajo, en su propia línea; al volver a pulsar,
+se cierra. Solo una abierta a la vez.
+
+Tres decisiones que conviene respetar:
+
+- **Cada uno escribe el suyo y nadie más**, ni siquiera quien organiza. El
+  dorsal y el emoji sí los puede arreglar el organizador —se reparten en la
+  recogida—, pero lo que uno quiere decir no se reparte. Por eso el endpoint no
+  acepta `userId`, a diferencia de `bib.ts`.
+- **Se abre al pulsar, no con el ratón encima.** En el móvil no existe `hover`:
+  un mensaje que solo se lee con ratón no lo lee la mitad de la gente.
+- **Se despliega en su línea, no en un globo flotante.** En una lista estrecha
+  un globo tapa las filas de al lado justo cuando hace falta verlas, y en el
+  móvil se sale de la pantalla.
+
+El texto es corto a propósito (140 caracteres, saltos de línea aplastados): es
+una frase, no un tablón —el tablón del evento ya existe—. Se ve también en el
+**enlace público**, porque lo abre gente sin cuenta y es parte de la carrera que
+están mirando.
+
+**No cuesta ni una lectura más en D1**: el campo viaja en las consultas de
+participantes que ya se hacían, tanto en la parrilla como en el enlace público.
+Dado el aviso de cuota de esta misma noche, no era un detalle menor.
+
+**Requiere migración** (`0044_member_bocadillo.sql`): hay que aplicarla **antes**
+de desplegar. El código lee la columna en dos endpoints y el de la parrilla no
+degrada si falta; desplegar primero tumbaría la lista de participantes.
+
 ### El visor dejaba de leer medio millón de filas al día
 
 **Web · Compatible.** Cloudflare avisó de que la cuenta iba por el **75% del
@@ -96,8 +128,14 @@ cada sondeo**.
 El visor de baliza pide `/api/track/:id`, y ese endpoint devolvía —en cada
 llamada— todas las notas, hasta 200 ánimos y **todas** las reacciones de la
 sesión. El visor incrustado en la app nativa sondea **cada segundo**: son 86.400
-llamadas al día por baliza abierta. Con solo cuarenta filas de historial, 3,4
-millones de lecturas diarias. El aviso llegó por 3,75.
+llamadas al día por baliza abierta.
+
+**Con los números medidos, no supuestos**: hoy la base tiene 7 ánimos, 6
+reacciones y 22 notas repartidas en 23 sesiones, así que un sondeo lee unas
+quince filas. Son ~1,3 millones de lecturas diarias por cada visor incrustado
+que se quede abierto. Con dos o tres, se llega al aviso. O sea: el bucle de un
+segundo es el que multiplica, y el historial era pequeño; lo que no quita que
+releerlo 86.400 veces al día fuera absurdo.
 
 Tres cambios, por orden de lo que ahorran:
 

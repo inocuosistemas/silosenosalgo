@@ -294,6 +294,21 @@ export async function setBib(id: string, bib: string, userId?: string): Promise<
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * La frase que uno cuelga de su nombre en la parrilla. Vacía = quitarla.
+ *
+ * Sin `userId` a propósito: esto lo escribe cada uno el suyo y nadie más, ni
+ * siquiera quien organiza (ver el endpoint).
+ */
+export async function setBocadillo(id: string, bocadillo: string): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/bocadillo`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bocadillo }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 /** Los enlaces oficiales de la carrera (solo el organizador). */
 export async function setEventLinks(
   id: string, links: { trackingUrl?: string | null; websiteUrl?: string | null },

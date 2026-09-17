@@ -32,6 +32,15 @@ export const INVITE_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const BIB_RE = /^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,11}$/
 
 /**
+ * Lo que cabe en el bocadillo de un participante: una frase, no un tablón.
+ *
+ * Corto a propósito. En la parrilla el bocadillo es una burbuja diminuta que se
+ * abre al tocarla; con un párrafo dentro deja de leerse de un vistazo, que es
+ * justo para lo que sirve. El tablón del evento ya existe para lo demás.
+ */
+export const BOCADILLO_MAX = 140
+
+/**
  * Un enlace que la aplicación va a ofrecer a otros para que lo toquen.
  *
  * Solo http(s) y de forma explícita: sin esta comprobación, un `javascript:`

@@ -84,6 +84,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // es lo que convierte un nombre del lobby en un punto del mapa.
   const rows = await env.DB.prepare(
     `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
+            m.bocadillo AS bocadillo,
             m.emoji AS emoji, m.emoji_key AS emojiKey, m.joined_at AS joinedAt, m.last_seen AS lastSeen,
             m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer, m.retired_at AS retiredAt, m.retired_km AS retiredKm,
             (SELECT t.id FROM tracking_sessions t
@@ -95,6 +96,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       ORDER BY m.joined_at ASC`,
   ).bind(now, id).all<{
     userId: string; username: string; color: string | null; bib: string | null
+    bocadillo: string | null
     emoji: string | null; emojiKey: string | null
     joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null; retiredKm: number | null
     organizer: number
@@ -111,6 +113,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     color: r.color,
     emoji: r.emoji,
     bib: r.bib,
+    bocadillo: r.bocadillo,
     joinedAt: r.joinedAt,
     lastSeen: r.lastSeen,
     hasPlan: !!r.hasPlan,

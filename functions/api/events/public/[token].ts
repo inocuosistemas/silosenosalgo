@@ -57,7 +57,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   // enseña a todos los participantes; esto no amplía a quién, solo deja de
   // esconder a quien todavía no ha abierto la baliza.
   const rows = await env.DB.prepare(
-    `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, m.retired_at AS retiradoAt, m.retired_km AS retiradoKm,
+    `SELECT t.id AS sessionId, u.username AS username, m.color AS color, m.emoji AS emoji, m.bib AS bib, m.bocadillo AS bocadillo, m.retired_at AS retiradoAt, m.retired_km AS retiradoKm,
             t.status, t.activity, t.started_at AS startedAt, t.updated_at AS updatedAt,
             t.lat, t.lon, t.track_km AS trackKm, t.speed, t.heading, t.accuracy,
             t.altitude, t.fix_at AS fixAt, t.trail, t.send_cadence AS cadencia, t.paused_until AS pausaHasta, t.battery_pct AS bateria
@@ -76,6 +76,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   ).bind(ev.id).all<{
     sessionId: string | null
     username: string; color: string | null; emoji: string | null; bib: string | null
+    bocadillo: string | null
     status: string | null; activity: string | null
     startedAt: number | null; updatedAt: number | null
     lat: number | null; lon: number | null; trackKm: number | null; speed: number | null
@@ -102,6 +103,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
       color: r.color,
       emoji: r.emoji,
       bib: r.bib,
+      bocadillo: r.bocadillo,
       // El id de sesión NO viaja —eso es la baliza de cada uno— pero sí sirve
       // aquí para saber si hay baliza siquiera: sin ella, `idle`.
       status: (r.sessionId === null ? 'idle' : r.status === 'ended' ? 'ended' : 'active') as EventRunnerStatus,
