@@ -79,6 +79,26 @@ echo "▸ 2/4 copiando el visor a la app…"
 # de firma en conflicto. La consecuencia es que hace falta al menos un
 # dispositivo registrado en la cuenta, porque un perfil de desarrollo sin
 # dispositivos Apple no lo emite.
+# Con firma automática, crear o refrescar un perfil exige una cuenta
+# autenticada. En una terminal no hay Xcode con cuenta añadida, así que se le
+# pasa al ARCHIVADO la misma clave de la API que ya usaba el export. Sin esto,
+# en cuanto el perfil necesita algo nuevo el archivado se cae con:
+#
+#   error: No Accounts: Add a new account in Accounts settings.
+#   error: Provisioning profile "iOS Team Provisioning Profile: *" doesn't
+#          include the Push Notifications capability.
+#
+# Y ese comodín es parte del problema: un App ID comodín NO admite push, así que
+# hace falta que Xcode cree el perfil explícito del bundle id. Con la clave
+# puesta lo hace solo.
+autent=()
+if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+  claveASC="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8}"
+  if [ -f "$claveASC" ]; then
+    autent=(-authenticationKeyPath "$claveASC" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+  fi
+fi
+
 echo "▸ 3/4 archivando (firma de distribución)…"
 rm -rf "$archivo" "$export_dir"
 ( cd "$raiz/ios" && xcodebuild archive \
@@ -88,6 +108,7 @@ rm -rf "$archivo" "$export_dir"
     -destination 'generic/platform=iOS' \
     -archivePath "$archivo" \
     -allowProvisioningUpdates \
+    ${autent[@]+"${autent[@]}"} \
     CURRENT_PROJECT_VERSION="$build" )
 
 if [ "$subir" = false ]; then

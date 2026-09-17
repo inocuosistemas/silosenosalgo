@@ -77,12 +77,19 @@ targets:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug
           APP_DISPLAY_NAME: SiLoSeNoSalgo dev
-          # Push: el token que entrega iOS pertenece a un entorno u otro según
-          # esto, y uno no vale en el otro. Development para la copia por cable,
-          # production para la que se reparte — con el mismo fichero en las dos
-          # se cae el push justo en TestFlight, que es donde se prueba.
-          CODE_SIGN_ENTITLEMENTS: Resources/Debug.entitlements
+          # Aquí NO va el permiso de push, a propósito: esta copia usa el bundle
+          # id `.debug`, que no está dado de alta en el portal y se firma con el
+          # perfil COMODÍN, y un App ID comodín no admite push. Poniéndoselo, la
+          # instalación por cable dejaba de firmar ("doesn't include the
+          # aps-environment entitlement").
+          #
+          # La consecuencia, dicha claramente: la copia de desarrollo NO recibe
+          # push. Se prueba con la de TestFlight. Para tenerlo también por cable
+          # habría que dar de alta `com.themakercrowd.silosenosalgo.debug` con
+          # push en el portal.
         Release:
+          # La que se reparte sí, con `aps-environment: production`: los tokens
+          # de TestFlight son de producción.
           CODE_SIGN_ENTITLEMENTS: Resources/Release.entitlements
   SiLoSeNoSalgoTrackerTests:
     type: bundle.unit-test
