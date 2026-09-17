@@ -9,6 +9,14 @@
 # Uso:
 #   ios/scripts/sube-a-testflight.sh              # archiva y sube
 #   ios/scripts/sube-a-testflight.sh --sin-subir  # solo archiva (prueba en seco)
+#   ios/scripts/sube-a-testflight.sh --sin-web    # reutiliza el dist/ ya hecho
+#
+# `--sin-web` existe por un problema real: `npm run build` se queda colgado cada
+# cierto tiempo en el paso de Vite —sin error y sin salir— y aquí, con la salida
+# redirigida, eso parece un archivado lento en vez de un cuelgue. Cuando ya se ha
+# construido la web a mano (con `node node_modules/vite/bin/vite.js build`, que
+# no se cuelga), esto evita repetir la verificación entera. Es el mismo apaño que
+# `scripts/deploy-all.mjs --skip-build`, por el mismo motivo.
 #
 # Requisitos, todos de una vez:
 #   · La cuenta soporte@inocuo.com dada de alta en Xcode ▸ Settings ▸ Accounts.
@@ -38,7 +46,14 @@ set -euo pipefail
 
 raiz="$(cd "$(dirname "$0")/../.." && pwd)"
 subir=true
-[ "${1:-}" = "--sin-subir" ] && subir=false
+web=true
+for arg in "$@"; do
+  case "$arg" in
+    --sin-subir) subir=false ;;
+    --sin-web)   web=false ;;
+    *) echo "Opción desconocida: $arg" >&2; exit 2 ;;
+  esac
+done
 
 build="$(cd "$raiz" && git rev-list --count HEAD)"
 version="$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' "$raiz/ios/project.yml")"
@@ -46,8 +61,13 @@ archivo="$raiz/ios/build/SiLoSeNoSalgo.xcarchive"
 export_dir="$raiz/ios/build/export"
 echo "▸ versión $version, build $build"
 
-echo "▸ 1/4 compilando la web…"
-( cd "$raiz" && npm run build >/dev/null ) 2>/dev/null || ( cd "$raiz" && npm run build )
+if [ "$web" = true ]; then
+  echo "▸ 1/4 compilando la web…"
+  ( cd "$raiz" && npm run build >/dev/null ) 2>/dev/null || ( cd "$raiz" && npm run build )
+else
+  echo "▸ 1/4 web: se reutiliza el dist/ ya construido (--sin-web)"
+  [ -f "$raiz/dist/index.html" ] || { echo "No hay dist/ que reutilizar: constrúyelo antes." >&2; exit 1; }
+fi
 
 echo "▸ 2/4 copiando el visor a la app…"
 "$raiz/ios/scripts/copy-webdist.sh"
