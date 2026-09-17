@@ -861,7 +861,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   return (
     <Shell barra={barra}>
       {event.hasPhoto && (
-        <div className="relative mb-3">
+        <div className="mb-3">
           <img
             // La versión sale del servidor (`event.photoAt`), no de un estado
             // local: si dependiera de haber subido tú la foto, los demás
@@ -873,7 +873,6 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
             style={{ aspectRatio: String(EVENT_PHOTO_ASPECT) }}
             className="w-full object-cover rounded-xl border border-slate-800"
           />
-          <FrasesSobreElCartel members={members} />
         </div>
       )}
       <p className="text-[11px] uppercase tracking-wider text-slate-500">🏁 La parrilla</p>
@@ -1826,49 +1825,6 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
   )
 }
 
-/** Las cuatro esquinas del cartel. Cambiar de sitio evita que la capa parezca
- *  un rótulo fijo y que tape siempre la misma parte de la foto. */
-const SITIOS_FRASE = ['left-3 top-3', 'right-3 top-3', 'left-3 bottom-3', 'right-3 bottom-3'] as const
-
-/**
- * Las frases de la gente, flotando sobre el cartel.
- *
- * Una cada vez y al azar: en la lista las burbujas son iconos mudos que hay
- * que ir abriendo de uno en uno, y nadie los abre todos. Así lo que ha escrito
- * cada uno se lee solo, de refilón, mientras se espera a salir.
- *
- * Es una CAPA: `absolute` y `pointer-events-none`, encima de la foto. Ni ocupa
- * hueco —no mueve nada de la página al aparecer y desaparecer— ni se come las
- * pulsaciones de lo que tiene debajo.
- */
-function FrasesSobreElCartel({ members }: { members: EventMember[] }) {
-  const conFrase = useMemo(() => members.filter((m) => m.bocadillo), [members])
-  const claves = useMemo(() => conFrase.map((x) => x.userId), [conFrase])
-  const { clave, visible } = usePensamiento(claves)
-
-  const i = conFrase.findIndex((x) => x.userId === clave)
-  const m = i >= 0 ? conFrase[i] : null
-  if (!m) return null
-  // La esquina sale de su sitio en la lista: cambia de una persona a otra —así
-  // la capa no parece un rótulo fijo ni tapa siempre el mismo trozo de foto—
-  // pero es SIEMPRE la misma para la misma persona, sin un segundo sorteo que
-  // mantener en marcha.
-  const sitio = SITIOS_FRASE[i % SITIOS_FRASE.length]
-  return (
-    <div
-      className={`pointer-events-none absolute ${sitio} max-w-[62%] transition-opacity duration-500 ${visible ? 'opacity-100' : 'opacity-0'}`}
-    >
-      <div
-        className="rounded-2xl bg-slate-950/70 px-3 py-2 ring-1 ring-white/10 backdrop-blur-sm"
-        style={{ boxShadow: '0 8px 24px rgba(0,0,0,.45)' }}
-      >
-        <p className="text-[12px] font-medium leading-snug text-slate-100">{m.bocadillo}</p>
-        <p className="mt-0.5 text-[10px] text-slate-400">{m.emoji ?? ''} {m.username}</p>
-      </div>
-    </div>
-  )
-}
-
 /**
  * La frase de uno, en una ventana encima de todo.
  *
@@ -2028,10 +1984,11 @@ function MemberRow({
           + dorsal
         </button>
       ) : null}
-      {/* El nombre, con su globo colgando. El envoltorio ancla y no recorta: un
-          `truncate` aquí se comería el globo. */}
-      <span className="relative min-w-0">
-        {pensando && m.bocadillo && <MiniBocadillo texto={m.bocadillo} visible />}
+      {/* El nombre, con su globo colgando. El envoltorio ancla y no recorta —un
+          `truncate` aquí se comería el globo— y es `group` para que la frase
+          salga también al pasar el ratón, sin esperar a que le toque turno. */}
+      <span className="group relative min-w-0">
+        {m.bocadillo && <MiniBocadillo texto={m.bocadillo} visible={pensando} />}
         <span className="block truncate text-sm text-slate-200">
           {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
         </span>

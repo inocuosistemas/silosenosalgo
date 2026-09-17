@@ -1849,9 +1849,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           )}
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
-          {/* `pt-6`: hueco para los globos. La tira desliza en horizontal y
-              eso también recorta por arriba. */}
-          <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 pt-6 ${withFix.length === 0 ? 'hidden' : ''}`}>
+          {/* Hueco para los globos: la tira desliza en horizontal, y eso
+              recorta también por arriba. */}
+          <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 pt-11 ${withFix.length === 0 ? 'hidden' : ''}`}>
             {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo, enPausa }) => {
               // Su carrera ya terminó —en meta o donde la dejó— y su marca está
               // clavada ahí: los avisos de baliza dejan de tener sentido.
@@ -1884,9 +1884,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       el color, que son su marca— y el nombre; el dorsal sale en
                       su ficha al tocarlo, que es donde se cruza con la
                       clasificación oficial. */}
-                  <span className="relative">
-                    {pensamiento.clave === key && r.bocadillo && (
-                      <MiniBocadillo texto={r.bocadillo} visible={pensamiento.visible} />
+                  <span className="group relative">
+                    {r.bocadillo && (
+                      <MiniBocadillo
+                        texto={r.bocadillo}
+                        visible={pensamiento.clave === key && pensamiento.visible}
+                      />
                     )}
                     {r.username}
                   </span>
@@ -2127,9 +2130,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                 <p className="text-[10px] uppercase tracking-wider text-slate-500">
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
-                {/* `pt-5`: el sitio del globo de la primera fila. Esta lista
-                    tiene barra, y lo que se sale por arriba lo recorta. */}
-                <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5 pt-5">
+                {/* El hueco del globo de la primera fila: esta lista tiene
+                    barra y recorta lo que se sale por arriba. Da para dos o
+                    tres líneas, que es lo que ocupa una frase entera. */}
+                <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5 pt-10">
                   {parrilla.map(({ r, key, idle, armed, lost, retirado }) => (
                     <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
@@ -2138,9 +2142,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                           ancla y NO recorta —el recorte se queda dentro, en el
                           nombre—, porque un `truncate` en el ancla se comería
                           el globo entero. */}
-                      <span className="relative min-w-0 flex-1">
-                        {pensamiento.clave === key && r.bocadillo && (
-                          <MiniBocadillo texto={r.bocadillo} visible={pensamiento.visible} />
+                      <span className="group relative min-w-0 flex-1">
+                        {r.bocadillo && (
+                          <MiniBocadillo
+                            texto={r.bocadillo}
+                            visible={pensamiento.clave === key && pensamiento.visible}
+                          />
                         )}
                         <span className={`block truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
                           {r.username}
