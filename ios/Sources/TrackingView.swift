@@ -86,6 +86,10 @@ struct TrackingView: View {
     @State private var recordingOpen = false
     /// Abandonar se pregunta: es lo único de esta pantalla que no se deshace.
     @State private var confirmandoAbandono = false
+    /// Parar la baliza se pregunta: es el final de la grabación.
+    @State private var confirmandoParada = false
+    /// Carrera que se va a unir a una baliza YA en marcha (cambia su salida).
+    @State private var carreraAUnir: EventSummary?
 
     private let intervalSteps: [Double] = [5, 10, 15, 30, 60, 120, 180, 300, 600]
     private let distanceSteps: [Double] = [25, 50, 100, 150, 250, 500]
@@ -103,6 +107,25 @@ struct TrackingView: View {
 
     /// Elegir evento: antes de salir es local, en marcha lo negocia con el
     /// servidor (ver TrackingStore.setEvent).
+    /**
+     Un toque en una carrera de la lista.
+
+     Con la baliza EMITIENDO, unirse no es un ajuste más: la hora oficial de la
+     carrera pasa a ser la salida de lo que ya se está grabando, y con ella el
+     ritmo, los cortes y el mapa en el que apareces. Un roce en la lista no puede
+     hacer eso, así que se pregunta.
+
+     Soltarla no se pregunta: deshacer nunca necesita permiso. Y con la baliza
+     parada tampoco, porque ahí no hay nada grabado que cambiar.
+     */
+    private func tocaCarrera(_ ev: EventSummary) {
+        if store.isSharing, store.selectedEventId != ev.id {
+            carreraAUnir = ev
+        } else {
+            store.setEvent(store.selectedEventId == ev.id ? nil : ev.id)
+        }
+    }
+
     private var eventBinding: Binding<String?> {
         Binding(get: { store.selectedEventId }, set: { store.setEvent($0) })
     }
@@ -454,8 +477,11 @@ struct TrackingView: View {
                             if abandonaAlParar {
                                 confirmandoAbandono = true
                             } else if store.isSharing {
-                                Vibra.fin()
-                                await store.stopSharing()
+                                // Parar también se pregunta. Quien lleva seis
+                                // horas emitiendo no puede quedarse sin baliza
+                                // por un roce con el pulgar, y este botón está
+                                // justo donde se toca todo lo demás.
+                                confirmandoParada = true
                             } else if store.selectedEventId == nil, let cerca = TrackingRules.nearbyEvent(store.events) {
                                 // Sin carrera elegida y con una cerca: se pregunta
                                 // antes, que sin ella la salida no sale en su mapa.
@@ -572,7 +598,7 @@ struct TrackingView: View {
                                 hoy: Self.isToday(ev.startsAt),
                                 elegida: store.selectedEventId == ev.id,
                                 proxima: ev.id == proximaCarreraId,
-                                onElegir: { store.setEvent(store.selectedEventId == ev.id ? nil : ev.id) }
+                                onElegir: { tocaCarrera(ev) }
                             ) {
                                 menuDeCarrera(ev)
                             }
@@ -1227,6 +1253,12 @@ struct TrackingView: View {
             } message: {
                 Text(guideError ?? "")
             }
+            // Las dos confirmaciones que faltaban, en un modificador aparte: ver
+            // `ConfirmacionesDeBaliza`.
+            .modifier(ConfirmacionesDeBaliza(
+                confirmandoParada: $confirmandoParada,
+                carreraAUnir: $carreraAUnir,
+            ))
             .alert("Salir de la cuenta", isPresented: $pendingLogout) {
                 Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {
                     Task {
@@ -1828,5 +1860,54 @@ struct TrackingView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/**
+ Las dos confirmaciones que faltaban: dejar de compartir, y unir una baliza en
+ marcha a una carrera.
+
+ Van en un modificador aparte y no en la pantalla, y no es cuestión de estilo:
+ las dos cadenas de `TrackingView` —la del `Form` y la de fuera— están al límite
+ de lo que el compilador de Swift acepta comprobar de una vez, y añadir un
+ `confirmationDialog` en cualquiera de ellas lo tumba con «unable to type-check
+ this expression in reasonable time». Aquí se comprueba por separado.
+
+ No observa el store: los dos botones solo LLAMAN, y quien tiene que redibujarse
+ al cambiar el estado es la pantalla, que ya lo observa.
+ */
+private struct ConfirmacionesDeBaliza: ViewModifier {
+    @Binding var confirmandoParada: Bool
+    @Binding var carreraAUnir: EventSummary?
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("¿Dejas de compartir?",
+                                isPresented: $confirmandoParada, titleVisibility: .visible) {
+                Button("Sí, dejar de compartir", role: .destructive) {
+                    Vibra.fin()
+                    Task { @MainActor in await TrackingStore.shared.stopSharing() }
+                }
+                Button("No, sigo", role: .cancel) {}
+            } message: {
+                Text("Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. Si solo te paras un rato, usa la pausa.")
+            }
+            .confirmationDialog(
+                carreraAUnir.map { "¿Unes esta baliza a \($0.name)?" } ?? "",
+                isPresented: Binding(
+                    get: { carreraAUnir != nil },
+                    set: { if !$0 { carreraAUnir = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: carreraAUnir
+            ) { ev in
+                Button("Sí, corro \(ev.name)") {
+                    Vibra.eleccion()
+                    Task { @MainActor in TrackingStore.shared.setEvent(ev.id) }
+                }
+                Button("Cancelar", role: .cancel) {}
+            } message: { ev in
+                Text("Su salida oficial (\(TrackingView.whenLabel(ev.startsAt))) pasa a ser la de esta baliza, y apareces en su mapa. Cambia el ritmo y los cortes de lo que ya llevas grabado.")
+            }
     }
 }

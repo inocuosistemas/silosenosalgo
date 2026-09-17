@@ -33,16 +33,38 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   ).bind(id, user.id).first<{ ok: number }>()
   if (!member) return json({ error: 'not_found' }, 404)
 
+  const ev = await env.DB.prepare(
+    `SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
+       FROM events WHERE id = ?`,
+  ).bind(id).first<{
+    planShareId: string | null; planName: string | null; startsAt: number | null; activity: string | null
+  }>()
+  const now = Date.now()
+
   if (!attach) {
-    await env.DB.prepare('UPDATE tracking_sessions SET event_id = NULL WHERE event_id = ? AND owner_user_id = ?')
-      .bind(id, user.id).run()
+    // Salirse de la carrera DESHACE lo que entrar hizo. Hasta hoy no lo
+    // deshacía: la sesión se desprendía del evento y se quedaba con su hora de
+    // salida y su recorrido, así que un toque sin querer en una carrera de
+    // dentro de dos semanas dejaba la baliza en cuenta atrás —"salida en 15d",
+    // 0.0 km, "fuera de ruta a 103 km"— y volver a tocar no la arreglaba.
+    //
+    // Una baliza que está emitiendo no puede haber salido en el futuro, así que
+    // una hora futura vuelve a "ahora". El recorrido se suelta solo si es el de
+    // la carrera: una previsión propia es del corredor y no se toca.
+    await env.DB.prepare(
+      `UPDATE tracking_sessions
+          SET event_id = NULL,
+              started_at = CASE WHEN started_at > ? THEN ? ELSE started_at END,
+              plan_name = CASE WHEN plan_share_id = ? THEN NULL ELSE plan_name END,
+              plan_share_id = CASE WHEN plan_share_id = ? THEN NULL ELSE plan_share_id END
+        WHERE event_id = ? AND owner_user_id = ?`,
+    ).bind(now, now, ev?.planShareId ?? null, ev?.planShareId ?? null, id, user.id).run()
     return new Response(null, { status: 204 })
   }
 
   // La sesión viva del usuario. El backend ya garantiza que solo hay una activa
   // por cuenta (crear una cierra la anterior), así que "la más reciente" es
   // exactamente la que se está emitiendo.
-  const now = Date.now()
   const sess = await env.DB.prepare(
     `SELECT id, plan_share_id AS planShareId FROM tracking_sessions
       WHERE owner_user_id = ? AND status = 'active' AND expires_at > ?
@@ -50,12 +72,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   ).bind(user.id, now).first<{ id: string; planShareId: string | null }>()
   if (!sess) return json({ error: 'no_session' }, 409)
 
-  const ev = await env.DB.prepare(
-    `SELECT plan_share_id AS planShareId, plan_name AS planName, starts_at AS startsAt, activity
-       FROM events WHERE id = ?`,
-  ).bind(id).first<{
-    planShareId: string | null; planName: string | null; startsAt: number | null; activity: string | null
-  }>()
+  // Solo se puede entrar en una carrera que SEA DE AHORA.
+  //
+  // Entrar pone su hora oficial como salida de la baliza, y en una carrera de
+  // dentro de dos semanas eso deja la baliza en cuenta atrás en vez de
+  // emitiendo. Dieciocho horas es el margen que hace falta —engancharse la
+  // noche antes de una salida de madrugada—; una vez empezada, siempre se
+  // puede. Se rechaza aquí y no solo en la app para que valga también para las
+  // versiones que ya no se pueden actualizar.
+  const HERENCIA_MAX = 18 * 60 * 60 * 1000
+  if (ev?.startsAt && ev.startsAt > now + HERENCIA_MAX) {
+    return json({ error: 'event_not_yet', startsAt: ev.startsAt }, 409)
+  }
 
   // Al entrar en una carrera, su hora de salida pasa a ser la de la baliza. La
   // salida de una carrera no la elige cada uno: es una sola, la misma para

@@ -203,6 +203,10 @@ struct APIError: LocalizedError {
 
     var errorDescription: String? {
         switch code {
+        // El servidor no deja unirse a una carrera que todavía no toca: poner su
+        // hora oficial como salida de una baliza en marcha la dejaría en cuenta
+        // atrás en vez de emitiendo.
+        case "event_not_yet": return "Esa carrera todavía no empieza. Podrás unir la baliza desde unas horas antes de su salida."
         case "invalid_credentials": return "Usuario o contraseña incorrectos."
         case "username_taken": return "Ese usuario ya existe."
         case "invalid_username": return "Usuario no válido (3–32 caracteres: a–z, 0–9, . _ -)."
