@@ -75,11 +75,19 @@ async function estadoDeDemo(token: string): Promise<TrackStateResponse> {
   } as TrackStateResponse
 }
 
-export async function fetchTrackState(token: string): Promise<TrackStateResponse> {
+/**
+ * El estado de una baliza. Con `conHistorial` en falso no se piden notas ni
+ * ánimos: quien sondea muy seguido solo necesita la posición, y releer el
+ * historial en cada llamada era lo que se comía la cuota de lecturas (ver el
+ * endpoint). La respuesta llega entonces sin esos campos, así que quien llame
+ * así debe CONSERVAR los que ya tenía en vez de sustituirlos.
+ */
+export async function fetchTrackState(token: string, conHistorial = true): Promise<TrackStateResponse> {
   if (token.startsWith(DEMO)) return estadoDeDemo(token)
   let res: Response
   try {
-    res = await fetch(`/api/track/${encodeURIComponent(token)}?v=${viewerId()}`, { cache: 'no-store' })
+    const h = conHistorial ? '' : '&h=0'
+    res = await fetch(`/api/track/${encodeURIComponent(token)}?v=${viewerId()}${h}`, { cache: 'no-store' })
   } catch {
     throw new LiveTrackError('network')
   }

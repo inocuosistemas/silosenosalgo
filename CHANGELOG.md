@@ -86,6 +86,39 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-17
 
+### El visor dejaba de leer medio millón de filas al día
+
+**Web · Compatible.** Cloudflare avisó de que la cuenta iba por el **75% del
+límite diario de D1** (5.000.000 de filas leídas). El culpable no era una
+consulta lenta ni un índice que faltara: era **releer el historial entero en
+cada sondeo**.
+
+El visor de baliza pide `/api/track/:id`, y ese endpoint devolvía —en cada
+llamada— todas las notas, hasta 200 ánimos y **todas** las reacciones de la
+sesión. El visor incrustado en la app nativa sondea **cada segundo**: son 86.400
+llamadas al día por baliza abierta. Con solo cuarenta filas de historial, 3,4
+millones de lecturas diarias. El aviso llegó por 3,75.
+
+Tres cambios, por orden de lo que ahorran:
+
+- **El historial ya no viaja en cada vuelta.** Con `?h=0` la respuesta trae solo
+  posición y estado; el visor lo pide completo una de cada treinta vueltas. Por
+  defecto **sí** se manda, para no romper a las apps ya repartidas que piden sin
+  el parámetro.
+- **Las reacciones, solo las de los ánimos devueltos.** Antes un `JOIN` recorría
+  las de toda la sesión. Van como parámetros sueltos y no con `json_each`, para
+  no depender de la extensión JSON de SQLite; y las notas llevan `LIMIT`.
+- **Con la pestaña oculta se sondea cada minuto.** Una pestaña olvidada toda la
+  noche era el peor caso, y costaba una línea.
+
+Cuidado al tocar esto: el visor **funde** la respuesta con lo que ya tenía en
+vez de sustituirla. Si se vuelve a `setState(s)` a pelo, las notas y los ánimos
+desaparecerán de la pantalla en cada sondeo sin historial.
+
+**Lo que NO era**, por si vuelve a pasar: no era el mapa del evento (lee una
+fila por participante, y el recorrido viaja en una columna que se recorta en
+memoria), ni un índice ausente, ni los despliegues.
+
 ### El día entero cuadra con la carrera, y quien llega se retira
 
 **Web · Compatible.** Dos arreglos a la carrerita de la maqueta.

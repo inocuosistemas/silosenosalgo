@@ -23,7 +23,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
   // Anonymous per-viewer id (from the follower's browser) → presence heartbeat.
-  const viewerId = new URL(request.url).searchParams.get('v')
+  const url = new URL(request.url)
+  const viewerId = url.searchParams.get('v')
+  /**
+   * Si esta llamada quiere además el HISTORIAL (notas, ánimos y reacciones).
+   *
+   * Por defecto SÍ, para no romper a nadie que ya esté pidiendo sin el
+   * parámetro —la app nativa repartida, sin ir más lejos—. Quien sondea muy
+   * seguido manda `h=0` casi siempre y `h=1` de vez en cuando.
+   *
+   * El porqué: el visor incrustado sondea CADA SEGUNDO, y lo que refresca a ese
+   * ritmo es la posición, no los ánimos. Releer el historial entero 86.400
+   * veces al día por baliza abierta es lo que se come la cuota de D1: con solo
+   * cuarenta filas de historial son 3,4 millones de lecturas diarias.
+   */
+  const conHistorial = url.searchParams.get('h') !== '0'
 
   const row = await env.DB.prepare(
     `SELECT ts.status AS status, ts.title AS title, ts.plan_share_id AS planShareId,
@@ -91,12 +105,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   // Guarded: if migration 0008 hasn't run yet the table is missing — degrade to
   // "no notes" rather than 500-ing the entire track view (decouples deploy order).
   let notes: TrackNote[] | undefined
-  try {
+  if (conHistorial) try {
     const noteRows = await env.DB.prepare(
       `SELECT id, created_at AS createdAt, fix_at AS fixAt, lat, lon, accuracy, altitude,
               track_km AS trackKm, dist_m AS distM, title, body,
               poi_type AS poiType, poi_sym AS poiSym, audio_key AS audioKey, photo_key AS photoKey
-         FROM track_notes WHERE session_id=? ORDER BY created_at`,
+         FROM track_notes WHERE session_id=? ORDER BY created_at LIMIT 300`,
     ).bind(id).all<TrackNote>()
     notes = noteRows.results.length ? noteRows.results : undefined
   } catch { notes = undefined }
@@ -108,7 +122,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   // migración 0012 aún no ha corrido, degrada a "sin ánimos" en lugar de tumbar
   // la vista entera.
   let cheers: TrackCheer[] | undefined
-  try {
+  if (conHistorial) try {
     const cheerRows = await env.DB.prepare(
       // Un ánimo recién escrito solo lo ve su autor hasta que se publica: esa es
       // su ventana para retirarlo. `COALESCE` cubre las filas anteriores a la
@@ -127,14 +141,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
 
     // Las reacciones en una consulta aparte, agrupadas por mensaje y emoji: con
     // subconsultas correlacionadas haria falta una por emoji y por fila.
-    const reactRows = await env.DB.prepare(
-      `SELECT l.cheer_id AS cheerId, l.emoji AS emoji, COUNT(*) AS n,
-              MAX(CASE WHEN l.viewer_id = ?1 THEN 1 ELSE 0 END) AS mine
-         FROM cheer_likes l JOIN track_cheers c ON c.id = l.cheer_id
-        WHERE c.session_id = ?2
-        GROUP BY l.cheer_id, l.emoji
-        ORDER BY n DESC`,
-    ).bind(viewerId ?? '', id).all<{ cheerId: string; emoji: string; n: number; mine: number }>()
+    // Solo las reacciones de los ánimos que se devuelven, no las de TODOS los
+    // de la sesión: antes el JOIN recorría el historial entero de reacciones en
+    // cada sondeo, que con el bucle de un segundo era la mayor fuga de lecturas.
+    //
+    // La lista va como parámetros sueltos (?2, ?3…) y no con `json_each`: los
+    // ánimos vienen ya recortados a 200, así que la consulta no se dispara, y
+    // esto funciona en cualquier SQLite sin depender de la extensión JSON.
+    const idsAnimo = cheerRows.results.map((c) => c.id)
+    const reactRows = idsAnimo.length === 0
+      ? { results: [] as { cheerId: string; emoji: string; n: number; mine: number }[] }
+      : await env.DB.prepare(
+        `SELECT l.cheer_id AS cheerId, l.emoji AS emoji, COUNT(*) AS n,
+                MAX(CASE WHEN l.viewer_id = ?1 THEN 1 ELSE 0 END) AS mine
+           FROM cheer_likes l
+          WHERE l.cheer_id IN (${idsAnimo.map((_, i) => `?${i + 2}`).join(',')})
+          GROUP BY l.cheer_id, l.emoji
+          ORDER BY n DESC`,
+      ).bind(viewerId ?? '', ...idsAnimo)
+        .all<{ cheerId: string; emoji: string; n: number; mine: number }>()
 
     const porMensaje = new Map<string, { emoji: string; count: number }[]>()
     const mio = new Map<string, string>()

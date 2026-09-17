@@ -38,6 +38,10 @@ import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
 
 const POLL_MS = 10_000
+/** Con la pestaña oculta: nadie mira, así que basta con no perder el hilo. */
+const OCULTO_MS = 60_000
+/** Cada cuántas vueltas se pide el historial (notas y ánimos). */
+const VUELTAS_HISTORIAL = 30
 // Adaptive staleness: mark "stale" past ~K× the beacon's observed reporting
 // cadence, clamped. Keeps precision mode strict and distance/heartbeat tolerant.
 const STALE_K = 2               // stale past ~2× the observed cadence
@@ -769,17 +773,43 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   useEffect(() => {
     if (!token) return
     let alive = true
+    // El historial (notas y ánimos) no hace falta en cada vuelta: se pide una
+    // de cada `VUELTAS_HISTORIAL`. Con el visor incrustado, que sondea cada
+    // segundo, eso divide por treinta las lecturas caras en el servidor.
+    let vuelta = 0
     const poll = async () => {
+      const conHistorial = vuelta % VUELTAS_HISTORIAL === 0
+      vuelta++
       try {
-        const s = await fetchTrackState(token)
-        if (alive) { setState(s); setError(null) }
+        const s = await fetchTrackState(token, conHistorial)
+        // Se FUNDE, no se sustituye: cuando la respuesta viene sin historial,
+        // hay que conservar el que ya se tenía o desaparecería de la pantalla.
+        if (alive) {
+          setState((antes) => (conHistorial || !antes
+            ? s
+            : { ...s, notes: antes.notes, cheers: antes.cheers }))
+          setError(null)
+        }
       } catch (e) {
         if (alive) setError(e instanceof LiveTrackError ? e.kind : 'network')
       }
     }
     void poll()
-    const id = window.setInterval(poll, embedded ? 1_000 : POLL_MS)
-    return () => { alive = false; window.clearInterval(id) }
+    // Con la pestaña oculta no hay nadie mirando: se sondea mucho más despacio.
+    // Una pestaña olvidada toda la noche era el peor caso de todos.
+    const cada = () => (document.hidden ? OCULTO_MS : embedded ? 1_000 : POLL_MS)
+    let id = window.setInterval(poll, cada())
+    const alCambiarVisibilidad = () => {
+      window.clearInterval(id)
+      id = window.setInterval(poll, cada())
+      if (!document.hidden) void poll()
+    }
+    document.addEventListener('visibilitychange', alCambiarVisibilidad)
+    return () => {
+      alive = false
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', alCambiarVisibilidad)
+    }
   }, [token, embedded])
 
   // Re-render every second so freshness + live deltas stay current.
