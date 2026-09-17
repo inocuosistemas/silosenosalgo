@@ -115,11 +115,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       name: string | null; planShareId: string | null; planName: string | null; startsAt: number | null
       activity: string | null
     }>()
-    if (ev?.planShareId && !planShareId) {
+    // ¿La carrera es de AHORA? De ella se heredan la hora y el recorrido, y las
+    // dos cosas solo tienen sentido si se va a correr ya.
+    //
+    // Dieciocho horas cubre lo que esto tiene que cubrir —abrir la baliza la
+    // noche antes de una salida de madrugada— y deja fuera lo que nunca quiso
+    // nadie. Sin hora puesta la carrera no se hereda: no hay contra qué medir.
+    const HERENCIA_MAX = 18 * 60 * 60 * 1000
+    const carreraALaMano = !!ev?.startsAt
+      && ev!.startsAt! <= now + HERENCIA_MAX
+      && ev!.startsAt! >= now - PAST_START_MAX
+
+    if (ev?.planShareId && !planShareId && carreraALaMano) {
       planShareId = ev.planShareId
       planName = planName ?? ev.planName
     }
-    if (ev?.startsAt) startedAt = ev.startsAt
+    // La hora oficial de la carrera, pero SOLO si está a mano: heredarla a
+    // ciegas armaba la baliza para dentro de dos semanas.
+    //
+    // Pasó de verdad: un toque sin querer en una carrera del 3 de octubre dejó
+    // una baliza que se creyó en cuenta atrás —15 días, 0.0 km y "fuera de ruta
+    // a 103 km"— mientras seguía subiendo posiciones. Y no había forma de
+    // deshacerlo: quitar el evento desprende la sesión, pero su hora de salida
+    // se fijó al crearla.
+    //
+    // El `startAt` explícito de la app conserva su ventana de catorce días: ahí
+    // hay una mano que lo eligió; esto es una herencia automática.
+    if (carreraALaMano) startedAt = ev!.startsAt!
     // Y de qué va la carrera, por lo mismo. Sin actividad declarada la app la
     // DEDUCE de las velocidades del GPS, y eso se equivoca justo aquí: quien
     // enciende la baliza de camino a la salida graba el viaje en coche, y con
