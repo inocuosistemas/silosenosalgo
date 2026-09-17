@@ -3,6 +3,7 @@ import type { VistaMapa } from '../lib/vistaEvento'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
+import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
 import { CapaFotos, VisorFotos, AvisoSubida, ElegirSitio, iconoFotoPrevia, useFotosDelEvento, useSubirFoto } from './EventFotos'
@@ -181,47 +182,6 @@ const MEDALLAS = ['🥇', '🥈', '🥉']
 
 /** El icono de cada actividad, que dice de un vistazo de qué va la carrera. */
 const ICONO_ACTIVIDAD: Record<string, string> = { walk: '🚶', run: '🏃', bike: '🚴' }
-
-/** Cada cuánto cambia de dueño el pensamiento, y lo que tarda en fundirse. */
-const RONDA_PENSAMIENTO_MS = 5200
-const FUNDIDO_PENSAMIENTO_MS = 600
-
-/**
- * Quién "piensa" ahora mismo: uno cada vez, al azar, entre los que escribieron
- * algo.
- *
- * Uno y no todos porque esta lista vive dentro de un cuadro pequeño y con
- * cuatro frases a la vez no se lee ninguna. Al azar y turnándose para que
- * asome lo de todo el mundo sin que nadie tenga que ir abriéndolas.
- *
- * Devuelve también si toca estar VISIBLE: el cambio se hace con el texto ya
- * apagado, que si no la frase nueva aparece encima de la vieja a media
- * transición y se lee un revoltijo de las dos.
- */
-function usePensamiento(claves: string[]): { clave: string | null; visible: boolean } {
-  const [i, setI] = useState(0)
-  const [visible, setVisible] = useState(true)
-  const n = claves.length
-
-  useEffect(() => {
-    // Con una sola frase no hay turno que repartir: se queda puesta.
-    if (n < 2) return
-    let fuera: ReturnType<typeof setTimeout> | undefined
-    const ronda = setInterval(() => {
-      setVisible(false)
-      fuera = setTimeout(() => {
-        // Nunca dos veces seguida la misma: repetida parece que se ha colgado.
-        setI((prev) => { let x = prev; while (x === prev) x = Math.floor(Math.random() * n); return x })
-        setVisible(true)
-      }, FUNDIDO_PENSAMIENTO_MS)
-    }, RONDA_PENSAMIENTO_MS)
-    return () => { clearInterval(ronda); if (fuera) clearTimeout(fuera) }
-  }, [n])
-
-  // El índice puede quedar fuera de rango cuando alguien borra su frase entre
-  // dos rondas: la lista cambia debajo de este reloj en cada refresco.
-  return { clave: n > 0 ? claves[i % n] : null, visible }
-}
 
 /** Lo que la pantalla necesita de un corredor, venga del endpoint que venga. */
 type Runner = EventPublicRunner & { userId?: string; sessionId?: string }
@@ -999,10 +959,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
     return [...rows].sort((a, b) => peso(a.key) - peso(b.key))
   }, [rows])
 
-  /** A quién le toca asomar su frase en la parrilla de la espera. */
+  /** A quién le toca asomar su frase. Sale de `rows` y no de `parrilla` para
+   *  que el cuadro de la espera y la tira del mapa vayan al mismo compás: son
+   *  la misma gente, y dos relojes distintos se pisarían al cambiar de vista. */
   const clavesConFrase = useMemo(
-    () => parrilla.filter(({ r }) => r.bocadillo).map(({ key }) => key),
-    [parrilla],
+    () => rows.filter(({ r }) => r.bocadillo).map(({ key }) => key),
+    [rows],
   )
   const pensamiento = usePensamiento(clavesConFrase)
 
@@ -1887,7 +1849,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           )}
           {/* Mientras el mapa está vacío la parrilla ya sale en el cuadro del
               centro; repetirla aquí abajo es decir dos veces lo mismo. */}
-          <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 ${withFix.length === 0 ? 'hidden' : ''}`}>
+          {/* `pt-6`: hueco para los globos. La tira desliza en horizontal y
+              eso también recorta por arriba. */}
+          <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 pt-6 ${withFix.length === 0 ? 'hidden' : ''}`}>
             {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo, enPausa }) => {
               // Su carrera ya terminó —en meta o donde la dejó— y su marca está
               // clavada ahí: los avisos de baliza dejan de tener sentido.
@@ -1920,7 +1884,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       el color, que son su marca— y el nombre; el dorsal sale en
                       su ficha al tocarlo, que es donde se cruza con la
                       clasificación oficial. */}
-                  {r.username}
+                  <span className="relative">
+                    {pensamiento.clave === key && r.bocadillo && (
+                      <MiniBocadillo texto={r.bocadillo} visible={pensamiento.visible} />
+                    )}
+                    {r.username}
+                  </span>
                   {/* El borde discontinuo ya lo insinúa, pero a un participante
                       que falta en el mapa hay que decírselo con palabras: sin
                       esto se lee como un fallo de la aplicación. */}
@@ -2158,34 +2127,24 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                 <p className="text-[10px] uppercase tracking-wider text-slate-500">
                   Parrilla · {rows.length} {rows.length === 1 ? 'participante' : 'participantes'}
                 </p>
-                <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5">
+                {/* `pt-5`: el sitio del globo de la primera fila. Esta lista
+                    tiene barra, y lo que se sale por arriba lo recorta. */}
+                <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto scrollbar-fantasma pr-0.5 pt-5">
                   {parrilla.map(({ r, key, idle, armed, lost, retirado }) => (
-                    <li key={key} className="relative flex items-center gap-1.5 text-[11px]">
-                      {/* Lo que escribió, saliéndole a él: las dos bolitas
-                          suben desde su marca y el globo va encima de SU fila,
-                          que es lo que dice de quién es el pensamiento sin
-                          gastar una línea en repetir el nombre.
-
-                          Encima y no debajo —`absolute`— para que la lista no
-                          dé un salto cada vez que cambia de dueño; y con la
-                          frase en una sola línea, que esto es un vistazo de
-                          paso, no el sitio donde se lee entera. */}
-                      {pensamiento.clave === key && r.bocadillo && (
-                        <span
-                          aria-hidden
-                          className={`pointer-events-none absolute inset-y-0 left-4 right-0 flex items-center transition-opacity duration-500 ${pensamiento.visible ? 'opacity-100' : 'opacity-0'}`}
-                        >
-                          <span className="h-1 w-1 shrink-0 rounded-full bg-slate-700" />
-                          <span className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-700" />
-                          <span className="ml-0.5 min-w-0 truncate rounded-2xl bg-slate-800 px-2 py-0.5 italic text-slate-200 ring-1 ring-slate-700">
-                            {r.bocadillo}
-                          </span>
-                        </span>
-                      )}
+                    <li key={key} className="flex items-center gap-1.5 text-[11px]">
                       <MarkBadge emoji={r.emoji} color={r.color} size={18} />
                       {r.bib && <Dorsal bib={r.bib} />}
-                      <span className={`min-w-0 flex-1 truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
-                        {r.username}
+                      {/* El nombre, con su globo colgando. El envoltorio es el
+                          ancla y NO recorta —el recorte se queda dentro, en el
+                          nombre—, porque un `truncate` en el ancla se comería
+                          el globo entero. */}
+                      <span className="relative min-w-0 flex-1">
+                        {pensamiento.clave === key && r.bocadillo && (
+                          <MiniBocadillo texto={r.bocadillo} visible={pensamiento.visible} />
+                        )}
+                        <span className={`block truncate ${idle ? 'text-slate-400' : 'text-slate-100'}`}>
+                          {r.username}
+                        </span>
                       </span>
                       <span className={`shrink-0 ${
                         armed ? 'text-amber-400/90' : idle ? 'text-slate-500'

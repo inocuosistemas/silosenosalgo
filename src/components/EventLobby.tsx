@@ -19,6 +19,7 @@ import { isHttpUrl, BOCADILLO_MAX } from '../../shared/validate'
 import { ANDROID_APK_URL } from '../../shared/config'
 import { durationLabel } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
+import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { CargandoMarca } from './CargandoMarca'
 import { MarkBadge, EmojiField, ColorPalette } from './MarkPicker'
 import { ListaResultados, RecordDeKm } from './EventResults'
@@ -299,6 +300,19 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     return () => { vivo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.event?.isOwner, data?.event?.planShareId, data?.event?.planTotalKm])
+
+  /** A quién le toca asomar su frase en el globito del nombre: uno cada vez,
+   *  sorteado entre los que han escrito algo. El turno lo lleva la parrilla y
+   *  no cada fila, que es la única forma de que salga UNO y no todos.
+   *
+   *  Va aquí arriba y no junto a la lista, que es donde se usa, porque debajo
+   *  hay cuatro salidas tempranas —sin sesión, cargando, error— y un hook
+   *  detrás de un `return` se ejecuta en unos renders sí y en otros no. */
+  const clavesConFrase = useMemo(
+    () => (data?.members ?? []).filter((m) => m.bocadillo).map((m) => m.userId),
+    [data],
+  )
+  const pensamiento = usePensamiento(clavesConFrase)
 
   if (status !== 'ready') {
     return <div className="h-dvh"><CargandoMarca texto="Cargando…" /></div>
@@ -985,6 +999,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               canEditBib={m.userId === user.id || event.isOwner}
               onBib={(userId, actual) => void pedirDorsal(userId, actual)}
               onBocadillo={() => setBocadilloDe(m.userId)}
+              pensando={pensamiento.clave === m.userId && pensamiento.visible}
               onDorsal={() => setDorsal(m.userId)}
               // Sacar de la parrilla: quien organiza y quien administra, y
               // nunca a uno mismo —para eso está "salir del evento", que dice
@@ -1811,9 +1826,6 @@ function NotasEditor({ inicial, busy, onGuardar, onCancelar }: {
   )
 }
 
-/** Cuánto se queda cada frase sobre el cartel, y lo que tarda en fundirse. */
-const RONDA_FRASE_MS = 5200
-const FUNDIDO_FRASE_MS = 600
 /** Las cuatro esquinas del cartel. Cambiar de sitio evita que la capa parezca
  *  un rótulo fijo y que tape siempre la misma parte de la foto. */
 const SITIOS_FRASE = ['left-3 top-3', 'right-3 top-3', 'left-3 bottom-3', 'right-3 bottom-3'] as const
@@ -1831,35 +1843,20 @@ const SITIOS_FRASE = ['left-3 top-3', 'right-3 top-3', 'left-3 bottom-3', 'right
  */
 function FrasesSobreElCartel({ members }: { members: EventMember[] }) {
   const conFrase = useMemo(() => members.filter((m) => m.bocadillo), [members])
-  const [turno, setTurno] = useState<{ i: number; sitio: string }>({ i: 0, sitio: SITIOS_FRASE[0] })
-  const [visible, setVisible] = useState(true)
+  const claves = useMemo(() => conFrase.map((x) => x.userId), [conFrase])
+  const { clave, visible } = usePensamiento(claves)
 
-  useEffect(() => {
-    if (conFrase.length < 2) return
-    let fuera: ReturnType<typeof setTimeout> | undefined
-    const ronda = setInterval(() => {
-      setVisible(false)
-      fuera = setTimeout(() => {
-        setTurno((t) => {
-          // Al azar, pero nunca dos veces seguidas la misma: repetida parece
-          // que la cosa se ha quedado colgada.
-          let i = t.i
-          while (i === t.i) i = Math.floor(Math.random() * conFrase.length)
-          return { i, sitio: SITIOS_FRASE[Math.floor(Math.random() * SITIOS_FRASE.length)] }
-        })
-        setVisible(true)
-      }, FUNDIDO_FRASE_MS)
-    }, RONDA_FRASE_MS)
-    return () => { clearInterval(ronda); if (fuera) clearTimeout(fuera) }
-  }, [conFrase.length])
-
-  // El índice puede quedar fuera de rango si alguien borra su frase entre dos
-  // rondas: el refresco de la parrilla cambia la lista debajo de este reloj.
-  const m = conFrase.length > 0 ? conFrase[turno.i % conFrase.length] : null
+  const i = conFrase.findIndex((x) => x.userId === clave)
+  const m = i >= 0 ? conFrase[i] : null
   if (!m) return null
+  // La esquina sale de su sitio en la lista: cambia de una persona a otra —así
+  // la capa no parece un rótulo fijo ni tapa siempre el mismo trozo de foto—
+  // pero es SIEMPRE la misma para la misma persona, sin un segundo sorteo que
+  // mantener en marcha.
+  const sitio = SITIOS_FRASE[i % SITIOS_FRASE.length]
   return (
     <div
-      className={`pointer-events-none absolute ${turno.sitio} max-w-[62%] transition-opacity duration-500 ${visible ? 'opacity-100' : 'opacity-0'}`}
+      className={`pointer-events-none absolute ${sitio} max-w-[62%] transition-opacity duration-500 ${visible ? 'opacity-100' : 'opacity-0'}`}
     >
       <div
         className="rounded-2xl bg-slate-950/70 px-3 py-2 ring-1 ring-white/10 backdrop-blur-sm"
@@ -1958,7 +1955,7 @@ function BocadilloPopup({ m, isMe, busy, onGuardar, onClose }: {
 
 function MemberRow({
   m, now, isMe, eventId, canEditBib, onBib, onDorsal,
-  onBocadillo,
+  onBocadillo, pensando,
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
   canRetire, onRetire, ajustando, onAjustar, puntos, onPunto,
@@ -1975,6 +1972,9 @@ function MemberRow({
   /** Abrir su frase en una ventana aparte: la propia se escribe ahí, la de los
    *  demás solo se lee. */
   onBocadillo: () => void
+  /** Si AHORA le toca a él asomar su frase en el globito del nombre. El turno
+   *  lo reparte la parrilla, que es quien ve a todos: uno cada vez. */
+  pensando: boolean
   canEditMark: boolean
   editing: boolean
   onToggleMark: () => void
@@ -2028,8 +2028,13 @@ function MemberRow({
           + dorsal
         </button>
       ) : null}
-      <span className="text-sm text-slate-200 truncate">
-        {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
+      {/* El nombre, con su globo colgando. El envoltorio ancla y no recorta: un
+          `truncate` aquí se comería el globo. */}
+      <span className="relative min-w-0">
+        {pensando && m.bocadillo && <MiniBocadillo texto={m.bocadillo} visible />}
+        <span className="block truncate text-sm text-slate-200">
+          {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
+        </span>
       </span>
       {/* Su frase, colgada del nombre. En la fila solo va la burbuja —que ya
           dice que hay algo—; el texto se abre en una VENTANA encima, no
