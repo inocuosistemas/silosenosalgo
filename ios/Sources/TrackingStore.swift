@@ -969,12 +969,40 @@ final class TrackingStore: ObservableObject {
         // Armed standby: don't record/upload anything; just check if it's time to
         // wake into live tracking (a coarse fix arrived, use it as the trigger).
         if isStandby { maybeBeginFromStandby(); return }
-        // Time mode: throttle by interval. Distance mode: the GPS distanceFilter
-        // already gates callbacks, so we record every one.
+        // Time mode: throttle by interval.
         if sendMode == .time {
             guard Date().timeIntervalSince(lastSendAttempt) >= intervalSeconds else { return }
+        } else if !tocaGrabarPorDistancia(loc) {
+            // Modo distancia: las lecturas llegan todas (ver `configureDistance`)
+            // y es AQUÍ donde se decide cuáles se graban. Las que se descartan no
+            // se pierden del todo: han servido para lo que más importa, que es
+            // mantener la app despierta.
+            return
         }
         ingest(loc)
+    }
+
+    /**
+     Modo distancia: ¿toca grabar esta lectura?
+
+     Sí cuando se han hecho los metros del perfil desde el último punto GRABADO.
+     Y sí también cuando ha pasado el latido sin grabar nada —"sigo aquí"—,
+     porque un punto cada cinco minutos es lo que hace que el mapa parezca
+     congelado y acabe diciendo "sin cobertura" de alguien que está perfectamente.
+
+     El latido vive aquí y no solo en el temporizador de 20 s a propósito: aquel
+     se congela con la app suspendida, que es exactamente lo que pasa cuando
+     nadie se mueve. A este lo dispara la llegada de una lectura, que es lo único
+     que sigue ocurriendo. El temporizador se queda como red de apoyo.
+     */
+    private func tocaGrabarPorDistancia(_ loc: CLLocation) -> Bool {
+        guard let ultimo = lastRecordedFix else { return true }
+        // `fixAt` es opcional: sin hora en el punto anterior no hay latido que
+        // medir, y la decisión se queda en los metros.
+        if let desde = ultimo.fixAt,
+           loc.timestamp.timeIntervalSince1970 * 1000 - desde >= heartbeatSeconds * 1000 { return true }
+        return TrackingRules.distanceMeters(ultimo.lat, ultimo.lon,
+                                            loc.coordinate.latitude, loc.coordinate.longitude) >= distanceMeters
     }
 
     /// Quality-gate a raw location and record it (the same filters, in the same

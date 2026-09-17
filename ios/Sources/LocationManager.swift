@@ -58,7 +58,23 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     /// este lado sin destrozar la traza. El `distanceFilter` por sí solo no
     /// apaga nada, solo decide cuándo se entrega la posición.
     func configureDistance(_ meters: Double) {
-        manager.distanceFilter = meters
+        // Los metros del perfil NO se le pasan al sistema como filtro: que las
+        // entregue todas y que sea el código quien decida cuáles graba (ver
+        // `tocaGrabarPorDistancia`).
+        //
+        // Con el filtro del perfil puesto aquí —100 m— iOS no entrega NADA
+        // mientras no se acumulan esos metros; y sin lecturas que la despierten,
+        // la app se suspende, y con ella el temporizador del latido, que era
+        // justo lo que tenía que cubrir el estar parado. El mecanismo de rescate
+        // se apagaba exactamente cuando hacía falta. Medido el 17/09/2026
+        // paseando: cinco puntos en diez minutos, y por la mañana un agujero de
+        // 19 minutos en mitad de la traza.
+        //
+        // Entregar más lecturas no gasta más: lo que consume es tener el
+        // receptor encendido y AFINADO, y eso lo sigue decidiendo la precisión
+        // pedida a partir de los metros del perfil, que no cambia. Es lo mismo
+        // que ya hace el modo por tiempo en sus intervalos cortos.
+        manager.distanceFilter = kCLDistanceFilterNone
         manager.desiredAccuracy = meters <= 100 ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyHundredMeters
     }
 
