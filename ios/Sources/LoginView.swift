@@ -13,7 +13,15 @@ struct LoginView: View {
         VStack(spacing: 18) {
             Spacer()
 
-            Text("🌧️").font(.system(size: 52))
+            // La marca de la app, la misma que la cabecera de dentro y la que
+            // se ve en el icono: quien abre esto ha pulsado un icono hace medio
+            // segundo y tiene que reconocer que está donde quería. El emoji que
+            // había no es de nadie.
+            Image("MarcaApp")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 76, height: 76)
+                .accessibilityHidden(true)
             Text("SiLoSeNoSalgo")
                 .font(.largeTitle.bold())
                 .foregroundStyle(Theme.slate100)

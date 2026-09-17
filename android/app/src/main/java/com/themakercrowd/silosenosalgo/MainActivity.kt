@@ -201,6 +201,16 @@ private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
+        // La MARCA, antes que nada: quien abre esto ha pulsado un icono hace
+        // medio segundo, y una pantalla de usuario y contraseña sin logo se
+        // parece a cualquier otra. Es la misma imagen que la cabecera de
+        // dentro y que el icono, solo que a tamaño de portada.
+        Image(
+            painter = painterResource(R.drawable.marca_app),
+            contentDescription = null,
+            modifier = Modifier.size(72.dp),
+        )
+        Spacer(Modifier.height(14.dp))
         Text("SiLoSeNoSalgo", style = MaterialTheme.typography.headlineMedium)
         Text("Seguimiento · Android", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(24.dp))
