@@ -5,6 +5,7 @@ import { genId } from '../../../../shared/ids'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../../../shared/config'
 import { notifyTelegram, escapeHtml } from '../../../lib/notify'
+import { enviaPush } from '../../../lib/apns'
 import { CHEER_BODY_MAX, CHEER_GRACE_MS, CHEER_NICK_MAX, type CheerCreate, type TrackCheer } from '../../../../shared/wireTypes'
 
 /**
@@ -63,8 +64,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
   // La sesión tiene que existir y seguir viva. Animar a una ruta caducada no
   // tiene destinatario, y evita que un enlace viejo quede como buzón abierto.
   const row = await env.DB.prepare(
-    'SELECT expires_at AS expiresAt, pinned, track_km AS trackKm, title FROM tracking_sessions WHERE id=?',
-  ).bind(id).first<{ expiresAt: number; pinned: number | null; trackKm: number | null; title: string | null }>()
+    `SELECT expires_at AS expiresAt, pinned, track_km AS trackKm, title, owner_user_id AS ownerUserId
+       FROM tracking_sessions WHERE id=?`,
+  ).bind(id).first<{
+    expiresAt: number; pinned: number | null; trackKm: number | null; title: string | null
+    ownerUserId: string | null
+  }>()
   if (!row) return json({ error: 'not_found' }, 404)
   if (!row.pinned && Date.now() > row.expiresAt) return json({ error: 'expired' }, 410)
 
@@ -111,6 +116,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
     const still = await env.DB.prepare('SELECT 1 AS x FROM track_cheers WHERE id=?')
       .bind(cheer.id).first<{ x: number }>()
     if (!still) return
+    // Al MÓVIL del corredor, que es a quien va dirigido el ánimo.
+    //
+    // Va aquí dentro y no antes por lo mismo que el aviso de Telegram: hasta que
+    // pasa la ventana de retirada, el mensaje puede desaparecer, y avisar de algo
+    // que su autor acaba de borrar delataría justo lo que la ventana protege.
+    //
+    // Sin esto, un ánimo solo sonaba si la app estaba viva sondeando, o sea con
+    // la baliza abierta: quien animaba a alguien que ya había terminado no
+    // llegaba a ninguna parte.
+    if (row.ownerUserId) {
+      await enviaPush(env, row.ownerUserId, {
+        titulo: cheer.nick ? `💬 ${cheer.nick} te anima` : '💬 Un ánimo nuevo',
+        cuerpo: cheer.body,
+        // Una ráfaga sustituye el aviso anterior en vez de apilar veinte:
+        // subiendo un puerto se quiere leer el último, no limpiar una pila.
+        collapseId: 'cheer',
+        url: `${PUBLIC_BASE_URL}/?t=${encodeURIComponent(id)}`,
+      })
+    }
     await notifyTelegram(env, [
       `💬 <b>Nuevo ánimo</b>${row.title ? ` · ${escapeHtml(row.title)}` : ''}`,
       `<b>${escapeHtml(cheer.nick || 'Anónimo')}</b>${cheer.trackKm != null ? ` · km ${cheer.trackKm.toFixed(1)}` : ''}`,

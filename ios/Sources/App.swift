@@ -61,6 +61,26 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// El token de APNs de este aparato. Lo entrega iOS cuando le apetece —a
+    /// veces al instante, a veces al segundo arranque—, así que el alta se hace
+    /// aquí y no en una pantalla: es el único sitio por donde pasa siempre.
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        MainActor.assumeIsolated { PushRegistrar.shared.recibeToken(deviceToken) }
+    }
+
+    /// Sin token no hay push, y punto: el aviso local sigue funcionando mientras
+    /// la baliza emite, así que no hay nada que decirle a nadie. Se registra en
+    /// consola para poder mirarlo cuando alguien diga "a mí no me suena".
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("[push] no se pudo registrar: \(error.localizedDescription)")
+    }
+
     /// Show cheer banners even while the app is frontmost (e.g. the embedded
     /// viewer is open full screen): mirror of Android, where the "ánimos"
     /// channel is allowed to interrupt — that's its whole point.

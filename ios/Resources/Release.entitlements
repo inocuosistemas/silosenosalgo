@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Permisos de la copia que se REPARTE (TestFlight y App Store).
+
+  Tiene que decir `production`: un archivo firmado con el entorno de desarrollo
+  se sube, pero los tokens que entrega son de pruebas y los envíos se caen uno a
+  uno con 400 BadDeviceToken. Es el fallo clásico de "el push funciona en mi
+  Xcode y no en TestFlight".
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>

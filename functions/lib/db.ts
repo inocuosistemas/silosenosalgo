@@ -15,4 +15,15 @@ export interface Env {
    *  nada y todo lo demás funciona igual (ver functions/lib/notify.ts). */
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_CHAT_ID?: string
+  /** Avisos push a iOS. Secretos OPCIONALES, como los de Telegram: sin ellos no
+   *  se manda ningún push y el resto funciona igual (ver functions/lib/apns.ts).
+   *  `APNS_KEY_P8` es el contenido del .p8 tal cual, cabeceras PEM incluidas. */
+  APNS_KEY_P8?: string
+  APNS_KEY_ID?: string
+  APNS_TEAM_ID?: string
+  /** 'sandbox' para las compilaciones de Xcode; vacío = producción (TestFlight
+   *  y App Store). Un token de un entorno no vale en el otro. */
+  APNS_ENV?: string
+  /** El bundle id de la app. Por defecto, el de producción. */
+  APNS_TOPIC?: string
 }

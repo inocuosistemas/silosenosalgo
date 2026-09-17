@@ -1128,7 +1128,10 @@ struct TrackingView: View {
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
                 // Cheer alerts need permission; asked here, on opening the
                 // portal (like Android's POST_NOTIFICATIONS), not mid-route.
-                CheerNotifier.shared.requestAuthorization()
+                // Pide el permiso Y da de alta el aparato para los push: el
+                // permiso es el mismo para las dos vías, así que preguntarlo dos
+                // veces sería preguntar dos veces lo mismo.
+                PushRegistrar.shared.arranca()
                 // El mismo permiso sirve para los avisos de salida; se pide
                 // aquí y no cinco minutos antes del disparo, que es tarde para
                 // contestar a un diálogo. Ver `AvisosDeCarrera`.
@@ -1207,6 +1210,10 @@ struct TrackingView: View {
                 Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {
                     Task {
                         await store.stopSharing()
+                        // Antes de cerrar la sesión, que es cuando todavía hay
+                        // con qué autenticar la baja: si no, este móvil seguiría
+                        // recibiendo los ánimos de quien ya no lo usa.
+                        await PushRegistrar.shared.daDeBaja()
                         await auth.logout()
                     }
                 }

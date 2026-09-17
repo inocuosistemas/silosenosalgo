@@ -554,4 +554,24 @@ enum API {
     static func setActivity(token: String, id: String, activity: BeaconActivity?) async {
         _ = try? await request("api/track/\(id)/activity", method: "POST", token: token, body: ["activity": activity?.rawValue ?? ""])
     }
+
+    /// Da de alta este aparato para los avisos push. Devuelve si el servidor lo
+    /// aceptó: mientras no lo haga, el aviso local sigue siendo la única vía y
+    /// no se debe apagar.
+    static func registerPush(token: String, deviceToken: String) async -> Bool {
+        guard let (_, http) = try? await request(
+            "api/push/register", method: "POST", token: token,
+            body: ["token": deviceToken, "platform": "ios"],
+        ) else { return false }
+        return ok(http)
+    }
+
+    /// Lo da de baja. Al salir de la cuenta: si no, este móvil seguiría
+    /// recibiendo los ánimos de quien ya no lo usa.
+    static func unregisterPush(token: String, deviceToken: String) async {
+        _ = try? await request(
+            "api/push/register", method: "DELETE", token: token,
+            body: ["token": deviceToken],
+        )
+    }
 }

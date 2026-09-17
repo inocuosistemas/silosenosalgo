@@ -27,6 +27,12 @@ final class CheerNotifier {
     /// Thread-safe; the payload stays untyped on purpose — its shape belongs to
     /// the backend and the viewer, and only three fields matter here.
     func notifyNew(_ cheers: [[String: Any]]) {
+        // Con el push dado de alta, del aviso se encarga el servidor: ponerlo
+        // también aquí sacaría dos banners por el mismo ánimo. Mientras el alta
+        // no esté confirmada —permiso denegado, sin red al registrar, secretos
+        // sin configurar en el servidor— este sigue siendo el único aviso que
+        // hay, y por eso no se apaga a ciegas.
+        if MainActor.assumeIsolated({ PushRegistrar.shared.registrado }) { return }
         lock.lock()
         let firstBatch = lastSeenMs == 0
         let cut = lastSeenMs
