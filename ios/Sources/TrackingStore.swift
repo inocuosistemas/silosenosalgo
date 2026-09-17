@@ -802,15 +802,32 @@ final class TrackingStore: ObservableObject {
     }
 
     /**
-     Cuánto se puede pausar de una vez. Espejo de `PAUSA_MAX_MIN` en el servidor.
-
-     Con tope porque una pausa indefinida es otra forma de no saber nada, y
-     quien se baja de verdad tiene el otro botón para decirlo.
+     Cuánto se pausa de una vez: diez minutos, lo que dura un avituallamiento
+     largo o un cambio de ropa.
      */
     static let pausaMax = 10
 
+    /**
+     Lo que suma cada pulsación de "+5", y hasta dónde se puede llegar sumando.
+
+     Se añade desde el propio botón en vez de tener que esperar a que venza y
+     volver a pausar: quien se para a comer no va a estar pulsando cada diez
+     minutos con las manos frías. Con techo —una hora— porque una pausa
+     indefinida es otra forma de no saber nada, y quien se baja de verdad tiene
+     el otro botón para decirlo. `pausaTope` es espejo de `PAUSA_MAX_MIN` en el
+     servidor, que recorta cualquier cosa mayor.
+     */
+    static let pausaPaso = 5
+    static let pausaTope = 60
+
     /// Hasta cuándo está pausada esta baliza, si lo está.
     @Published var pausadaHasta: Date?
+
+    /// Si todavía cabe otro "+5" sin pasarse del techo.
+    var puedeAlargar: Bool {
+        guard let hasta = pausadaHasta, hasta > Date() else { return false }
+        return hasta.timeIntervalSinceNow / 60 + Double(Self.pausaPaso) <= Double(Self.pausaTope)
+    }
 
     /**
      "Me paro un rato, no me ha pasado nada."
@@ -834,6 +851,33 @@ final class TrackingStore: ObservableObject {
         if let loc = lastLocation { ingest(loc) } else { await flush() }
         API.pausaMin = nil
         location.stop()
+    }
+
+    /**
+     Cinco minutos más, sin salir de la pausa.
+
+     Se suman a lo que QUEDA, no a los diez de partida: pulsarlo con tres
+     minutos por delante deja ocho, que es lo que espera quien lo pulsa. El
+     servidor recibe el total, no el incremento, porque una pausa es una hora
+     límite y no una cuenta de minutos sueltos.
+     */
+    func alarga() async {
+        guard isSharing, let hasta = pausadaHasta, hasta > Date() else { return }
+        let total = min(Double(Self.pausaTope), hasta.timeIntervalSinceNow / 60 + Double(Self.pausaPaso))
+        await pausa(minutos: max(1, Int(total.rounded())))
+    }
+
+    /**
+     Se acabó el rato: la baliza vuelve sola.
+
+     Hasta ahora la pantalla lo prometía y no pasaba —nadie reanudaba al vencer
+     el plazo—, así que la baliza se quedaba muda hasta que alguien se acordaba
+     de pulsar "seguir": exactamente el silencio que la pausa venía a evitar.
+     Lo mira el mismo pulso de 20 s que ya corre durante la pausa.
+     */
+    private func reanudaSiVencioLaPausa() {
+        guard let hasta = pausadaHasta, hasta <= Date() else { return }
+        Task { await reanuda() }
     }
 
     /// Vuelve de la pausa: se acabó el rato, o se ha pulsado "seguir".
@@ -1829,6 +1873,9 @@ final class TrackingStore: ObservableObject {
                 // Los ánimos vienen del servidor (los escriben los seguidores),
                 // así que se traen con el mismo pulso que el resto.
                 ViewerDataProvider.shared.refreshCheers()
+                // Antes del latido: si la pausa venció, lo que toca es volver a
+                // emitir, no seguir callado un ciclo más.
+                self?.reanudaSiVencioLaPausa()
                 self?.heartbeatTick()
                 self?.persistActiveIfDue()
                 await self?.flush()

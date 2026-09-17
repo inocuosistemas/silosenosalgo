@@ -294,27 +294,57 @@ struct TrackingView: View {
                     // como se leen los botones sin pararse a leerlos.
                     if store.isSharing && !store.isStandby {
                         if let hasta = store.pausadaHasta, hasta > Date() {
-                            HStack(spacing: 8) {
-                                Text("⏸")
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("En pausa").font(.footnote.weight(.semibold))
-                                        .foregroundStyle(Theme.amber200)
-                                    Text("Vuelve sola en \(max(1, Int(hasta.timeIntervalSinceNow / 60))) min · quien te sigue lo ve")
-                                        .font(.caption2).foregroundStyle(Theme.slate400)
+                            // El MISMO botón, partido en dos. No aparece un
+                            // cuadro nuevo en otro sitio: el dedo ya está aquí,
+                            // y lo que se quiere hacer estando en pausa es
+                            // alargarla un poco o volver a emitir. Nada más.
+                            VStack(spacing: 6) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "pause.fill").font(.caption2)
+                                    Text("En pausa · vuelve sola en \(max(1, Int(hasta.timeIntervalSinceNow / 60))) min")
                                 }
-                                Spacer(minLength: 4)
-                                Button("Seguir") { Task { await store.reanuda() } }
-                                    .font(.footnote.weight(.semibold))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Theme.amber200)
+
+                                HStack(spacing: 3) {
+                                    // Ámbar el que sigue pausando, verde el que
+                                    // devuelve la baliza a la carrera: el color
+                                    // dice cuál es cuál antes de leerlos.
+                                    Button {
+                                        Task { await store.alarga() }
+                                    } label: {
+                                        Label("\(TrackingStore.pausaPaso) min", systemImage: "plus")
+                                            .font(.footnote.weight(.semibold))
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 12)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(Color(red: 0.85, green: 0.65, blue: 0.30)
+                                        .opacity(store.puedeAlargar ? 1 : 0.4))
+                                    .foregroundStyle(Theme.slate950)
+                                    .cornerRadius(12)
+                                    .disabled(!store.puedeAlargar)
+
+                                    Button {
+                                        Task { await store.reanuda() }
+                                    } label: {
+                                        Label("Continuar", systemImage: "play.fill")
+                                            .font(.footnote.weight(.semibold))
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 12)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(Theme.emerald300)
+                                    .foregroundStyle(Theme.slate950)
+                                    .cornerRadius(12)
+                                }
                             }
-                            .padding(10)
-                            .background(Theme.amber950.opacity(0.35))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
                         } else {
                             Button {
                                 Task { await store.pausa() }
                             } label: {
-                                Text("Pausar \(TrackingStore.pausaMax) min")
+                                Label("Pausar \(TrackingStore.pausaMax) min", systemImage: "pause.fill")
                                     .fontWeight(.semibold)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)

@@ -18,14 +18,19 @@ import { leeCadencia, escribeCadencia } from '../../../../shared/cadencia'
  */
 
 /**
- * Lo máximo que se puede pausar una baliza de una vez: diez minutos.
+ * El TECHO de una pausa: una hora.
  *
- * Con tope porque una pausa indefinida es otra forma de no saber nada, y quien
- * se baja de verdad tiene el botón de al lado para decirlo. Diez minutos es lo
- * que dura un avituallamiento largo o un cambio de ropa; para más, se vuelve a
- * pulsar. Espejo de `PAUSA_MAX_MIN` en las apps.
+ * No es lo que se pausa de una vez —eso son diez minutos, que es lo que dura un
+ * avituallamiento largo o un cambio de ropa— sino hasta dónde se puede llegar
+ * sumando de cinco en cinco desde la propia pantalla de la baliza: quien se
+ * para a comer no tiene por qué ir pulsando cada diez minutos con las manos
+ * frías.
+ *
+ * Sigue habiendo techo porque una pausa indefinida es otra forma de no saber
+ * nada, y quien se baja de verdad tiene el botón de al lado para decirlo.
+ * Espejo de `pausaTope` en iOS.
  */
-const PAUSA_MAX_MIN = 10
+const PAUSA_MAX_MIN = 60
 
 const PATH_MAX = 2000
 const MAX_BATCH = 600
