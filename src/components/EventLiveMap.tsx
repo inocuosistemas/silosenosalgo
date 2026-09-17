@@ -18,6 +18,8 @@ import {
   getEventLive, getEventPublic, getEventPlan, eventsErrorMessage, EventsError, EVENT_PHOTO_ASPECT,
 } from '../lib/eventsTransport'
 import type { SharePayloadV1 } from '../lib/sharePayload'
+import { reviveSharePayload } from '../lib/sharePayload'
+import { downloadGpx } from '../lib/gpxSerialize'
 import {
   eventCutoffs, marginToNextCutoff, marginToNextCutoffConPerfil, formatMargin, marginTone, type EventCutoff,
 } from '../lib/eventCutoffs'
@@ -996,6 +998,31 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
     }
   }, [plan, cutoffs, startMs])
 
+  /**
+   * El GPX del recorrido, bajado desde el propio mapa.
+   *
+   * Es el MISMO fichero que da la parrilla —trazado a resolución completa, los
+   * controles como `<wpt>` y los cierres dentro de `<extensions>`—, pero aquí
+   * no cuesta ni una petición: el recorrido ya está descargado para pintarlo,
+   * así que solo hay que serializarlo. Quien mira el mapa desde el enlace del
+   * grupo la víspera es justo quien lo quiere en el reloj, y hasta ahora tenía
+   * que irse a buscar la parrilla.
+   *
+   * Sin recorrido publicado no hay nada que bajar, y el enlace ni sale.
+   */
+  function descargaGpx() {
+    if (!plan) return
+    try {
+      const { track, cutoffWallClocks } = reviveSharePayload(plan)
+      // El nombre de la CARRERA, no el del track: es como se llama este
+      // fichero cuando está en el reloj entre otros veinte.
+      const nombre = (eventName || track.name || 'recorrido').replace(/[^a-z0-9_-]/gi, '_')
+      downloadGpx(track, cutoffWallClocks, `${nombre}.gpx`)
+    } catch {
+      setError('No se ha podido preparar el GPX del recorrido.')
+    }
+  }
+
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
   /** Lo que enseña la vista 3D: cada uno donde lo pinta el mapa, con lo justo para reconocerlo. */
   const corredores3D = useMemo<Corredor3D[]>(() => withFix.map((x) => ({
@@ -1292,6 +1319,22 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       <span className="text-slate-600">·</span>
                       <a href={links.websiteUrl!} target="_blank" rel="noopener noreferrer"
                          className="text-sky-400 hover:text-sky-300">Web ↗</a>
+                    </>
+                  )}
+                  {/* El recorrido, para llevárselo: el mapa ya lo tiene bajado
+                      —lo está pintando— así que esto no cuesta nada y ahorra
+                      el viaje a la parrilla a quien lo quiere en el reloj. */}
+                  {plan && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <button
+                        type="button"
+                        onClick={descargaGpx}
+                        title="Descargar el GPX del recorrido, con los controles y los cierres dentro"
+                        className="text-sky-400 hover:text-sky-300"
+                      >
+                        GPX ↓
+                      </button>
                     </>
                   )}
                 </p>
@@ -2187,7 +2230,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             {/* Los enlaces de la organización, aquí dentro mientras el cuadro
                 tapa su sitio de siempre: a quien espera en meta le sirven tanto
                 como el reloj. */}
-            {(isHttpUrl(links.trackingUrl) || isHttpUrl(links.websiteUrl)) && (
+            {(isHttpUrl(links.trackingUrl) || isHttpUrl(links.websiteUrl) || plan) && (
               <div className="mt-2 flex flex-wrap justify-center gap-1.5">
                 {isHttpUrl(links.trackingUrl) && (
                   <a href={links.trackingUrl!} target="_blank" rel="noopener noreferrer"
@@ -2200,6 +2243,19 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                      className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-sky-400 hover:border-sky-700">
                     🌐 Web ↗
                   </a>
+                )}
+                {/* La víspera es cuando se prepara el reloj, y este cuadro es
+                    justo lo que se está mirando la víspera: el recorrido se
+                    baja de aquí sin ir a buscar la parrilla. */}
+                {plan && (
+                  <button
+                    type="button"
+                    onClick={descargaGpx}
+                    title="Descargar el GPX del recorrido, con los controles y los cierres dentro"
+                    className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-sky-400 hover:border-sky-700"
+                  >
+                    📥 GPX
+                  </button>
                 )}
               </div>
             )}

@@ -86,6 +86,29 @@ devuelve el dato crudo, con la fecha y el número de descargas.
 
 ## 2026-09-17
 
+### El GPX del recorrido también se baja desde el mapa
+
+**Web · Compatible.** El recorrido de la carrera ya se podía descargar desde la
+parrilla del evento; ahora el mismo enlace está también en el **mapa**: en la
+línea de datos de la cabecera (`GPX ↓`, junto a *Oficial* y *Web*) y dentro del
+cuadro de la cuenta atrás, con los enlaces de la organización.
+
+Es **el mismo fichero** que da la parrilla —trazado a resolución completa, los
+controles como `<wpt>` y los cierres dentro de `<extensions>`—, porque sale del
+mismo sitio: el plan publicado del evento.
+
+Dos cosas que conviene no perder:
+
+- **No cuesta ni una petición.** El mapa ya tiene el recorrido descargado —lo
+  está pintando—, así que al pulsar solo se serializa lo que hay en memoria. La
+  parrilla sí tiene que pedirlo, porque allí no hace falta para nada más.
+- **Sin recorrido publicado, el enlace no sale.** No hay un botón que luego
+  avise de que no hay nada que bajar.
+
+Quien abre el enlace del grupo la víspera está mirando el mapa, no la parrilla,
+y es justo quien quiere el recorrido en el reloj. Vale también para el **enlace
+público**: el plan se sirve por `/api/share/:id`, que no pide sesión.
+
 ### Cada uno puede colgar una frase de su nombre en la parrilla
 
 **Web · Compatible.** En la parrilla, junto a cada participante, aparece una
