@@ -32,7 +32,10 @@ final class CheerNotifier {
         // no esté confirmada —permiso denegado, sin red al registrar, secretos
         // sin configurar en el servidor— este sigue siendo el único aviso que
         // hay, y por eso no se apaga a ciegas.
-        if MainActor.assumeIsolated({ PushRegistrar.shared.registrado }) { return }
+        // Sin `assumeIsolated`: a esto lo llama la respuesta de una petición de
+        // red, en un hilo de fondo, y afirmar que se está en el principal
+        // cerraba la app en el primer sondeo de ánimos.
+        if PushRegistrar.estaRegistrado { return }
         lock.lock()
         let firstBatch = lastSeenMs == 0
         let cut = lastSeenMs

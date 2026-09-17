@@ -24,6 +24,24 @@ final class PushRegistrar {
     /// `false` el aviso local sigue siendo la única vía, y por eso no se apaga.
     private(set) var registrado = false
 
+    /**
+     Lo mismo, pero preguntable DESDE CUALQUIER HILO.
+
+     Vive en `UserDefaults` —que es seguro entre hilos— y no en la propiedad de
+     arriba por un fallo que costó un cierre de la app: quien necesita
+     consultarlo es `CheerNotifier`, al que llama la respuesta de una petición de
+     red, o sea un hilo de fondo. Preguntarlo con `MainActor.assumeIsolated` no
+     comprueba nada: AFIRMA que se está en el hilo principal, y cuando no es
+     verdad el proceso muere en el sitio.
+
+     De paso persiste entre arranques, que es lo que se quiere: si el alta ya
+     estaba hecha, el aviso local no tiene que sonar mientras se rehace.
+     */
+    private static let claveRegistrado = "push.aparatoRegistrado"
+    nonisolated static var estaRegistrado: Bool {
+        UserDefaults.standard.bool(forKey: claveRegistrado)
+    }
+
     /// El último token que dio iOS, para poder darlo de baja al salir de la
     /// cuenta: si no, el móvil seguiría recibiendo los ánimos de quien ya no lo
     /// usa.
@@ -50,7 +68,9 @@ final class PushRegistrar {
         tokenAparato = hex
         guard let sesion = Keychain.load() else { return }
         Task { @MainActor in
-            registrado = await API.registerPush(token: sesion, deviceToken: hex)
+            let alta = await API.registerPush(token: sesion, deviceToken: hex)
+            registrado = alta
+            UserDefaults.standard.set(alta, forKey: Self.claveRegistrado)
         }
     }
 
@@ -60,5 +80,6 @@ final class PushRegistrar {
         guard let hex = tokenAparato, let sesion = Keychain.load() else { return }
         await API.unregisterPush(token: sesion, deviceToken: hex)
         registrado = false
+        UserDefaults.standard.set(false, forKey: Self.claveRegistrado)
     }
 }
