@@ -69,6 +69,9 @@ struct TrackingView: View {
     @State private var downloadRouteName: String?
     @State private var resolvingRoute = false
     @State private var pendingLogout = false
+    /// Cuántas salidas se enseñan sin tener que pedir más.
+    private let salidasVisibles = 4
+    @State private var verTodasLasSalidas = false
     @State private var showGuideImporter = false
     @State private var selectedGuide: LocalGuide?
     @State private var guideShareItem: GuideShareItem?
@@ -157,6 +160,32 @@ struct TrackingView: View {
             parts.append(store.startAt.formatted(date: .abbreviated, time: .shortened))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// El plazo de conservación, dicho como se dice en el selector.
+    private var retencionLabel: String {
+        store.retainHours >= 720 ? "30 días"
+            : store.retainHours >= 168 ? "1 semana"
+            : "\(Int(store.retainHours)) h"
+    }
+
+    /**
+     La cabecera de una sección: icono, versalitas y un color más vivo.
+
+     Todas se leían igual —gris pequeño— y en una pantalla con ocho apartados
+     eso no separa nada: el ojo no encuentra dónde empieza cada cosa y acaba
+     leyendo la lista entera como un churro. El icono es lo que de verdad
+     distingue de un vistazo; el color solo acompaña.
+     */
+    private func cabecera(_ texto: String, _ icono: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icono).font(.caption2)
+            Text(texto.uppercased())
+                .font(.caption.weight(.bold))
+                .kerning(0.8)
+        }
+        .foregroundStyle(Theme.sky500)
+        .padding(.top, 2)
     }
 
     /// Lo que se lee sin desplegar "Cómo se registra".
@@ -359,6 +388,25 @@ struct TrackingView: View {
                             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
                         }
                     }
+                    // CON QUÉ se va a salir, resumido justo encima del botón.
+                    //
+                    // Los ajustes viven plegados en dos secciones distintas y
+                    // nadie las despliega para comprobarlos antes de pulsar: se
+                    // salía en "Ahorro" o sin ruta sin haberlo querido, y eso no
+                    // se descubre hasta mirar el mapa a mitad de carrera. Aquí
+                    // no se toca nada —se lee—, y por eso va pequeño y en gris:
+                    // es una confirmación, no un mando más.
+                    if !store.isSharing {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Label(recordingSummary, systemImage: "dot.radiowaves.left.and.right")
+                            Label(outingSummary, systemImage: "map")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(Theme.slate400)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
+                    }
+
                     // El botón, junto al estado y no al final de la pantalla:
                     // es LA acción, y donde se lee "detenido" es donde se va a
                     // buscar cómo dejar de estarlo. Además deja la misma
@@ -439,7 +487,7 @@ struct TrackingView: View {
                     }
                 } footer: {
                     if !store.isSharing {
-                        Text("Al iniciar uno nuevo, el seguimiento anterior se conserva 48 h para poder consultarlo (o para siempre si lo fijas con la chincheta).")
+                        Text("Al iniciar uno nuevo, el anterior se cierra y se conserva \(retencionLabel) para poder consultarlo (o para siempre si lo fijas con la chincheta). El plazo se elige en «Cómo se registra».")
                             .font(.caption)
                             .foregroundStyle(Theme.slate400)
                     }
@@ -562,7 +610,7 @@ struct TrackingView: View {
                             .listRowSeparator(.hidden)
                         }
                     } header: {
-                        Text("Mis carreras").foregroundStyle(Theme.slate400)
+                        cabecera("Mis carreras", "flag.checkered")
                     } footer: {
                         Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu previsión. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
                             .font(.caption).foregroundStyle(Theme.slate400)
@@ -694,7 +742,7 @@ struct TrackingView: View {
                     }
                     .tint(Theme.sky500)
                 } header: {
-                    Text("Qué salida es esta").foregroundStyle(Theme.slate400)
+                    cabecera("Qué salida es esta", "figure.run")
                 } footer: {
                     if outingOpen {
                         Text(store.selectedEventId != nil
@@ -783,17 +831,27 @@ struct TrackingView: View {
                     }
                     .tint(Theme.sky500)
                 } header: {
-                    Text("Cómo se registra").foregroundStyle(Theme.slate400)
+                    cabecera("Cómo se registra", "dot.radiowaves.left.and.right")
                 } footer: {
                     if recordingOpen {
-                        Text("El gasto lo manda el GPS, no la frecuencia de envío: ahorrar es pedirle menos al GPS, y parado no gasta.")
-                            .font(.caption).foregroundStyle(Theme.slate400)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("El gasto lo manda el GPS, no la frecuencia de envío: ahorrar es pedirle menos al GPS, y parado no gasta.")
+                            // Esto vivía suelto al final de la pantalla, donde
+                            // no lo leía nadie y encima parecía una nota legal.
+                            // Habla de CÓMO se registra —de qué necesita el GPS
+                            // para seguir dando puntos—, así que va aquí.
+                            Text("Y hace falta la app abierta, aunque sea en segundo plano, con el indicador de ubicación encendido: iOS detiene el GPS si la cierras del todo.")
+                        }
+                        .font(.caption).foregroundStyle(Theme.slate400)
                     }
                 }
                 .listRowBackground(Theme.slate900)
 
                 if !store.isSharing {
                     Section {
+                        Text("GUÍAS")
+                            .font(.caption2.weight(.bold)).kerning(0.6)
+                            .foregroundStyle(Theme.slate400)
                         Button { showGuideImporter = true } label: {
                             Label("Importar .slsnsguide", systemImage: "square.and.arrow.down")
                         }
@@ -826,17 +884,14 @@ struct TrackingView: View {
                                 .accessibilityLabel("Más opciones de la guía")
                             }
                         }
-                    } header: {
-                        Text("Guías offline").foregroundStyle(Theme.slate400)
-                    } footer: {
-                        Text("Incluyen ruta, recorrido real, notas, fotos y audios. No incluyen teselas de mapa.")
-                            .font(.caption).foregroundStyle(Theme.slate400)
-                    }
-                    .listRowBackground(Theme.slate900)
-                }
-
-                if !store.isSharing {
-                    Section {
+                        // Y en la MISMA sección, debajo, las salidas: son la
+                        // respuesta a la misma pregunta —"¿qué tengo grabado?"—
+                        // y en dos apartados obligaban a mirar en dos sitios lo
+                        // que se busca de una vez.
+                        Divider().overlay(Theme.slate800).padding(.vertical, 2)
+                        Text("SALIDAS")
+                            .font(.caption2.weight(.bold)).kerning(0.6)
+                            .foregroundStyle(Theme.slate400)
                         if store.sessions.isEmpty {
                             // Sin red la lista viene vacía por no poder
                             // consultarla, no por no tener nada: decir "no
@@ -865,12 +920,32 @@ struct TrackingView: View {
                                         .foregroundStyle(Theme.sky500)
                                 }
                             }
-                            ForEach(store.sessions) { session in
+                            // Solo las últimas: la lista solo crece, y lo que se
+                            // viene a buscar es casi siempre la de hoy o la de
+                            // ayer. El resto sigue ahí, a un toque.
+                            let visibles = verTodasLasSalidas
+                                ? store.sessions
+                                : Array(store.sessions.prefix(salidasVisibles))
+                            ForEach(visibles) { session in
                                 sessionRow(session)
+                            }
+                            if store.sessions.count > salidasVisibles {
+                                Button(verTodasLasSalidas
+                                       ? "Ver menos"
+                                       : "Ver las \(store.sessions.count - salidasVisibles) restantes") {
+                                    withAnimation { verTodasLasSalidas.toggle() }
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .foregroundStyle(Theme.sky500)
+                                .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
                     } header: {
-                        Text("Mis seguimientos").foregroundStyle(Theme.slate400)
+                        cabecera("Lo que tienes grabado", "tray.full")
+                    } footer: {
+                        Text("Las guías llevan dentro la ruta, el recorrido real, las notas, las fotos y los audios; no, las teselas del mapa. Las salidas se conservan el plazo que elegiste, salvo las fijadas con la chincheta.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
                 }
@@ -902,7 +977,7 @@ struct TrackingView: View {
                         }
                         .buttonStyle(.plain)
                     } header: {
-                        Text("Nombre de esta salida").foregroundStyle(Theme.slate400)
+                        cabecera("Nombre de esta salida", "pencil")
                     }
                     .listRowBackground(Theme.slate900)
 
@@ -912,7 +987,7 @@ struct TrackingView: View {
                             .foregroundStyle(Theme.slate400)
                             .textSelection(.enabled)
                     } header: {
-                        Text("Enlace para compartir").foregroundStyle(Theme.slate400)
+                        cabecera("Enlace para compartir", "link")
                     }
                     .listRowBackground(Theme.slate900)
 
@@ -941,21 +1016,18 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
                 }
 
-                Section {
-                    Text("Mantén la app abierta (puede ser en segundo plano) con el indicador de ubicación activo. iOS detiene el GPS si cierras la app por completo.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.slate400)
-                }
-                .listRowBackground(Theme.slate900)
-
                 // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era
                 // fácil rozarlo con prisa, y es lo que menos se hace. Se sigue
                 // preguntando antes, que en marcha además hay que detener la
                 // baliza. Igual que en Android.
                 Section {
+                    // En rojo, pero apagado: es una salida, no una alarma. En
+                    // azul se leía como un enlace más de los muchos que hay en
+                    // esta pantalla, y lo que hace —cerrar la sesión, y en
+                    // marcha detener la baliza— no es como abrir un mapa.
                     Button("Salir de la cuenta") { pendingLogout = true }
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundStyle(Theme.sky500)
+                        .foregroundStyle(Theme.rose300.opacity(0.85))
                 }
                 .listRowBackground(Theme.slate900)
 

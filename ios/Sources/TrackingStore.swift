@@ -554,11 +554,14 @@ final class TrackingStore: ObservableObject {
     func loadSessions() async {
         // Best-effort: if it fails we keep whatever we had; never crash.
         if let result = try? await API.listSessions(token: token) {
-            // Pinned ("chincheta") sessions first, then most recently finished.
-            sessions = result.sorted {
-                if $0.isPinned != $1.isPinned { return $0.isPinned }
-                return Self.finishKey($0) > Self.finishKey($1)
-            }
+            // La más reciente arriba, SIEMPRE, chincheta o no.
+            //
+            // Antes las fijadas subían al principio, y eso confundía dos cosas
+            // distintas: la chincheta dice "esta no caduca", no "esta importa
+            // más que la de hoy". El resultado era que la salida de esta mañana
+            // aparecía por debajo de una de hace meses, justo cuando es la que
+            // se viene a buscar. Que no caduque se sigue viendo en su fila.
+            sessions = result.sorted { Self.finishKey($0) > Self.finishKey($1) }
             // Drop local trail/plan files for sessions the server no longer lists
             // (keep the current one even if it hasn't surfaced in the list yet).
             var keep = Set(result.map { $0.id })
