@@ -135,7 +135,13 @@ fun SeccionSesiones(
         }
     }
 
-    sesiones.forEach { s ->
+    // Solo las últimas: la lista solo crece, y lo que se viene a buscar es casi
+    // siempre la de hoy o la de ayer. El resto sigue ahí, a un toque. Igual que
+    // en iOS.
+    var verTodas by remember { mutableStateOf(false) }
+    val visibles = if (verTodas) sesiones else sesiones.take(SALIDAS_VISIBLES)
+
+    visibles.forEach { s ->
         FilaSesion(
             sesion = s,
             esLaActual = s.id == idActual,
@@ -149,6 +155,15 @@ fun SeccionSesiones(
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
         )
+    }
+
+    if (sesiones.size > SALIDAS_VISIBLES) {
+        TextButton(onClick = { verTodas = !verTodas }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (verTodas) "Ver menos" else "Ver las ${sesiones.size - SALIDAS_VISIBLES} restantes",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 
     renombrando?.let { s ->
@@ -1241,3 +1256,7 @@ private fun etiquetaIntervalo(segundos: Double): String =
 
 private fun fecha(epochMs: Double): String =
     SimpleDateFormat("d MMM HH:mm", Locale.getDefault()).format(Date(epochMs.toLong()))
+
+/** Cuántas salidas se enseñan sin tener que pedir más. Espejo de
+ *  `salidasVisibles` en iOS. */
+private const val SALIDAS_VISIBLES = 4

@@ -294,6 +294,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var arrancando by remember { mutableStateOf(false) }
     /** La otra baliza viva de esta cuenta, mientras se pregunta si relevarla. */
     var relevo by remember { mutableStateOf<TrackSessionSummary?>(null) }
+    /** Carrera que se va a unir a una baliza YA en marcha: cambia su salida. */
+    var carreraAUnir by remember { mutableStateOf<EventSummary?>(null) }
     val hayRed by Conectividad.online.collectAsState()
     LaunchedEffect(Unit) { Conectividad.inicia(context) }
     /** La nota que quedó si a ESTE móvil le quitaron la baliza. */
@@ -637,6 +639,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             // la que está cerca para preguntar por ella antes de empezar.
             textoEmpezar = eventos.firstOrNull { it.id == estado.eventoId }?.let { "Compartir para ${it.name}" }
                 ?: if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera",
+            lineaRegistro = resumenRegistro(estado),
+            lineaSalida = resumenSalida(estado, eventos, planes),
             carreraAPreguntar = if (estado.eventoId == null && !estado.compartiendo) {
                 TrackingRules.carreraCercana(eventos, System.currentTimeMillis().toDouble())
             } else null,
@@ -644,6 +648,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onParar = { TrackingService.para(context) },
             onPausar = { TrackingService.pausa(context) },
             onSeguir = { TrackingService.sigue(context) },
+            onAlargar = { TrackingService.alarga(context) },
             onAbandonar = { TrackingService.abandona(context) },
             onEmpezar = {
                 arrancando = true
@@ -670,7 +675,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         )
 
         if (estado.compartiendo) {
-            Seccion(titulo = "En directo") {
+            Seccion(titulo = "En directo", icono = "📍") {
                 // El nombre, y poder cambiarlo aquí mismo. Se le ocurre a uno a
                 // mitad de ruta —"esto no era un entrenamiento, era la carrera"—
                 // y hasta ahora había que bajar hasta "Mis seguimientos" y
@@ -709,9 +714,11 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         if (estado.compartiendo) {
             estado.enlace?.let { enlace ->
-                Seccion(titulo = "Enlace para compartir") {
-                    Text(enlace, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
-                    Spacer(Modifier.height(8.dp))
+                Seccion(titulo = "Enlace para compartir", icono = "🔗") {
+                    // Sin la URL en texto: leer cuarenta caracteres de enlace no
+                    // dice nada que no diga "tu enlace", y quien lo quería no lo
+                    // quería para mirarlo, sino para pegarlo. Para eso están los
+                    // dos botones. Igual que en iOS.
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { portapapeles.setText(AnnotatedString(enlace)) }) {
                             Text("Copiar")
@@ -756,12 +763,26 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // Las carreras, lo primero después de los mandos de emitir: quien abre
         // la app el día de una carrera la abre POR esa carrera.
         if (eventos.isNotEmpty() || eventosPasados.isNotEmpty()) {
-            Seccion(titulo = "Mis carreras") {
+            Seccion(titulo = "Mis carreras", icono = "🏁") {
                 SeccionCarreras(
                     eventos = eventos,
                     pasadas = eventosPasados,
                     elegido = estado.eventoId,
-                    onElige = { TrackingStore.ajustaEvento(it) },
+                    onElige = { id ->
+                        // Con la baliza EMITIENDO, unirse a una carrera no es un
+                        // ajuste más: su hora oficial pasa a ser la salida de lo
+                        // que ya se está grabando, y con ella el ritmo, los
+                        // cortes y el mapa en el que apareces. Un roce en la
+                        // lista no puede hacer eso, así que se pregunta.
+                        //
+                        // Soltarla no se pregunta: deshacer nunca necesita
+                        // permiso. Igual que en iOS.
+                        if (estado.compartiendo && id != null && id != estado.eventoId) {
+                            carreraAUnir = eventos.firstOrNull { it.id == id }
+                        } else {
+                            TrackingStore.ajustaEvento(id)
+                        }
+                    },
                     onAbrir = { id, vista -> TrackingStore.abreEvento(context, id, vista) },
                 )
             }
@@ -769,6 +790,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         SeccionPlegable(
             titulo = "Qué salida es esta",
+            icono = "🏃",
             resumen = resumenSalida(estado, eventos, planes),
             // Sin decidir todavía, abierta: es la única sección que hay que
             // mirar antes de la primera salida.
@@ -818,13 +840,21 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // partir la traza en dos.
         SeccionPlegable(
             titulo = "Cómo se registra",
+            icono = "📡",
             resumen = resumenRegistro(estado),
+            // Lo de mantener la app abierta vive AQUÍ, y no suelto al final de la
+            // pantalla ni solo en el estado armado: habla de qué necesita el GPS
+            // para seguir dando puntos, que es de lo que trata esta sección.
             pie = if (estado.compartiendo) {
                 "Se puede cambiar sobre la marcha: el ritmo nuevo se aplica al " +
-                    "momento, sin cortar la traza."
+                    "momento, sin cortar la traza. Y hace falta la app abierta, " +
+                    "aunque sea en segundo plano: cerrada del todo, el sistema " +
+                    "acaba parando el GPS."
             } else {
                 "El gasto lo manda el GPS, no la frecuencia de envío: por eso " +
-                    "ahorrar es pedirle menos al GPS, y parado no gasta."
+                    "ahorrar es pedirle menos al GPS, y parado no gasta. Y hace " +
+                    "falta la app abierta, aunque sea en segundo plano: cerrada " +
+                    "del todo, el sistema acaba parando el GPS."
             },
         ) {
             SelectorActividad(estado.actividad) { TrackingStore.ajustaActividad(it) }
@@ -853,11 +883,48 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             Spacer(Modifier.height(12.dp))
         }
 
+        carreraAUnir?.let { ev ->
+            AlertDialog(
+                onDismissRequest = { carreraAUnir = null },
+                title = { Text("¿Unes esta baliza a ${ev.name}?") },
+                text = {
+                    Text(
+                        "Su hora de salida oficial pasa a ser la de esta baliza, y apareces en " +
+                            "su mapa. Cambia el ritmo y los cortes de lo que ya llevas grabado.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        TrackingStore.ajustaEvento(ev.id)
+                        carreraAUnir = null
+                    }) { Text("Sí, corro ${ev.name}") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { carreraAUnir = null }) { Text("Cancelar") }
+                },
+            )
+        }
+
         // Y abajo del todo, lo GUARDADO: guías y seguimientos pasados. No es lo
         // que se viene a mirar mientras se anda, y arriba solo estorbaba.
         Spacer(Modifier.height(28.dp))
 
-        Seccion(titulo = "Guías offline") {
+        // Guías y salidas, en la MISMA sección: son la respuesta a la misma
+        // pregunta —"¿qué tengo grabado?"— y en dos apartados obligaban a mirar
+        // en dos sitios lo que se busca de una vez. Igual que en iOS.
+        Seccion(
+            titulo = "Lo que tienes grabado",
+            icono = "🗂️",
+            pie = "Las guías llevan dentro la ruta, el recorrido real, las notas, " +
+                "las fotos y los audios; no, las teselas del mapa. Las salidas se " +
+                "conservan el plazo que elegiste, salvo las fijadas con la chincheta.",
+        ) {
+            Text(
+                "GUÍAS",
+                style = MaterialTheme.typography.labelSmall,
+                color = Paleta.slate400,
+                fontWeight = FontWeight.Bold,
+            )
             SeccionGuias(
                 guias = guias,
                 onImportar = { abreGuia.launch(arrayOf("*/*")) },
@@ -867,9 +934,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 },
                 onBorrar = { TrackingStore.borraGuia(it.id) },
             )
-        }
 
-        Seccion(titulo = "Mis seguimientos") {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "SALIDAS",
+                style = MaterialTheme.typography.labelSmall,
+                color = Paleta.slate400,
+                fontWeight = FontWeight.Bold,
+            )
             SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,
@@ -928,9 +1000,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // rozarlo con prisa, y es lo que menos se hace. Se sigue preguntando
         // antes, que en marcha además hay que detener la baliza. Igual que en iOS.
         Spacer(Modifier.height(8.dp))
+        // En rojo, pero apagado: es una salida, no una alarma. En azul se leía
+        // como un enlace más de los muchos que hay en esta pantalla, y lo que
+        // hace —cerrar la sesión, y en marcha detener la baliza— no es como
+        // abrir un mapa. Igual que en iOS.
         OutlinedButton(
             onClick = { confirmandoSalida = true },
             modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.rojo.copy(alpha = 0.85f)),
         ) { Text("Salir de la cuenta") }
 
         // La versión, al pie y en pequeño. No es decoración: es lo primero que
@@ -1044,16 +1121,23 @@ private fun EstadoCompacto(
     arrancando: Boolean,
     hayPermiso: Boolean,
     textoEmpezar: String,
+    /** Con qué se va a salir, resumido: se lee justo encima del botón. Llegan
+     *  hechos porque se arman con los eventos y los planes, que viven arriba. */
+    lineaRegistro: String,
+    lineaSalida: String,
     carreraAPreguntar: EventSummary?,
     onElegirCarrera: (String) -> Unit,
     onEmpezar: () -> Unit,
     onParar: () -> Unit,
     onPausar: () -> Unit,
     onSeguir: () -> Unit,
+    onAlargar: () -> Unit,
     onAbandonar: () -> Unit,
 ) {
     // Abandonar se pregunta: es lo único de esta pantalla que no se deshace.
     var confirmaAbandono by remember { mutableStateOf(false) }
+    // Y parar también: seis horas de traza no pueden depender de un roce.
+    var confirmaParada by remember { mutableStateOf(false) }
     // Salir sin carrera con una cerca se pregunta: sin ella no se sale en su mapa.
     var preguntaCarrera by remember { mutableStateOf(false) }
     val vista = LocalView.current
@@ -1122,28 +1206,46 @@ private fun EstadoCompacto(
             val pausada = estado.pausadaHasta?.let { it > System.currentTimeMillis() } == true
             if (pausada) {
                 val quedan = maxOf(1, ((estado.pausadaHasta!! - System.currentTimeMillis()) / 60_000).toInt())
-                Row(
-                    Modifier.fillMaxWidth()
-                        .background(Paleta.ambar.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("⏸  En pausa", color = Paleta.ambar, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Vuelve sola en $quedan min · quien te sigue lo ve",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Paleta.slate400,
-                        )
-                    }
-                    TextButton(onClick = onSeguir) { Text("Seguir") }
+                // Estando en pausa, lo único que se quiere hacer es alargarla un
+                // poco o volver a emitir. Así que el botón se parte en dos: eso
+                // y nada más. Antes había que buscar un "Seguir" pequeño dentro
+                // de un cuadro, y no había forma de sumar minutos sin esperar a
+                // que venciera. Igual que en iOS.
+                Text(
+                    "En pausa · vuelve sola en $quedan min",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.ambar,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Ámbar el que sigue pausando, verde el que devuelve la
+                    // baliza a la carrera: el color dice cuál es cuál antes de
+                    // leerlos.
+                    Button(
+                        onClick = onAlargar,
+                        enabled = quedan + TrackingRules.PAUSA_PASO_MIN <= TrackingRules.PAUSA_TOPE_MIN,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Paleta.ambar,
+                            contentColor = Paleta.slate950,
+                        ),
+                    ) { Text("+${TrackingRules.PAUSA_PASO_MIN} min") }
+                    Button(
+                        onClick = onSeguir,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Paleta.verde,
+                            contentColor = Paleta.slate950,
+                        ),
+                    ) { Text("Continuar") }
                 }
             } else {
                 OutlinedButton(
                     onClick = onPausar,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.ambar),
-                ) { Text("⏸  Pausa ${TrackingRules.PAUSA_MAX_MIN} min") }
+                ) { Text("Pausar ${TrackingRules.PAUSA_MAX_MIN} min") }
             }
         }
         // Corriendo una carrera, apagar ES bajarse de ella, y dicho así queda en
@@ -1152,6 +1254,28 @@ private fun EstadoCompacto(
         // compartir.
         val abandonaAlParar = estado.compartiendo && !estado.enEspera &&
             estado.eventoId != null && !estado.enMeta
+        if (confirmaParada) {
+            AlertDialog(
+                onDismissRequest = { confirmaParada = false },
+                title = { Text("¿Dejas de compartir?") },
+                text = {
+                    Text(
+                        "Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. " +
+                            "Si solo te paras un rato, usa la pausa.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmaParada = false
+                        Vibracion.fin(vista)
+                        onParar()
+                    }) { Text("Sí, dejar de compartir") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmaParada = false }) { Text("No, sigo") }
+                },
+            )
+        }
         if (confirmaAbandono) {
             AlertDialog(
                 onDismissRequest = { confirmaAbandono = false },
@@ -1209,8 +1333,11 @@ private fun EstadoCompacto(
                     if (abandonaAlParar) {
                         confirmaAbandono = true
                     } else {
-                        Vibracion.fin(vista)
-                        onParar()
+                        // Parar también se pregunta. Quien lleva seis horas
+                        // emitiendo no puede quedarse sin baliza por un roce con
+                        // el pulgar, y este botón está justo donde se toca todo
+                        // lo demás. Igual que en iOS.
+                        confirmaParada = true
                     }
                 },
                 colors = ButtonDefaults.buttonColors(
@@ -1220,6 +1347,22 @@ private fun EstadoCompacto(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (abandonaAlParar) "Abandonar" else "Dejar de compartir") }
         } else {
+            // CON QUÉ se va a salir, resumido justo encima del botón. Los ajustes
+            // viven plegados en dos secciones y nadie las despliega para
+            // comprobarlos antes de pulsar: se salía en "Ahorro" o sin ruta sin
+            // haberlo querido, y eso no se descubre hasta mirar el mapa a mitad
+            // de camino. Aquí no se toca nada —se lee—, y por eso va pequeño.
+            Text(
+                "📡  $lineaRegistro",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+            Text(
+                "🗺️  $lineaSalida",
+                style = MaterialTheme.typography.bodySmall,
+                color = Paleta.slate400,
+            )
+            Spacer(Modifier.height(10.dp))
             Button(
                 onClick = {
                     if (carreraAPreguntar != null) {
@@ -1237,8 +1380,10 @@ private fun EstadoCompacto(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Al iniciar uno nuevo, el seguimiento anterior se conserva para " +
-                    "poder consultarlo (o para siempre si lo fijas con la chincheta).",
+                "Al iniciar uno nuevo, el anterior se cierra y se conserva " +
+                    "${TrackingRules.etiquetaRetencion(estado.retenerHoras)} para poder " +
+                    "consultarlo (o para siempre si lo fijas con la chincheta). El plazo " +
+                    "se elige en «Cómo se registra».",
                 style = MaterialTheme.typography.bodySmall,
                 color = Paleta.slate400,
             )

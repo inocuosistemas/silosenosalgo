@@ -104,21 +104,35 @@ fun TemaSlsns(contenido: @Composable () -> Unit) {
 @Composable
 fun Seccion(
     titulo: String? = null,
+    /** Un emoji delante del título. Es lo que de verdad distingue una sección de
+     *  otra de un vistazo: con ocho apartados, ocho títulos iguales en gris no
+     *  separan nada y la pantalla se lee como un churro. */
+    icono: String? = null,
     pie: String? = null,
     modifier: Modifier = Modifier,
     contenido: @Composable () -> Unit,
 ) {
     Column(modifier.fillMaxWidth().padding(bottom = 22.dp)) {
         titulo?.let {
-            Text(
-                it.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = Paleta.slate400,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 11.sp,
-                letterSpacing = 0.8.sp,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
-            )
+            ) {
+                icono?.let { emoji ->
+                    Text(emoji, fontSize = 11.sp)
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(
+                    it.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    // En el color de acento y no en gris: el gris es para lo que
+                    // acompaña, y una cabecera es lo que ordena.
+                    color = Paleta.sky500,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.8.sp,
+                )
+            }
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = Paleta.slate900),
@@ -158,13 +172,14 @@ fun Seccion(
 fun SeccionPlegable(
     titulo: String,
     resumen: String,
+    icono: String? = null,
     pie: String? = null,
     /** Abierta de partida: para lo que aún está sin decidir. */
     abiertaPorDefecto: Boolean = false,
     contenido: @Composable () -> Unit,
 ) {
     var abierta by remember { mutableStateOf(abiertaPorDefecto) }
-    Seccion(titulo = titulo, pie = if (abierta) pie else null) {
+    Seccion(titulo = titulo, icono = icono, pie = if (abierta) pie else null) {
         Row(
             modifier = Modifier.fillMaxWidth().clickable { abierta = !abierta },
             horizontalArrangement = Arrangement.SpaceBetween,

@@ -230,6 +230,10 @@ class ApiException(val status: Int, val code: String) : Exception() {
             "rate_limited" -> "Demasiados intentos. Inténtalo de nuevo en unos minutos."
             "unauthorized" -> "Sesión caducada. Inicia sesión de nuevo."
             "ended" -> "La sesión de seguimiento ha terminado."
+            // El servidor no deja unirse a una carrera que todavía no toca:
+            // poner su hora oficial como salida de una baliza en marcha la
+            // dejaría en cuenta atrás en vez de emitiendo.
+            "event_not_yet" -> "Esa carrera todavía no empieza. Podrás unir la baliza desde unas horas antes de su salida."
             "network" -> "No se pudo conectar con el servidor."
             else -> "Error ($status): $code"
         }

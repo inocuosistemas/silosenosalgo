@@ -83,12 +83,21 @@ object TrackingRules {
      * Lo que se pausa una baliza de una vez: diez minutos, lo que dura un
      * avituallamiento largo o un cambio de ropa.
      *
-     * Aquí, para más, se vuelve a pulsar. En iOS el botón se parte en pausa y
-     * deja sumar de cinco en cinco hasta una hora (`pausaPaso`/`pausaTope`), y
-     * ese es el techo que admite el servidor (`PAUSA_MAX_MIN`): esta constante
-     * es el valor POR DEFECTO, no el máximo que aceptaría el backend.
+     * Es el valor POR DEFECTO, no el máximo: estando en pausa, el botón se parte
+     * y deja sumar de cinco en cinco hasta el techo, sin salir de la pausa. Con
+     * las manos frías, pulsar cada diez minutos no es una opción.
+     *
+     * El techo lo comparte el servidor (`PAUSA_MAX_MIN` en
+     * functions/api/track/[id]/ping.ts), que recorta cualquier cosa mayor, y
+     * `TrackingStore.pausaPaso`/`pausaTope` en iOS.
      */
     const val PAUSA_MAX_MIN = 10
+
+    /** Lo que suma cada pulsación de "+5", y hasta dónde se puede llegar
+     *  sumando. Con techo porque una pausa indefinida es otra forma de no saber
+     *  nada, y quien se baja de verdad tiene el otro botón para decirlo. */
+    const val PAUSA_PASO_MIN = 5
+    const val PAUSA_TOPE_MIN = 60
 
     /** Cada cuánto despierta el bucle de reintento: vacía el atasco cuando
      *  vuelve la cobertura aunque quien camina esté parado. Es una ayuda, no el
@@ -336,12 +345,17 @@ object TrackingRules {
     fun claveOrden(s: TrackSessionSummary): Double =
         if (s.isActive) Double.MAX_VALUE else s.endedAt ?: s.updatedAt ?: s.startedAt
 
-    /** Primero las fijadas con chincheta, luego por reciente. */
+    /**
+     * La más reciente arriba, SIEMPRE, chincheta o no.
+     *
+     * Antes las fijadas subían al principio, y eso confundía dos cosas
+     * distintas: la chincheta dice "esta no caduca", no "esta importa más que la
+     * de hoy". El resultado era que la salida de esta mañana quedaba por debajo
+     * de una de hace meses, justo cuando es la que se viene a buscar. Que no
+     * caduque se sigue viendo en su fila, con su 📌.
+     */
     fun ordenaSesiones(sesiones: List<TrackSessionSummary>): List<TrackSessionSummary> =
-        sesiones.sortedWith(
-            compareByDescending<TrackSessionSummary> { it.isPinned }
-                .thenByDescending { claveOrden(it) },
-        )
+        sesiones.sortedByDescending { claveOrden(it) }
 
     /**
      * Una sesión cuya ruta ya ha borrado el servidor: sin chincheta y pasada su

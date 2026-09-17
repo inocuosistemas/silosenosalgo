@@ -493,12 +493,15 @@ class TrackingRulesTest {
         pinned = fijada,
     )
 
-    @Test fun `las fijadas van primero aunque sean viejas`() {
+    @Test fun `la chincheta no adelanta a la mas reciente`() {
+        // La chincheta dice "esta no caduca", no "esta importa más que la de
+        // hoy". Cuando las fijadas subían al principio, la salida de esta mañana
+        // quedaba por debajo de una de hace meses.
         val lista = listOf(
-            sesion("nueva", terminada = 1000.0),
             sesion("vieja-fijada", fijada = true, terminada = 10.0),
+            sesion("nueva", terminada = 1000.0),
         )
-        assertEquals("vieja-fijada", TrackingRules.ordenaSesiones(lista).first().id)
+        assertEquals("nueva", TrackingRules.ordenaSesiones(lista).first().id)
     }
 
     @Test fun `las que siguen en marcha flotan por encima de las terminadas`() {

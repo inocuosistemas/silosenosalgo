@@ -430,6 +430,23 @@ object TrackingStore {
         guardaActivo()
     }
 
+    /**
+     * Cinco minutos más, sin salir de la pausa.
+     *
+     * Se suman a lo que QUEDA, no a los diez de partida: pulsarlo con tres
+     * minutos por delante deja ocho, que es lo que espera quien lo pulsa. Al
+     * servidor se le manda el TOTAL, no el incremento, porque una pausa es una
+     * hora límite y no una cuenta de minutos sueltos.
+     */
+    suspend fun alarga() {
+        val e = _estado.value
+        val hasta = e.pausadaHasta ?: return
+        if (!e.compartiendo || hasta <= ahoraMs) return
+        val quedan = (hasta - ahoraMs) / 60_000.0
+        val total = minOf(TrackingRules.PAUSA_TOPE_MIN.toDouble(), quedan + TrackingRules.PAUSA_PASO_MIN)
+        pausa(minutos = maxOf(1, Math.round(total).toInt()))
+    }
+
     /** Vuelve de la pausa: se acabó el rato, o se ha pulsado "seguir". */
     suspend fun reanuda() {
         val e = _estado.value
@@ -690,7 +707,12 @@ object TrackingStore {
                     // no enseñar un evento al que en realidad no se está unido.
                     _estado.value = _estado.value.copy(
                         eventoId = anterior,
-                        error = "No se pudo unir la baliza al evento.",
+                        // Con el motivo del servidor cuando lo hay: si la carrera
+                        // todavía no toca (`event_not_yet`), eso es exactamente
+                        // lo que hay que leer, y no un "no se pudo" que no dice
+                        // qué hacer. Antes se pisaba con el texto genérico.
+                        error = (it as? ApiException)?.message
+                            ?: "No se pudo unir la baliza al evento.",
                     )
                     guardaActivo()
                 }
@@ -1758,6 +1780,15 @@ object TrackingStore {
     fun tic() {
         val e = _estado.value
         if (!e.compartiendo) return
+        // Se acabó la pausa: la baliza vuelve sola, que es lo que la pantalla
+        // promete. Hasta ahora lo prometía y no pasaba: nadie reanudaba al
+        // vencer el plazo, así que se quedaba muda —con el motor de GPS parado—
+        // hasta que alguien se acordaba de pulsar "Seguir". Justo el silencio
+        // que la pausa venía a evitar. Mismo arreglo que en iOS.
+        if (e.pausadaHasta != null && e.pausadaHasta <= ahoraMs) {
+            scope.launch { reanuda() }
+            return
+        }
         if (e.enEspera) {
             quizaAvisaDeLaSalida(e)
             quizaEmpieza()
