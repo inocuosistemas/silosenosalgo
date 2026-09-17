@@ -72,6 +72,8 @@ struct TrackingView: View {
     /// Cuántas salidas se enseñan sin tener que pedir más.
     private let salidasVisibles = 4
     @State private var verTodasLasSalidas = false
+    /// Acuse de «Copiado» en el botón del enlace, un par de segundos.
+    @State private var enlaceCopiado = false
     @State private var showGuideImporter = false
     @State private var selectedGuide: LocalGuide?
     @State private var guideShareItem: GuideShareItem?
@@ -301,16 +303,45 @@ struct TrackingView: View {
                     // El ENLACE, a un toque: es lo que se busca en cuanto alguien
                     // pregunta "¿dónde te sigo?", y estaba al final de la pantalla.
                     if store.isSharing, let link = store.shareLink {
-                        ShareLink(item: link) {
-                            Label("Compartir enlace", systemImage: "square.and.arrow.up")
-                                .font(.footnote.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 11)
+                        HStack(spacing: 8) {
+                            ShareLink(item: link) {
+                                Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                                    .font(.footnote.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 11)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.sky500)
+                            .background(Theme.sky500.opacity(0.16))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                            // Copiar, AQUÍ. El enlace entero se enseñaba abajo,
+                            // en un apartado propio al final de la pantalla, y
+                            // eso no ayudaba a nadie: leer una URL de cuarenta
+                            // caracteres no dice nada que no diga "tu enlace", y
+                            // quien la quería no la quería para mirarla, sino
+                            // para pegarla. Compartir y copiar son las dos cosas
+                            // que se hacen con un enlace, y van juntas.
+                            Button {
+                                UIPasteboard.general.string = link
+                                Vibra.eleccion()
+                                enlaceCopiado = true
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    enlaceCopiado = false
+                                }
+                            } label: {
+                                Label(enlaceCopiado ? "Copiado" : "Copiar",
+                                      systemImage: enlaceCopiado ? "checkmark" : "doc.on.doc")
+                                    .font(.footnote.weight(.semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 11)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.sky500)
+                            .background(Theme.sky500.opacity(0.16))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.sky500)
-                        .background(Theme.sky500.opacity(0.16))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                     // Bajarse o pararse: las dos cosas que se hacen EN CARRERA
@@ -978,16 +1009,6 @@ struct TrackingView: View {
                         .buttonStyle(.plain)
                     } header: {
                         cabecera("Nombre de esta salida", "pencil")
-                    }
-                    .listRowBackground(Theme.slate900)
-
-                    Section {
-                        Text(link)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.slate400)
-                            .textSelection(.enabled)
-                    } header: {
-                        cabecera("Enlace para compartir", "link")
                     }
                     .listRowBackground(Theme.slate900)
 
