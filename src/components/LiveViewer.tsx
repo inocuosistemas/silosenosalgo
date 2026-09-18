@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CargandoMarca } from './CargandoMarca'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
@@ -9,6 +9,8 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
+import { guardaMotorMapa, leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
+import type { ApiMapaFluido } from './MapaFluido'
 import {
   CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
   type TrackStateResponse, type BeaconActivity, type TrackCheer,
@@ -60,6 +62,12 @@ const MOVING_MIN_KMH = 1.5    // trail segments slower than this count as stoppe
 const ELE_MIN_SPAN_M = 400    // minimum vertical span (m) for the route profile, so a near-flat route doesn't look exaggerated (same trick as the main web chart)
 
 type ViewMode = 'map' | 'cards'
+
+// El mapa fluido va en su propio trozo del paquete: MapLibre pesa, y solo se
+// descarga si alguien lo elige. Quien sigue con el clásico no paga nada.
+const MapaFluido = lazy(() => import('./MapaFluido'))
+/** Sin puntos con nombre: la misma lista vacía siempre, para no rehacer nada. */
+const SIN_PUNTOS: { lat: number; lon: number; name: string }[] = []
 
 /** Tiempo sin tocar el mapa tras el cual se vuelve a seguir al corredor solo. */
 const AUTO_FOLLOW_IDLE_MS = 60_000
@@ -755,6 +763,29 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // (si viviera dentro giraría con el mapa), así que necesita la instancia.
   const [mapa, setMapa] = useState<L.Map | null>(null)
   const [rumbo, setRumbo] = useState(0)
+  // Con qué se dibuja el mapa. El clásico por defecto; el fluido, si se elige
+  // en los ajustes del panel. Si el dispositivo no puede con el fluido (sin
+  // WebGL), se vuelve al clásico para esta visita sin tocar la preferencia.
+  const [motor, setMotor] = useState<MotorMapa>(leeMotorMapa)
+  const [falloFluido, setFalloFluido] = useState<string | null>(null)
+  const usaFluido = motor === 'fluido' && !falloFluido
+  const [inclinado, setInclinado] = useState(false)
+  const apiFluido = useRef<ApiMapaFluido | null>(null)
+  const onVistaFluido = useCallback((v: { rumbo: number; inclinado: boolean }) => {
+    setRumbo(v.rumbo)
+    setInclinado(v.inclinado)
+  }, [])
+  const onListoFluido = useCallback((api: ApiMapaFluido) => { apiFluido.current = api }, [])
+  const onFalloFluido = useCallback((motivo: string) => setFalloFluido(motivo), [])
+  const cambiaMotor = (m: MotorMapa) => {
+    guardaMotorMapa(m)
+    setMotor(m)
+    setFalloFluido(null)
+    // El mapa nuevo nace mirando al norte.
+    setRumbo(0)
+    setInclinado(false)
+    apiFluido.current = null
+  }
   // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
   // para que repetir la misma nota vuelva a centrar.
   const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
@@ -2514,6 +2545,51 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     )
   }
 
+  // Lo que se ve al tocar una parada o una nota. Una sola vez, para los dos
+  // mapas: el fluido pinta EXACTAMENTE esto dentro de su bocadillo.
+  const contenidoParada = (p: (typeof stops)[number]) => (
+    <div style={{ minWidth: 130 }}>
+      <div style={{ fontWeight: 600 }}>{p.open ? '⏸️ Parado ahora' : '⏸️ Parada'}</div>
+      <div style={{ marginTop: 2 }}>
+        {p.open
+          ? `Lleva ${hhmm((refNow - p.from) / 60_000)}`
+          : `${hhmm((p.to - p.from) / 60_000)} de parada`}
+      </div>
+      <div style={{ marginTop: 2, opacity: 0.7, fontSize: 11 }}>
+        Desde las {formatTime(new Date(p.from))}
+        {!p.open && ` · hasta las ${formatTime(new Date(p.to))}`}
+      </div>
+    </div>
+  )
+  const contenidoNota = (n: (typeof notes)[number]) => {
+    const t = poiTypeFor(n.poiType)
+    return (
+      <div style={{ minWidth: 140, maxWidth: 220 }}>
+        <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
+        {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
+        {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
+          <button
+            type="button"
+            onClick={() => setPhotoViewer({
+              src: localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+              alt: `Foto de ${n.title || t.label}`,
+            })}
+            aria-label="Ver foto en grande"
+            style={{ display: 'block', marginTop: 6, width: '100%', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}
+          >
+            <img src={localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ display: 'block', width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
+          </button>
+        )}
+        {n.audioKey && (localGuide?.mediaUrl(n.id, 'audio') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=audio` : null)) && (
+          <audio controls preload="none" src={localGuide?.mediaUrl(n.id, 'audio') ?? `/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
+        )}
+        <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+          {formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}
+        </div>
+      </div>
+    )
+  }
+
   // ── Map view (default) ─────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-100">
@@ -2521,6 +2597,45 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           brújula que trae el plugin se apaga —`rotateControl={false}`— porque
           cicla entre tres modos (toque, compás del móvil, bloqueado) y aquí
           solo hace falta uno: volver al norte. El nuestro está más abajo. */}
+      {usaFluido ? (
+        <Suspense fallback={<div className="absolute inset-0 bg-slate-950" />}>
+          <MapaFluido
+            tileUrl={tileUrl}
+            centro={center}
+            zoom={fix || trail.length ? 14 : plan ? 13 : 6}
+            plan={planLatLng}
+            calor={heatRange && plan
+              ? heatBins.flatMap((b) => {
+                  if (b.speedKmh == null) return []
+                  const pts = pathBetweenKm(plan.track, b.fromKm, b.toKm)
+                  return pts.length < 2 ? [] : [{ positions: pts, color: heatColor(b.speedKmh, heatRange) }]
+                })
+              : null}
+            traza={trailSegments}
+            pausas={showPauses
+              ? stops.map((st, i) => ({ clave: `${i}|${st.from}|${st.open}`, lat: st.lat, lon: st.lon, icon: pauseDivIcon(st.open), contenido: () => contenidoParada(st) }))
+              : []}
+            puntosRuta={plan?.track.namedWaypoints ?? SIN_PUNTOS}
+            notas={notes.map((n) => ({ clave: `${n.id}|${n.poiType}`, lat: n.lat, lon: n.lon, icon: noteDivIcon(n.poiType), contenido: () => contenidoNota(n) }))}
+            hueco={showGap && reported && fix
+              ? {
+                  desde: [reported.lat, reported.lon],
+                  hasta: [fix.lat, fix.lon],
+                  etiqueta: `Seguidores te ven aquí · ${formatDist(reportedGapKm)}${reportedStaleMin >= 1 ? ` · hace ${reportedStaleMin} min` : ''} atrás`,
+                }
+              : null}
+            fantasma={ghostPos ? { pos: ghostPos, etiqueta: `Según el plan deberías ir por aquí · km ${ghostKm!.toFixed(1)}` } : null}
+            corredor={fix && posicionPintada ? { pos: posicionPintada, icon: pulseDivIcon(fixColor, !ended && !fr?.stale) } : null}
+            destello={focus && ping > 0 ? { clave: ping, pos: [focus.lat, focus.lon], icon: notePingIcon } : null}
+            seguir={fix ? { lat: fix.lat, lon: fix.lon, nudge: recentre } : null}
+            irA={focus ? { lat: focus.lat, lon: focus.lon, nudge: focus.n } : null}
+            encuadrarPlan={!fix && !!plan && planLatLng.length > 1}
+            onVista={onVistaFluido}
+            onListo={onListoFluido}
+            onFallo={onFalloFluido}
+          />
+        </Suspense>
+      ) : (
       <MapContainer
         ref={setMapa}
         center={center}
@@ -2567,20 +2682,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         ))}
         {showPauses && stops.map((p, i) => (
           <Marker key={`pause-${i}`} position={[p.lat, p.lon]} icon={pauseDivIcon(p.open)}>
-            <Popup>
-              <div style={{ minWidth: 130 }}>
-                <div style={{ fontWeight: 600 }}>{p.open ? '⏸️ Parado ahora' : '⏸️ Parada'}</div>
-                <div style={{ marginTop: 2 }}>
-                  {p.open
-                    ? `Lleva ${hhmm((refNow - p.from) / 60_000)}`
-                    : `${hhmm((p.to - p.from) / 60_000)} de parada`}
-                </div>
-                <div style={{ marginTop: 2, opacity: 0.7, fontSize: 11 }}>
-                  Desde las {formatTime(new Date(p.from))}
-                  {!p.open && ` · hasta las ${formatTime(new Date(p.to))}`}
-                </div>
-              </div>
-            </Popup>
+            <Popup>{contenidoParada(p)}</Popup>
           </Marker>
         ))}
         {plan?.track.namedWaypoints.map((w, i) => (
@@ -2588,38 +2690,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             <Tooltip>{w.name}</Tooltip>
           </CircleMarker>
         ))}
-        {notes.map((n) => {
-          const t = poiTypeFor(n.poiType)
-          return (
-            <Marker key={`note-${n.id}`} position={[n.lat, n.lon]} icon={noteDivIcon(n.poiType)}>
-              <Popup>
-                <div style={{ minWidth: 140, maxWidth: 220 }}>
-                  <div style={{ fontWeight: 600 }}>{t.emoji} {n.title || t.label}</div>
-                  {n.body && <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{n.body}</div>}
-                  {n.photoKey && (localGuide?.mediaUrl(n.id, 'photo') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=photo` : null)) && (
-                    <button
-                      type="button"
-                      onClick={() => setPhotoViewer({
-                        src: localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`,
-                        alt: `Foto de ${n.title || t.label}`,
-                      })}
-                      aria-label="Ver foto en grande"
-                      style={{ display: 'block', marginTop: 6, width: '100%', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}
-                    >
-                      <img src={localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`} alt="" style={{ display: 'block', width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 6 }} />
-                    </button>
-                  )}
-                  {n.audioKey && (localGuide?.mediaUrl(n.id, 'audio') ?? (token ? `/api/track/${token}/notes/${n.id}/media?kind=audio` : null)) && (
-                    <audio controls preload="none" src={localGuide?.mediaUrl(n.id, 'audio') ?? `/api/track/${token}/notes/${n.id}/media?kind=audio`} style={{ marginTop: 6, width: '100%' }} />
-                  )}
-                  <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
-                    {formatTime(new Date(n.createdAt))}{n.trackKm != null ? ` · km ${n.trackKm.toFixed(1)}` : ''}
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          )
-        })}
+        {notes.map((n) => (
+          <Marker key={`note-${n.id}`} position={[n.lat, n.lon]} icon={noteDivIcon(n.poiType)}>
+            <Popup>{contenidoNota(n)}</Popup>
+          </Marker>
+        ))}
         {showGap && reported && fix && (
           <>
             <Polyline positions={[[reported.lat, reported.lon], [fix.lat, fix.lon]]} pathOptions={{ color: '#f59e0b', weight: 2, opacity: 0.85, dashArray: '4 6' }} />
@@ -2673,6 +2748,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {focus && <FlyTo lat={focus.lat} lon={focus.lon} nudge={focus.n} />}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
+      )}
 
       {/* Tapping the map outside the card collapses the advanced panel (like a sheet
           backdrop). Sits below the top overlay (z-1000) so taps on the card don't
@@ -3030,6 +3106,30 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       )}
                     </div>
                   )}
+                  {/* Con qué se dibuja el mapa. Va con los demás mandos del mapa
+                      y con su mismo interruptor. El clásico sigue por defecto;
+                      el fluido es el de la GPU, donde la traza no puede nadar
+                      sobre el terreno. Se recuerda en este dispositivo. */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-200">Mapa fluido · beta</p>
+                        <p className="text-[10px] text-slate-400">Gira, inclina y hace zoom a la vez, con la traza pegada al terreno</p>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={motor === 'fluido'}
+                        aria-label="Mapa fluido"
+                        onClick={() => cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido')}
+                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${motor === 'fluido' ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      >
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${motor === 'fluido' ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    {falloFluido && (
+                      <p className="mt-1.5 text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido; se queda el clásico.</p>
+                    )}
+                  </div>
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><span className="text-xs">📈</span>Perfil del recorrido</p>
@@ -3255,10 +3355,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           tiempo no hace nada es ruido, y aquí además enseña ALGO —hacia dónde
           cae el norte— que sin giro ya se sabe. La aguja gira con el mapa; al
           tocarla, el norte vuelve arriba. */}
-      {Math.abs(rumbo) > 0.5 && Math.abs(rumbo - 360) > 0.5 && (
+      {((Math.abs(rumbo) > 0.5 && Math.abs(rumbo - 360) > 0.5) || inclinado) && (
         <button
           type="button"
-          onClick={() => mapa?.setBearing(0)}
+          onClick={() => (usaFluido ? apiFluido.current?.alNorte() : mapa?.setBearing(0))}
           aria-label="Volver a orientar el mapa al norte"
           title="Volver a orientar el mapa al norte"
           className="absolute bottom-48 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 backdrop-blur active:scale-95"
