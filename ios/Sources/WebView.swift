@@ -13,6 +13,10 @@ struct WebView: UIViewRepresentable {
     }
 
     let source: Source
+    /// Alto de la fila de botones que la app pone flotando encima del mapa. El
+    /// visor va de borde a borde (bajo la muesca y la barra de inicio) y aparta
+    /// su tarjeta de datos esto más la muesca. Ver `bordeABorde` en `main.tsx`.
+    var barraApp: CGFloat = 0
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -23,6 +27,9 @@ struct WebView: UIViewRepresentable {
         }
         let web = WKWebView(frame: .zero, configuration: cfg)
         web.scrollView.bounces = false
+        // De borde a borde de verdad: sin que la vista de desplazamiento meta
+        // sus propios márgenes; los pone la página con `env(safe-area-inset-*)`.
+        web.scrollView.contentInsetAdjustmentBehavior = .never
         web.isOpaque = false
         web.backgroundColor = UIColor(red: 0.008, green: 0.024, blue: 0.090, alpha: 1) // slate-950
         web.load(request())
@@ -30,6 +37,12 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    /// Lo que le pide al visor que vaya de borde a borde.
+    private var bordeABorde: [URLQueryItem] {
+        [URLQueryItem(name: "bordeABorde", value: "1"),
+         URLQueryItem(name: "barraApp", value: String(Int(barraApp.rounded())))]
+    }
 
     private func request() -> URLRequest {
         switch source {
@@ -41,10 +54,12 @@ struct WebView: UIViewRepresentable {
             comps.queryItems = [
                 URLQueryItem(name: "t", value: token),
                 URLQueryItem(name: "embedded", value: "1"),
-            ]
+            ] + bordeABorde
             return URLRequest(url: comps.url!)
         case .online(let url):
-            return URLRequest(url: url)
+            guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return URLRequest(url: url) }
+            comps.queryItems = (comps.queryItems ?? []) + bordeABorde
+            return URLRequest(url: comps.url ?? url)
         }
     }
 

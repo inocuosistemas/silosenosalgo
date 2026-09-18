@@ -30,6 +30,26 @@ const EventJoin = lazy(() => import('./components/EventJoin'))
 const EventLiveMap = lazy(() => import('./components/EventLiveMap'))
 
 const params = new URLSearchParams(window.location.search)
+
+/**
+ * De borde a borde, solo cuando la app de iOS lo pide (`?bordeABorde=1`): su
+ * mapa llega hasta arriba y hasta abajo, con los botones flotando encima.
+ * `viewport-fit=cover` es lo que hace que la página sepa cuánto ocupan la
+ * muesca y la barra de inicio (`env(safe-area-inset-*)`), y `barraApp` la
+ * altura de la fila de botones de la app, para apartar la tarjeta de datos.
+ * No se pone para todos: en Safari o en las apps anteriores el visor queda
+ * como siempre, porque esas medidas valen cero.
+ */
+if (params.get('bordeABorde') === '1') {
+  const meta = document.querySelector('meta[name="viewport"]')
+  if (meta && !/viewport-fit/.test(meta.getAttribute('content') ?? '')) {
+    meta.setAttribute('content', `${meta.getAttribute('content')}, viewport-fit=cover`)
+  }
+  const barra = Number(params.get('barraApp'))
+  if (Number.isFinite(barra) && barra > 0 && barra < 200) {
+    document.documentElement.style.setProperty('--barra-app', `${barra}px`)
+  }
+}
 const trackToken = params.get('t')
 const isViewer = !!trackToken && TOKEN_RE.test(trackToken)
 const eventId = params.get('e')

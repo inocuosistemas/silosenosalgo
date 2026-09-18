@@ -71,8 +71,8 @@ export interface ApiMapaFluido {
 interface Props {
   /** La misma plantilla que usa el clásico, relativa dentro de las apps. */
   tileUrl: string
-  /** La imagen de radar de lluvia a pintar encima, o null. */
-  radarUrl: string | null
+  /** Las imágenes de radar de lluvia (la última hora) y cuál se enseña. */
+  radar: { urls: string[]; actual: number } | null
   centro: [number, number]
   zoom: number
   plan: [number, number][]
@@ -317,16 +317,39 @@ export default function MapaFluido(p: Props) {
   }, [])
 
   // ── El radar de lluvia, entre el mapa y la traza ─────────────────────────
+  // Una capa por imagen, todas cargadas y solo una visible: así la animación
+  // cambia de imagen sin esperar a la red en cada paso.
+  const capasRadar = useRef<string[]>([])
+  const firmaRadar = p.radar?.urls.join('|') ?? ''
   useEffect(() => {
     const map = mapaRef.current
     if (!listo || !map) return
-    if (map.getLayer('radar')) map.removeLayer('radar')
-    if (map.getSource('radar')) map.removeSource('radar')
-    if (!p.radarUrl) return
-    // RainViewer sirve hasta el zoom 7; más cerca, MapLibre estira esa imagen.
-    map.addSource('radar', { type: 'raster', tiles: [p.radarUrl], tileSize: 256, maxzoom: 7, attribution: 'Radar: RainViewer' })
-    map.addLayer({ id: 'radar', type: 'raster', source: 'radar', paint: { 'raster-opacity': 0.7 } }, 'plan')
-  }, [listo, p.radarUrl])
+    for (const id of capasRadar.current) {
+      if (map.getLayer(id)) map.removeLayer(id)
+      if (map.getSource(id)) map.removeSource(id)
+    }
+    capasRadar.current = []
+    if (!p.radar) return
+    p.radar.urls.forEach((url, i) => {
+      const id = `radar-${i}`
+      // RainViewer sirve hasta el zoom 7; más cerca, MapLibre estira esa imagen.
+      map.addSource(id, { type: 'raster', tiles: [url], tileSize: 256, maxzoom: 7, attribution: 'Radar: RainViewer' })
+      map.addLayer({
+        id, type: 'raster', source: id,
+        paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 0, delay: 0 } },
+      }, 'plan')
+      capasRadar.current.push(id)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, firmaRadar])
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map || !p.radar) return
+    capasRadar.current.forEach((id, i) => {
+      if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', i === p.radar!.actual ? 0.7 : 0)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, firmaRadar, p.radar?.actual])
 
   // ── Las líneas ──────────────────────────────────────────────────────────
   const fuente = (id: string) => mapaRef.current?.getSource(id) as GeoJSONSource | undefined

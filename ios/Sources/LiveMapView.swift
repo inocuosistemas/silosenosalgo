@@ -22,64 +22,85 @@ struct LiveMapView: View {
         store.isSharing && offlineToken != nil && offlineToken == store.claveDeDatos
     }
 
+    /// Alto de la fila de botones flotantes: el de la barra de navegación de
+    /// iOS a la que sustituye, para que la tarjeta de datos del visor quede
+    /// exactamente donde estaba. Lo que crece es el mapa, no se mueve la tarjeta.
+    private static let altoBarra: CGFloat = 44
+
     var body: some View {
-        NavigationStack {
-            WebView(source: source)
-                .ignoresSafeArea(edges: .bottom)
-                // Sin título en la sesión que emite: "En directo" arriba, con
-                // "Volver" y los tres botones, no cabía, y lo que decía —cómo va
-                // la emisión, con su punto— lo dice ahora la pastilla de abajo
-                // del propio mapa, igual en iOS, en Android y en la web.
-                .navigationTitle(esLaDeAhora ? "" : title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button { dismiss() } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left")
-                                    .font(.body.weight(.semibold))
-                                Text("Volver")
-                            }
-                        }
-                        .tint(Theme.sky500)
-                        .accessibilityLabel("Volver")
-                    }
-                    if offlineToken != nil {
-                        ToolbarItemGroup(placement: .navigationBarTrailing) {
-                            if allowsEditing {
-                                Button { showNotes = true } label: {
-                                    Image(systemName: "list.bullet.rectangle")
-                                }
-                                .tint(Theme.sky500)
-                                .accessibilityLabel("Ver notas, \(store.noteCount)")
+        // El mapa de borde a borde —bajo la muesca y hasta la barra de inicio—
+        // con los botones flotando encima, como en cualquier app de mapas. Antes
+        // iba debajo de una barra de navegación que se comía la franja de
+        // arriba y en la que "En directo", "Volver" y tres botones no cabían.
+        ZStack(alignment: .top) {
+            WebView(source: source, barraApp: Self.altoBarra)
+                .ignoresSafeArea()
 
-                                Button { showAddNote = true } label: {
-                                    Image(systemName: "square.and.pencil")
-                                }
-                                .tint(Theme.sky500)
+            HStack(spacing: 8) {
+                Button { dismiss() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left").font(.body.weight(.semibold))
+                        Text("Volver")
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 40)
+                }
+                .foregroundStyle(Theme.sky500)
+                .background(.ultraThinMaterial, in: Capsule())
+                .accessibilityLabel("Volver")
+
+                // El nombre, solo cuando no es la sesión que emite (una guía,
+                // un seguimiento anterior): de esa ya habla la pastilla de abajo.
+                if !esLaDeAhora && !title.isEmpty {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.slate100)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .frame(height: 40)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+
+                Spacer(minLength: 0)
+
+                if offlineToken != nil {
+                    HStack(spacing: 2) {
+                        if allowsEditing {
+                            botonFlotante("list.bullet.rectangle", "Ver notas, \(store.noteCount)") { showNotes = true }
+                            botonFlotante("square.and.pencil", "Añadir nota aquí") { showAddNote = true }
                                 .disabled(store.isStandby)
-                                .accessibilityLabel("Añadir nota aquí")
-                            }
-
-                            Button { showDownload = true } label: {
-                                Image(systemName: "arrow.down.circle")
-                            }
-                            .tint(Theme.sky500)
-                            .accessibilityLabel("Descargar mapa offline")
                         }
+                        botonFlotante("arrow.down.circle", "Descargar mapa offline") { showDownload = true }
                     }
+                    .padding(.horizontal, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
-                .sheet(isPresented: $showDownload) {
-                    MapDownloadView(routeName: nil,
-                                    polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
-                }
-                .sheet(isPresented: $showAddNote) {
-                    AddNoteView()
-                }
-                .sheet(isPresented: $showNotes) {
-                    NotesListView()
-                }
+            }
+            .environment(\.colorScheme, .dark)
+            .padding(.horizontal, 12)
+            .padding(.top, 2)
+            .frame(height: Self.altoBarra, alignment: .top)
         }
+        .sheet(isPresented: $showDownload) {
+            MapDownloadView(routeName: nil,
+                            polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
+        }
+        .sheet(isPresented: $showAddNote) {
+            AddNoteView()
+        }
+        .sheet(isPresented: $showNotes) {
+            NotesListView()
+        }
+    }
+
+    private func botonFlotante(_ icono: String, _ etiqueta: String, accion: @escaping () -> Void) -> some View {
+        Button(action: accion) {
+            Image(systemName: icono)
+                .font(.body)
+                .frame(width: 40, height: 40)
+        }
+        .foregroundStyle(Theme.sky500)
+        .accessibilityLabel(etiqueta)
     }
 }
 

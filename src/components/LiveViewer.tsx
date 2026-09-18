@@ -10,7 +10,8 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
 import { guardaMotorMapa, leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
-import { fetchRadarFrames, findNowFrameIndex, type RadarFrame } from '../lib/rainRadar'
+import { fetchRadarFrames, type RadarFrame } from '../lib/rainRadar'
+import { RainRadarLayer } from './RainRadarLayer'
 import type { ApiMapaFluido } from './MapaFluido'
 import {
   CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
@@ -809,21 +810,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [radar, setRadar] = useState<boolean>(() => {
     try { return localStorage.getItem('slsns.radarLluvia') !== '0' } catch { return true }
   })
-  const [radarFrame, setRadarFrame] = useState<RadarFrame | null>(null)
+  // La última hora de radar (seis imágenes, una cada diez minutos), para verla
+  // pasar: una sola imagen dice dónde llueve, la secuencia dice HACIA DÓNDE va.
+  const [radarFrames, setRadarFrames] = useState<RadarFrame[]>([])
+  const [radarPaso, setRadarPaso] = useState(0)
   const [radarFallo, setRadarFallo] = useState(false)
   const cambiaRadar = (v: boolean) => {
     setRadar(v)
     try { localStorage.setItem('slsns.radarLluvia', v ? '1' : '0') } catch { /* sin almacenamiento */ }
   }
   useEffect(() => {
-    if (!radar) { setRadarFrame(null); setRadarFallo(false); return }
+    if (!radar) { setRadarFrames([]); setRadarFallo(false); return }
     let vivo = true
     const carga = () => {
       fetchRadarFrames()
         .then((frames) => {
           if (!vivo) return
-          const i = findNowFrameIndex(frames)
-          setRadarFrame(i >= 0 ? frames[i] : null)
+          // Solo lo OBSERVADO: la predicción de RainViewer es corta y dibujarla
+          // seguida de lo real haría creer que es lo que ha pasado.
+          setRadarFrames(frames.filter((f) => f.isPast).slice(-6))
           setRadarFallo(false)
         })
         // Sin cobertura no hay radar: se dice, y se reintenta en la siguiente vuelta.
@@ -833,6 +838,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const cada = setInterval(carga, 5 * 60_000)
     return () => { vivo = false; clearInterval(cada) }
   }, [radar])
+  // La animación: cada imagen 0,6 s y un respiro de 1,8 s en la última, que es
+  // la de ahora: se ve el movimiento y se acaba mirando dónde está la lluvia.
+  useEffect(() => {
+    if (radarFrames.length < 2) { setRadarPaso(0); return }
+    const cada = setInterval(() => setRadarPaso((p) => (p + 1) % (radarFrames.length + 3)), 600)
+    return () => clearInterval(cada)
+  }, [radarFrames])
+  const radarIdx = Math.min(radarPaso, radarFrames.length - 1)
+  const radarFrame = radarFrames[radarIdx] ?? null
+  const radarEsLaUltima = radarIdx === radarFrames.length - 1
 
   const cambiaMotor = (m: MotorMapa) => {
     guardaMotorMapa(m)
@@ -2494,7 +2509,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   )
 
     return (
-      <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col">
+      <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + var(--barra-app, 0px))' }}>
         <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
           {header}
           <p className="mt-1 text-xs text-slate-400">{statusLine}</p>
@@ -2689,7 +2705,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <Suspense fallback={<div className="absolute inset-0 bg-slate-950" />}>
           <MapaFluido
             tileUrl={tileUrl}
-            radarUrl={radarFrame?.tileUrlTemplate ?? null}
+            radar={radarFrames.length ? { urls: radarFrames.map((f) => f.tileUrlTemplate), actual: radarIdx } : null}
             centro={center}
             zoom={fix || trail.length ? 14 : plan ? 13 : 6}
             plan={planLatLng}
@@ -2739,10 +2755,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
         {/* RainViewer solo sirve hasta el zoom 7: más cerca se estira esa
             imagen, igual que en el planificador. */}
-        {radarFrame && (
-          <TileLayer key={radarFrame.tileUrlTemplate} url={radarFrame.tileUrlTemplate} opacity={0.7}
-            maxNativeZoom={7} maxZoom={19} zIndex={400} attribution='Radar: RainViewer' />
-        )}
+        {radarFrames.length > 0 && <RainRadarLayer frames={radarFrames} currentIndex={radarIdx} />}
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
         {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
             traza. En un circuito las pasadas se superponen y pintando la traza
@@ -2852,7 +2865,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <div className="absolute inset-0 z-[999]" onClick={() => setShowAdvanced(false)} aria-hidden="true" />
       )}
 
-      <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none">
+      {/* De borde a borde en la app de iOS (ver `main.tsx`): el mapa llega
+          hasta arriba y la tarjeta se aparta de la muesca y de la barra de
+          botones de la app, que flota encima. Fuera de ese caso las dos
+          medidas valen cero y todo queda como siempre. */}
+      <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + var(--barra-app, 0px) + 0.75rem)' }}>
         {/* `relative` para que el tirador pueda colgar por debajo del borde: el
             cuadro lleva overflow-hidden (lo necesitan las esquinas redondeadas),
             asi que la lengüeta no puede vivir dentro. */}
@@ -3437,7 +3455,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onClick={() => setRecentre((n) => n + 1)}
           aria-label="Centrar en el corredor"
           title="Centrar en el corredor"
-          className="absolute bottom-24 right-3 z-[1000] grid h-11 w-11 place-items-center text-slate-900 [filter:drop-shadow(0_0_2px_white)_drop-shadow(0_1px_2px_rgba(0,0,0,.4))] active:scale-95"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
+          className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center text-slate-900 [filter:drop-shadow(0_0_2px_white)_drop-shadow(0_1px_2px_rgba(0,0,0,.4))] active:scale-95"
         >
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
             <circle cx="12" cy="12" r="6.5" />
@@ -3460,7 +3479,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             : anclado
               ? 'Pegado al recorrido; toca para ver la posición del GPS'
               : 'Posición del GPS; toca para pegarlo al recorrido'}
-          className="absolute bottom-36 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9rem)' }}
+          className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
         >
           {offRoute ? '↯' : anclado ? <Magnet size={16} /> : <MapPin size={16} />}
         </button>
@@ -3476,7 +3496,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onClick={() => (usaFluido ? apiFluido.current?.alNorte() : mapa?.setBearing(0))}
           aria-label="Volver a orientar el mapa al norte"
           title="Volver a orientar el mapa al norte"
-          className="absolute bottom-48 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 backdrop-blur active:scale-95"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)' }}
+          className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 backdrop-blur active:scale-95"
         >
           <svg
             viewBox="0 0 24 24"
@@ -3494,7 +3515,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
       {/* Live status pill — status + (when there's data) the GPS-precision legend,
           in one bottom card so the trail colours read alongside "en directo". */}
-      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
+      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className={`${hasAccuracyData || heatLegendItems ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
           <div className="whitespace-nowrap">{statusLine}</div>
           {/* De cuándo es la lluvia que se ve: una imagen de hace media hora
@@ -3502,7 +3524,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {radar && (
             <div className="mt-0.5 whitespace-nowrap text-[10px] text-violet-300">
               {radarFrame
-                ? <>🛰️ radar de lluvia · {formatTime(new Date(radarFrame.timeMs))}</>
+                ? <>🛰️ lluvia de las {formatTime(new Date(radarFrame.timeMs))}{radarEsLaUltima ? ' · la última' : ' ▸'}</>
                 : radarFallo ? <>🛰️ radar sin conexión</> : <>🛰️ cargando radar…</>}
             </div>
           )}
