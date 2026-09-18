@@ -10,6 +10,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
 import { guardaMotorMapa, leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
+import { fetchRadarFrames, findNowFrameIndex, type RadarFrame } from '../lib/rainRadar'
 import type { ApiMapaFluido } from './MapaFluido'
 import {
   CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
@@ -800,6 +801,38 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   }, [])
   const onListoFluido = useCallback((api: ApiMapaFluido) => { apiFluido.current = api }, [])
   const onFalloFluido = useCallback((motivo: string) => setFalloFluido(motivo), [])
+  // El radar de lluvia (RainViewer), encima del mapa: la lluvia de AHORA, para
+  // ver si viene el chubasco. Solo la imagen más reciente, refrescada cada cinco
+  // minutos: sin animación, que en la montaña los datos cuestan. Necesita
+  // cobertura. Se recuerda en el dispositivo, como el motor del mapa.
+  const [radar, setRadar] = useState<boolean>(() => {
+    try { return localStorage.getItem('slsns.radarLluvia') === '1' } catch { return false }
+  })
+  const [radarFrame, setRadarFrame] = useState<RadarFrame | null>(null)
+  const [radarFallo, setRadarFallo] = useState(false)
+  const cambiaRadar = (v: boolean) => {
+    setRadar(v)
+    try { localStorage.setItem('slsns.radarLluvia', v ? '1' : '0') } catch { /* sin almacenamiento */ }
+  }
+  useEffect(() => {
+    if (!radar) { setRadarFrame(null); setRadarFallo(false); return }
+    let vivo = true
+    const carga = () => {
+      fetchRadarFrames()
+        .then((frames) => {
+          if (!vivo) return
+          const i = findNowFrameIndex(frames)
+          setRadarFrame(i >= 0 ? frames[i] : null)
+          setRadarFallo(false)
+        })
+        // Sin cobertura no hay radar: se dice, y se reintenta en la siguiente vuelta.
+        .catch(() => { if (vivo) setRadarFallo(true) })
+    }
+    carga()
+    const cada = setInterval(carga, 5 * 60_000)
+    return () => { vivo = false; clearInterval(cada) }
+  }, [radar])
+
   const cambiaMotor = (m: MotorMapa) => {
     guardaMotorMapa(m)
     setMotor(m)
@@ -2655,6 +2688,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <Suspense fallback={<div className="absolute inset-0 bg-slate-950" />}>
           <MapaFluido
             tileUrl={tileUrl}
+            radarUrl={radarFrame?.tileUrlTemplate ?? null}
             centro={center}
             zoom={fix || trail.length ? 14 : plan ? 13 : 6}
             plan={planLatLng}
@@ -2702,6 +2736,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       >
         <Rumbo onRumbo={setRumbo} />
         <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
+        {/* RainViewer solo sirve hasta el zoom 7: más cerca se estira esa
+            imagen, igual que en el planificador. */}
+        {radarFrame && (
+          <TileLayer key={radarFrame.tileUrlTemplate} url={radarFrame.tileUrlTemplate} opacity={0.7}
+            maxNativeZoom={7} maxZoom={19} zIndex={400} attribution='Radar: RainViewer' />
+        )}
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
         {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
             traza. En un circuito las pasadas se superponen y pintando la traza
@@ -2918,6 +2958,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     {falloFluido && (
                       <p className="mt-1.5 text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido; se queda el clásico.</p>
                     )}
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-200">Radar de lluvia</p>
+                        <p className="text-[10px] text-slate-400">La lluvia de ahora sobre el mapa, cada 10 min. Necesita cobertura</p>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={radar}
+                        aria-label="Radar de lluvia"
+                        onClick={() => cambiaRadar(!radar)}
+                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${radar ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      >
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${radar ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
                   </div>
                   {recalibrationCard}
                   {(canCheer || cheers.length > 0) && (
@@ -3439,6 +3496,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center">
         <div className={`${hasAccuracyData || heatLegendItems ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
           <div className="whitespace-nowrap">{statusLine}</div>
+          {/* De cuándo es la lluvia que se ve: una imagen de hace media hora
+              tomada por la de ahora engaña justo cuando importa. */}
+          {radar && (
+            <div className="mt-0.5 whitespace-nowrap text-[10px] text-violet-300">
+              {radarFrame
+                ? <>🛰️ radar de lluvia · {formatTime(new Date(radarFrame.timeMs))}</>
+                : radarFallo ? <>🛰️ radar sin conexión</> : <>🛰️ cargando radar…</>}
+            </div>
+          )}
           {/* La leyenda explica LO QUE SE ESTA VIENDO: con el mapa de calor
               puesto, los colores de la traza son ritmo y no precision, asi que
               enseñar la escala de precision seria describir un mapa que ya no

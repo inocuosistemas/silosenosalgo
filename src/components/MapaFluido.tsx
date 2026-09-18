@@ -71,6 +71,8 @@ export interface ApiMapaFluido {
 interface Props {
   /** La misma plantilla que usa el clásico, relativa dentro de las apps. */
   tileUrl: string
+  /** La imagen de radar de lluvia a pintar encima, o null. */
+  radarUrl: string | null
   centro: [number, number]
   zoom: number
   plan: [number, number][]
@@ -313,6 +315,18 @@ export default function MapaFluido(p: Props) {
     // El mapa se crea una vez; los datos entran por los efectos de abajo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── El radar de lluvia, entre el mapa y la traza ─────────────────────────
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map) return
+    if (map.getLayer('radar')) map.removeLayer('radar')
+    if (map.getSource('radar')) map.removeSource('radar')
+    if (!p.radarUrl) return
+    // RainViewer sirve hasta el zoom 7; más cerca, MapLibre estira esa imagen.
+    map.addSource('radar', { type: 'raster', tiles: [p.radarUrl], tileSize: 256, maxzoom: 7, attribution: 'Radar: RainViewer' })
+    map.addLayer({ id: 'radar', type: 'raster', source: 'radar', paint: { 'raster-opacity': 0.7 } }, 'plan')
+  }, [listo, p.radarUrl])
 
   // ── Las líneas ──────────────────────────────────────────────────────────
   const fuente = (id: string) => mapaRef.current?.getSource(id) as GeoJSONSource | undefined
