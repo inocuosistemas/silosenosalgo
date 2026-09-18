@@ -97,6 +97,11 @@ final class TrackingStore: ObservableObject {
     /// la salida es EL MOMENTO DE PULSAR "Empezar", no el de abrir la pantalla.
     /// Solo lo cambia el store: la vista pasa por `setStartAt` / `clearStartAt`.
     @Published private(set) var startAtTouched = false
+
+    /// Grabando en local y todavía sin alta en el servidor: hay traza, pero aún
+    /// no hay enlace que compartir. Ver `intentaAlta`.
+    @Published private(set) var pendienteDeAlta = false
+    private var altaPendiente: AltaPendiente?
     /// La hora que dejó puesta la RUTA (o el evento a través de ella). Sirve
     /// para saber si la que hay es suya y se la tiene que llevar al quitarla, o
     /// si la puso alguien a mano y entonces se queda.
@@ -425,6 +430,21 @@ final class TrackingStore: ObservableObject {
         startAtFromPlan = nil
     }
 
+    /**
+     "Salgo YA" con la baliza ya abierta y esperando su hora.
+
+     Faltaba, y se notó: una baliza armada solo sale de la espera cuando llega su
+     hora, y la hora solo se cambia desde una sección que se ESCONDE mientras se
+     comparte. Con una hora heredada de una carrera lejana —que es justo como se
+     cuela— la baliza se quedaba sin grabar y sin forma de despertarla: había que
+     pararla y volver a empezar, y el tiempo de espera no se recuperaba.
+     */
+    func empiezaYa() {
+        guard isSharing, isStandby else { return }
+        clearStartAt()
+        maybeBeginFromStandby()
+    }
+
     private static func parseISO(_ s: String) -> Date? {
         let f1 = ISO8601DateFormatter()
         f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -744,63 +764,138 @@ final class TrackingStore: ObservableObject {
         }
         takeoverAsk = nil
         location.requestAuthorization()
+        // La hora real de la salida es el momento de PULSAR, no el de la
+        // respuesta del servidor. Y con la misma ventana que aplica el servidor:
+        // una hora heredada de una carrera que ya no está elegida dejaba la
+        // baliza "armada" en la pantalla —esperando una salida a quince días—
+        // mientras el servidor, que descarta lo que se pasa de catorce, la había
+        // creado con "ahora". Dos verdades a la vez y ninguna forma de
+        // arreglarlo desde la app.
+        let techo = Date().addingTimeInterval(14 * 24 * 60 * 60)
+        let suelo = Date().addingTimeInterval(-24 * 60 * 60)
+        let heredadaValida = startAtTouched && startAt <= techo && startAt >= suelo
+        if startAtTouched && !heredadaValida {
+            // Y se limpia, para que la pantalla deje de enseñar una hora que ya
+            // no se está usando.
+            startAt = Date()
+            startAtTouched = false
+        }
+        let start = heredadaValida ? startAt : Date()
+        // Sin nombre puesto, uno con la marca y la hora: en la lista de
+        // seguimientos y en el enlace, "Sin nombre" no distingue nada.
+        let nombre = title ?? Self.nombrePorDefecto(start)
+
+        // 1) GRABAR YA, sin esperar a nadie.
+        empiezaEnLocal(desde: start, nombre: nombre)
+
+        // 2) El alta en el servidor, que es lo único que necesita red: de ahí
+        //    salen el identificador y el enlace. Si no hay cobertura queda
+        //    pendiente y se reintenta sola en cada tic; mientras tanto la traza
+        //    se guarda, y al darse de alta se sube entera con su hora real.
+        altaPendiente = AltaPendiente(
+            startAtMs: start.timeIntervalSince1970 * 1000,
+            title: nombre,
+            planId: selectedPlanId,
+            eventId: selectedEventId,
+            activity: activity?.rawValue,
+        )
+        guardaAltaPendiente()
+        await intentaAlta()
+    }
+
+    /**
+     Arranca la grabación en LOCAL: buffers limpios, GPS en marcha y reloj de
+     envío. No necesita servidor, y por eso puede ir por delante de él.
+
+     Esto es lo que hace que pulsar "compartir" sin cobertura no sea una pantalla
+     esperando: la ruta empieza a contar en el momento de pulsar, que es lo que
+     su dueño espera, y el enlace aparece cuando haya red.
+     */
+    private func empiezaEnLocal(desde start: Date, nombre: String) {
+        activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
+        sessionToken = nil
+        isSharing = true
+        pingCount = 0
+        activeViewers = nil
+        lastSentAt = nil
+        lastSendAttempt = .distantPast
+        pending = []
+        persistPending()
+        // Fresh local trail for the in-app offline viewer.
+        trail = []
+        lastRecordedFix = nil
+        lastReportedFix = nil
+        anchorFix = nil
+        heldReadings = 0
+        persistTrail()
+        notes = []
+        pendingNotes = []
+        pendingNoteDeletes = []
+        pendingMedia = []
+        noteCount = 0
+        persistNotes()
+        persistPendingNotes()
+        persistPendingNoteDeletes()
+        persistPendingMedia()
+        activeTitle = nombre
+        // If the planned start is still ahead (beyond the lead margin), arm in
+        // low-power standby: keep the app alive with coarse location but upload
+        // nothing until ~2 min before the start, to save battery.
+        if start.timeIntervalSinceNow > TrackingRules.startLeadSeconds {
+            isStandby = true
+            location.configureStandby()
+        } else {
+            isStandby = false
+            applyLocationConfig()
+        }
+        // Y los avisos de la salida, que son la red debajo del arranque
+        // automático: si el sistema durmió la app y no arrancó sola, el de las
+        // 5 min avisa a tiempo de abrirla. Ver `AvisosDeCarrera`.
+        AvisosDeCarrera.programaSalida(start, carrera: nombre)
+        location.start()
+        startFlushTimer()
+    }
+
+    /**
+     Da de alta en el servidor una baliza que ya está grabando.
+
+     Se llama al pulsar y, si falla, en cada tic hasta que entra: sin red no hay
+     nada que avisar —se reintenta sola— y por eso un fallo de conexión no
+     escribe error en pantalla; uno del servidor, sí.
+
+     Al entrar, `flush()` sube de golpe todo lo grabado mientras tanto, con la
+     hora de cada punto: el seguimiento no empieza cuando hubo cobertura, empieza
+     cuando su dueño pulsó.
+     */
+    private func intentaAlta() async {
+        guard isSharing, sessionToken == nil, let alta = altaPendiente else { return }
         do {
-            // If the user didn't set a departure time, use "now" at share time
-            // (not the stale value from when the screen opened).
-            let start = startAtTouched ? startAt : Date()
-            // Sin nombre puesto, uno con la marca y la hora: en la lista de
-            // seguimientos y en el enlace, "Sin nombre" no distingue nada.
-            let nombre = title ?? Self.nombrePorDefecto(start)
-            let res = try await API.createTrack(token: token, title: nombre, planId: selectedPlanId, startAt: start.timeIntervalSince1970 * 1000, activity: activity, eventId: selectedEventId, device: Self.deviceName)
+            let res = try await API.createTrack(
+                token: token, title: alta.title, planId: alta.planId,
+                startAt: alta.startAtMs,
+                activity: alta.activity.flatMap(BeaconActivity.init(rawValue:)),
+                eventId: alta.eventId, device: Self.deviceName,
+            )
             sessionToken = res.id
-            activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
-            isSharing = true
-            pingCount = 0
-            activeViewers = nil
-            lastSentAt = nil
-            lastSendAttempt = .distantPast
-            pending = []
-            persistPending()
-            // Fresh local trail for the in-app offline viewer, and register the
-            // session so the embedded viewer can read it with no connectivity.
-            trail = []
-            lastRecordedFix = nil
-            lastReportedFix = nil
-            anchorFix = nil
-            heldReadings = 0
-            persistTrail()
-            notes = []
-            pendingNotes = []
-            pendingNoteDeletes = []
-            pendingMedia = []
-            noteCount = 0
-            persistNotes()
-            persistPendingNotes()
-            persistPendingNoteDeletes()
-            persistPendingMedia()
-            activeTitle = nombre
-            ViewerDataProvider.shared.register(token: res.id, title: nombre, startedAt: start.timeIntervalSince1970 * 1000, expiresAt: res.expiresAt, status: "active")
+            pendienteDeAlta = false
+            altaPendiente = nil
+            UserDefaults.standard.removeObject(forKey: altaKey)
+            ViewerDataProvider.shared.register(
+                token: res.id, title: alta.title, startedAt: alta.startAtMs,
+                expiresAt: res.expiresAt, status: "active",
+            )
             ViewerDataProvider.shared.setActivity(token: res.id, activity: activity)
-            cachePlanBytes(for: res.id, planId: selectedPlanId)
-            // If the planned start is still ahead (beyond the lead margin), arm
-            // in low-power standby: keep the app alive with coarse location but
-            // upload nothing until ~2 min before the start, to save battery.
-            if start.timeIntervalSinceNow > TrackingRules.startLeadSeconds {
-                isStandby = true
-                location.configureStandby()
-            } else {
-                isStandby = false
-                applyLocationConfig()
-            }
-            // Y los avisos de la salida, que son la red debajo del arranque
-            // automático: si el sistema durmió la app y no arrancó sola, el de
-            // las 5 min avisa a tiempo de abrirla. Ver `AvisosDeCarrera`.
-            AvisosDeCarrera.programaSalida(start, carrera: title)
-            location.start()
-            startFlushTimer()
+            cachePlanBytes(for: res.id, planId: alta.planId)
             persistActive() // remember the "last known state" so a relaunch resumes it
+            lastError = nil
+            await flush()
         } catch {
-            lastError = (error as? APIError)?.errorDescription ?? "No se pudo iniciar el seguimiento."
+            pendienteDeAlta = true
+            // `status == 0` es "no se pudo ni preguntar": sin cobertura, y eso no
+            // es un error que haya que gritar. Lo que responde el servidor sí.
+            if let api = error as? APIError, api.status != 0 {
+                lastError = api.errorDescription
+            }
         }
     }
 
@@ -924,6 +1019,10 @@ final class TrackingStore: ObservableObject {
         activePlanName = nil
         activeTitle = nil
         clearActive() // explicit stop (or server-ended): don't resume on relaunch
+        // Y si se paró antes de que el alta llegara a entrar, que no entre
+        // después: una baliza que su dueño apagó no puede aparecer en el mapa
+        // media hora más tarde porque volvió la cobertura.
+        olvidaAltaPendiente()
         // Keep serving the just-finished session to a still-open offline viewer,
         // now flagged as ended (its trail file is kept for later review).
         ViewerDataProvider.shared.updateStatus("ended")
@@ -968,7 +1067,10 @@ final class TrackingStore: ObservableObject {
 
     private func handleLocation(_ loc: CLLocation) {
         lastLocation = loc
-        guard isSharing, sessionToken != nil else { return }
+        // Sin exigir identificador de sesión: una baliza puede estar grabando
+        // antes de que el servidor la dé de alta (ver `intentaAlta`), y esos
+        // primeros puntos son justo los que no se pueden perder.
+        guard isSharing else { return }
         // Armed standby: don't record/upload anything; just check if it's time to
         // wake into live tracking (a coarse fix arrived, use it as the trigger).
         if isStandby { maybeBeginFromStandby(); return }
@@ -1490,6 +1592,41 @@ final class TrackingStore: ObservableObject {
     private let activeKey = "activeSession"
     private var lastActivePersistAt: Date = .distantPast
 
+    /**
+     Lo que hace falta para dar de alta una baliza que YA está grabando.
+
+     Se guarda en disco porque el alta puede tardar lo que tarde la cobertura, y
+     entre medias el sistema puede matar la app: al volver, se retoma la
+     grabación y se sigue insistiendo, sin perder ni la hora de salida ni el
+     nombre ni la carrera elegida.
+     */
+    private struct AltaPendiente: Codable {
+        let startAtMs: Double
+        let title: String
+        let planId: String?
+        let eventId: String?
+        let activity: String?
+    }
+
+    private static let altaKeyValor = "baliza.altaPendiente"
+    private var altaKey: String { Self.altaKeyValor }
+
+    private func guardaAltaPendiente() {
+        guard let alta = altaPendiente, let data = try? JSONEncoder().encode(alta) else { return }
+        UserDefaults.standard.set(data, forKey: altaKey)
+    }
+
+    private func cargaAltaPendiente() -> AltaPendiente? {
+        guard let data = UserDefaults.standard.data(forKey: altaKey) else { return nil }
+        return try? JSONDecoder().decode(AltaPendiente.self, from: data)
+    }
+
+    private func olvidaAltaPendiente() {
+        altaPendiente = nil
+        pendienteDeAlta = false
+        UserDefaults.standard.removeObject(forKey: altaKey)
+    }
+
     private func persistActive() {
         guard isSharing, let t = sessionToken else { return }
         lastActivePersistAt = Date()
@@ -1516,6 +1653,28 @@ final class TrackingStore: ObservableObject {
     /// it buffers; if the server already ended the session a ping's 410 stops it.
     func restoreActiveSession() {
         guard !isSharing, sessionToken == nil else { return } // don't clobber a live one
+
+        // ¿Una baliza que arrancó sin cobertura y a la que el sistema mató antes
+        // de que entrara el alta? Se retoma la grabación y se sigue insistiendo.
+        // NO se tocan los buffers: lo grabado hasta ahora es exactamente lo que
+        // hay que subir cuando el alta entre.
+        if UserDefaults.standard.data(forKey: activeKey) == nil, let alta = cargaAltaPendiente() {
+            let inicio = Date(timeIntervalSince1970: alta.startAtMs / 1000)
+            // Más allá de una salida larga, se abandona: reanudar una baliza de
+            // anteayer no es continuar nada.
+            guard Date().timeIntervalSince(inicio) < 20 * 3600 else { olvidaAltaPendiente(); return }
+            altaPendiente = alta
+            pendienteDeAlta = true
+            activeTitle = alta.title
+            isSharing = true
+            isStandby = false
+            applyLocationConfig()
+            location.requestAuthorization()
+            location.start()
+            startFlushTimer()
+            Task { await intentaAlta() }
+            return
+        }
         guard let data = UserDefaults.standard.data(forKey: activeKey),
               let s = try? JSONDecoder().decode(ActiveSessionState.self, from: data) else { return }
         // Past any plausible outing → drop it (avoids resuming a days-old session).
@@ -1907,6 +2066,9 @@ final class TrackingStore: ObservableObject {
                 // Antes del latido: si la pausa venció, lo que toca es volver a
                 // emitir, no seguir callado un ciclo más.
                 self?.reanudaSiVencioLaPausa()
+                // Si arrancó sin cobertura, aquí se insiste con el alta: en
+                // cuanto entre, lo grabado se sube entero.
+                await self?.intentaAlta()
                 self?.heartbeatTick()
                 self?.persistActiveIfDue()
                 await self?.flush()

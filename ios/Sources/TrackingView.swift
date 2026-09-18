@@ -138,6 +138,18 @@ struct TrackingView: View {
 
     /// "sáb 13 sep · 08:00", o "hoy · 22:00" el día de la carrera. Sin hora
     /// puesta lo dice: es justo lo que impide que la baliza se quede armada.
+    /// "a las 07:30" si es hoy; "el sáb 3 oct a las 05:30" si no.
+    ///
+    /// Decir solo la hora escondía lo único que importaba: que la espera no era
+    /// de horas, sino de quince días. Con el día delante, una baliza armada por
+    /// error se ve a la primera.
+    private static func cuandoArranca(_ d: Date) -> String {
+        let hora = d.formatted(date: .omitted, time: .shortened)
+        return Calendar.current.isDateInToday(d)
+            ? "a las \(hora)"
+            : "el \(d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) a las \(hora)"
+    }
+
     static func whenLabel(_ startsAtMs: Double?) -> String {
         guard let ms = startsAtMs, ms > 0 else { return "Sin hora de salida" }
         let d = Date(timeIntervalSince1970: ms / 1000)
@@ -1327,7 +1339,33 @@ struct TrackingView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Armado · ahorrando batería", systemImage: "moon.zzz.fill")
                     .foregroundStyle(.yellow)
-                Text("Empieza solo hacia las \(store.startAt.formatted(date: .omitted, time: .shortened)). Deja la app abierta en segundo plano (no la cierres).")
+                Text("Empieza solo \(Self.cuandoArranca(store.startAt)). Deja la app abierta en segundo plano (no la cierres).")
+                    .font(.caption).foregroundStyle(Theme.slate400)
+                // Y una salida de la espera, aquí mismo. Una baliza armada solo
+                // se desarma sola al llegar su hora, y esa hora vive en una
+                // sección que se ESCONDE mientras se comparte: con una hora
+                // heredada de una carrera lejana, la baliza se quedaba sin
+                // grabar y sin forma de despertarla que no fuera pararla y
+                // empezar de nuevo.
+                Button {
+                    Vibra.exito()
+                    store.empiezaYa()
+                } label: {
+                    Label("Salir ahora · dejar de esperar", systemImage: "bolt.fill")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.sky500)
+                .padding(.top, 4)
+            }
+        } else if store.isSharing, store.pendienteDeAlta {
+            // Grabando de verdad, pero sin enlace todavía: hay que decir las dos
+            // cosas. La primera tranquiliza —la ruta no se está perdiendo— y la
+            // segunda evita que alguien mande un enlace que aún no existe.
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Grabando · sin enlace todavía", systemImage: "clock.arrow.circlepath")
+                    .foregroundStyle(.yellow)
+                Text("Tu ruta se guarda desde que pulsaste. El enlace aparece en cuanto haya cobertura, y lo grabado se sube entero con su hora.")
                     .font(.caption).foregroundStyle(Theme.slate400)
             }
         } else if store.isSharing {

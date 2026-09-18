@@ -234,6 +234,12 @@ enum API {
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        // Quince segundos, y no los sesenta de serie: sin cobertura, el plazo por
+        // defecto deja la pantalla clavada un minuto entero sin decir nada, y eso
+        // al empezar a compartir parece que la app se ha colgado. Es de sobra
+        // para lo que viaja por aquí —peticiones de unos kilobytes—; lo que
+        // aguanta la falta de cobertura es el atasco local, que se sube luego.
+        req.timeoutInterval = 15
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
         do {
