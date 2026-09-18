@@ -97,6 +97,22 @@ function Rumbo({ onRumbo }: { onRumbo: (grados: number) => void }) {
   return null
 }
 
+/**
+ * El punto de la emisión: verde latiendo mientras sale, ámbar quieto mientras
+ * solo graba, rojo si lleva mucho sin subir nada. Vive en la pastilla de abajo
+ * —la misma en la web y en las dos apps— porque en la barra de arriba de la
+ * app no cabía con el resto.
+ */
+function PuntoEmision({ tono, late }: { tono: 'verde' | 'ambar' | 'rojo'; late: boolean }) {
+  const color = tono === 'verde' ? 'bg-emerald-400' : tono === 'ambar' ? 'bg-amber-400' : 'bg-rose-500'
+  return (
+    <span className="relative mr-1.5 inline-flex h-2 w-2 align-middle" aria-hidden="true">
+      {late && <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping ${color}`} />}
+      <span className={`relative inline-flex h-2 w-2 rounded-full ${color}`} />
+    </span>
+  )
+}
+
 function Follow({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }) {
   const map = useMap()
   const first = useRef(true)
@@ -1921,6 +1937,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     : plan ? [plan.track.points[0].lat, plan.track.points[0].lon]
     : [40.4168, -3.7038]
 
+  // Cómo va la emisión, con su punto. En la app lo dice la propia baliza
+  // (`emision`): si lo grabado está subido, si lleva un rato sin cobertura o
+  // si aún no tiene enlace. Para quien sigue a alguien no hay más dato que lo
+  // fresca que es la última posición. El punto late solo cuando sale algo: uno
+  // quieto es "grabando, esperando señal". Rojo solo con mucho rato sin subir.
+  const emisionVista = (() => {
+    switch (state.emision) {
+      case 'rezagada': return { tono: 'ambar' as const, late: false, texto: 'sin cobertura · grabando', clase: 'text-amber-400' }
+      case 'perdida': return { tono: 'rojo' as const, late: false, texto: 'sin cobertura · grabando', clase: 'text-rose-400' }
+      case 'sinEnlace': return { tono: 'ambar' as const, late: false, texto: 'grabando · sin enlace todavía', clase: 'text-amber-400' }
+      case 'armada': return { tono: 'ambar' as const, late: false, texto: 'armada', clase: 'text-amber-400' }
+      default: return fr?.stale
+        ? { tono: 'ambar' as const, late: false, texto: 'en directo', clase: 'text-amber-400' }
+        : { tono: 'verde' as const, late: true, texto: 'en directo', clase: 'text-emerald-400' }
+    }
+  })()
+
   // Live status (en directo / visto / finalizado / esperando). Shown full-width,
   // not in the truncated header — as a bottom pill over the map, and as its own
   // line in the cards view.
@@ -1930,7 +1963,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     ? (fix && fr
         ? <><span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Flag size={12} /> finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
         : <span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Flag size={12} /> finalizado</span>)
-    : fix ? <><span className="text-emerald-400">en directo</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
+    : fix ? <><PuntoEmision tono={emisionVista.tono} late={emisionVista.late} /><span className={emisionVista.clase}>{emisionVista.texto}</span> · <span className={fr?.stale ? 'text-amber-400' : 'text-emerald-400'}>visto {fr?.label}</span></>
     : <>esperando primera posición…</>
 
   // En un circuito, "vuelta 2 de 4" dice mucho mas que un porcentaje, asi que

@@ -323,6 +323,22 @@ object TrackingRules {
         return s.takeIf { it - ahoraMs > ANTELACION_SALIDA_SEGUNDOS * 1000 }
     }
 
+    /**
+     * Cómo va la emisión, para el punto de la pastilla del visor: "armada",
+     * "enDirecto" (lo grabado está subido), "rezagada" (un rato sin poder
+     * subir) o "perdida" (más de seis minutos). Espejo de `estadoDeEmision`
+     * en iOS, con el mismo margen de dos ciclos de la cadencia para no
+     * parpadear en el funcionamiento normal.
+     */
+    fun estadoDeEmision(enEspera: Boolean, colaDesdeMs: Double?, intervaloSegundos: Double, ahoraMs: Double): String {
+        if (enEspera) return "armada"
+        val desde = colaDesdeMs ?: return "enDirecto"
+        val esperaS = (ahoraMs - desde) / 1000
+        if (esperaS < maxOf(90.0, intervaloSegundos * 2)) return "enDirecto"
+        if (esperaS < 360) return "rezagada"
+        return "perdida"
+    }
+
     /** Si la carrera elegida impone su hora: a menos de 18 h, o empezada hace
      *  menos de un día. Ahí "empezar ahora" sería mentir. */
     fun carreraImponeHora(salidaCarreraMs: Double?, ahoraMs: Double): Boolean {

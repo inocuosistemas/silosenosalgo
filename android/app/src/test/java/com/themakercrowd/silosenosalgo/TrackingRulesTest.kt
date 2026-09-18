@@ -782,4 +782,23 @@ class TrackingRulesTest {
         assertFalse(TrackingRules.carreraImponeHora(ahora + 30 * hora, ahora))
         assertFalse(TrackingRules.carreraImponeHora(null, ahora))
     }
+
+    // ── El punto de la emisión ───────────────────────────────────────────────
+
+    @Test fun `sin cola esta en directo aunque haga rato que no se envia`() {
+        assertEquals("enDirecto", TrackingRules.estadoDeEmision(false, null, 15.0, ahora))
+    }
+
+    @Test fun `una cola corta es el ritmo normal, no falta de cobertura`() {
+        assertEquals("enDirecto", TrackingRules.estadoDeEmision(false, ahora - 30_000, 15.0, ahora))
+    }
+
+    @Test fun `una cola de dos minutos es sin cobertura, y de diez, perdida`() {
+        assertEquals("rezagada", TrackingRules.estadoDeEmision(false, ahora - 120_000, 15.0, ahora))
+        assertEquals("perdida", TrackingRules.estadoDeEmision(false, ahora - 600_000, 15.0, ahora))
+    }
+
+    @Test fun `armada manda sobre todo`() {
+        assertEquals("armada", TrackingRules.estadoDeEmision(true, ahora - 600_000, 15.0, ahora))
+    }
 }

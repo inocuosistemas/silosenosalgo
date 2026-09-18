@@ -53,6 +53,9 @@ object ViewerData {
          *  al servidor. La API pública nunca manda esto; el visor lo usa para
          *  dibujar el hueco entre dónde estás y dónde te ven. */
         val reportedFix: FixWire? = null,
+        /** Solo en el visor incrustado: cómo va la emisión según la baliza
+         *  (pinta el punto de la pastilla). Ver `TrackingRules.estadoDeEmision`. */
+        val emision: String? = null,
         val notes: List<Note>? = null,
         /** Factor de forma confirmado (1 = el plan) y su historial. */
         val formFactor: Double? = null,
@@ -190,6 +193,11 @@ object ViewerData {
             fix = real,
             trail = TrackingStore.trazaActual(),
             reportedFix = reportada,
+            emision = if (estado.compartiendo) {
+                TrackingRules.estadoDeEmision(
+                    estado.enEspera, estado.colaDesdeMs, estado.ritmo.intervaloSegundos, System.currentTimeMillis().toDouble(),
+                )
+            } else null,
             notes = notas.ifEmpty { null },
             formFactor = factorForma,
             formLog = historialForma.ifEmpty { null },

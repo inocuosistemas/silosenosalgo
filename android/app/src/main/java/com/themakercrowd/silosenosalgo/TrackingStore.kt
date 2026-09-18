@@ -90,6 +90,11 @@ object TrackingStore {
         val enMeta: Boolean = false,
         /** Posiciones registradas y aún sin subir (atasco sin cobertura). */
         val pendientes: Int = 0,
+        /** Cuándo se grabó el punto más viejo que aún no ha subido (ms), o null
+         *  sin cola. Es lo que dice si hay cobertura: no cuánto hace que se
+         *  envió —parado, eso envejece solo— sino cuánto lleva esperando algo
+         *  ya grabado. Espejo de `colaDesdeMs` en iOS. */
+        val colaDesdeMs: Double? = null,
         /** Posiciones efectivamente subidas en esta sesión. */
         val subidas: Int = 0,
         val ultimoEnvioMs: Double? = null,
@@ -397,6 +402,7 @@ object TrackingStore {
             salidaMs = guardado.salidaMs,
             retenerHoras = guardado.retenerHoras,
             pendientes = pendientes.size,
+            colaDesdeMs = pendientes.firstOrNull()?.fixAt,
             puntosTraza = traza.size,
             metrosRecorridos = TrackingRules.distanciaTraza(traza),
             notas = _notas.value.size,
@@ -991,6 +997,7 @@ object TrackingStore {
             salidaMs = resumen?.startedAt ?: ahoraMs,
             retenerHoras = _estado.value.retenerHoras,
             pendientes = pendientes.size,
+            colaDesdeMs = pendientes.firstOrNull()?.fixAt,
             puntosTraza = traza.size,
             metrosRecorridos = TrackingRules.distanciaTraza(traza),
             notas = _notas.value.size,
@@ -1506,6 +1513,7 @@ object TrackingStore {
         muestreaBateria()
         _estado.value = _estado.value.copy(
             pendientes = pendientes.size,
+            colaDesdeMs = pendientes.firstOrNull()?.fixAt,
             ultimaLectura = fix,
             puntosTraza = traza.size,
             metrosRecorridos = TrackingRules.distanciaTraza(traza),
@@ -1808,6 +1816,7 @@ object TrackingStore {
             almacen.guardaPendientes(id, pendientes)
             _estado.value = _estado.value.copy(
                 pendientes = pendientes.size,
+                colaDesdeMs = pendientes.firstOrNull()?.fixAt,
                 subidas = _estado.value.subidas + lote.size,
                 ultimoEnvioMs = ahoraMs,
                 seguidores = seguidores,

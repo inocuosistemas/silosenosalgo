@@ -16,14 +16,8 @@ struct LiveMapView: View {
     @State private var showDownload = false
     @State private var showAddNote = false
     @State private var showNotes = false
-    /// Un reloj propio: el semáforo envejece con el tiempo, no con los cambios
-    /// del store, así que sin esto un "en directo" podría quedarse pintado
-    /// mientras la cola encanece.
-    @State private var ahora = Date()
-    private let reloj = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-
     /// Si lo que se está viendo es la sesión que emite AHORA (y no un
-    /// seguimiento acabado ni una guía): solo entonces hay semáforo.
+    /// seguimiento acabado ni una guía).
     private var esLaDeAhora: Bool {
         store.isSharing && offlineToken != nil && offlineToken == store.claveDeDatos
     }
@@ -32,19 +26,13 @@ struct LiveMapView: View {
         NavigationStack {
             WebView(source: source)
                 .ignoresSafeArea(edges: .bottom)
-                .navigationTitle(title)
+                // Sin título en la sesión que emite: "En directo" arriba, con
+                // "Volver" y los tres botones, no cabía, y lo que decía —cómo va
+                // la emisión, con su punto— lo dice ahora la pastilla de abajo
+                // del propio mapa, igual en iOS, en Android y en la web.
+                .navigationTitle(esLaDeAhora ? "" : title)
                 .navigationBarTitleDisplayMode(.inline)
-                .onReceive(reloj) { ahora = $0 }
                 .toolbar {
-                    // El título, cuando emite, dice además CÓMO va: verde
-                    // latiendo mientras sale, ámbar quieto mientras solo graba.
-                    // Sin esto, el mapa offline se ve igual con cobertura y sin
-                    // ella, y no hay manera de saber si te están viendo.
-                    if esLaDeAhora {
-                        ToolbarItem(placement: .principal) {
-                            SemaforoDeEmision(estado: store.estadoDeEmision(ahora))
-                        }
-                    }
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button { dismiss() } label: {
                             HStack(spacing: 4) {
@@ -127,55 +115,5 @@ struct SinMapa: View {
             }
             .padding(32)
         }
-    }
-}
-
-/// El semáforo de la emisión: un punto y dos palabras.
-///
-/// El color dice qué pasa y el latido dice que algo sale de verdad: quieto es
-/// "grabando, esperando señal". Rojo solo cuando lleva mucho sin subir nada;
-/// quedarse sin cobertura un rato no es una avería —la baliza guarda y se pone
-/// al día sola— y en rojo asustaría sin motivo.
-struct SemaforoDeEmision: View {
-    let estado: TrackingStore.EstadoDeEmision
-    @State private var late = false
-
-    private var color: Color {
-        switch estado {
-        case .enDirecto: return .green
-        case .armada, .sinEnlace, .rezagada: return .orange
-        case .perdida: return .red
-        }
-    }
-
-    private var texto: String {
-        switch estado {
-        case .enDirecto: return "En directo"
-        case .armada: return "Armada"
-        case .sinEnlace: return "Sin enlace"
-        case .rezagada, .perdida: return "Sin cobertura"
-        }
-    }
-
-    /// Solo late lo que está saliendo. Un punto quieto es información, no un
-    /// adorno apagado.
-    private var pulsa: Bool { estado == .enDirecto }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-                .scaleEffect(pulsa && late ? 1.35 : 1)
-                .opacity(pulsa && late ? 0.45 : 1)
-                .animation(pulsa ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
-                           value: late)
-            Text(texto)
-                .font(.headline)
-                .foregroundStyle(Theme.slate100)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(texto)
-        .onAppear { late = true }
     }
 }

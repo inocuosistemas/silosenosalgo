@@ -136,6 +136,10 @@ struct TrackStateWire: Codable {
     /// followers see). The public API never sets this; the embedded viewer draws
     /// the offline gap between it and `fix`.
     var reportedFix: TrackFixWire?
+    /// Embed-only: cómo va la emisión según la baliza ("enDirecto",
+    /// "rezagada", "perdida", "sinEnlace", "armada"). Pinta el punto de la
+    /// pastilla del visor.
+    var emision: String?
     /// Runner-confirmed form factor (1 = the plan) + its change log.
     var formFactor: Double?
     var formLog: [FormLogWire]?
@@ -173,6 +177,7 @@ final class ViewerDataProvider {
     private var formFactor: Double = 1
     private var formLog: [FormLogWire] = []
     private var notes: [Note] = []
+    private var emision: String?
 
     /// Follower display name — set by the view layer (which holds the auth user).
     func setUsername(_ name: String?) { lock.lock(); username = name; lock.unlock() }
@@ -184,6 +189,7 @@ final class ViewerDataProvider {
                   status: String, aliasDe: String? = nil) {
         lock.lock()
         self.token = token; self.alias = aliasDe; self.title = title; self.startedAt = startedAt
+        self.emision = nil   // la sesión nueva lo publica en cuanto graba
         self.expiresAt = expiresAt; self.status = status
         self.activity = nil   // the store pushes it via setActivity() after registering
         self.notes = []   // the store pushes the loaded notes via setNotes() after registering
@@ -233,6 +239,13 @@ final class ViewerDataProvider {
     func setTitle(token: String, title: String?) {
         lock.lock()
         if self.token == token { self.title = title }
+        lock.unlock()
+    }
+
+    /// Cómo va la emisión de la sesión actual (ver `TrackStateWire.emision`).
+    func setEmision(token: String, _ emision: String?) {
+        lock.lock()
+        if self.token == token { self.emision = emision }
         lock.unlock()
     }
 
@@ -340,6 +353,7 @@ final class ViewerDataProvider {
             fix: fix,
             trail: trail,
             reportedFix: reportedFix,
+            emision: emision,
             formFactor: formFactor,
             formLog: formLog,
             notes: notes.isEmpty ? nil : notes

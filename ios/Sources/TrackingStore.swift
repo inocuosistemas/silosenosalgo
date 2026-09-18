@@ -125,7 +125,7 @@ final class TrackingStore: ObservableObject {
 
     /// Cómo va la emisión ahora mismo. Vive aquí, y no en la pantalla, para que
     /// el mapa y la pantalla principal no puedan contar cosas distintas.
-    enum EstadoDeEmision {
+    enum EstadoDeEmision: String {
         /// Esperando la hora de salida: ni graba ni envía, y así debe ser.
         case armada
         /// Graba, pero el servidor aún no le ha dado identificador: todavía no
@@ -1354,7 +1354,17 @@ final class TrackingStore: ObservableObject {
 
     /// Push the real position, the last reported position, and the full trail to
     /// the local viewer (so the map can show the offline gap between the two).
+    /// Cómo va la emisión, para el punto de la pastilla del visor (ver
+    /// `emisionVista` en `LiveViewer.tsx`). Se refresca con cada punto, con
+    /// cada cambio de la cola y en cada tic del reloj de envío, porque además
+    /// envejece sola.
+    private func publicaEmision() {
+        guard let t = claveDeDatos else { return }
+        ViewerDataProvider.shared.setEmision(token: t, isSharing ? estadoDeEmision().rawValue : nil)
+    }
+
     private func publishToViewer() {
+        publicaEmision()
         guard let t = claveDeDatos else { return }
         ViewerDataProvider.shared.update(token: t, fix: lastRecordedFix.map(wireFix), reportedFix: lastReportedFix, trail: trail)
     }
@@ -1976,6 +1986,7 @@ final class TrackingStore: ObservableObject {
     private func persistPending() {
         pendingCount = pending.count
         colaDesdeMs = pending.first?.fixAt
+        publicaEmision()
         guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(pending) {
             UserDefaults.standard.set(data, forKey: pendingKey(t))
@@ -2263,6 +2274,7 @@ final class TrackingStore: ObservableObject {
                 // Primary trigger to leave standby when stationary at the start
                 // line (coarse location may deliver no callbacks while still).
                 self?.maybeBeginFromStandby()
+                self?.publicaEmision()
                 await self?.checkStillOurs()
                 self?.sampleBatteryIfDue()
                 // Los ánimos vienen del servidor (los escriben los seguidores),

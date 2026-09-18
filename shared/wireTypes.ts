@@ -348,6 +348,11 @@ export interface TrackStateResponse {
    *  server — i.e. what followers currently see. Undefined on the public API; the
    *  embedded app sets it so the map can show the offline gap vs the real `fix`. */
   reportedFix?: TrackFix | null
+  /** Solo en el visor incrustado: cómo va la emisión, según la propia baliza
+   *  (lleva lo grabado subido, lleva un rato sin cobertura, aún no tiene enlace,
+   *  está armada). La API pública nunca lo manda: quien sigue a alguien lo
+   *  deduce de lo fresca que es la última posición. */
+  emision?: 'enDirecto' | 'rezagada' | 'perdida' | 'sinEnlace' | 'armada' | null
   /** Active followers currently watching this session (presence heartbeat count).
    *  Only set for active sessions; undefined once ended. */
   viewers?: number
