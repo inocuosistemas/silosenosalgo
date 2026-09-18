@@ -32,7 +32,9 @@ import 'leaflet-rotate'
 // y el margen extra del lienzo (abajo) cubre lo que el giro va destapando
 // mientras dura el gesto.
 interface LienzoDeTrazos {
-  _map: L.Map & { _animatingZoom?: boolean; touchGestures?: { _zooming?: boolean } }
+  _map: L.Map & { _animatingZoom?: boolean }
+  /** El zoom al que están proyectados los trazos que hay dibujados ahora. */
+  _zoom: number
   _update(): void
 }
 
@@ -45,23 +47,28 @@ lienzo.getEvents = function (this: LienzoDeTrazos) {
   const eventos = eventosOriginales.call(this)
   eventos.rotate = function (this: LienzoDeTrazos) {
     const map = this._map
-    if (map._animatingZoom || map.touchGestures?._zooming) return
+    // Solo se salta el recálculo si hay un ZOOM a medias, que es el caso que
+    // derrapaba. Girando sin zoom no hay nada que derrape y sí hay algo que
+    // ganar: el lienzo se reajusta al rectángulo nuevo y no hace falta tenerlo
+    // sobredimensionado "por si acaso".
+    if (map._animatingZoom || map.getZoom() !== this._zoom) return
     this._update()
   }
   return eventos
 }
 
-// Y el margen del lienzo, para todos los lienzos de trazos.
+// Y un poco de margen en el lienzo, solo un poco.
 //
 // Leaflet dibuja los trazos en un lienzo del tamaño de la pantalla más un
-// margen (10% por defecto) y fuera de ahí recorta. Girado, el rectángulo
-// visible se come las esquinas de ese lienzo. Fuera del pellizco se recalcula
-// en cada giro y no se nota; durante el pellizco ya no, así que el margen es lo
-// único que cubre lo que el giro va destapando mientras dura el gesto. Medio
-// vale para cualquier ángulo, y se pone en el prototipo —no como opción del
-// mapa— porque Leaflet crea un lienzo aparte, con sus propias opciones, por
-// cada panel con trazos.
-L.Renderer.prototype.options.padding = 0.5
+// margen y fuera de ahí recorta. Girando, el rectángulo visible se come las
+// esquinas de ese lienzo; como el recálculo SÍ ocurre al girar, el propio
+// plugin ya recorta a la medida del rectángulo girado y el margen solo tiene
+// que cubrir lo que destape un gesto que gira y hace zoom a la vez.
+//
+// Estuvo en 0,5 y fue un error caro: el lienzo se iba a 7404 x 4732 —35
+// megapíxeles—, y repintar eso en un móvil cada vez que cambia la escala va por
+// detrás de los mosaicos. Con 0,25 cubre igual y ocupa menos de la mitad.
+L.Renderer.prototype.options.padding = 0.25
 
 // En desarrollo, el mapa a mano desde la consola: girar y hacer zoom a la vez
 // es justo el caso donde hay que MEDIR si la traza sigue pegada al terreno, y
