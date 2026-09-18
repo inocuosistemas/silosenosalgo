@@ -116,6 +116,41 @@ final class TrackingStore: ObservableObject {
     /// La clave con la que se guarda y se sirve la sesión de ahora: la del
     /// servidor si ya contestó; la provisional, si todavía no.
     var claveDeDatos: String? { sessionToken ?? claveLocal }
+
+    /// Cuándo se grabó el punto más viejo que todavía no ha subido (epoch ms),
+    /// o nil si no hay cola. Es lo que de verdad dice si hay cobertura: no
+    /// "cuánto hace que se envió" —parado y sin nada que mandar, eso envejece
+    /// solo— sino "cuánto lleva esperando algo que ya está grabado".
+    @Published private(set) var colaDesdeMs: Double?
+
+    /// Cómo va la emisión ahora mismo. Vive aquí, y no en la pantalla, para que
+    /// el mapa y la pantalla principal no puedan contar cosas distintas.
+    enum EstadoDeEmision {
+        /// Esperando la hora de salida: ni graba ni envía, y así debe ser.
+        case armada
+        /// Graba, pero el servidor aún no le ha dado identificador: todavía no
+        /// la ve nadie.
+        case sinEnlace
+        /// Todo lo grabado está subido.
+        case enDirecto
+        /// Graba y guarda, pero hace un rato que no consigue subir.
+        case rezagada
+        /// Lleva mucho sin subir nada.
+        case perdida
+    }
+
+    func estadoDeEmision(_ ahora: Date = Date()) -> EstadoDeEmision {
+        if isStandby { return .armada }
+        if sessionToken == nil { return .sinEnlace }
+        guard let desdeMs = colaDesdeMs else { return .enDirecto }
+        let espera = ahora.timeIntervalSince1970 - desdeMs / 1000
+        // Margen sobre la propia cadencia: en modo tiempo, una cola de menos de
+        // dos ciclos es el funcionamiento normal, no una pérdida de cobertura.
+        if espera < max(90, intervalSeconds * 2) { return .enDirecto }
+        // La misma escala que el resumen de la pantalla principal.
+        if espera < 360 { return .rezagada }
+        return .perdida
+    }
     private var altaPendiente: AltaPendiente?
     /// La hora que dejó puesta la RUTA (o el evento a través de ella). Sirve
     /// para saber si la que hay es suya y se la tiene que llevar al quitarla, o
@@ -1875,6 +1910,7 @@ final class TrackingStore: ObservableObject {
 
     private func persistPending() {
         pendingCount = pending.count
+        colaDesdeMs = pending.first?.fixAt
         guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(pending) {
             UserDefaults.standard.set(data, forKey: pendingKey(t))
