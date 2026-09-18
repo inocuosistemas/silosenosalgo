@@ -560,9 +560,9 @@ fun SelectorPlan(
 
     Text(
         if (eventoId == null) {
-            "Al elegir una previsión, la hora de salida y las predicciones van contra el plan."
+            "Al elegir una ruta, la hora de salida y las predicciones van contra ella."
         } else {
-            "Sin elegir nada corres con el recorrido y los cortes del evento. Elige una previsión para usar TUS ritmos."
+            "Sin elegir nada corres con el recorrido y los cortes del evento. Elige una ruta tuya para usar TUS ritmos."
         },
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,
@@ -582,7 +582,7 @@ fun SelectorPlan(
 
     if (eventoId != null && otras.isNotEmpty()) {
         Spacer(Modifier.height(8.dp))
-        Text("Otras previsiones", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
+        Text("Otras rutas", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
         Spacer(Modifier.height(4.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             otras.forEach { plan ->
@@ -601,8 +601,8 @@ fun SelectorPlan(
     if (descuadra) {
         Spacer(Modifier.height(6.dp))
         Text(
-            "⚠️ Esta previsión no es del recorrido del evento: tus ritmos y cortes " +
-                "se calcularán sobre otra ruta.",
+            "⚠️ Esta ruta no es el recorrido del evento: tus ritmos y cortes " +
+                "se calcularán sobre otra.",
             style = MaterialTheme.typography.bodySmall,
             color = Paleta.ambar,
         )
@@ -707,7 +707,7 @@ fun SeccionCarreras(
 
     Spacer(Modifier.height(4.dp))
     Text(
-        "Toca una carrera para preparar la baliza con su hora de salida oficial y tu previsión. " +
+        "Toca una carrera para preparar la baliza con su hora de salida oficial y tu ruta. " +
             "\"Abrir\" lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.",
         style = MaterialTheme.typography.bodySmall,
         color = Paleta.slate400,

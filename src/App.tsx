@@ -1320,7 +1320,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       try {
         applyRevivedShare(await getPlan(id))
       } catch {
-        setShareLoadError('No se pudo abrir tu previsión. Revisa tu conexión, o ábrela desde Previsiones.')
+        setShareLoadError('No se pudo abrir tu ruta. Revisa tu conexión, o ábrela desde Rutas.')
       } finally {
         const url = new URL(window.location.href)
         url.searchParams.delete('prevision')

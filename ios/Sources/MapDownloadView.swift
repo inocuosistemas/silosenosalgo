@@ -53,7 +53,7 @@ struct MapDownloadView: View {
 
                 Section {
                     if polyline == nil {
-                        Text("No hay ruta que descargar. Elige una previsión (con conexión) para preparar su mapa.")
+                        Text("No hay ruta que descargar. Elige una ruta (con conexión) para preparar su mapa.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     } else {
                         if let n = routeName {

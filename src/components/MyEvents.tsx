@@ -98,7 +98,7 @@ export function MyEvents({ isAdmin }: { isAdmin: boolean }) {
             </button>
           </div>
           <p className="mt-2 text-[11px] text-slate-500">
-            El recorrido se le pone después, o desde Previsiones → Evento.
+            El recorrido se le pone después, o desde Rutas → Evento.
           </p>
         </div>
       )}

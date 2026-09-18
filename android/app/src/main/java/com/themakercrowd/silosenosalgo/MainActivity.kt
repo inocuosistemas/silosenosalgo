@@ -759,7 +759,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         "en esta ruta. Se exportan como POIs en el GPX de la guía."
                 } else {
                     "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Tu " +
-                        "previsión y tu mapa funcionan sin cobertura."
+                        "ruta y el mapa funcionan sin cobertura."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Paleta.slate400,
@@ -1349,7 +1349,7 @@ private fun EstadoCompacto(
                 title = { Text("¿Esta salida es para ${cerca.name}?") },
                 text = {
                     Column {
-                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu previsión.")
+                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu ruta.")
                         TextButton(onClick = { preguntaCarrera = false; Vibracion.exito(vista); onEmpezar() }) {
                             Text("No, es una salida suelta", color = Paleta.slate400)
                         }

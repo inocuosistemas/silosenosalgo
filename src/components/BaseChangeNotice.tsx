@@ -55,7 +55,7 @@ export function BaseChangeNotice({ eventId, planShareId, planUpdatedAt, planChan
     <section className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/25 p-3">
       <h2 className="text-[11px] uppercase tracking-wider text-amber-400">El recorrido ha cambiado</h2>
       <p className="mt-1 text-xs text-amber-100/90">
-        Se actualizó el {fecha(planUpdatedAt)} y tu previsión «{mine!.name}» es anterior. Tus ritmos siguen
+        Se actualizó el {fecha(planUpdatedAt)} y tu ruta «{mine!.name}» es anterior. Tus ritmos siguen
         valiendo; lo que cambia es a qué hora llegas a cada sitio.
       </p>
 
@@ -77,11 +77,11 @@ export function BaseChangeNotice({ eventId, planShareId, planUpdatedAt, planChan
           href={enlace}
           className="mt-2 block rounded-lg border border-amber-800 py-2 text-center text-xs text-amber-300 transition-colors hover:bg-amber-950/50"
         >
-          Abrir el recorrido nuevo y revisar mi previsión →
+          Abrir el recorrido nuevo y revisar mi ruta →
         </a>
       )}
       <p className="mt-1 text-[10px] text-amber-100/60">
-        Se abre con tus horarios de cierre al día. Al guardar allí se actualiza esta misma previsión.
+        Se abre con tus horarios de cierre al día. Al guardar allí se actualiza esta misma ruta.
       </p>
     </section>
   )

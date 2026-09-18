@@ -139,7 +139,7 @@ export function UserManager() {
                   <div className="mt-2 rounded border border-red-900/60 bg-red-950/30 p-2">
                     <p className="text-[11px] text-red-300">
                       Se borra «{u.username}» y con ella {u.sessions > 0 ? `sus ${u.sessions} seguimientos, ` : ''}
-                      {u.plans > 0 ? `sus ${u.plans} previsiones ` : ''}
+                      {u.plans > 0 ? `sus ${u.plans} rutas ` : ''}
                       {u.events > 0 ? `y los ${u.events} eventos que organiza (con sus participantes) ` : ''}
                       — no se puede deshacer.
                     </p>

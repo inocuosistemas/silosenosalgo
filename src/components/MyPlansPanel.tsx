@@ -35,7 +35,7 @@ export function MyPlansPanel({
   if (status !== 'ready' || !user || !open) return null
 
   return (
-    <Modal title="Previsiones" onClose={onClose}>
+    <Modal title="Rutas" onClose={onClose}>
       <PlansBody
         getPayload={getPayload}
         hasTrack={hasTrack}
@@ -116,7 +116,7 @@ function PlansBody({
   }
 
   async function rename(p: PlanMeta) {
-    const next = window.prompt('Nuevo nombre de la previsión', p.name)?.trim()
+    const next = window.prompt('Nuevo nombre de la ruta', p.name)?.trim()
     if (!next || next === p.name) return
     setBusy(true); setError(null)
     try { await renamePlan(p.id, next); if (current?.id === p.id) onSaved(p.id, next); await refresh() }
@@ -151,7 +151,7 @@ function PlansBody({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={hasTrack ? 'Nombre de la previsión' : 'Carga una ruta primero'}
+          placeholder={hasTrack ? 'Nombre de la ruta' : 'Carga una ruta primero'}
           disabled={!hasTrack || busy}
           className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-sky-600 disabled:opacity-50 mb-2"
         />
@@ -185,7 +185,7 @@ function PlansBody({
         {plans === null ? (
           <p className="text-xs text-slate-500">Cargando…</p>
         ) : plans.length === 0 ? (
-          <p className="text-xs text-slate-500">Aún no tienes previsiones guardadas.</p>
+          <p className="text-xs text-slate-500">Aún no tienes rutas guardadas.</p>
         ) : (
           plans.map((p) => (
             <div key={p.id} className={`rounded-lg border bg-slate-950/60 p-2.5 text-xs ${current?.id === p.id ? 'border-sky-700' : 'border-slate-800'}`}>

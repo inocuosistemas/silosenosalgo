@@ -536,7 +536,7 @@ struct TrackingView: View {
                         }
                         Button("Cancelar", role: .cancel) {}
                     } message: { _ in
-                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu previsión.")
+                        Text("Con la carrera apareces en su mapa, con su hora de salida y tu ruta.")
                     }
                     .confirmationDialog("¿Abandonas la carrera?",
                                         isPresented: $confirmandoAbandono, titleVisibility: .visible) {
@@ -594,7 +594,7 @@ struct TrackingView: View {
                     } footer: {
                         Text(store.noteCount > 0
                              ? "\(store.noteCount) \(store.noteCount == 1 ? "nota anclada" : "notas ancladas") en esta ruta. Se exportan como POIs en el GPX de la guía."
-                             : "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Se exportan como POIs en el GPX. Tu previsión y mapa funcionan sin cobertura.")
+                             : "Marca puntos (agua, cruce, peligro…) anclados a tu posición. Se exportan como POIs en el GPX. Tu ruta y el mapa funcionan sin cobertura.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
@@ -702,7 +702,7 @@ struct TrackingView: View {
                     } header: {
                         cabecera("Mis carreras", "flag.checkered")
                     } footer: {
-                        Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu previsión. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
+                        Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu ruta. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
@@ -748,7 +748,7 @@ struct TrackingView: View {
                             // carrera— sino CON QUÉ RITMOS. Por eso las previsiones
                             // hechas sobre ese recorrido van primero y aparte: son
                             // las únicas que cuadran con el evento.
-                            Picker(store.selectedEventId == nil ? "Ruta (previsión)" : "Mi previsión", selection: $store.selectedPlanId) {
+                            Picker(store.selectedEventId == nil ? "Ruta" : "Mi ruta", selection: $store.selectedPlanId) {
                                 Text(store.selectedEventId == nil
                                      ? "Sin ruta · trazado en vivo"
                                      : "La del evento").tag(String?.none)
@@ -758,7 +758,7 @@ struct TrackingView: View {
                                             Text(plan.name).tag(Optional(plan.id))
                                         }
                                     }
-                                    Section("Otras previsiones") {
+                                    Section("Otras rutas") {
                                         ForEach(store.plansNotOfEvent) { plan in
                                             Text(plan.name).tag(Optional(plan.id))
                                         }
@@ -774,7 +774,7 @@ struct TrackingView: View {
                             // contra un recorrido que no estás corriendo, y eso no
                             // puede pasar en silencio.
                             if store.planMismatchesEvent {
-                                Label("Esta previsión no es del recorrido del evento: tus ritmos y cortes se calcularán sobre otra ruta.",
+                                Label("Esta ruta no es el recorrido del evento: tus ritmos y cortes se calcularán sobre otra.",
                                       systemImage: "exclamationmark.triangle.fill")
                                     .font(.caption)
                                     .foregroundStyle(.orange)
@@ -836,7 +836,7 @@ struct TrackingView: View {
                 } footer: {
                     if outingOpen {
                         Text(store.selectedEventId != nil
-                             ? "Apareces en el mapa del evento con tu color. Sin previsión propia corres con el recorrido y los cortes de la carrera."
+                             ? "Apareces en el mapa del evento con tu color. Sin ruta propia corres con el recorrido y los cortes de la carrera."
                              : "La hora de salida es la referencia de tus ritmos y previsiones; por defecto, el momento de empezar.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }

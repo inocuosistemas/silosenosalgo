@@ -74,7 +74,7 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
       } else {
         // El nombre sale de la carrera: es como la va a buscar su dueño, y
         // pedírselo aquí sería un paso más justo cuando ya ha terminado.
-        const meta = await createPlan(payload, eventName ?? 'Mi previsión', eventId)
+        const meta = await createPlan(payload, eventName ?? 'Mi ruta', eventId)
         setMine(meta)
       }
       setSaved(true)
@@ -136,7 +136,7 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
         </a>
         <p className="min-w-0 flex-1 truncate text-xs text-slate-300">
           🏁 Ajustando{' '}
-          <span className="font-medium text-slate-100">{corro ? 'mi previsión' : 'el recorrido'}</span>
+          <span className="font-medium text-slate-100">{corro ? 'mi ruta' : 'el recorrido'}</span>
           {eventName ? <> {corro ? 'para' : 'de'} <span className="font-medium text-slate-100">{eventName}</span></> : null}
         </p>
         {error && <span className="shrink-0 text-[11px] text-red-400">{error}</span>}
@@ -156,7 +156,7 @@ export function EventPlanBar({ eventId, getPayload, hasTrack }: {
         <button
           onClick={() => void guardar()}
           disabled={busy || !hasTrack}
-          title={mine ? `Actualiza «${mine.name}» en tus previsiones` : 'La guarda en tus previsiones, vinculada a esta carrera'}
+          title={mine ? `Actualiza «${mine.name}» en tus rutas` : 'La guarda en tus rutas, vinculada a esta carrera'}
           className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
           {saved ? 'Guardada ✓' : busy ? 'Guardando…' : mine ? 'Actualizar mi planificación' : 'Guardar mi planificación'}

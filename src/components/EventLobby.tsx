@@ -800,13 +800,13 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               soyParticipante
             />
             <section className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">Tu previsión</h2>
+              <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">Tu ruta</h2>
               <p className="text-sm text-slate-300">
                 {miPrevision === undefined
-                  ? 'Mirando tus previsiones…'
+                  ? 'Mirando tus rutas…'
                   : miPrevision
                     ? <>«{miPrevision.name}», guardada el {fmtDate(miPrevision.updatedAt)}. Lleva tus ritmos y objetivos para esta carrera.</>
-                    : 'Aún no tienes. Corres con los ritmos de la previsión del evento; ponte los tuyos sin cambiar nada a los demás.'}
+                    : 'Aún no tienes. Corres con los ritmos del recorrido del evento; ponte los tuyos sin cambiar nada a los demás.'}
               </p>
               {ajustar ? (
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -814,7 +814,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
                     href={ajustar}
                     className="flex items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500"
                   >
-                    {miPrevision ? 'Ajustar mi previsión →' : 'Planificar mi salida →'}
+                    {miPrevision ? 'Ajustar mi ruta →' : 'Planificar mi salida →'}
                   </a>
                   {/* El GPX es el recorrido de la carrera: sin recorrido publicado no hay nada que bajar. */}
                   {event.planShareId && (
@@ -844,8 +844,8 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
             <section className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <h2 className="mb-1 text-[11px] uppercase tracking-wider text-slate-500">En la baliza</h2>
               <p className="text-xs leading-relaxed text-slate-400">
-                Al elegir esta carrera en la app, la baliza coge tu previsión sola (con la app al día; si no, elígela como
-                ruta). Sin previsión propia corre con la del evento. El GPX lleva dentro los controles y los horarios de
+                Al elegir esta carrera en la app, la baliza coge tu ruta sola (con la app al día; si no, elígela en la
+                baliza). Sin ruta propia corre con la del evento. El GPX lleva dentro los controles y los horarios de
                 cierre, listo para el reloj.
               </p>
             </section>
@@ -1405,7 +1405,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
             </>
           ) : (
             <p className="text-[11px] text-slate-500">
-              Este evento aún no tiene recorrido. Abre una previsión tuya y usa «Convertir en evento» para
+              Este evento aún no tiene recorrido. Abre una ruta tuya y usa «Convertir en evento» para
               ponérselo.
             </p>
           )}
@@ -1426,7 +1426,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           <p className="mt-1.5 text-[11px] text-slate-500">
             El día y la hora de la carrera. Es con lo que arranca quien planifica sobre este recorrido, así que
             si está mal, todos empiezan corrigiéndola a mano. Al poner el recorrido se rellena sola con la de la
-            previsión de origen, si no habías puesto ninguna.
+            ruta de origen, si no habías puesto ninguna.
           </p>
           {event.startsAt && (
             <button

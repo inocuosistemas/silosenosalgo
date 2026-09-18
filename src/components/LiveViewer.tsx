@@ -2462,7 +2462,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </div>
           )}
           {cards.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-4">Esta previsión no tiene puntos de control.</p>
+            <p className="text-xs text-slate-400 text-center py-4">Esta ruta no tiene puntos de control.</p>
           ) : cards.map((c, i) => (
             /* Tocar un tramo lo amplía. Se abre en el `pointerup` y no en el
                `click`: en el Safari del iPhone —o sea, dentro de la app— un

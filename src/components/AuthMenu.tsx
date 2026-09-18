@@ -118,7 +118,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     onClick={() => { setMenuOpen(false); onOpenPlans() }}
                     className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
                   >
-                    📁 Previsiones
+                    📁 Rutas
                   </button>
                 ) : (
                   // Fuera del planificador —en un evento—, el camino de vuelta a

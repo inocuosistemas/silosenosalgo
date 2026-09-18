@@ -115,8 +115,8 @@ function errFrom(res: Response): PlansError {
 export function plansErrorMessage(code: string): string {
   switch (code) {
     case 'too_large': return 'La ruta es demasiado grande para guardarla en tu cuenta.'
-    case 'unauthorized': return 'Inicia sesión para gestionar tus previsiones.'
-    case 'not_found': return 'No se encontró la previsión.'
+    case 'unauthorized': return 'Inicia sesión para gestionar tus rutas.'
+    case 'not_found': return 'No se encontró la ruta.'
     default: return 'No se pudo completar la operación. Revisa tu conexión.'
   }
 }
