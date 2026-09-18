@@ -2838,6 +2838,33 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               )}
               {showAdvanced && (
                 <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
+                  {/* Con qué se dibuja el mapa, lo PRIMERO del panel. Estuvo al
+                      fondo, con los demás mandos del mapa, y ahí no lo encontraba
+                      nadie: por encima quedan los ánimos, las vueltas y el calor,
+                      y el panel hace scroll. Un ajuste que no se encuentra no
+                      existe. El clásico sigue por defecto; el fluido es el de la
+                      GPU, donde la traza no puede nadar sobre el terreno. Se
+                      recuerda en este dispositivo. */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-200">Mapa fluido · beta</p>
+                        <p className="text-[10px] text-slate-400">Gira, inclina y hace zoom a la vez, con la traza pegada al terreno</p>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={motor === 'fluido'}
+                        aria-label="Mapa fluido"
+                        onClick={() => cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido')}
+                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${motor === 'fluido' ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      >
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${motor === 'fluido' ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    {falloFluido && (
+                      <p className="mt-1.5 text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido; se queda el clásico.</p>
+                    )}
+                  </div>
                   {recalibrationCard}
                   {(canCheer || cheers.length > 0) && (
                     <div>
@@ -3106,30 +3133,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       )}
                     </div>
                   )}
-                  {/* Con qué se dibuja el mapa. Va con los demás mandos del mapa
-                      y con su mismo interruptor. El clásico sigue por defecto;
-                      el fluido es el de la GPU, donde la traza no puede nadar
-                      sobre el terreno. Se recuerda en este dispositivo. */}
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">Mapa fluido · beta</p>
-                        <p className="text-[10px] text-slate-400">Gira, inclina y hace zoom a la vez, con la traza pegada al terreno</p>
-                      </div>
-                      <button
-                        role="switch"
-                        aria-checked={motor === 'fluido'}
-                        aria-label="Mapa fluido"
-                        onClick={() => cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido')}
-                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${motor === 'fluido' ? 'bg-sky-600' : 'bg-slate-700'}`}
-                      >
-                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${motor === 'fluido' ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
-                    </div>
-                    {falloFluido && (
-                      <p className="mt-1.5 text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido; se queda el clásico.</p>
-                    )}
-                  </div>
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><span className="text-xs">📈</span>Perfil del recorrido</p>
