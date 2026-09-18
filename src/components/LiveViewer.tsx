@@ -8,6 +8,7 @@ import { ClipboardList, Trash2 } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import '../lib/leafletRotate'
 import {
   CHEER_BODY_MAX, CHEER_NICK_MAX, CHEER_REACTIONS, isReactionEmoji,
   type TrackStateResponse, type BeaconActivity, type TrackCheer,
@@ -73,6 +74,21 @@ const AUTO_FOLLOW_IDLE_MS = 60_000
  * quedarse anclado ahi para siempre— y el boton de recentrar lo trae de vuelta
  * al momento.
  */
+/**
+ * Cuenta hacia fuera el rumbo del mapa, para que el botón de la brújula sepa
+ * cuánto girar la aguja y cuándo hace falta existir.
+ */
+function Rumbo({ onRumbo }: { onRumbo: (grados: number) => void }) {
+  const map = useMap()
+  useEffect(() => {
+    const avisa = () => onRumbo(map.getBearing())
+    map.on('rotate', avisa)
+    avisa()
+    return () => { map.off('rotate', avisa) }
+  }, [map, onRumbo])
+  return null
+}
+
 function Follow({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }) {
   const map = useMap()
   const first = useRef(true)
@@ -735,6 +751,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Id del ánimo cuyo selector de emojis está abierto, o null.
   const [picker, setPicker] = useState<string | null>(null)
   const [recentre, setRecentre] = useState(0)
+  // El mapa y su rumbo, para la brújula: el botón vive FUERA del contenedor
+  // (si viviera dentro giraría con el mapa), así que necesita la instancia.
+  const [mapa, setMapa] = useState<L.Map | null>(null)
+  const [rumbo, setRumbo] = useState(0)
   // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
   // para que repetir la misma nota vuelva a centrar.
   const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
@@ -2497,7 +2517,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // ── Map view (default) ─────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-100">
-      <MapContainer center={center} zoom={fix || trail.length ? 14 : plan ? 13 : 6} className="absolute inset-0" zoomControl={false}>
+      {/* `rotate` + `touchRotate`: girar el mapa con dos dedos. El control de
+          brújula que trae el plugin se apaga —`rotateControl={false}`— porque
+          cicla entre tres modos (toque, compás del móvil, bloqueado) y aquí
+          solo hace falta uno: volver al norte. El nuestro está más abajo. */}
+      <MapContainer
+        ref={setMapa}
+        center={center}
+        zoom={fix || trail.length ? 14 : plan ? 13 : 6}
+        className="absolute inset-0"
+        zoomControl={false}
+        rotate
+        touchRotate
+        rotateControl={false}
+      >
+        <Rumbo onRumbo={setRumbo} />
         <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
         {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
         {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
@@ -3214,6 +3248,32 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           className="absolute bottom-36 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
         >
           {offRoute ? '↯' : anclado ? <Magnet size={16} /> : <MapPin size={16} />}
+        </button>
+      )}
+
+      {/* La brújula: solo cuando el mapa está girado. Un botón que el 99% del
+          tiempo no hace nada es ruido, y aquí además enseña ALGO —hacia dónde
+          cae el norte— que sin giro ya se sabe. La aguja gira con el mapa; al
+          tocarla, el norte vuelve arriba. */}
+      {Math.abs(rumbo) > 0.5 && Math.abs(rumbo - 360) > 0.5 && (
+        <button
+          type="button"
+          onClick={() => mapa?.setBearing(0)}
+          aria-label="Volver a orientar el mapa al norte"
+          title="Volver a orientar el mapa al norte"
+          className="absolute bottom-48 right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 backdrop-blur active:scale-95"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            aria-hidden="true"
+            style={{ transform: `rotate(${rumbo}deg)` }}
+          >
+            {/* Aguja: la mitad que apunta al norte en rojo, la otra en gris. */}
+            <path d="M12 3 L15.4 13 L12 11.2 L8.6 13 Z" fill="#f43f5e" />
+            <path d="M12 21 L8.6 11 L12 12.8 L15.4 11 Z" fill="#94a3b8" />
+          </svg>
         </button>
       )}
 

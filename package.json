@@ -37,6 +37,7 @@
     "html-to-image": "^1.11.13",
     "leaflet": "^1.9.4",
     "leaflet-gesture-handling": "^1.2.2",
+    "leaflet-rotate": "^0.2.8",
     "leaflet-velocity": "^2.1.4",
     "lucide-react": "^1.40.0",
     "maplibre-gl": "^6.9.0",
