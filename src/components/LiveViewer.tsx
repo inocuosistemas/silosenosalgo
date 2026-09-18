@@ -804,9 +804,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // El radar de lluvia (RainViewer), encima del mapa: la lluvia de AHORA, para
   // ver si viene el chubasco. Solo la imagen más reciente, refrescada cada cinco
   // minutos: sin animación, que en la montaña los datos cuestan. Necesita
-  // cobertura. Se recuerda en el dispositivo, como el motor del mapa.
+  // cobertura. Encendido por defecto: es para verlo sin ir a buscarlo. Si se
+  // apaga, se recuerda en el dispositivo, como el motor del mapa.
   const [radar, setRadar] = useState<boolean>(() => {
-    try { return localStorage.getItem('slsns.radarLluvia') === '1' } catch { return false }
+    try { return localStorage.getItem('slsns.radarLluvia') !== '0' } catch { return true }
   })
   const [radarFrame, setRadarFrame] = useState<RadarFrame | null>(null)
   const [radarFallo, setRadarFallo] = useState(false)
