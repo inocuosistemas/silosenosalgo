@@ -123,6 +123,11 @@ class TrackingService : Service() {
             scope.launch { TrackingStore.alarga() }
             return START_STICKY
         }
+        // Armada y esperando su hora: salir ya.
+        if (intent?.action == ACCION_EMPEZAR_YA) {
+            scope.launch { TrackingStore.empiezaYa() }
+            return START_STICKY
+        }
 
         // Arranque tras una muerte del proceso: el sistema nos revive sin intent
         // y sin interfaz. Si había una sesión en disco, se reanuda sola.
@@ -357,6 +362,7 @@ class TrackingService : Service() {
         const val ACCION_PAUSAR = "com.themakercrowd.silosenosalgo.PAUSAR"
         const val ACCION_SEGUIR = "com.themakercrowd.silosenosalgo.SEGUIR"
         const val ACCION_ALARGAR = "com.themakercrowd.silosenosalgo.ALARGAR"
+        const val ACCION_EMPEZAR_YA = "com.themakercrowd.silosenosalgo.EMPEZAR_YA"
 
         /** Arranca el servicio. Se llama SIEMPRE desde la pantalla y con los
          *  permisos ya concedidos: Android 14+ no deja arrancar un servicio de
@@ -392,6 +398,12 @@ class TrackingService : Service() {
         /** Alargar la pausa cinco minutos más, sin salir de ella. */
         fun alarga(context: Context) {
             val intent = Intent(context, TrackingService::class.java).setAction(ACCION_ALARGAR)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
+        }
+
+        /** Baliza armada: dejar de esperar su hora y salir ya. */
+        fun empiezaYa(context: Context) {
+            val intent = Intent(context, TrackingService::class.java).setAction(ACCION_EMPEZAR_YA)
             runCatching { ContextCompat.startForegroundService(context, intent) }
         }
     }

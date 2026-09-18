@@ -474,6 +474,34 @@ final class TrackingStore: ObservableObject {
     /// "Salgo ya": fuera la hora prevista, sea de quien sea. La salida vuelve a
     /// ser el momento de pulsar Empezar, y la baliza no se queda armada
     /// esperando una hora que ya no va.
+    /// Si la hora de salida puesta se va a respetar al empezar: elegida y dentro
+    /// de la ventana que acepta el servidor. La MISMA cuenta que usa
+    /// `startSharing`, para que lo que dice un botón y lo que hace la baliza no
+    /// puedan separarse.
+    private var horaHeredadaValida: Bool {
+        let ahora = Date()
+        return startAtTouched
+            && startAt <= ahora.addingTimeInterval(TrackingRules.salidaMaxAdelante)
+            && startAt >= ahora.addingTimeInterval(-TrackingRules.salidaMaxAtras)
+    }
+
+    /// La hora para la que quedaría ARMADA la baliza si se empezase ahora, o
+    /// nil si saldría en el acto. Es lo que decide si hay que preguntar
+    /// "¿empiezo ya o a la hora prevista?".
+    var salidaQueArmaria: Date? {
+        guard !isSharing, horaHeredadaValida,
+              startAt.timeIntervalSinceNow > TrackingRules.startLeadSeconds else { return nil }
+        return startAt
+    }
+
+    /// Si la carrera elegida impone su hora: está a menos de 18 h (o empezó
+    /// hace menos de un día) y el servidor pondrá su salida oficial.
+    var carreraImponeHora: Bool {
+        guard let ms = activeEvent?.startsAt, ms > 0 else { return false }
+        let desde = Date(timeIntervalSince1970: ms / 1000).timeIntervalSinceNow
+        return desde <= TrackingRules.carreraImponeHora && desde >= -TrackingRules.salidaMaxAtras
+    }
+
     func clearStartAt() {
         startAt = Date()
         startAtTouched = false
@@ -822,9 +850,7 @@ final class TrackingStore: ObservableObject {
         // mientras el servidor, que descarta lo que se pasa de catorce, la había
         // creado con "ahora". Dos verdades a la vez y ninguna forma de
         // arreglarlo desde la app.
-        let techo = Date().addingTimeInterval(14 * 24 * 60 * 60)
-        let suelo = Date().addingTimeInterval(-24 * 60 * 60)
-        let heredadaValida = startAtTouched && startAt <= techo && startAt >= suelo
+        let heredadaValida = horaHeredadaValida
         if startAtTouched && !heredadaValida {
             // Y se limpia, para que la pantalla deje de enseñar una hora que ya
             // no se está usando.

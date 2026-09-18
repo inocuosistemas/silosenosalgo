@@ -290,6 +290,47 @@ object TrackingRules {
     fun tocaEmpezar(ahoraMs: Double, salidaMs: Double): Boolean =
         ahoraMs >= salidaMs - ANTELACION_SALIDA_SEGUNDOS * 1000
 
+    // ── Hora de salida: respetarla, armar, o empezar ya ─────────────────────
+
+    /** Ventana en la que se acepta una hora de salida elegida: hasta catorce
+     *  días por delante y un día por detrás. La misma que aplica el servidor
+     *  (`functions/api/track/index.ts`) y la misma que iOS. */
+    const val SALIDA_MAX_ADELANTE_S = 14 * 24 * 3600.0
+    const val SALIDA_MAX_ATRAS_S = 24 * 3600.0
+
+    /** Una carrera a menos de esto IMPONE su hora oficial: el servidor la pone
+     *  como salida diga lo que diga el móvil (`HERENCIA_MAX`). */
+    const val CARRERA_IMPONE_HORA_S = 18 * 3600.0
+
+    /**
+     * La salida con la que se va a empezar de verdad: la elegida si está dentro
+     * de la ventana, y si no, ahora.
+     *
+     * Android no la recortaba —se fiaba del servidor—, y el servidor sí: una
+     * ruta con la salida a tres semanas dejaba la baliza ARMADA tres semanas
+     * mientras el servidor la daba por empezada. Igual que en iOS.
+     */
+    fun salidaEfectiva(salidaMs: Double, tocada: Boolean, ahoraMs: Double): Double =
+        if (tocada && salidaMs <= ahoraMs + SALIDA_MAX_ADELANTE_S * 1000 && salidaMs >= ahoraMs - SALIDA_MAX_ATRAS_S * 1000) {
+            salidaMs
+        } else ahoraMs
+
+    /** La hora para la que quedaría ARMADA la baliza si se empezase ahora, o
+     *  null si saldría en el acto. Decide si hay que preguntar "¿ya o a la
+     *  hora prevista?". */
+    fun salidaQueArmaria(salidaMs: Double, tocada: Boolean, ahoraMs: Double): Double? {
+        val s = salidaEfectiva(salidaMs, tocada, ahoraMs)
+        return s.takeIf { it - ahoraMs > ANTELACION_SALIDA_SEGUNDOS * 1000 }
+    }
+
+    /** Si la carrera elegida impone su hora: a menos de 18 h, o empezada hace
+     *  menos de un día. Ahí "empezar ahora" sería mentir. */
+    fun carreraImponeHora(salidaCarreraMs: Double?, ahoraMs: Double): Boolean {
+        if (salidaCarreraMs == null || salidaCarreraMs <= 0) return false
+        val desde = salidaCarreraMs - ahoraMs
+        return desde <= CARRERA_IMPONE_HORA_S * 1000 && desde >= -SALIDA_MAX_ATRAS_S * 1000
+    }
+
     // ── Traza y atasco ───────────────────────────────────────────────────────
 
     /**

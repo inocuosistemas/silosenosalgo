@@ -23,7 +23,10 @@ function planHeaders(p: SharePayloadV1, name: string, eventId?: string | null): 
     'X-Plan-Route': encodeURIComponent(p.track.name || ''),
     'X-Plan-Distance': String(p.track.totalDistanceKm ?? ''),
     'X-Plan-Elev': String(p.track.elevGainM ?? ''),
-    'X-Plan-Start': encodeURIComponent(p.startTimeISO || ''),
+    // La hora prevista solo si alguien la eligió: la de relleno no es una
+    // salida programada, y mandarla hacía que la baliza se armase para ella.
+    // Vacía, el servidor guarda la ruta sin hora y la baliza sale al encenderla.
+    'X-Plan-Start': encodeURIComponent(p.startTimeChosen === false ? '' : p.startTimeISO || ''),
   }
   // De qué evento salió, cuando se está planificando sobre su recorrido. Va por
   // cabecera como el resto de metadatos: el cuerpo son bytes comprimidos.

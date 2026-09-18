@@ -40,6 +40,17 @@ export interface SharePayloadV1 {
     cumKm: number[]
   }
   startTimeISO: string
+  /**
+   * Si la hora de salida la ELIGIÓ alguien, o es la de relleno que el
+   * planificador pone al abrirse (la próxima hora en punto).
+   *
+   * Hace falta porque el documento exige una hora —el pronóstico se calcula
+   * contra ella— y entonces toda ruta guardada llevaba una, elegida o no. La
+   * baliza no podía distinguirlas: copiaba la de relleno y se quedaba armada
+   * esperando una salida que nadie había programado. Sin la marca (documentos
+   * anteriores a ella) se da por elegida: no se sabe, y así nada cambia.
+   */
+  startTimeChosen?: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   /** Cut-offs keyed by "lat.toFixed(6),lon.toFixed(6)" — Map flattened to object. */
@@ -53,6 +64,8 @@ export interface SharePayloadV1 {
 export interface ShareInput {
   track: GpxTrack
   startTime: Date
+  /** Ver `SharePayloadV1.startTimeChosen`. */
+  startTimeChosen?: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
@@ -63,6 +76,8 @@ export interface ShareInput {
 export interface RevivedShare {
   track: GpxTrack
   startTime: Date
+  /** Falso solo si el documento dice expresamente que nadie la eligió. */
+  startTimeChosen: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
@@ -105,6 +120,7 @@ export function buildSharePayload(input: ShareInput): SharePayloadV1 {
       cumKm: track.cumKm,
     },
     startTimeISO: input.startTime.toISOString(),
+    startTimeChosen: input.startTimeChosen,
     paceConfig: input.paceConfig,
     sampling: input.sampling,
     cutoffWallClocks,
@@ -169,6 +185,7 @@ export function reviveSharePayload(raw: unknown): RevivedShare {
   return {
     track,
     startTime: new Date(obj.startTimeISO),
+    startTimeChosen: obj.startTimeChosen !== false,
     paceConfig: obj.paceConfig as PaceConfig,
     sampling: obj.sampling as SamplingConfig,
     cutoffWallClocks,

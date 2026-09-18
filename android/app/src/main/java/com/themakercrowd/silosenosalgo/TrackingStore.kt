@@ -307,7 +307,7 @@ object TrackingStore {
         planId: String? = _estado.value.planId,
         // Sin salida fijada se usa "ahora" EN EL MOMENTO de compartir, no el
         // valor rancio de cuando se abrió la pantalla (como en iOS).
-        salidaMs: Double = _estado.value.salidaMs.takeIf { _estado.value.salidaTocada } ?: ahoraMs,
+        salidaMs: Double = TrackingRules.salidaEfectiva(_estado.value.salidaMs, _estado.value.salidaTocada, ahoraMs),
         actividad: BeaconActivity? = _estado.value.actividad,
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
@@ -903,6 +903,21 @@ object TrackingStore {
     fun salidaAhora() {
         _estado.value = _estado.value.copy(salidaMs = 0.0, salidaTocada = false)
         guardaActivo()
+    }
+
+    /**
+     * "Salgo YA" con la baliza ya abierta y esperando su hora.
+     *
+     * Android no lo tenía: una baliza armada solo salía de la espera al llegar
+     * su hora, y la hora solo se cambia desde una sección que no se ve mientras
+     * se comparte. Había que pararla y empezar de nuevo. Espejo de `empiezaYa`
+     * en iOS.
+     */
+    fun empiezaYa() {
+        val e = _estado.value
+        if (!e.compartiendo || !e.enEspera) return
+        salidaAhora()
+        quizaEmpieza()
     }
 
     /**

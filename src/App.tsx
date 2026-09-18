@@ -138,6 +138,8 @@ const SESSION_LS_KEY = 'silosenosalgo-session-v1'
 interface SavedSession {
   track: GpxTrack
   startTimeISO: string
+  /** Si la hora la eligió alguien (ver `SharePayloadV1.startTimeChosen`). */
+  startTimeChosen?: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   strategyMargin?: number
@@ -416,6 +418,13 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     d.setHours(d.getHours() + 1)
     return d
   })
+  // Si esa hora la ha ELEGIDO alguien. La de arriba es de relleno —el
+  // pronóstico necesita una hora contra la que calcularse—, y guardarla como
+  // "hora prevista" armaba la baliza para una salida que nadie programó. Se
+  // enciende solo donde una persona fija la hora de verdad: el campo de fecha,
+  // la edición en directo, la hora oficial de una carrera, la salida real
+  // deducida del GPS, o una ruta guardada que ya la traía.
+  const [horaElegida, setHoraElegida] = useState(false)
   const [paceConfig, setPaceConfig] = useState<PaceConfig>(loadPaceConfig)
 
   // Persist pace config across reloads
@@ -630,6 +639,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
    */
   const [paramsSnapshot, setParamsSnapshot] = useState<{
     startTime:    Date
+    horaElegida:  boolean
     paceConfig:   PaceConfig
     sampling:     SamplingConfig
     segmentPaces: SegmentPace[] | null
@@ -792,6 +802,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     saveSession({
       track,
       startTimeISO: startTime.toISOString(),
+      startTimeChosen: horaElegida,
       paceConfig,
       sampling,
       strategyMargin,
@@ -800,7 +811,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       originalPointCount: trackOriginalPoints || track.points.length,
       eventId: planEventId,
     })
-  }, [track, startTime, paceConfig, sampling, strategyMargin, segmentTargets, gpxValidity, trackOriginalPoints, planEventId])
+  }, [track, startTime, horaElegida, paceConfig, sampling, strategyMargin, segmentTargets, gpxValidity, trackOriginalPoints, planEventId])
 
   // Fall back to 'fixed' automatically when activity changes and makes GPX
   // invalid (applies to both GPX modes; 'gpx-moving' keeps its derived pace).
@@ -1219,14 +1230,15 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   // ── Compartir salida: build the snapshot from current state ───────────────
   const buildCurrentSharePayload = useCallback((): SharePayloadV1 => {
     if (!track) throw new Error('no track')
-    return buildSharePayload({ track, startTime, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets })
-  }, [track, startTime, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
+    return buildSharePayload({ track, startTime, startTimeChosen: horaElegida, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets })
+  }, [track, startTime, horaElegida, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
 
   // Inject a revived share/plan into app state — shared by the ?s= open flow and
   // "Cargar" in Previsiones, so both paths behave identically.
   function applyRevivedShare(revived: RevivedShare) {
     handleTrack(revived.track)
     setStartTime(revived.startTime)
+    setHoraElegida(revived.startTimeChosen)
     if (revived.paceConfig) setPaceConfig(revived.paceConfig)
     if (revived.sampling) setSampling(revived.sampling)
     setCutoffWallClocksState(revived.cutoffWallClocks)
@@ -1262,7 +1274,10 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
         // porque `applyRevivedShare` fija la del payload, y los cortes se
         // reajustan solos (sus horas son de pared y el día se infiere).
         const salida = Number(params.get('salida'))
-        if (Number.isFinite(salida) && salida > 0) setStartTime(new Date(salida))
+        if (Number.isFinite(salida) && salida > 0) {
+          setStartTime(new Date(salida))
+          setHoraElegida(true)
+        }
       } catch (err) {
         if (err instanceof ShareTransportError && err.kind === 'not_found') {
           setShareLoadError('Este enlace ha caducado o no existe.')
@@ -1754,6 +1769,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   function handleCancelModify() {
     if (paramsSnapshot) {
       setStartTime(paramsSnapshot.startTime)
+      setHoraElegida(paramsSnapshot.horaElegida)
       setPaceConfig(paramsSnapshot.paceConfig)
       setSampling(paramsSnapshot.sampling)
       setSegmentPaces(paramsSnapshot.segmentPaces)
@@ -1810,6 +1826,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       const now = new Date()
       const anchoredStart = new Date(now.getTime() - elapsedMin * 60_000)
       setStartTime(anchoredStart)
+      setHoraElegida(true)
 
       // 3) Resto del flujo igual que antes
       const wps = computeWaypoints(track, anchoredStart, paceConfig, DEFAULT_SAMPLING, segmentPaces ?? undefined, pauses)
@@ -2441,6 +2458,9 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                         const s = savedSession
                         handleTrack(s.track)
                         setStartTime(new Date(s.startTimeISO))
+                        // Las sesiones guardadas antes de la marca no la traen:
+                        // se da por NO elegida, que es el caso que hacía daño.
+                        setHoraElegida(s.startTimeChosen ?? false)
                         setPaceConfig(s.paceConfig)
                         setSampling(s.sampling)
                         setStrategyMargin(Math.max(0, s.strategyMargin ?? 0))
@@ -2679,7 +2699,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                   </div>
                   <button
                     onClick={() => {
-                      setParamsSnapshot({ startTime, paceConfig, sampling, segmentPaces, buddyObs })
+                      setParamsSnapshot({ startTime, horaElegida, paceConfig, sampling, segmentPaces, buddyObs })
                       setParamsExpanded(true)
                     }}
                     className="text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-1.5 px-3 rounded-lg border border-slate-600 transition-colors shrink-0"
@@ -2710,6 +2730,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                         const d = new Date(e.target.value)
                         if (isNaN(d.getTime())) return
                         setStartTime(d)
+                        setHoraElegida(true)
                         setBuddyObs([])
                         if (hasComputedOnce) setParamsDirty(true)
                         // reset() is intentionally NOT called here so that previous
@@ -2722,6 +2743,14 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                       {formatStartDate(startTime)} · {formatTime(startTime)}
                     </span>
                   </div>
+                  {/* Sin tocar, la hora es de ejemplo y así se dice: al guardar
+                      la ruta NO se guarda como salida programada, y la baliza
+                      empezará cuando la enciendas. */}
+                  {!horaElegida && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Hora de ejemplo para calcular. Si la guardas así, la ruta no queda programada: la baliza sale cuando la enciendas. Cámbiala si vas a salir a una hora concreta.
+                    </p>
+                  )}
                 </PlanningStep>
 
                 <PlanningStep
@@ -2970,6 +2999,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
                           const d = new Date(startTime)
                           d.setHours(h, m, 0, 0)
                           setStartTime(d)
+                          setHoraElegida(true)
                         }
                         setLiveEditingStart(false)
                       }}

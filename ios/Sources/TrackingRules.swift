@@ -26,6 +26,18 @@ enum TrackingRules {
      */
     static let startLeadSeconds: TimeInterval = 300
 
+    /// Ventana en la que se acepta una hora de salida heredada: hasta catorce
+    /// días por delante y un día por detrás. La misma que aplica el servidor
+    /// (`functions/api/track/index.ts`); fuera de ella la salida es "ahora".
+    static let salidaMaxAdelante: TimeInterval = 14 * 24 * 3600
+    static let salidaMaxAtras: TimeInterval = 24 * 3600
+
+    /// Una carrera a menos de esto IMPONE su hora oficial: el servidor la pone
+    /// como salida diga lo que diga el móvil (`HERENCIA_MAX` en
+    /// `functions/api/track/index.ts`). Ahí ofrecer "empezar ahora" sería
+    /// mentir: la app emitiría ya y los seguidores verían una cuenta atrás.
+    static let carreraImponeHora: TimeInterval = 18 * 3600
+
     /// La carrera que se corre HOY, si la hay: la que la baliza deja puesta
     /// sola al abrirla. Espejo de `TrackingRules.eventoDeHoy` en Android, donde
     /// está la explicación larga y las pruebas.

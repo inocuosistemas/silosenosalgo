@@ -631,14 +631,31 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
         }
 
+        // ¿Empezar ya o a la hora prevista? Si la ruta trae una hora futura, se
+        // pregunta con dos botones en vez de armarse sin decir nada. Salvo en
+        // una carrera a menos de 18 h: su hora la impone el servidor, y ahí
+        // "ahora" sería mentir — un solo botón que dice para cuándo se arma.
+        val ahoraMs = System.currentTimeMillis().toDouble()
+        val eventoElegido = eventos.firstOrNull { it.id == estado.eventoId }
+        val salidaArmaria = if (estado.compartiendo) null
+            else TrackingRules.salidaQueArmaria(estado.salidaMs, estado.salidaTocada, ahoraMs)
+        val dosFormas = salidaArmaria != null && !TrackingRules.carreraImponeHora(eventoElegido?.startsAt, ahoraMs)
+        val textoBase = eventoElegido?.let { "Compartir para ${it.name}" }
+            ?: if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera"
         EstadoCompacto(
             estado = estado,
             arrancando = arrancando,
             hayPermiso = permisoUbicacion,
             // Para qué es la salida, dicho en el botón; y sin carrera elegida,
             // la que está cerca para preguntar por ella antes de empezar.
-            textoEmpezar = eventos.firstOrNull { it.id == estado.eventoId }?.let { "Compartir para ${it.name}" }
-                ?: if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera",
+            textoEmpezar = when {
+                dosFormas -> "Iniciar ahora"
+                salidaArmaria != null -> "$textoBase · ${cuandoArranca(salidaArmaria)}"
+                else -> textoBase
+            },
+            textoArmar = if (dosFormas) "Iniciar ${cuandoArranca(salidaArmaria!!)}" else null,
+            onQuitarHora = { TrackingStore.salidaAhora() },
+            onEmpezarYa = { TrackingService.empiezaYa(context) },
             lineaRegistro = resumenRegistro(estado),
             lineaSalida = resumenSalida(estado, eventos, planes),
             carreraAPreguntar = if (estado.eventoId == null && !estado.compartiendo) {
@@ -1109,6 +1126,19 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 }
 
 /**
+ * "a las 07:30" si es hoy; "el sáb 3 oct a las 05:30" si no. Espejo de
+ * `cuandoArranca` en iOS: con el día delante, una espera de quince días por
+ * error se ve a la primera.
+ */
+private fun cuandoArranca(ms: Double): String {
+    val d = Date(ms.toLong())
+    val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(d)
+    val hoy = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+    return if (hoy.format(d) == hoy.format(Date())) "a las $hora"
+    else "el ${SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(d)} a las $hora"
+}
+
+/**
  * Lo primero de la pantalla: **si está transmitiendo**, no cuánto.
  *
  * Espejo de `statusContent` en `ios/Sources/TrackingView.swift`. Al abrir la app
@@ -1126,6 +1156,13 @@ private fun EstadoCompacto(
     lineaRegistro: String,
     lineaSalida: String,
     carreraAPreguntar: EventSummary?,
+    /** Con la ruta trayendo hora: el texto del segundo botón, "Iniciar a las
+     *  14:00". Null si solo hay una forma de empezar. */
+    textoArmar: String?,
+    /** "Iniciar ahora": fuera la hora prevista, solo para esta salida. */
+    onQuitarHora: () -> Unit,
+    /** Baliza armada: dejar de esperar. */
+    onEmpezarYa: () -> Unit,
     onElegirCarrera: (String) -> Unit,
     onEmpezar: () -> Unit,
     onParar: () -> Unit,
@@ -1151,11 +1188,16 @@ private fun EstadoCompacto(
 
         if (estado.enEspera) {
             Text(
-                "Empieza solo a la hora prevista. Deja la app abierta en segundo " +
+                "Empieza sola ${cuandoArranca(estado.salidaMs)}. Deja la app abierta en segundo " +
                     "plano (no la cierres).",
                 style = MaterialTheme.typography.bodySmall,
                 color = Paleta.slate400,
             )
+            // Faltaba: una baliza armada solo salía de la espera al llegar su
+            // hora, y para adelantarla había que pararla y empezar de nuevo.
+            TextButton(onClick = { Vibracion.exito(vista); onEmpezarYa() }) {
+                Text("Salir ahora · dejar de esperar", color = Paleta.sky500)
+            }
         }
         if (estado.compartiendo) {
             Text(
@@ -1363,20 +1405,35 @@ private fun EstadoCompacto(
                 color = Paleta.slate400,
             )
             Spacer(Modifier.height(10.dp))
+            val arranca = {
+                if (carreraAPreguntar != null) {
+                    preguntaCarrera = true
+                } else {
+                    Vibracion.exito(vista)
+                    onEmpezar()
+                }
+            }
             Button(
                 onClick = {
-                    if (carreraAPreguntar != null) {
-                        preguntaCarrera = true
-                    } else {
-                        Vibracion.exito(vista)
-                        onEmpezar()
-                    }
+                    // Con dos botones este es "Iniciar ahora": fuera la hora.
+                    if (textoArmar != null) onQuitarHora()
+                    arranca()
                 },
                 enabled = hayPermiso && !arrancando,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (arrancando) CircularProgressIndicator(Modifier.height(18.dp))
                 else Text(textoEmpezar, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            // La otra forma: armar y que salga sola a su hora. Debajo y sin
+            // relleno; la de arriba es la habitual sobre el terreno.
+            if (textoArmar != null) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = arranca,
+                    enabled = hayPermiso && !arrancando,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(textoArmar, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Paleta.sky500) }
             }
             Spacer(Modifier.height(8.dp))
             Text(

@@ -754,4 +754,32 @@ class TrackingRulesTest {
         assertNull(f.speed)
         assertEquals(1.0, f.fixAt!!, 0.0)
     }
+
+    // ── Hora de salida: ¿ya, o a la hora prevista? ───────────────────────────
+
+    private val ahora = 1_800_000_000_000.0
+    private val hora = 3_600_000.0
+
+    @Test fun `una salida elegida a dos horas arma la baliza`() {
+        assertEquals(ahora + 2 * hora, TrackingRules.salidaQueArmaria(ahora + 2 * hora, true, ahora)!!, 0.0)
+    }
+
+    @Test fun `sin hora elegida sale en el acto`() {
+        assertNull(TrackingRules.salidaQueArmaria(ahora + 2 * hora, false, ahora))
+    }
+
+    @Test fun `a menos de cinco minutos no se arma, se sale`() {
+        assertNull(TrackingRules.salidaQueArmaria(ahora + 4 * 60_000.0, true, ahora))
+    }
+
+    @Test fun `una salida a tres semanas no arma nada porque el servidor la da por ahora`() {
+        assertNull(TrackingRules.salidaQueArmaria(ahora + 21 * 24 * hora, true, ahora))
+        assertEquals(ahora, TrackingRules.salidaEfectiva(ahora + 21 * 24 * hora, true, ahora), 0.0)
+    }
+
+    @Test fun `una carrera a menos de 18 horas impone su hora`() {
+        assertTrue(TrackingRules.carreraImponeHora(ahora + 3 * hora, ahora))
+        assertFalse(TrackingRules.carreraImponeHora(ahora + 30 * hora, ahora))
+        assertFalse(TrackingRules.carreraImponeHora(null, ahora))
+    }
 }

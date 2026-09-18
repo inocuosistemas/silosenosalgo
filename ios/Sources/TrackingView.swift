@@ -494,17 +494,18 @@ struct TrackingView: View {
                                 // por un roce con el pulgar, y este botón está
                                 // justo donde se toca todo lo demás.
                                 confirmandoParada = true
-                            } else if store.selectedEventId == nil, let cerca = TrackingRules.nearbyEvent(store.events) {
-                                // Sin carrera elegida y con una cerca: se pregunta
-                                // antes, que sin ella la salida no sale en su mapa.
-                                carreraAPreguntar = cerca
                             } else {
-                                Vibra.exito()
-                                await store.startSharing(title: tituloLimpio)
+                                // Con dos botones, este es "Iniciar ahora": fuera
+                                // la hora prevista, solo para esta salida.
+                                if dosFormasDeEmpezar { store.clearStartAt() }
+                                await empieza()
                             }
                         }
                     } label: {
-                        Text(abandonaAlParar ? "Abandonar" : store.isSharing ? "Dejar de compartir" : textoCompartir)
+                        Text(abandonaAlParar ? "Abandonar"
+                             : store.isSharing ? "Dejar de compartir"
+                             : dosFormasDeEmpezar ? "Iniciar ahora"
+                             : textoCompartir)
                             .fontWeight(.semibold)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -553,6 +554,26 @@ struct TrackingView: View {
                         Button("No, sigo", role: .cancel) {}
                     } message: {
                         Text("Queda dicho a esta hora y en tu kilómetro, y se cierra la baliza. Si solo te paras un rato, usa la pausa.")
+                    }
+
+                    // La otra forma de empezar, cuando la ruta trae hora: armar
+                    // la baliza y que salga sola. Debajo y sin relleno: la de
+                    // arriba es la habitual sobre el terreno.
+                    if dosFormasDeEmpezar, let salida = store.salidaQueArmaria {
+                        Button {
+                            Vibra.exito()
+                            Task { await empieza() }
+                        } label: {
+                            Text("Iniciar \(Self.cuandoArranca(salida))")
+                                .fontWeight(.semibold)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .foregroundStyle(Theme.sky500)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.sky600, lineWidth: 1.5))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
                     }
                 } footer: {
                     if !store.isSharing {
@@ -1310,7 +1331,40 @@ struct TrackingView: View {
     /// toca, y no en una lista más arriba que no se mira con prisa. "Sin
     /// carrera" solo a quien tiene carreras: a quien no tiene ninguna no le dice
     /// nada.
+    /**
+     Si al empezar hay que elegir entre "ahora" y "a la hora prevista".
+
+     Pasa cuando la ruta trae una hora futura: antes la baliza se armaba sin
+     preguntar, y para salir ya había que abrir una sección plegada y quitar la
+     hora. Con dos botones, empezar es una decisión a la vista.
+
+     Salvo en una carrera que está a menos de 18 h: ahí la hora oficial la pone
+     el servidor diga lo que diga el móvil, así que "ahora" sería mentira. Se
+     queda un solo botón, que dice para cuándo se arma.
+     */
+    private var dosFormasDeEmpezar: Bool {
+        !store.isSharing && store.salidaQueArmaria != nil && !store.carreraImponeHora
+    }
+
+    /// Empezar a compartir, con la pregunta de la carrera cercana si toca.
+    private func empieza() async {
+        if store.selectedEventId == nil, let cerca = TrackingRules.nearbyEvent(store.events) {
+            // Sin carrera elegida y con una cerca: se pregunta antes, que sin
+            // ella la salida no sale en su mapa.
+            carreraAPreguntar = cerca
+        } else {
+            Vibra.exito()
+            await store.startSharing(title: tituloLimpio)
+        }
+    }
+
     private var textoCompartir: String {
+        // Con la hora puesta y sin alternativa (carrera que impone su salida),
+        // el botón dice para cuándo se arma: pulsarlo no empieza a emitir ya.
+        if let salida = store.salidaQueArmaria {
+            let base = store.activeEvent.map { "Compartir para \($0.name)" } ?? "Compartir"
+            return "\(base) · \(Self.cuandoArranca(salida))"
+        }
         if let ev = store.activeEvent { return "Compartir para \(ev.name)" }
         return store.events.isEmpty ? "Compartir mi ubicación" : "Compartir mi ubicación · sin carrera"
     }
