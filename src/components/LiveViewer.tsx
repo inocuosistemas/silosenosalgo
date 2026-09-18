@@ -741,6 +741,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
   const [, force] = useState(0)
   const [plan, setPlan] = useState<RevivedShare | null>(guide?.plan ?? null)
+  // Si la ruta lleva previsión o es solo el recorrido (un GPX cargado desde la
+  // baliza). Sin previsión se sigue dibujando la ruta, midiendo el km y
+  // avisando del fuera de ruta; lo que se apaga es todo lo que COMPARA con unos
+  // ritmos: el corredor fantasma, el "vs plan", la forma detectada, las horas
+  // previstas en los controles y la llegada estimada. Serían contra unos ritmos
+  // por defecto que nadie eligió, y eso informa mal.
+  const conPrevision = plan?.withForecast !== false
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [photoViewer, setPhotoViewer] = useState<{ src: string; alt: string } | null>(null)
@@ -1162,8 +1169,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Detected form (overall + subida/bajada/llano + fatiga). Observational only —
   // shown in both views; the runner confirms it to move the forecast.
   const detected = useMemo(
-    () => (plan && formSamples.length >= 4 ? detectForm(plan.track, formSamples, plan.paceConfig) : null),
-    [plan, formSamples],
+    () => (plan && conPrevision && formSamples.length >= 4 ? detectForm(plan.track, formSamples, plan.paceConfig) : null),
+    [plan, conPrevision, formSamples],
   )
 
   // Desde cuándo lleva parado. La cuenta está en `lib/parado.ts` porque el mapa
@@ -1334,9 +1341,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       cumGainM += seg.elevGainM
       const profile = buildSegmentProfile(plan.track, prevKm, w.distanceKm, 0, regla.escalaM)
       const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
-      return { w, seg, cumGainM, profile, regla, plannedElapsedMs: eta0 ? eta0.getTime() : null }
+      return { w, seg, cumGainM, profile, regla, plannedElapsedMs: conPrevision && eta0 ? eta0.getTime() : null }
     })
-  }, [plan, pauses])
+  }, [plan, conPrevision, pauses])
 
   // Full-route elevation sparkline (overview), computed once per plan; the live
   // position is overlaid at render time. Used by the advanced data panel.
@@ -1361,8 +1368,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // que el fantasma no se adelante justo mientras el plan dice que estas parado
   // y para que concuerde con el "vs plan" que ya se muestra.
   const plannedCurve = useMemo(
-    () => (plan ? buildPlannedCurve(plan.track, plan.paceConfig, pauses) : null),
-    [plan, pauses],
+    () => (plan && conPrevision ? buildPlannedCurve(plan.track, plan.paceConfig, pauses) : null),
+    [plan, conPrevision, pauses],
   )
 
   // Per-POI weather (Open-Meteo), fetched once per plan; matched to each POI's
@@ -1599,13 +1606,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
   // Live delta vs plan (minutes; negative = ahead, positive = behind).
   let deltaMin: number | null = null
-  if (plan && progressKm != null && !preStart) {
+  if (plan && conPrevision && progressKm != null && !preStart) {
     const planned = estimateArrivalTimeAtKm(plan.track, progressKm, sessionStart, plan.paceConfig, undefined, pauses)
     if (planned) deltaMin = (refNow - planned.getTime()) / 60_000
   }
   // Fallback delta (no plan): km ahead/behind expected.
   let paceDeltaKm: number | null = null
-  if (plan && progressKm != null && deltaMin == null) {
+  if (plan && conPrevision && progressKm != null && deltaMin == null) {
     const elapsedMin = (refNow - sessionStart.getTime()) / 60_000
     if (Number.isFinite(elapsedMin) && elapsedMin > 0) {
       const expectedKm = expectedKmAtElapsed(plan.track, elapsedMin, plan.paceConfig)
@@ -1785,7 +1792,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Projected finish: with a confirmed form factor (embedded) the remaining
   // modelled effort is scaled by it; otherwise the planned finish shifted by the
   // live vs-plan delta (identical when factor = 1).
-  const plannedFinish = plan ? estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses) : null
+  const plannedFinish = plan && conPrevision ? estimateArrivalTimeAtKm(plan.track, totalKm, sessionStart, plan.paceConfig, undefined, pauses) : null
   const projFinish = usesFactor ? projectedETAAt(totalKm)
     : plannedFinish && deltaMin != null ? new Date(plannedFinish.getTime() + deltaMin * 60_000) : plannedFinish
 
@@ -2440,17 +2447,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   sobre su posición de ahora, que está en el bar, así que salía
                   "0%" el día después de haber acabado la prueba entera. Lo que
                   queda por saber entonces es cómo acabó, y eso sí se sabe. */}
+              {/* Sin previsión no hay plan contra el que medirse: en vez de
+                  dos casillas con una raya, lo que sí se sabe con el recorrido
+                  solo —cuánto queda y cuánto se sube aún— y, al llegar, el
+                  tiempo que costó. */}
               {reachedGoal ? (
                 <>
                   <Stat label="Progreso 100%" value={`${totalKm.toFixed(1)} km`} />
-                  <Stat label="vs plan" value={deltaFinal != null ? deltaLabel(deltaFinal) : '—'} />
+                  {conPrevision
+                    ? <Stat label="vs plan" value={deltaFinal != null ? deltaLabel(deltaFinal) : '—'} />
+                    : <Stat label="Tiempo" value={arrivalAt ? hhmm((arrivalAt.getTime() - sessionStart.getTime()) / 60_000) : '—'} />}
                   <Stat label="Meta" value={arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} />
                 </>
-              ) : (
+              ) : conPrevision ? (
                 <>
                   <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
                   <Stat label="vs plan" value={deltaMin != null ? deltaLabel(deltaMin) : paceDeltaKm != null ? `${Math.abs(paceDeltaKm).toFixed(1)} km ${paceDeltaKm < 0 ? 'detrás' : 'delante'}` : '—'} />
                   <Stat label="Meta (prev.)" value={projFinish ? clockDay(projFinish, sessionStart) : '—'} />
+                </>
+              ) : (
+                <>
+                  <Stat label={`Progreso ${pct}%`} value={progressKm != null ? `${progressKm.toFixed(1)} km` : '—'} />
+                  <Stat label="Quedan" value={progressKm != null ? `${Math.max(0, totalKm - progressKm).toFixed(1)} km` : '—'} />
+                  <Stat label="Sube aún" value={plan && progressKm != null
+                    ? `${Math.round(elevationStatsForSegment(plan.track, progressKm, totalKm, plan.paceConfig).elevGainM)} m`
+                    : '—'} />
                 </>
               )}
             </div>

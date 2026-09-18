@@ -1,0 +1,11 @@
+-- Si la ruta lleva previsión (hora de salida, ritmos y cortes planificados) o
+-- es solo el recorrido.
+--
+-- Hasta ahora toda ruta nacía en el planificador con ritmos y hora por
+-- defecto, y la baliza comparaba la marcha contra esos ritmos inventados: el
+-- corredor fantasma y el "+12 % vs plan" salían aunque nadie hubiera
+-- planificado nada. Una ruta cargada desde la baliza es solo el recorrido.
+--
+-- Las que ya existen nacieron todas en el planificador: se quedan como "con
+-- previsión" (DEFAULT 1), y así nada de lo que ya funciona cambia.
+ALTER TABLE plans ADD COLUMN with_forecast INTEGER NOT NULL DEFAULT 1;

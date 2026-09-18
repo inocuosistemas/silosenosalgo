@@ -63,6 +63,17 @@ export interface SamplingConfig {
   count: number
 }
 
+/** Los ritmos con los que arranca el planificador, y los de una ruta cargada
+ *  desde la baliza (que no lleva previsión: están para cuando se le añada). */
+export const DEFAULT_PACE: PaceConfig = {
+  mode: 'fixed',
+  paceMinPerKm: 5.5,
+  naismithMin100mUp: 6,
+  smartDescent: 'balanced',
+  smartFatigue: 'medium',
+  activity: 'walk',
+}
+
 export const DEFAULT_SAMPLING: SamplingConfig = {
   mode: 'auto',
   intervalKm: 1,

@@ -542,6 +542,14 @@ private fun formateaBytes(bytes: Long): String = when {
 
 // ── Mandos previos a compartir ───────────────────────────────────────────────
 
+/** El nombre de una ruta en el selector: las que son solo el recorrido lo
+ *  dicen, porque con ellas no hay ritmos ni corredor fantasma. Espejo de
+ *  `nombreEnLista` en iOS. */
+private fun nombreEnLista(plan: PlanSummary): String {
+    val nombre = plan.name ?: plan.routeName ?: "Sin nombre"
+    return if (plan.withForecast == false) "$nombre · solo recorrido" else nombre
+}
+
 @Composable
 fun SelectorPlan(
     planes: List<PlanSummary>,
@@ -574,7 +582,7 @@ fun SelectorPlan(
         // el bloque de "otras" solo se pinta cuando hay evento.
         val primeras = if (eventoId == null) otras else delEvento
         primeras.forEach { plan ->
-            BotonElegible(plan.name ?: plan.routeName ?: "Sin nombre", elegido == plan.id) {
+            BotonElegible(nombreEnLista(plan), elegido == plan.id) {
                 onElige(plan.id)
             }
         }
@@ -586,7 +594,7 @@ fun SelectorPlan(
         Spacer(Modifier.height(4.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             otras.forEach { plan ->
-                BotonElegible(plan.name ?: plan.routeName ?: "Sin nombre", elegido == plan.id) {
+                BotonElegible(nombreEnLista(plan), elegido == plan.id) {
                     onElige(plan.id)
                 }
             }

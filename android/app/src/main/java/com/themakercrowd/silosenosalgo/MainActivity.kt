@@ -306,6 +306,25 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var guiaEnMapa by remember { mutableStateOf<String?>(null) }
     var avisoGuia by remember { mutableStateOf<String?>(null) }
 
+    // Cargar un GPX como ruta: se convierte en el móvil, se guarda en la cuenta
+    // y queda elegida para empezar ya. Cualquier tipo: cada app etiqueta los
+    // GPX a su manera (o no los etiqueta), y el lector rechaza lo que no lo es.
+    var cargandoGpx by remember { mutableStateOf(false) }
+    var avisoGpx by remember { mutableStateOf<String?>(null) }
+    val abreGpx = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        cargandoGpx = true
+        scope.launch {
+            avisoGpx = try {
+                val nombre = TrackingStore.importaGpx(uri)
+                "«$nombre» guardada en tus rutas y elegida. Solo el recorrido: la previsión se le añade en la web."
+            } catch (e: Exception) {
+                e.message ?: "No se pudo cargar el GPX."
+            }
+            cargandoGpx = false
+        }
+    }
+
     // Se acepta cualquier tipo: los `.slsnsguide` no tienen un MIME registrado,
     // así que filtrar por tipo los escondería del selector de archivos.
     val abreGuia = rememberLauncherForActivityResult(
@@ -825,6 +844,20 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 // La ruta y la hora se ocultan en marcha: la sesión ya está
                 // creada en el backend con las suyas.
                 SelectorPlan(planes, estado.planId, estado.eventoId) { TrackingStore.eligePlan(it) }
+                // Fuera del selector, que no se pinta sin rutas: cargar el
+                // primer GPX es justo lo que hace quien todavía no tiene ninguna.
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { avisoGpx = null; abreGpx.launch(arrayOf("*/*")) },
+                    enabled = !cargandoGpx,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (cargandoGpx) CircularProgressIndicator(Modifier.height(18.dp))
+                    else Text("Cargar un GPX")
+                }
+                avisoGpx?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                }
                 if (estado.planId != null || estado.eventoId != null) {
                     Spacer(Modifier.height(10.dp))
                     // El mapa sin cobertura cuelga de la ruta: sin recorrido no

@@ -76,7 +76,26 @@ if (import.meta.env.DEV) {
 // se usa y se retira sola.
 initGhostScrollbars()
 
-createRoot(document.getElementById('root')!).render(
+/**
+ * El conversor de GPX para las apps: una página SIN interfaz.
+ *
+ * Las balizas cargan `index.html?convierte=gpx` en un visor oculto, le pasan el
+ * fichero a `slsnsGpxARuta` y reciben la ruta hecha con el mismo código que la
+ * web (ver `lib/convierteGpx`). No se pinta nada ni se carga la aplicación:
+ * solo el lector de GPX, que llega en su propio trozo.
+ */
+const esConversor = params.get('convierte') === 'gpx'
+if (esConversor) {
+  const w = window as unknown as {
+    slsnsGpxARuta?: (texto: string, fichero: string, actividad?: string) => Promise<unknown>
+    slsnsConversorListo?: boolean
+  }
+  w.slsnsGpxARuta = async (texto, fichero, actividad) =>
+    (await import('./lib/convierteGpx')).gpxARuta(texto, fichero, actividad)
+  w.slsnsConversorListo = true
+}
+
+if (!esConversor) createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <Suspense fallback={<div style={{ height: '100dvh' }}><CargandoMarca texto="Cargando…" /></div>}>

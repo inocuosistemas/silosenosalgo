@@ -143,6 +143,10 @@ struct PlanSummary: Codable, Identifiable, Equatable {
     /// De qué va la previsión, si se eligió al planificar. La baliza la hereda,
     /// igual que la hora de salida.
     let activity: String?
+    /// Si la ruta lleva previsión (ritmos y hora planificados) o es solo el
+    /// recorrido, como un GPX cargado desde aquí. nil en servidores anteriores
+    /// al campo: cuenta como con previsión.
+    var withForecast: Bool? = nil
 }
 
 /// A single GPS fix sent to the backend. Optional fields are omitted when nil.
@@ -215,6 +219,7 @@ struct APIError: LocalizedError {
         case "unauthorized": return "Sesión caducada. Inicia sesión de nuevo."
         case "ended": return "La sesión de seguimiento ha terminado."
         case "network": return "No se pudo conectar con el servidor."
+        case "too_large": return "El GPX es demasiado grande para guardarlo como ruta."
         default: return "Error (\(status)): \(code)"
         }
     }
@@ -306,6 +311,43 @@ enum API {
         let (data, http) = try await request("api/plans/\(planId)", method: "GET", token: token)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return data
+    }
+
+    /**
+     Guarda como ruta de la cuenta un recorrido ya convertido (ver `GpxImporter`).
+
+     El cuerpo es el documento de la ruta comprimido, tal cual lo arma la web;
+     los datos para la lista van en cabeceras, porque el servidor no abre el
+     cuerpo. Sin hora prevista y marcada como "solo recorrido": es lo que es un
+     GPX cargado sobre el terreno.
+     */
+    static func createPlan(token: String, cuerpo: Data, nombre: String, distanciaKm: Double,
+                           desnivelM: Double, actividad: String?) async throws -> PlanSummary {
+        var req = URLRequest(url: Config.baseURL.appendingPathComponent("api/plans"))
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let cabecera = { (s: String) in s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "" }
+        req.setValue(cabecera(nombre), forHTTPHeaderField: "X-Plan-Name")
+        req.setValue(cabecera(nombre), forHTTPHeaderField: "X-Plan-Route")
+        req.setValue(String(distanciaKm), forHTTPHeaderField: "X-Plan-Distance")
+        req.setValue(String(desnivelM), forHTTPHeaderField: "X-Plan-Elev")
+        req.setValue("", forHTTPHeaderField: "X-Plan-Start")
+        req.setValue("0", forHTTPHeaderField: "X-Plan-Forecast")
+        if let actividad { req.setValue(actividad, forHTTPHeaderField: "X-Plan-Activity") }
+        // Un GPX grande tarda en subir con poca cobertura: más margen que los
+        // quince segundos de las peticiones pequeñas.
+        req.timeoutInterval = 60
+        let (data, resp): (Data, URLResponse)
+        do {
+            (data, resp) = try await URLSession.shared.upload(for: req, from: cuerpo)
+        } catch {
+            throw APIError(status: 0, code: "network")
+        }
+        guard let http = resp as? HTTPURLResponse else { throw APIError(status: 0, code: "network") }
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(PlanSummary.self, from: data)
     }
 
     /// Los bytes gzip de un recorrido COMPARTIDO (`/api/share/:id`). Es el

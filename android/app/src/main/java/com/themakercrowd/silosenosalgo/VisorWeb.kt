@@ -107,7 +107,7 @@ fun VisorIncrustado(
  * El interceptor. Contesta a TODAS las peticiones del visor sin salir a la red
  * (salvo las teselas, que sí se bajan y se guardan).
  */
-private class ClienteVisor(context: Context) : WebViewClient() {
+internal class ClienteVisor(context: Context) : WebViewClient() {
 
     private val assets = WebAssetStore(context.applicationContext)
     private val teselas = TileCache(context.applicationContext)

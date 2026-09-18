@@ -327,6 +327,45 @@ final class TrackingStore: ObservableObject {
         return Config.shareLink(for: t)
     }
 
+    /// El conversor de GPX (un visor web oculto). Se crea al primer uso.
+    private var conversorGpx: GpxImporter?
+
+    /**
+     Carga un GPX como ruta nueva de la cuenta y la deja elegida.
+
+     La ruta nace a secas —solo el recorrido, sin previsión ni hora prevista—:
+     es para empezar ya sobre ella, y la previsión se le puede añadir después
+     en la web. Convertirla es local (ver `GpxImporter`); guardarla en la cuenta
+     necesita red, porque la baliza se une a la ruta por su identificador del
+     servidor. Devuelve el nombre de la ruta, o lanza con un mensaje para
+     enseñar tal cual.
+     */
+    @discardableResult
+    func importaGpx(_ url: URL) async throws -> String {
+        let accedido = url.startAccessingSecurityScopedResource()
+        defer { if accedido { url.stopAccessingSecurityScopedResource() } }
+        let datos = try Data(contentsOf: url)
+        guard let texto = String(data: datos, encoding: .utf8) ?? String(data: datos, encoding: .isoLatin1) else {
+            throw GpxImporter.Fallo.conversion("Ese fichero no es un GPX que se pueda leer.")
+        }
+        let conversor = conversorGpx ?? GpxImporter()
+        conversorGpx = conversor
+        let ruta = try await conversor.convierte(texto: texto, fichero: url.lastPathComponent, actividad: activity?.rawValue)
+        let plan: PlanSummary
+        do {
+            plan = try await API.createPlan(
+                token: token, cuerpo: ruta.cuerpo, nombre: ruta.nombre,
+                distanciaKm: ruta.distanciaKm, desnivelM: ruta.desnivelM, actividad: activity?.rawValue,
+            )
+        } catch let e as APIError where e.status == 0 {
+            throw GpxImporter.Fallo.conversion("Sin cobertura: el GPX está leído, pero guardarlo como ruta necesita red. Vuelve a intentarlo cuando la tengas.")
+        }
+        await loadPlans()
+        // Elegida, para empezar ya. No trae hora: la baliza sale al pulsar.
+        selectedPlanId = plan.id
+        return plan.name
+    }
+
     func loadPlans() async {
         // Best-effort: if it fails we simply offer "Sin ruta"; never crash.
         if let result = try? await API.listPlans(token: token) {

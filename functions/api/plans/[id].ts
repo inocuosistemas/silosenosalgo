@@ -2,6 +2,7 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk, readJson } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
+import { conPrevision } from '../../lib/plans'
 import { PLAN_ID_RE, isBeaconActivity } from '../../../shared/validate'
 
 const MAX_PLAN_BYTES = 1.8 * 1024 * 1024
@@ -72,15 +73,18 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env, params })
   const startTime = decodeHeader(request.headers.get('X-Plan-Start')).slice(0, 40) || null
   const actRaw = decodeHeader(request.headers.get('X-Plan-Activity')).trim()
   const activity = isBeaconActivity(actRaw) ? actRaw : null
+  // Al sobrescribir se actualiza también: una ruta a secas a la que se le
+  // calcula la previsión pasa a llevarla.
+  const withForecast = conPrevision(request) ? 1 : 0
 
   if (name) {
     await env.DB.prepare(
-      'UPDATE plans SET name=?, route_name=?, distance_km=?, elev_gain_m=?, start_time=?, activity=?, payload=?, updated_at=? WHERE id=? AND user_id=?',
-    ).bind(name, routeName, distanceKm, elevGainM, startTime, activity, new Uint8Array(buf), now, id, user.id).run()
+      'UPDATE plans SET name=?, route_name=?, distance_km=?, elev_gain_m=?, start_time=?, activity=?, with_forecast=?, payload=?, updated_at=? WHERE id=? AND user_id=?',
+    ).bind(name, routeName, distanceKm, elevGainM, startTime, activity, withForecast, new Uint8Array(buf), now, id, user.id).run()
   } else {
     await env.DB.prepare(
-      'UPDATE plans SET route_name=?, distance_km=?, elev_gain_m=?, start_time=?, activity=?, payload=?, updated_at=? WHERE id=? AND user_id=?',
-    ).bind(routeName, distanceKm, elevGainM, startTime, activity, new Uint8Array(buf), now, id, user.id).run()
+      'UPDATE plans SET route_name=?, distance_km=?, elev_gain_m=?, start_time=?, activity=?, with_forecast=?, payload=?, updated_at=? WHERE id=? AND user_id=?',
+    ).bind(routeName, distanceKm, elevGainM, startTime, activity, withForecast, new Uint8Array(buf), now, id, user.id).run()
   }
   return json({ ok: true }, 200)
 }

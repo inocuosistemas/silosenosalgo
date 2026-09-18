@@ -27,6 +27,9 @@ function planHeaders(p: SharePayloadV1, name: string, eventId?: string | null): 
     // salida programada, y mandarla hacía que la baliza se armase para ella.
     // Vacía, el servidor guarda la ruta sin hora y la baliza sale al encenderla.
     'X-Plan-Start': encodeURIComponent(p.startTimeChosen === false ? '' : p.startTimeISO || ''),
+    // Si lleva previsión o es solo el recorrido: la lista de rutas lo enseña y
+    // la baliza lo necesita sin bajarse cada documento.
+    'X-Plan-Forecast': p.withForecast === false ? '0' : '1',
   }
   // De qué evento salió, cuando se está planificando sobre su recorrido. Va por
   // cabecera como el resto de metadatos: el cuerpo son bytes comprimidos.

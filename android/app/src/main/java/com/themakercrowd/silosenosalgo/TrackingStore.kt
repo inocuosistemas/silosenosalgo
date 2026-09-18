@@ -580,6 +580,49 @@ object TrackingStore {
     fun cuentaMediosSesion(): Pair<Int, Int> =
         _estado.value.sessionId?.let { almacen.cuentaMedios(it) } ?: (0 to 0)
 
+    /** El conversor de GPX (un visor web oculto). Se crea al primer uso. */
+    private var conversorGpx: ConversorGpx? = null
+
+    /**
+     * Carga un GPX como ruta nueva de la cuenta y la deja elegida.
+     *
+     * Nace a secas —solo el recorrido, sin previsión ni hora prevista—: es para
+     * empezar ya sobre ella, y la previsión se le añade después en la web.
+     * Convertirla es local (ver [ConversorGpx]); guardarla en la cuenta necesita
+     * red, porque la baliza se une a la ruta por su identificador del servidor.
+     * Devuelve el nombre de la ruta, o lanza con un mensaje para enseñar tal
+     * cual. Espejo de `importaGpx` en iOS.
+     */
+    suspend fun importaGpx(uri: android.net.Uri): String {
+        val t = token ?: throw ApiException(401, "unauthorized")
+        val ctx = appCtx ?: throw ConversorGpx.Fallo("La app no está lista todavía.")
+        val (texto, fichero) = withContext(Dispatchers.IO) {
+            val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw ConversorGpx.Fallo("No se pudo abrir el fichero.")
+            val nombre = ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "ruta.gpx"
+            String(bytes, Charsets.UTF_8) to nombre
+        }
+        val conversor = conversorGpx ?: ConversorGpx(ctx).also { conversorGpx = it }
+        val actividad = _estado.value.actividad?.name?.lowercase()
+        val ruta = conversor.convierte(texto, fichero, actividad)
+        val plan = try {
+            api.createPlan(t, ruta.cuerpo, ruta.nombre, ruta.distanciaKm, ruta.desnivelM, actividad)
+        } catch (e: ApiException) {
+            if (e.status == 0) {
+                throw ConversorGpx.Fallo(
+                    "Sin cobertura: el GPX está leído, pero guardarlo como ruta necesita red. " +
+                        "Vuelve a intentarlo cuando la tengas.",
+                )
+            }
+            throw e
+        }
+        cargaPlanes()
+        // Elegida, para empezar ya. No trae hora: la baliza sale al pulsar.
+        eligePlan(plan.id)
+        return plan.name ?: ruta.nombre
+    }
+
     suspend fun cargaPlanes() {
         val t = token ?: return
         runCatching { api.listPlans(t) }.onSuccess {

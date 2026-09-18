@@ -51,6 +51,14 @@ export interface SharePayloadV1 {
    * anteriores a ella) se da por elegida: no se sabe, y así nada cambia.
    */
   startTimeChosen?: boolean
+  /**
+   * Si la ruta lleva previsión —hora, ritmos y cortes planificados— o es solo
+   * el recorrido (un GPX cargado desde la baliza, p. ej.). Sin previsión el
+   * visor no enseña corredor fantasma ni "vs plan": serían contra unos ritmos
+   * que nadie eligió. Sin la marca (documentos anteriores) se da por hecha:
+   * todos nacieron en el planificador.
+   */
+  withForecast?: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   /** Cut-offs keyed by "lat.toFixed(6),lon.toFixed(6)" — Map flattened to object. */
@@ -66,6 +74,8 @@ export interface ShareInput {
   startTime: Date
   /** Ver `SharePayloadV1.startTimeChosen`. */
   startTimeChosen?: boolean
+  /** Ver `SharePayloadV1.withForecast`. */
+  withForecast?: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
@@ -78,6 +88,8 @@ export interface RevivedShare {
   startTime: Date
   /** Falso solo si el documento dice expresamente que nadie la eligió. */
   startTimeChosen: boolean
+  /** Falso solo si el documento dice expresamente que es solo el recorrido. */
+  withForecast: boolean
   paceConfig: PaceConfig
   sampling: SamplingConfig
   cutoffWallClocks: Map<string, CutoffWallClock>
@@ -121,6 +133,7 @@ export function buildSharePayload(input: ShareInput): SharePayloadV1 {
     },
     startTimeISO: input.startTime.toISOString(),
     startTimeChosen: input.startTimeChosen,
+    withForecast: input.withForecast,
     paceConfig: input.paceConfig,
     sampling: input.sampling,
     cutoffWallClocks,
@@ -186,6 +199,7 @@ export function reviveSharePayload(raw: unknown): RevivedShare {
     track,
     startTime: new Date(obj.startTimeISO),
     startTimeChosen: obj.startTimeChosen !== false,
+    withForecast: obj.withForecast !== false,
     paceConfig: obj.paceConfig as PaceConfig,
     sampling: obj.sampling as SamplingConfig,
     cutoffWallClocks,

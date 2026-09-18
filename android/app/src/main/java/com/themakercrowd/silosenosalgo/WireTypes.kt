@@ -216,6 +216,10 @@ data class PlanSummary(
     /** De qué va la previsión, si se eligió al planificar. La baliza la hereda,
      *  igual que la hora de salida. */
     val activity: String? = null,
+    /** Si la ruta lleva previsión (ritmos y hora planificados) o es solo el
+     *  recorrido, como un GPX cargado desde aquí. null en servidores anteriores
+     *  al campo: cuenta como con previsión. */
+    val withForecast: Boolean? = null,
 )
 
 /** Error del API con el mismo repertorio de códigos y textos que iOS: los dos
@@ -235,6 +239,7 @@ class ApiException(val status: Int, val code: String) : Exception() {
             // dejaría en cuenta atrás en vez de emitiendo.
             "event_not_yet" -> "Esa carrera todavía no empieza. Podrás unir la baliza desde unas horas antes de su salida."
             "network" -> "No se pudo conectar con el servidor."
+            "too_large" -> "El GPX es demasiado grande para guardarlo como ruta."
             else -> "Error ($status): $code"
         }
 }

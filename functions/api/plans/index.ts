@@ -2,6 +2,7 @@
 import type { Env } from '../../lib/db'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
+import { conPrevision } from '../../lib/plans'
 import { genId } from '../../../shared/ids'
 import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
 import type { PlanMeta, PlansListResponse } from '../../../shared/wireTypes'
@@ -27,10 +28,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const rows = await env.DB.prepare(
     `SELECT id, name, route_name AS routeName, distance_km AS distanceKm, elev_gain_m AS elevGainM,
             start_time AS startTime, created_at AS createdAt, updated_at AS updatedAt,
-            event_id AS eventId, activity AS activity
+            event_id AS eventId, activity AS activity, with_forecast AS withForecast
        FROM plans WHERE user_id=? ORDER BY updated_at DESC LIMIT 200`,
-  ).bind(user.id).all<PlanMeta>()
-  const res: PlansListResponse = { plans: rows.results ?? [] }
+  ).bind(user.id).all<Omit<PlanMeta, 'withForecast'> & { withForecast: number }>()
+  // D1 devuelve el entero; las apps y la web esperan un booleano.
+  const res: PlansListResponse = { plans: (rows.results ?? []).map((r) => ({ ...r, withForecast: r.withForecast !== 0 })) }
   return json(res, 200, { 'Cache-Control': 'no-store' })
 }
 
@@ -44,7 +46,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (buf.byteLength === 0) return json({ error: 'empty' }, 400)
   if (buf.byteLength > MAX_PLAN_BYTES) return json({ error: 'too_large' }, 413)
 
-  const name = (decodeHeader(request.headers.get('X-Plan-Name')).slice(0, 120).trim()) || 'Previsión'
+  const name = (decodeHeader(request.headers.get('X-Plan-Name')).slice(0, 120).trim()) || 'Ruta'
   const routeName = decodeHeader(request.headers.get('X-Plan-Route')).slice(0, 120).trim() || null
   const distanceKm = numOrNull(request.headers.get('X-Plan-Distance'))
   const elevGainM = numOrNull(request.headers.get('X-Plan-Elev'))
@@ -59,14 +61,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // previsión, y de ella dependen los filtros de lecturas imposibles.
   const actRaw = decodeHeader(request.headers.get('X-Plan-Activity')).trim()
   const activity = isBeaconActivity(actRaw) ? actRaw : null
+  const withForecast = conPrevision(request)
   const now = Date.now()
   const id = genId(8)
 
   await env.DB.prepare(
-    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at, event_id, activity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now, eventId, activity).run()
+    `INSERT INTO plans (id, user_id, name, route_name, distance_km, elev_gain_m, start_time, payload, payload_v, created_at, updated_at, event_id, activity, with_forecast)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+  ).bind(id, user.id, name, routeName, distanceKm, elevGainM, startTime, new Uint8Array(buf), now, now, eventId, activity, withForecast ? 1 : 0).run()
 
-  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now, eventId, activity }
+  const meta: PlanMeta = { id, name, routeName, distanceKm, elevGainM, startTime, createdAt: now, updatedAt: now, eventId, activity, withForecast }
   return json(meta, 201)
 }

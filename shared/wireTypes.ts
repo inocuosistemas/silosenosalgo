@@ -89,6 +89,11 @@ export interface PlanMeta {
    *  eligió al planificar, para que la baliza pueda heredarla sin bajarse el
    *  recorrido. Opcional: las previsiones antiguas no la tienen. */
   activity?: string | null
+  /** Si la ruta lleva previsión (hora, ritmos y cortes planificados) o es solo
+   *  el recorrido —p. ej. un GPX cargado desde la baliza—. Sin ella no hay
+   *  corredor fantasma ni comparaciones con un plan que nadie hizo. Las rutas
+   *  anteriores al campo cuentan como con previsión. */
+  withForecast?: boolean
 }
 
 export interface PlansListResponse {

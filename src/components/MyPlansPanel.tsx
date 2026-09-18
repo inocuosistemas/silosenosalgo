@@ -192,6 +192,13 @@ function PlansBody({
               <p className="font-medium text-slate-200 truncate">
                 {p.name}{current?.id === p.id && <span className="text-sky-400 font-normal"> · actual</span>}
               </p>
+              {/* Con previsión o solo el recorrido, a la vista: una ruta a secas
+                  se abre aquí para añadírsela. */}
+              <p className={`truncate ${p.withForecast === false ? 'text-slate-500' : 'text-sky-400/80'}`}>
+                {p.withForecast === false
+                  ? 'Solo recorrido · ábrela para añadirle previsión'
+                  : `🕒 Con previsión${p.startTime ? ` · sale ${fmtSalida(p.startTime)}` : ''}`}
+              </p>
               <p className="text-slate-500 truncate">
                 {[p.routeName, p.distanceKm != null ? `${p.distanceKm.toFixed(p.distanceKm < 100 ? 1 : 0)} km` : null, fmtDate(p.updatedAt)]
                   .filter(Boolean).join(' · ')}
@@ -248,6 +255,13 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 function codeOf(e: unknown): string {
   return e instanceof PlansError ? e.code : 'network'
+}
+
+/** "20 sept, 14:00": la salida prevista, con su hora, que es lo que importa. */
+function fmtSalida(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  } catch { return '' }
 }
 
 function fmtDate(ms: number): string {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import CoreLocation
 import UIKit
 
@@ -60,6 +61,11 @@ struct TrackingView: View {
     @State private var renameText = ""
     /// Present the in-app "live" viewer for the current (offline) session.
     @State private var showLiveMap = false
+    /// Cargar un GPX como ruta: el selector de ficheros, el trabajo en curso y
+    /// lo que salió (el nombre guardado o por qué no se pudo).
+    @State private var eligiendoGpx = false
+    @State private var cargandoGpx = false
+    @State private var avisoGpx: String?
     /// Present the in-app viewer online for a finished session in the list.
     @State private var mapSession: TrackSessionSummary?
     /// Offline-map download reachable BEFORE sharing (prepare the map the night
@@ -755,17 +761,17 @@ struct TrackingView: View {
                                 if store.selectedEventId != nil {
                                     Section("De este evento") {
                                         ForEach(store.plansOfEvent) { plan in
-                                            Text(plan.name).tag(Optional(plan.id))
+                                            Text(Self.nombreEnLista(plan)).tag(Optional(plan.id))
                                         }
                                     }
                                     Section("Otras rutas") {
                                         ForEach(store.plansNotOfEvent) { plan in
-                                            Text(plan.name).tag(Optional(plan.id))
+                                            Text(Self.nombreEnLista(plan)).tag(Optional(plan.id))
                                         }
                                     }
                                 } else {
                                     ForEach(store.plans) { plan in
-                                        Text(plan.name).tag(Optional(plan.id))
+                                        Text(Self.nombreEnLista(plan)).tag(Optional(plan.id))
                                     }
                                 }
                             }
@@ -773,6 +779,38 @@ struct TrackingView: View {
                             // —la tuya siempre manda— pero deja el visor calculando
                             // contra un recorrido que no estás corriendo, y eso no
                             // puede pasar en silencio.
+                            // Cargar un GPX aquí mismo: se guarda como ruta de la
+                            // cuenta —solo el recorrido— y queda elegida para
+                            // empezar ya, sin pasar por la web.
+                            Button {
+                                eligiendoGpx = true
+                            } label: {
+                                HStack {
+                                    Label("Cargar un GPX", systemImage: "square.and.arrow.down")
+                                    if cargandoGpx { Spacer(); ProgressView().tint(Theme.sky500) }
+                                }
+                            }
+                            .foregroundStyle(Theme.sky500)
+                            .disabled(cargandoGpx)
+                            .fileImporter(isPresented: $eligiendoGpx, allowedContentTypes: Self.tiposGpx) { resultado in
+                                guard case .success(let url) = resultado else { return }
+                                cargandoGpx = true
+                                Task {
+                                    do {
+                                        let nombre = try await store.importaGpx(url)
+                                        Vibra.exito()
+                                        avisoGpx = "«\(nombre)» guardada en tus rutas y elegida. Solo el recorrido: la previsión se le añade en la web."
+                                    } catch {
+                                        avisoGpx = error.localizedDescription
+                                    }
+                                    cargandoGpx = false
+                                }
+                            }
+                            if let aviso = avisoGpx {
+                                Text(aviso)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.slate400)
+                            }
                             if store.planMismatchesEvent {
                                 Label("Esta ruta no es el recorrido del evento: tus ritmos y cortes se calcularán sobre otra.",
                                       systemImage: "exclamationmark.triangle.fill")
@@ -1356,6 +1394,19 @@ struct TrackingView: View {
             Vibra.exito()
             await store.startSharing(title: tituloLimpio)
         }
+    }
+
+    /// Qué ficheros se aceptan como GPX. Cada app los etiqueta a su manera
+    /// —como GPX, como XML o como nada—, así que se aceptan los tres y el que no
+    /// sea un GPX lo rechaza el lector con su mensaje.
+    private static var tiposGpx: [UTType] {
+        [UTType(filenameExtension: "gpx"), UTType("com.topografix.gpx"), .xml, .data].compactMap { $0 }
+    }
+
+    /// El nombre de una ruta en el selector: las que son solo el recorrido lo
+    /// dicen, porque con ellas no hay ritmos ni corredor fantasma.
+    static func nombreEnLista(_ plan: PlanSummary) -> String {
+        plan.withForecast == false ? "\(plan.name) · solo recorrido" : plan.name
     }
 
     private var textoCompartir: String {

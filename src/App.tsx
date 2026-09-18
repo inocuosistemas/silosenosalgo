@@ -18,7 +18,7 @@ import { PoisPanel, type MaterialisedPoi, type PoiUpdateDraft } from './componen
 import type { CutoffWallClock } from './lib/cutoffInference'
 import { inferCutoffDatesFromWaypoints } from './lib/cutoffInference'
 import type { PaceConfig, PausePoint, SamplingConfig, Waypoint } from './lib/timing'
-import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_SAMPLING, estimateArrivalTimeAtKm, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm, PACE_MODE_LABEL } from './lib/timing'
+import { ACTIVITY_LABEL, ACTIVITY_MAX_SPEED_KMH, computeWaypoints, DEFAULT_PACE, DEFAULT_SAMPLING, estimateArrivalTimeAtKm, expectedKmAtElapsed, expectedMinutesForSegment, formatDelta, formatPace, formatTime, haversineKm, PACE_MODE_LABEL } from './lib/timing'
 import type { WeatherData } from './lib/weather'
 import { fetchWeatherForWaypoints } from './lib/weather'
 import { solarIrradiance, sunTempUplift } from './lib/sunTemp'
@@ -61,14 +61,6 @@ import type { BrowserGuide } from './lib/guidePackage'
 
 const GuideViewer = lazy(() => import('./components/LiveViewer'))
 
-const DEFAULT_PACE: PaceConfig = {
-  mode: 'fixed',
-  paceMinPerKm: 5.5,
-  naismithMin100mUp: 6,
-  smartDescent: 'balanced',
-  smartFatigue: 'medium',
-  activity: 'walk',
-}
 
 const PACE_LS_KEY = 'silosenosalgo-pace-v1'
 
@@ -425,6 +417,16 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   // la edición en directo, la hora oficial de una carrera, la salida real
   // deducida del GPS, o una ruta guardada que ya la traía.
   const [horaElegida, setHoraElegida] = useState(false)
+  // Si la ruta abierta ya traía previsión. Guardar de nuevo una ruta con
+  // previsión sin pulsar "Calcular" en esta visita NO puede rebajarla a solo
+  // recorrido; por eso "con previsión" es calcular AHORA o haberla traído.
+  const [previsionHeredada, setPrevisionHeredada] = useState(false)
+  // Abrir una ruta CON previsión la enseña calculada. El pronóstico no se
+  // guarda —se recalcula, porque el tiempo cambia—, así que al abrirla se
+  // quedaba en el formulario esperando a "Calcular previsión", y parecía que
+  // de la ruta solo se hubiera guardado la hora. Se marca al revivirla y se
+  // calcula en cuanto el estado ya es el de la ruta (ver el efecto de abajo).
+  const [calcularAlAbrir, setCalcularAlAbrir] = useState(false)
   const [paceConfig, setPaceConfig] = useState<PaceConfig>(loadPaceConfig)
 
   // Persist pace config across reloads
@@ -1215,6 +1217,9 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     setParamsExpanded(true)
     setParamsDirty(false)
     setHasComputedOnce(false)
+    // Un recorrido recién cargado no trae previsión (si viene de una ruta
+    // guardada, `applyRevivedShare` lo corrige justo después).
+    setPrevisionHeredada(false)
     setStrategyMargin(0)
     setSegmentTargets(new Map())
     reset()
@@ -1230,8 +1235,11 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
   // ── Compartir salida: build the snapshot from current state ───────────────
   const buildCurrentSharePayload = useCallback((): SharePayloadV1 => {
     if (!track) throw new Error('no track')
-    return buildSharePayload({ track, startTime, startTimeChosen: horaElegida, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets })
-  }, [track, startTime, horaElegida, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
+    return buildSharePayload({
+      track, startTime, startTimeChosen: horaElegida, withForecast: hasComputedOnce || previsionHeredada,
+      paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets,
+    })
+  }, [track, startTime, horaElegida, hasComputedOnce, previsionHeredada, paceConfig, sampling, cutoffWallClocks, strategyMargin, segmentTargets])
 
   // Inject a revived share/plan into app state — shared by the ?s= open flow and
   // "Cargar" in Previsiones, so both paths behave identically.
@@ -1239,6 +1247,10 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     handleTrack(revived.track)
     setStartTime(revived.startTime)
     setHoraElegida(revived.startTimeChosen)
+    setPrevisionHeredada(revived.withForecast)
+    // Con previsión, se enseña calculada; sin ella, el formulario para
+    // añadírsela.
+    setCalcularAlAbrir(revived.withForecast)
     if (revived.paceConfig) setPaceConfig(revived.paceConfig)
     if (revived.sampling) setSampling(revived.sampling)
     setCutoffWallClocksState(revived.cutoffWallClocks)
@@ -1645,6 +1657,16 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
 
   // Plan mode: full compute with configured start time + sampling.
   // Uses the effective config (so a buddy observation, if active, drives ETAs).
+  // Calcular la ruta recién abierta, una vez, cuando su estado ya ha entrado:
+  // en el mismo toque que la revive se fijan track, hora, ritmos y cortes, y
+  // calcular antes leería los de la ruta anterior.
+  useEffect(() => {
+    if (!calcularAlAbrir || !track) return
+    setCalcularAlAbrir(false)
+    void handleCompute()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcularAlAbrir, track])
+
   async function handleCompute() {
     reset()
     const computed = await doCompute(effectivePaceConfig, effectiveSegmentPaces)

@@ -165,6 +165,43 @@ class Api(
         return decode<PlansWrapper>(body).plans
     }
 
+    /**
+     * Guarda como ruta de la cuenta un recorrido ya convertido (ver
+     * [ConversorGpx]). El cuerpo es el documento comprimido tal cual lo arma la
+     * web; los datos para la lista van en cabeceras porque el servidor no abre
+     * el cuerpo. Sin hora prevista y marcada como "solo recorrido". Espejo de
+     * `API.createPlan` en iOS.
+     */
+    suspend fun createPlan(
+        token: String, cuerpo: ByteArray, nombre: String, distanciaKm: Double, desnivelM: Double, actividad: String?,
+    ): PlanSummary = withContext(Dispatchers.IO) {
+        val cabecera = { s: String -> java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20") }
+        val req = Request.Builder()
+            .url("$baseUrl/api/plans")
+            .header("X-Auth-Mode", "token")
+            .header("Authorization", "Bearer $token")
+            .header("X-Plan-Name", cabecera(nombre))
+            .header("X-Plan-Route", cabecera(nombre))
+            .header("X-Plan-Distance", distanciaKm.toString())
+            .header("X-Plan-Elev", desnivelM.toString())
+            .header("X-Plan-Start", "")
+            .header("X-Plan-Forecast", "0")
+            .apply { if (actividad != null) header("X-Plan-Activity", actividad) }
+            .post(cuerpo.toRequestBody("application/octet-stream".toMediaType()))
+            .build()
+        try {
+            // Un GPX grande tarda en subir con poca cobertura: más margen.
+            client.newBuilder().writeTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+                .newCall(req).execute().use { resp ->
+                    val texto = resp.body?.string() ?: ""
+                    if (!ok(resp.code)) throw decodeError(texto, resp.code)
+                    decode<PlanSummary>(texto)
+                }
+        } catch (e: IOException) {
+            throw ApiException(0, "network")
+        }
+    }
+
     @kotlinx.serialization.Serializable
     private data class PlansWrapper(val plans: List<PlanSummary> = emptyList())
 
