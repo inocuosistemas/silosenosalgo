@@ -73,3 +73,38 @@ struct LiveMapView: View {
         }
     }
 }
+
+/// La salida de emergencia de una pantalla completa que no tiene nada que
+/// enseñar.
+///
+/// Un `fullScreenCover` cuyo contenido se evalúa a vacío no se queda a medias:
+/// presenta una pantalla NEGRA, sin barra de navegación y sin gesto para
+/// cerrarla, y deja la app encerrada hasta que la matan. Pasó de verdad, con la
+/// baliza grabando sin cobertura. Así que ninguna de esas presentaciones se
+/// queda sin contenido: si no hay mapa, hay esto, que al menos sabe volver.
+struct SinMapa: View {
+    let volver: () -> Void
+
+    var body: some View {
+        ZStack {
+            Theme.slate950.ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "map")
+                    .font(.system(size: 40))
+                    .foregroundStyle(Theme.slate400)
+                Text("Todavía no hay mapa que enseñar")
+                    .font(.headline)
+                    .foregroundStyle(Theme.slate100)
+                Text("La baliza sigue grabando. Vuelve a intentarlo en un momento.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.slate400)
+                    .multilineTextAlignment(.center)
+                Button("Volver", action: volver)
+                    .font(.body.weight(.semibold))
+                    .tint(Theme.sky500)
+                    .padding(.top, 8)
+            }
+            .padding(32)
+        }
+    }
+}

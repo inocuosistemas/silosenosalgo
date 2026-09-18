@@ -1208,13 +1208,23 @@ struct TrackingView: View {
                 await store.loadSessions()
             }
             .fullScreenCover(isPresented: $showLiveMap) {
-                if let t = store.sessionToken {
+                // `claveDeDatos`, no `sessionToken`: una baliza que arrancó sin
+                // cobertura graba con una clave provisional, y su mapa tiene que
+                // verse igual. Con `sessionToken` esto presentaba una vista
+                // VACÍA —pantalla negra sin barra ni "Volver", sin forma de
+                // salir— justo en el caso para el que se hizo el arranque
+                // offline. Y si aun así no hubiera clave, se sale sola.
+                if let t = store.claveDeDatos {
                     LiveMapView(source: .offline(token: t), offlineToken: t)
+                } else {
+                    SinMapa { showLiveMap = false }
                 }
             }
             .fullScreenCover(item: $mapSession) { session in
                 if let url = URL(string: store.shareLink(for: session.id)) {
                     LiveMapView(source: .online(url: url), offlineToken: nil)
+                } else {
+                    SinMapa { mapSession = nil }
                 }
             }
             .fullScreenCover(item: $reviewSession) { session in

@@ -156,6 +156,11 @@ final class ViewerDataProvider {
     private let lock = NSLock()
 
     private var token: String?
+    /// La clave con la que se abrió el visor antes de que el servidor diera de
+    /// alta la sesión. El mapa incrustado lleva el identificador en su URL, así
+    /// que sin esto un mapa abierto sin cobertura se quedaba sin datos —404— en
+    /// cuanto volvía la red y la sesión estrenaba identificador de verdad.
+    private var alias: String?
     private var title: String?
     private var username: String?
     private var startedAt: Double = 0
@@ -175,9 +180,10 @@ final class ViewerDataProvider {
     /// Register/refresh the current session's metadata (on start / continue / stop).
     /// Whether a plan overlay exists is read from disk at query time (so an async
     /// plan-bytes download that finishes later is picked up without re-registering).
-    func register(token: String, title: String?, startedAt: Double, expiresAt: Double, status: String) {
+    func register(token: String, title: String?, startedAt: Double, expiresAt: Double,
+                  status: String, aliasDe: String? = nil) {
         lock.lock()
-        self.token = token; self.title = title; self.startedAt = startedAt
+        self.token = token; self.alias = aliasDe; self.title = title; self.startedAt = startedAt
         self.expiresAt = expiresAt; self.status = status
         self.activity = nil   // the store pushes it via setActivity() after registering
         self.notes = []   // the store pushes the loaded notes via setNotes() after registering
@@ -198,13 +204,15 @@ final class ViewerDataProvider {
     /// the scheme handler): update + persist + include in the synthesized state.
     func setForm(token: String, factor: Double, km: Double?) {
         lock.lock()
-        if self.token == token {
+        if esLaDeAhora(token) {
             let f = min(2.2, max(0.5, factor))
             self.formFactor = f
             self.formLog.append(FormLogWire(t: Date().timeIntervalSince1970 * 1000, km: km, factor: f))
             if self.formLog.count > 40 { self.formLog.removeFirst(self.formLog.count - 40) }
             if let data = try? JSONEncoder().encode(SavedForm(factor: f, log: self.formLog)) {
-                try? data.write(to: LocalStore.formURL(token), options: .atomic)
+                // Bajo la clave BUENA, no bajo la que traiga el visor: si viene
+                // por el alias, guardarlo ahí sería guardarlo donde nadie lee.
+                try? data.write(to: LocalStore.formURL(self.token ?? token), options: .atomic)
             }
         }
         lock.unlock()
@@ -244,7 +252,11 @@ final class ViewerDataProvider {
     }
 
     /// True when `token` is the session currently served locally.
-    func isCurrent(_ token: String) -> Bool { lock.lock(); defer { lock.unlock() }; return self.token == token }
+    func isCurrent(_ token: String) -> Bool { lock.lock(); defer { lock.unlock() }; return esLaDeAhora(token) }
+
+    /// Si `token` es la sesión que se sirve en local: la de ahora o la clave
+    /// provisional con la que se abrió el visor. Llamar con el cerrojo tomado.
+    private func esLaDeAhora(_ t: String) -> Bool { t == token || t == alias }
 
     /// La sesión que se está sirviendo en local.
     var currentToken: String? { lock.lock(); defer { lock.unlock() }; return token }
@@ -315,7 +327,7 @@ final class ViewerDataProvider {
     /// current session (the handler then 404s).
     func trackStateJSON(token: String) -> Data? {
         lock.lock(); defer { lock.unlock() }
-        guard self.token == token else { return nil }
+        guard esLaDeAhora(token) else { return nil }
         let state = TrackStateWire(
             status: status,
             username: username,

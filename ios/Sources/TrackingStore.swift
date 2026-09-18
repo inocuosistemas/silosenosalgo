@@ -101,6 +101,21 @@ final class TrackingStore: ObservableObject {
     /// Grabando en local y todavía sin alta en el servidor: hay traza, pero aún
     /// no hay enlace que compartir. Ver `intentaAlta`.
     @Published private(set) var pendienteDeAlta = false
+
+    /// Clave provisional de la sesión mientras el servidor no ha contestado.
+    ///
+    /// Sin ella, lo grabado sin cobertura vivía SOLO en memoria: todos los
+    /// guardados se salían por `sessionToken == nil`, así que un cierre de la
+    /// app —o el sistema matándola— se llevaba la ruta entera, y el visor
+    /// offline no tenía nada que servir, de ahí la pantalla en negro. Con ella,
+    /// grabar sin enlace es tan sólido como grabar con él: los ficheros se
+    /// escriben bajo esta clave y, en cuanto el alta entra, se reescriben bajo
+    /// la de verdad y esta desaparece.
+    @Published private(set) var claveLocal: String?
+
+    /// La clave con la que se guarda y se sirve la sesión de ahora: la del
+    /// servidor si ya contestó; la provisional, si todavía no.
+    var claveDeDatos: String? { sessionToken ?? claveLocal }
     private var altaPendiente: AltaPendiente?
     /// La hora que dejó puesta la RUTA (o el evento a través de ella). Sirve
     /// para saber si la que hay es suya y se la tiene que llevar al quitarla, o
@@ -240,10 +255,10 @@ final class TrackingStore: ObservableObject {
     // MARK: Storage meter
 
     /// Bytes the CURRENT session's media occupies locally (== what it uploads).
-    var sessionMediaBytes: Int64 { sessionToken.map { LocalStore.mediaBytes($0) } ?? 0 }
+    var sessionMediaBytes: Int64 { claveDeDatos.map { LocalStore.mediaBytes($0) } ?? 0 }
     /// Photo/audio counts for the current session (for the storage summary line).
     var sessionMediaCounts: (photos: Int, audios: Int) {
-        sessionToken.map { LocalStore.mediaCounts($0) } ?? (0, 0)
+        claveDeDatos.map { LocalStore.mediaCounts($0) } ?? (0, 0)
     }
 
     /// Refresh the user's server-side media use vs budget. Best-effort: leaves the
@@ -587,6 +602,7 @@ final class TrackingStore: ObservableObject {
             var keep = Set(result.map { $0.id })
             keep.formUnion(GuideLibrary.shared.storageIds)
             if let t = sessionToken { keep.insert(t) }
+            if let t = claveLocal { keep.insert(t) }
             LocalStore.prune(keep: keep)
         }
     }
@@ -798,6 +814,7 @@ final class TrackingStore: ObservableObject {
             planId: selectedPlanId,
             eventId: selectedEventId,
             activity: activity?.rawValue,
+            clave: claveLocal,
         )
         guardaAltaPendiente()
         await intentaAlta()
@@ -814,6 +831,9 @@ final class TrackingStore: ObservableObject {
     private func empiezaEnLocal(desde start: Date, nombre: String) {
         activePlanName = plans.first(where: { $0.id == selectedPlanId })?.name
         sessionToken = nil
+        // La clave con la que se guarda TODO hasta que el servidor conteste.
+        limpiaLocal()
+        claveLocal = Self.genId()
         isSharing = true
         pingCount = 0
         activeViewers = nil
@@ -838,6 +858,16 @@ final class TrackingStore: ObservableObject {
         persistPendingNoteDeletes()
         persistPendingMedia()
         activeTitle = nombre
+        // El visor offline, dado de alta con la clave provisional: el mapa de
+        // "ver mi ruta" tiene que funcionar desde el primer segundo, que es
+        // justo cuando no hay enlace todavía.
+        if let clave = claveLocal {
+            ViewerDataProvider.shared.register(
+                token: clave, title: nombre,
+                startedAt: start.timeIntervalSince1970 * 1000, expiresAt: 0, status: "active",
+            )
+            ViewerDataProvider.shared.setActivity(token: clave, activity: activity)
+        }
         // If the planned start is still ahead (beyond the lead margin), arm in
         // low-power standby: keep the app alive with coarse location but upload
         // nothing until ~2 min before the start, to save battery.
@@ -876,16 +906,21 @@ final class TrackingStore: ObservableObject {
                 activity: alta.activity.flatMap(BeaconActivity.init(rawValue:)),
                 eventId: alta.eventId, device: Self.deviceName,
             )
+            let provisional = claveLocal
             sessionToken = res.id
+            claveLocal = nil
             pendienteDeAlta = false
             altaPendiente = nil
             UserDefaults.standard.removeObject(forKey: altaKey)
             ViewerDataProvider.shared.register(
                 token: res.id, title: alta.title, startedAt: alta.startAtMs,
-                expiresAt: res.expiresAt, status: "active",
+                expiresAt: res.expiresAt, status: "active", aliasDe: provisional,
             )
             ViewerDataProvider.shared.setActivity(token: res.id, activity: activity)
             cachePlanBytes(for: res.id, planId: alta.planId)
+            // Lo grabado sin enlace se reescribe bajo el identificador bueno y
+            // se tira lo provisional: a partir de aquí hay una sola copia.
+            reescribeBajoLaClaveBuena(desde: provisional)
             persistActive() // remember the "last known state" so a relaunch resumes it
             lastError = nil
             await flush()
@@ -1028,6 +1063,7 @@ final class TrackingStore: ObservableObject {
         ViewerDataProvider.shared.updateStatus("ended")
         let t = sessionToken
         sessionToken = nil
+        limpiaLocal()
         if let t {
             // Best-effort: push any remaining backlog before ending (direct, so
             // it can't recurse through flush()).
@@ -1219,12 +1255,12 @@ final class TrackingStore: ObservableObject {
     /// Push the real position, the last reported position, and the full trail to
     /// the local viewer (so the map can show the offline gap between the two).
     private func publishToViewer() {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         ViewerDataProvider.shared.update(token: t, fix: lastRecordedFix.map(wireFix), reportedFix: lastReportedFix, trail: trail)
     }
 
     private func persistTrail() {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(trail) {
             try? data.write(to: LocalStore.trailURL(t), options: .atomic)
         }
@@ -1266,7 +1302,7 @@ final class TrackingStore: ObservableObject {
     /// Optional `audioURL` (a temp .m4a recording) / `photoData` (JPEG) are stored
     /// locally and uploaded after the note row exists server-side.
     func addNote(text: String, type: String, audioURL: URL? = nil, photoData: Data? = nil) {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         let loc = lastLocation
         guard let lat = loc?.coordinate.latitude ?? lastRecordedFix?.lat,
               let lon = loc?.coordinate.longitude ?? lastRecordedFix?.lon else {
@@ -1305,7 +1341,7 @@ final class TrackingStore: ObservableObject {
     /// backend deletion. The tombstone prevents an in-flight offline create from
     /// making the note reappear when coverage returns.
     func deleteNote(_ note: Note) async {
-        guard let id = sessionToken else { return }
+        guard let id = claveDeDatos else { return }
         notes.removeAll { $0.id == note.id }
         pendingNotes.removeAll { $0.id == note.id }
         pendingMedia.removeAll { $0.noteId == note.id }
@@ -1330,7 +1366,7 @@ final class TrackingStore: ObservableObject {
     /// Persist a note's media locally and queue it for upload. Audio comes as a
     /// temp file (moved in); photo as in-memory bytes (written out).
     private func saveMedia(noteId: String, kind: String, sourceFile: URL?, data: Data?) -> String? {
-        guard let t = sessionToken else { return nil }
+        guard let t = claveDeDatos else { return nil }
         let name = "\(noteId)_\(kind).\(mediaExt(kind))"
         let dest = LocalStore.mediaFileURL(t, name)
         do {
@@ -1354,7 +1390,7 @@ final class TrackingStore: ObservableObject {
     private func mediaPendingKey(_ token: String) -> String { "pendingMedia-\(token)" }
 
     private func persistPendingMedia() {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(pendingMedia) {
             UserDefaults.standard.set(data, forKey: mediaPendingKey(t))
         }
@@ -1405,7 +1441,7 @@ final class TrackingStore: ObservableObject {
     }
 
     private func persistNotes() {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(notes) {
             try? data.write(to: LocalStore.notesURL(t), options: .atomic)
         }
@@ -1424,7 +1460,7 @@ final class TrackingStore: ObservableObject {
     private func notesPendingKey(_ token: String) -> String { "pendingNotes-\(token)" }
 
     private func persistPendingNotes() {
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(pendingNotes) {
             UserDefaults.standard.set(data, forKey: notesPendingKey(t))
         }
@@ -1442,7 +1478,7 @@ final class TrackingStore: ObservableObject {
     private func noteDeletesPendingKey(_ token: String) -> String { "pendingNoteDeletes-\(token)" }
 
     private func persistPendingNoteDeletes() {
-        guard let token = sessionToken else { return }
+        guard let token = claveDeDatos else { return }
         UserDefaults.standard.set(pendingNoteDeletes, forKey: noteDeletesPendingKey(token))
     }
 
@@ -1606,6 +1642,9 @@ final class TrackingStore: ObservableObject {
         let planId: String?
         let eventId: String?
         let activity: String?
+        /// Dónde está lo grabado mientras no hay identificador de servidor.
+        /// Opcional: las altas guardadas por versiones anteriores no la traen.
+        var clave: String?
     }
 
     private static let altaKeyValor = "baliza.altaPendiente"
@@ -1619,6 +1658,45 @@ final class TrackingStore: ObservableObject {
     private func cargaAltaPendiente() -> AltaPendiente? {
         guard let data = UserDefaults.standard.data(forKey: altaKey) else { return nil }
         return try? JSONDecoder().decode(AltaPendiente.self, from: data)
+    }
+
+    /// Reescribe bajo el identificador del servidor lo que se grabó bajo la
+    /// clave provisional, y borra esta. Los datos ya están en memoria, así que
+    /// basta con volver a guardarlos; no hay que mover ficheros.
+    private func reescribeBajoLaClaveBuena(desde provisional: String?) {
+        persistPending()
+        persistTrail()
+        persistNotes()
+        persistPendingNotes()
+        persistPendingNoteDeletes()
+        persistPendingMedia()
+        guard let provisional else { return }
+        // El media sí son ficheros: se mueven uno a uno al directorio bueno.
+        if let t = sessionToken {
+            let fm = FileManager.default
+            let origen = LocalStore.mediaDir(provisional)
+            for url in (try? fm.contentsOfDirectory(at: origen, includingPropertiesForKeys: nil)) ?? [] {
+                let destino = LocalStore.mediaFileURL(t, url.lastPathComponent)
+                try? fm.removeItem(at: destino)
+                try? fm.moveItem(at: url, to: destino)
+            }
+        }
+        borraRastroLocal(provisional)
+    }
+
+    /// Olvida la clave provisional y todo lo que dejó en disco.
+    private func limpiaLocal() {
+        guard let clave = claveLocal else { return }
+        claveLocal = nil
+        borraRastroLocal(clave)
+    }
+
+    private func borraRastroLocal(_ clave: String) {
+        LocalStore.remove(clave)
+        UserDefaults.standard.removeObject(forKey: pendingKey(clave))
+        UserDefaults.standard.removeObject(forKey: notesPendingKey(clave))
+        UserDefaults.standard.removeObject(forKey: noteDeletesPendingKey(clave))
+        UserDefaults.standard.removeObject(forKey: mediaPendingKey(clave))
     }
 
     private func olvidaAltaPendiente() {
@@ -1662,10 +1740,36 @@ final class TrackingStore: ObservableObject {
             let inicio = Date(timeIntervalSince1970: alta.startAtMs / 1000)
             // Más allá de una salida larga, se abandona: reanudar una baliza de
             // anteayer no es continuar nada.
-            guard Date().timeIntervalSince(inicio) < 20 * 3600 else { olvidaAltaPendiente(); return }
+            guard Date().timeIntervalSince(inicio) < 20 * 3600 else {
+                if let clave = alta.clave { borraRastroLocal(clave) }
+                olvidaAltaPendiente(); return
+            }
             altaPendiente = alta
             pendienteDeAlta = true
             activeTitle = alta.title
+            // La misma clave de antes: de ahí salen los puntos grabados sin
+            // cobertura que todavía no ha visto el servidor.
+            claveLocal = alta.clave
+            if let clave = alta.clave {
+                loadPending(clave)
+                loadTrail(clave)
+                loadNotes(clave)
+                loadPendingNotes(clave)
+                loadPendingNoteDeletes(clave)
+                loadPendingMedia(clave)
+                pendingCount = pending.count
+                noteCount = notes.count
+                ViewerDataProvider.shared.register(
+                    token: clave, title: alta.title,
+                    startedAt: alta.startAtMs, expiresAt: 0, status: "active",
+                )
+                ViewerDataProvider.shared.setNotes(token: clave, notes: notes)
+                let ultimo = trail.last.map {
+                    TrackFixWire(lat: $0.lat, lon: $0.lon, trackKm: nil, speed: nil, heading: nil,
+                                 accuracy: $0.a.map(Double.init), altitude: nil, fixAt: $0.t, updatedAt: $0.t)
+                }
+                ViewerDataProvider.shared.update(token: clave, fix: ultimo, reportedFix: nil, trail: trail)
+            }
             isSharing = true
             isStandby = false
             applyLocationConfig()
@@ -1771,7 +1875,7 @@ final class TrackingStore: ObservableObject {
 
     private func persistPending() {
         pendingCount = pending.count
-        guard let t = sessionToken else { return }
+        guard let t = claveDeDatos else { return }
         if let data = try? JSONEncoder().encode(pending) {
             UserDefaults.standard.set(data, forKey: pendingKey(t))
         }
