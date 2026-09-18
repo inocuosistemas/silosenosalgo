@@ -53,5 +53,10 @@ const buildId = createHash('sha256')
   .slice(0, 16)
 
 const totalBytes = files.reduce((n, f) => n + f.bytes, 0)
-writeFileSync(join(DIST, OUT), JSON.stringify({ buildId, files, totalBytes }, null, 2))
+// Cuándo se construyó. El buildId dice si dos webs son distintas, no cuál es
+// más NUEVA, y eso hace falta: la app lleva una web dentro y además se baja
+// otra por OTA, y servía siempre la OTA aunque fuera anterior a la suya —con
+// una app nueva, una web vieja que no sabía lo que la app le pedía—.
+const builtAt = Date.now()
+writeFileSync(join(DIST, OUT), JSON.stringify({ buildId, builtAt, files, totalBytes }, null, 2))
 console.log(`-> ${OUT}: ${files.length} ficheros · ${(totalBytes / 1e6).toFixed(1)} MB · build ${buildId}`)

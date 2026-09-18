@@ -27,7 +27,33 @@ final class WebAssetStore {
     private(set) var activeRoot: URL?
 
     private init() {
-        activeRoot = Self.installedRoot()
+        activeRoot = nil
+        activeRoot = elegirActiva()
+    }
+
+    /// La web que lleva la app: su buildId y de cuándo es, sacados de su propio
+    /// manifiesto.
+    private struct Sello: Decodable { let buildId: String; let builtAt: Double? }
+    private lazy var selloEmpaquetado: Sello? = bundleRoot
+        .flatMap { try? Data(contentsOf: $0.appendingPathComponent("ota-manifest.json")) }
+        .flatMap { try? JSONDecoder().decode(Sello.self, from: $0) }
+    var bundleBuildId: String? { selloEmpaquetado?.buildId }
+    var bundleBuiltAt: Double? { selloEmpaquetado?.builtAt }
+
+    /// La copia OTA, pero solo si NO es más vieja que la empaquetada.
+    ///
+    /// Antes mandaba siempre la OTA: con una app recién actualizada, la web que
+    /// se servía era la descargada días antes, anterior a lo que la app le
+    /// pedía. Pasó con el mapa de borde a borde: la app nueva apartaba sus
+    /// botones y la web vieja no sabía apartar su tarjeta, así que se tapaban.
+    /// Una copia OTA sin fecha (anterior a este cambio) pierde contra una app
+    /// que sí la trae.
+    private func elegirActiva() -> URL? {
+        guard let root = Self.installedRoot() else { return nil }
+        guard let empaquetada = bundleBuiltAt else { return root }
+        let fechaOTA = (try? String(contentsOf: root.appendingPathComponent("ota-builtat"), encoding: .utf8))
+            .flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+        return fechaOTA >= empaquetada ? root : nil
     }
 
     // MARK: Rutas en disco
@@ -50,7 +76,7 @@ final class WebAssetStore {
 
     /// Vuelve a mirar el disco. La llama el updater tras activar un build nuevo.
     func reloadActive() {
-        activeRoot = Self.installedRoot()
+        activeRoot = elegirActiva()
     }
 
     /// buildId instalado, para que el updater sepa si hay que descargar algo.

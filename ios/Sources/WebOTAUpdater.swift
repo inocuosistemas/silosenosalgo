@@ -29,6 +29,8 @@ actor WebOTAUpdater {
     private struct Manifest: Decodable {
         struct Entry: Decodable { let path: String; let sha256: String; let bytes: Int }
         let buildId: String
+        /// Cuándo se construyó (ms). Falta en manifiestos anteriores al campo.
+        let builtAt: Double?
         let files: [Entry]
         let totalBytes: Int
     }
@@ -46,10 +48,14 @@ actor WebOTAUpdater {
             let manifest = try await fetchManifest()
             let installed = await MainActor.run { WebAssetStore.shared.installedBuildId }
             guard manifest.buildId != installed else { return nil }
+            // La que trae la app ya es esa, o una más nueva: no hay nada que bajar.
+            let empaquetada = await MainActor.run { WebAssetStore.shared.bundleBuiltAt }
+            if manifest.buildId == (await MainActor.run { WebAssetStore.shared.bundleBuildId }) { return nil }
+            if let b = empaquetada, let m = manifest.builtAt, m <= b { return nil }
             guard manifest.totalBytes <= Self.maxTotalBytes else { return nil }
 
             try await download(manifest)
-            try promote(buildId: manifest.buildId)
+            try promote(buildId: manifest.buildId, builtAt: manifest.builtAt)
             await MainActor.run { WebAssetStore.shared.reloadActive() }
             return manifest.buildId
         } catch {
@@ -119,12 +125,16 @@ actor WebOTAUpdater {
 
     /// Sustituye `active/` por `staging/` de una vez. `replaceItemAt` es atomico
     /// dentro del mismo volumen: no hay instante en el que `active/` este a medias.
-    private func promote(buildId: String) throws {
+    private func promote(buildId: String, builtAt: Double?) throws {
         let fm = FileManager.default
         let staging = WebAssetStore.stagingURL
         let active = WebAssetStore.activeURL
 
         try buildId.data(using: .utf8)?.write(to: staging.appendingPathComponent("ota-buildid"))
+        // Y de cuándo es, para compararla con la que lleva la app.
+        if let builtAt {
+            try String(Int64(builtAt)).data(using: .utf8)?.write(to: staging.appendingPathComponent("ota-builtat"))
+        }
 
         if fm.fileExists(atPath: active.path) {
             _ = try fm.replaceItemAt(active, withItemAt: staging)

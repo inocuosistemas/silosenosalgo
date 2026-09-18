@@ -46,7 +46,7 @@ struct LiveMapView: View {
                     .frame(height: 40)
                 }
                 .foregroundStyle(Theme.sky500)
-                .background(.ultraThinMaterial, in: Capsule())
+                .cristal()
                 .accessibilityLabel("Volver")
 
                 // El nombre, solo cuando no es la sesión que emite (una guía,
@@ -54,11 +54,11 @@ struct LiveMapView: View {
                 if !esLaDeAhora && !title.isEmpty {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.slate100)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .padding(.horizontal, 12)
                         .frame(height: 40)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .cristal()
                 }
 
                 Spacer(minLength: 0)
@@ -73,10 +73,9 @@ struct LiveMapView: View {
                         botonFlotante("arrow.down.circle", "Descargar mapa offline") { showDownload = true }
                     }
                     .padding(.horizontal, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .cristal()
                 }
             }
-            .environment(\.colorScheme, .dark)
             .padding(.horizontal, 12)
             .padding(.top, 2)
             .frame(height: Self.altoBarra, alignment: .top)
@@ -135,6 +134,19 @@ struct SinMapa: View {
                     .padding(.top, 8)
             }
             .padding(32)
+        }
+    }
+}
+
+private extension View {
+    /// El cristal de los botones de iOS: Liquid Glass del sistema desde iOS 26,
+    /// el mismo que llevan los botones de una barra de navegación, y que se
+    /// adapta solo al mapa que tiene debajo. Antes, el material translúcido.
+    @ViewBuilder func cristal() -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            background(.ultraThinMaterial, in: Capsule())
         }
     }
 }
