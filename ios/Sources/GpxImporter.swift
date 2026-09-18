@@ -75,11 +75,13 @@ final class GpxImporter: NSObject {
         let cfg = WKWebViewConfiguration()
         cfg.setURLSchemeHandler(manejador, forURLScheme: AppWebSchemeHandler.scheme)
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: cfg)
-        // Colgado de la ventana, invisible y sin tocarse. Un visor que no está
-        // en ninguna ventana no tiene garantizado que iOS le mantenga vivo el
-        // proceso web: en las pruebas, el segundo que se creaba no llegaba a
-        // arrancar nunca ("Failed to acquire RBS assertion"). Dentro de la
-        // ventana, WebKit lo trata como uno más.
+        // Colgado de la ventana, invisible y sin tocarse. Por prudencia: a un
+        // visor que no está en ninguna ventana iOS puede suspenderle el proceso
+        // web, y dentro de ella WebKit lo trata como uno más.
+        //
+        // (Si el conversor no dice "listo", mirar antes la copia OTA de la web:
+        // manda sobre la empaquetada, y una copia anterior al conversor no lo
+        // trae. Fue eso, no la suspensión, lo que falló en las pruebas.)
         web.alpha = 0
         web.isUserInteractionEnabled = false
         let ventana = UIApplication.shared.connectedScenes
