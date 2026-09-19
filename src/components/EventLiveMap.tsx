@@ -834,15 +834,25 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // quien llega pronto y la deja preparada acumula una hora de "carrera"
       // parado en la línea, y con eso el margen al corte sale delirante.
       const referencia = startMs ?? r.startedAt
+      /**
+       * Su ritmo por terreno (ver `lib/ritmoTerreno`), para el margen al corte
+       * y para su proyección. En modo manual, con sus pasos anotados —son lo
+       * que se sabe de él de verdad—; si no, con su historial de posiciones.
+       */
+      const ritmoR = perfilEsfuerzo && referencia != null
+        ? ajustaRitmo(
+            perfilEsfuerzo,
+            pasosManual ? pasosManual.map(([k, t]) => ({ km: k, t })) : (historial.current.get(key) ?? []),
+            referencia,
+          )
+        : null
       // Y contando con el desnivel que queda, que es la misma cuenta que hace
       // la baliza individual: las dos pantallas contestan a la misma pregunta y
       // no pueden dar números distintos. Sin plan con ritmos, la cuenta plana.
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && referencia !== null
         ? (pista && plan?.paceConfig
-          ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig, (() => {
-              const ritmo = perfilEsfuerzo ? ajustaRitmo(perfilEsfuerzo, historial.current.get(key) ?? [], referencia) : null
-              return ritmo && perfilEsfuerzo ? { perfil: perfilEsfuerzo, ritmo } : null
-            })())
+          ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig,
+              ritmoR && perfilEsfuerzo ? { perfil: perfilEsfuerzo, ritmo: ritmoR } : null)
           : marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now))
         : null
       /**
@@ -970,6 +980,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         estabaParado: paradoMs > 0,
         resuelto: acabo || r.status !== 'active',
         manual: modoManual,
+        terreno: ritmoR && perfilEsfuerzo && referencia != null && r.updatedAt !== null
+          ? { perfil: perfilEsfuerzo, ritmo: ritmoR, salidaMs: referencia, ultimoMs: r.updatedAt }
+          : null,
         curva: curvaPlan,
         transcurridoMs: referencia !== null && r.updatedAt !== null ? r.updatedAt - referencia : null,
         velocidadKmH,

@@ -52,3 +52,17 @@ describe('el ritmo según el terreno', () => {
     expect(t).toBeLessThan(18)
   })
 })
+
+describe('dónde debería ir ahora', () => {
+  it('en la subida avanza menos que en llano en el mismo rato', async () => {
+    const { kmEnElMomento } = await import('../src/lib/ritmoTerreno')
+    const perfil = perfilDeEsfuerzo(pista())!
+    const muestras = Array.from({ length: 17 }, (_, i) => ({ km: i * 0.5, t: min(i * 3) }))
+    const ritmo = ajustaRitmo(perfil, muestras, SALIDA)!
+    // 30 min desde el km 4 (llano) y desde el km 10 (empieza la subida).
+    const enLlano = kmEnElMomento(perfil, ritmo, 4, min(24), min(54), SALIDA)! - 4
+    const enSubida = kmEnElMomento(perfil, ritmo, 10, min(62), min(92), SALIDA)! - 10
+    expect(enLlano).toBeGreaterThan(3.5)
+    expect(enSubida).toBeLessThan(enLlano * 0.75)
+  })
+})

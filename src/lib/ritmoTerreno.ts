@@ -150,3 +150,29 @@ export function prediceLlegada(
   if (hastaKm <= desdeKm) return desdeMs
   return salidaMs + tDesde * Math.pow(ee(Math.min(hastaKm, perfil.totalKm)) / eDesde, ALFA_FATIGA) * 60_000
 }
+
+/**
+ * Lo contrario: por qué kilómetro debería ir a `ahoraMs`, sabiendo que estaba
+ * en `desdeKm` a `desdeMs`. Para la proyección de quien no da señal (o va en
+ * modo manual): el aro avanza despacio en las subidas y deprisa en las
+ * bajadas, a SU ritmo en cada terreno.
+ */
+export function kmEnElMomento(
+  perfil: PerfilEsfuerzo, ritmo: RitmoAjustado,
+  desdeKm: number, desdeMs: number, ahoraMs: number, salidaMs: number,
+): number | null {
+  if (ahoraMs <= desdeMs) return desdeKm
+  const llegaA = (km: number) => prediceLlegada(perfil, ritmo, desdeKm, desdeMs, km, salidaMs)
+  const alFinal = llegaA(perfil.totalKm)
+  if (alFinal == null) return null
+  if (alFinal <= ahoraMs) return perfil.totalKm
+  let lo = desdeKm, hi = perfil.totalKm
+  for (let i = 0; i < 40 && hi - lo > 0.005; i++) {
+    const mid = (lo + hi) / 2
+    const t = llegaA(mid)
+    if (t == null) return null
+    if (t < ahoraMs) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}

@@ -1,4 +1,5 @@
 import { kmAtPlannedMin, plannedMinAtKm, type PlannedCurve } from './ghostPacer'
+import { kmEnElMomento, type PerfilEsfuerzo, type RitmoAjustado } from './ritmoTerreno'
 
 /**
  * lib/proyeccionFantasma.ts — por dónde DEBERÍA ir quien lleva un rato callado.
@@ -99,6 +100,13 @@ export interface EntradaFantasma {
    * corta a la media hora: se sigue hasta que se anote el siguiente paso.
    */
   manual?: boolean
+  /**
+   * Su ritmo por terreno ajustado (ver `lib/ritmoTerreno`), con la salida y la
+   * hora de su última posición. Si está, manda: el plan puede no saber de
+   * cuestas (en "ritmo fijo", no sabe), y entonces el aro corría por las
+   * subidas como si fueran llano.
+   */
+  terreno?: { perfil: PerfilEsfuerzo; ritmo: RitmoAjustado; salidaMs: number; ultimoMs: number } | null
 }
 
 export function proyeccionFantasma(e: EntradaFantasma): Fantasma | null {
@@ -109,7 +117,7 @@ export function proyeccionFantasma(e: EntradaFantasma): Fantasma | null {
   // Ya estaba en la meta cuando se le perdió: no hay hacia dónde proyectar.
   if (kmUltimo >= totalKm) return null
 
-  const avance = conTerreno(e) ?? conVelocidad(e)
+  const avance = conRitmoTerreno(e) ?? conTerreno(e) ?? conVelocidad(e)
   if (avance === null || avance <= kmUltimo) return null
 
   const hastaKm = Math.min(totalKm, avance)
@@ -132,6 +140,13 @@ function conTerreno(e: EntradaFantasma): number | null {
   const silencioDePlan = e.silencioMs / 60_000 / factor
   const km = kmAtPlannedMin(e.curva, planHasta + silencioDePlan)
   return Number.isFinite(km) ? km : null
+}
+
+/** Con su ritmo por terreno: el km al que debería haber llegado ahora. */
+function conRitmoTerreno(e: EntradaFantasma): number | null {
+  if (!e.terreno || e.kmUltimo === null) return null
+  const t = e.terreno
+  return kmEnElMomento(t.perfil, t.ritmo, e.kmUltimo, t.ultimoMs, t.ultimoMs + e.silencioMs, t.salidaMs)
 }
 
 /** Sin plan, lo llano: su velocidad reciente por el rato que lleva callado. */
