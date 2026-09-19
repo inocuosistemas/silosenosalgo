@@ -47,7 +47,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.fix_at AS fixAt, ts.updated_at AS updatedAt, ts.trail AS trail,
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
             ts.activity AS activity, u.username AS username,
-            ts.event_id AS eventId
+            ts.event_id AS eventId, ts.battery_pct AS bateria, ts.battery_log AS bateriaLog
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
@@ -58,6 +58,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     fixAt: number | null; updatedAt: number | null; trail: string | null
     pinned: number | null; formFactor: number | null; formLog: string | null
     activity: string | null; username: string | null; eventId: string | null
+    bateria: number | null; bateriaLog: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -73,7 +74,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     status = 'ended'
     if (!row.pinned) {
       await env.DB.prepare(
-        "UPDATE tracking_sessions SET status='ended', ended_at=COALESCE(ended_at, ?), lat=NULL, lon=NULL, trail=NULL WHERE id=?",
+        "UPDATE tracking_sessions SET status='ended', ended_at=COALESCE(ended_at, ?), lat=NULL, lon=NULL, trail=NULL, battery_log=NULL WHERE id=?",
       ).bind(now, id).run()
       return json({ error: 'not_found' }, 404)
     }
@@ -228,6 +229,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     activity: isBeaconActivity(row.activity) ? row.activity : null,
     fix, trail, formFactor: row.formFactor ?? 1, formLog, viewers, notes, cheers,
     official: oficial,
+    bateria: row.bateria,
+    bateriaLog: leeBateriaLog(row.bateriaLog),
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }
@@ -258,4 +261,14 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   await env.DB.prepare('DELETE FROM tracking_sessions WHERE id=? AND owner_user_id=?')
     .bind(id, user.id).run()
   return new Response(null, { status: 204 })
+}
+
+/** El registro de batería guardado, o undefined si no hay o no se entiende. */
+function leeBateriaLog(crudo: string | null): [number, number][] | undefined {
+  if (!crudo) return undefined
+  try {
+    const v = JSON.parse(crudo) as unknown
+    return Array.isArray(v) ? v.filter((e): e is [number, number] =>
+      Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number') : undefined
+  } catch { return undefined }
 }

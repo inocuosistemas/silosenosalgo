@@ -368,6 +368,12 @@ export interface TrackStateResponse {
   /** Ánimos de los seguidores, más recientes primero (se muestran así y se
    *  recortan por arriba). Undefined cuando no hay ninguno. */
   cheers?: TrackCheer[]
+  /** La batería de la baliza (0-100) en su última señal. Null u omitida si su
+   *  app no la manda. */
+  bateria?: number | null
+  /** Cómo ha ido bajando: `[epoch ms, %]`, una entrada cada vez que cambia.
+   *  Con él se estima cuánto le va a durar. Ver `src/lib/bateria.ts`. */
+  bateriaLog?: [number, number][]
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */

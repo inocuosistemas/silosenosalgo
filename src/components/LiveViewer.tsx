@@ -39,6 +39,7 @@ import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/lap
 import { buildPlannedCurve, kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
+import { estimaBateria } from '../lib/bateria'
 import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
 
@@ -2245,6 +2246,42 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // ya no es una cuenta atrás, es ruido de una carrera que ya no está pasando);
   // si no → el próximo corte.
   /**
+   * La batería de la baliza y cuánto le va a durar, con lo que ha gastado en
+   * ESTA carrera (ver `lib/bateria`). Es la pregunta de quien sigue una ultra
+   * cuando la baliza se calla: ¿se ha quedado sin batería o sin cobertura? Con
+   * la carrera cerrada ya no hay nada que estimar: solo el porcentaje.
+   */
+  const bateria = estimaBateria(state.bateriaLog, startedAtMs, fixUpdatedAt)
+  const pctBateria = state.bateria ?? bateria?.pct ?? null
+  const panelBateria = pctBateria != null && (() => {
+    const ahora = demoEnMs ?? Date.now()
+    const quedaMs = bateria?.agotaMs != null ? bateria.agotaMs - ahora : null
+    const tono = pctBateria <= 15 ? 'text-rose-400' : pctBateria <= 30 ? 'text-amber-400' : 'text-slate-100'
+    const leidaHaceMin = fixUpdatedAt != null ? Math.round((ahora - fixUpdatedAt) / 60_000) : null
+    return (
+      <div className="rounded-xl border border-slate-700 bg-slate-900 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium text-slate-200">🔋 Batería de la baliza</p>
+          <p className={`text-sm font-bold tabular-nums ${tono}`}>{pctBateria}%</p>
+        </div>
+        <p className="mt-0.5 text-[11px] leading-snug text-slate-400">
+          {ended ? 'Al terminar.'
+            : bateria?.cargando ? 'Cargando ⚡'
+            : bateria?.porHora != null && bateria.agotaMs != null && quedaMs != null
+              ? quedaMs > 0
+                ? <>Gasta {Math.round(bateria.porHora)} %/h en carrera: a este ritmo le quedan{' '}
+                    <span className="font-semibold text-slate-200">≈ {hhmm(quedaMs / 60_000)}</span>{' '}
+                    (hasta las {clockDay(new Date(bateria.agotaMs), sessionStart)}).</>
+                : <>Gastaba {Math.round(bateria.porHora)} %/h: a ese ritmo se habría agotado hacia las{' '}
+                    {clockDay(new Date(bateria.agotaMs), sessionStart)}.</>
+              : 'Cuánto le dura se calcula tras un rato de carrera.'}
+          {!ended && leidaHaceMin != null && leidaHaceMin >= 5 && <> Lectura de hace {hhmm(leidaHaceMin)}.</>}
+        </p>
+      </div>
+    )
+  })()
+
+  /**
    * "¿Cuánto le saco?" — el panel de comparar con otro de la carrera.
    *
    * Se ofrece solo cuando hay con quién: si la carrera tiene un participante
@@ -2537,6 +2574,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <Confeti activo={reachedGoal} />
           {topHero}
           {panelComparar}
+          {panelBateria}
           {recalibrationCard}
           {formStatusPanel}
           {/* Summary */}
@@ -2903,7 +2941,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-2">
             <Confeti activo={reachedGoal} />
             {topHero && <div>{topHero}</div>}
-            {panelComparar && <div className="mt-2">{panelComparar}</div>}
             {fix && (
               <>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
@@ -2969,6 +3006,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               )}
               {showAdvanced && (
                 <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
+                  {/* Lo de la CARRERA arriba y los mandos del mapa debajo.
+                      Comparar vivía en la tarjeta plegada, siempre a la vista,
+                      y la hacía crecer para algo que se consulta de vez en
+                      cuando. */}
+                  {panelBateria}
+                  {panelComparar}
                   {/* Con qué se dibuja el mapa, lo PRIMERO del panel. Estuvo al
                       fondo, con los demás mandos del mapa, y ahí no lo encontraba
                       nadie: por encima quedan los ánimos, las vueltas y el calor,

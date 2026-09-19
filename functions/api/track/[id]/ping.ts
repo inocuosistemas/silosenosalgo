@@ -127,8 +127,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (incoming.length === 0) return json({ error: 'invalid_coords' }, 400)
 
   const row = await env.DB.prepare(
-    'SELECT owner_user_id AS owner, status, expires_at AS expiresAt, trail FROM tracking_sessions WHERE id = ?',
-  ).bind(id).first<{ owner: string; status: string; expiresAt: number; trail: string | null }>()
+    'SELECT owner_user_id AS owner, status, expires_at AS expiresAt, trail, battery_log AS bateriaLog FROM tracking_sessions WHERE id = ?',
+  ).bind(id).first<{ owner: string; status: string; expiresAt: number; trail: string | null; bateriaLog: string | null }>()
   if (!row) return json({ error: 'not_found' }, 404)
   if (row.owner !== user.id) return json({ error: 'forbidden' }, 403)
   if (row.status !== 'active' || now > row.expiresAt) return json({ error: 'ended' }, 410)
@@ -165,6 +165,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // dato que dice DÓNDE se quedó alguien: en la CanFranc, los cuatro acabaron la
   // carrera con el kilómetro vacío y hubo que reconstruirlo proyectando sus
   // coordenadas a mano.
+  // La batería, al registro solo cuando CAMBIA: con eso basta para saber a qué
+  // ritmo baja (ver `src/lib/bateria.ts`), y una carrera entera son como mucho
+  // cien entradas por carga. Null = no se toca la columna.
+  const bateriaLog = bateria === null ? null : anotaBateria(row.bateriaLog, now, bateria)
+
   const keepAlive = now + ALIVE_TTL_MS
   await env.DB.prepare(
     `UPDATE tracking_sessions
@@ -172,13 +177,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
             app_version=COALESCE(?, app_version),
             send_cadence=COALESCE(?, send_cadence),
             battery_pct=COALESCE(?, battery_pct),
+            battery_log=COALESCE(?, battery_log),
             paused_until=CASE WHEN ? IS NULL THEN paused_until WHEN ? = 0 THEN NULL ELSE ? END,
             expires_at=MAX(expires_at, ?)
       WHERE id=?`,
   ).bind(
     latest.lat, latest.lon, latest.trackKm, latest.speed, latest.heading,
     latest.accuracy, latest.altitude, latest.t, now, JSON.stringify(trail), appVersion,
-    cadencia ? escribeCadencia(cadencia) : null, bateria,
+    cadencia ? escribeCadencia(cadencia) : null, bateria, bateriaLog,
     pausaHasta, pausaHasta, pausaHasta,
     keepAlive, id,
   ).run()
@@ -189,4 +195,21 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   let viewers = 0
   try { viewers = await countViewers(env, id) } catch { /* presence is non-critical */ }
   return json({ viewers } satisfies PingResponse, 200)
+}
+
+/** Tope del registro de batería: de sobra para dos cargas enteras. */
+const BATERIA_LOG_MAX = 240
+
+/**
+ * El registro de batería con la lectura nueva, o null si no cambia nada (misma
+ * cifra que la última): así el UPDATE deja la columna como estaba.
+ */
+function anotaBateria(crudo: string | null, t: number, pct: number): string | null {
+  let log: [number, number][] = []
+  if (crudo) { try { const v = JSON.parse(crudo); if (Array.isArray(v)) log = v } catch { log = [] } }
+  const ultima = log[log.length - 1]
+  if (ultima && ultima[1] === pct) return null
+  log.push([t, pct])
+  if (log.length > BATERIA_LOG_MAX) log = log.slice(-BATERIA_LOG_MAX)
+  return JSON.stringify(log)
 }
