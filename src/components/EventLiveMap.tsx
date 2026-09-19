@@ -1538,7 +1538,27 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                     que es lo que identifica a cada corredor. */}
                 {/* Y partida por donde no se le vio: ver `tramosDeCola`. Lo
                     que se sabe va sólido; lo que se supone, de puntos. */}
-                {tramosDeCola(tail, route).map((t, n) => (
+                {/* El principio de la cola, DESVANECIÉNDOSE: el servidor
+                    solo manda sus últimos EVENT_TAIL_POINTS puntos, y una cola
+                    que empieza de golpe a mitad de recorrido parece que el
+                    corredor apareció ahí. Si está recortada, su arranque se
+                    funde de transparente a su color, y el primer trozo va de
+                    puntos: lo de antes se ha ido borrando a propósito. */}
+                {colaDesvanecida(r.tail.length >= EVENT_TAIL_POINTS ? tail : []).map((t, n) => (
+                  <Polyline
+                    key={`funde-${n}`}
+                    positions={t.pts}
+                    pathOptions={{
+                      color,
+                      weight: isSel ? 5 : 3,
+                      opacity: (stale ? 0.4 : 0.95) * t.tinta,
+                      dashArray: n === 0 ? '1 7' : undefined,
+                      lineCap: 'round',
+                    }}
+                    interactive={false}
+                  />
+                ))}
+                {tramosDeCola(r.tail.length >= EVENT_TAIL_POINTS ? tail.slice(inicioNitido(tail.length)) : tail, route).map((t, n) => (
                   <div key={`cola-${n}`}>
                     <Polyline
                       positions={t.pts}
@@ -3465,4 +3485,31 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto max-w-lg px-4 py-6">{children}</div>
     </div>
   )
+}
+
+/** Qué parte de una cola recortada se funde: su primer cuarto. */
+const FUNDIDO = 0.25
+const FUNDIDO_TRAMOS = 5
+
+/** Dónde empieza la parte nítida de una cola recortada. */
+function inicioNitido(n: number): number {
+  return Math.max(0, Math.floor(n * FUNDIDO))
+}
+
+/**
+ * El arranque de una cola recortada, en trozos cada vez más opacos. Cada trozo
+ * comparte su último punto con el primero del siguiente, y el último con la
+ * parte nítida, para que la línea no se corte.
+ */
+function colaDesvanecida(tail: { lat: number; lon: number }[]): { pts: [number, number][]; tinta: number }[] {
+  const fin = inicioNitido(tail.length)
+  if (fin < 2) return []
+  const out: { pts: [number, number][]; tinta: number }[] = []
+  for (let k = 0; k < FUNDIDO_TRAMOS; k++) {
+    const a = Math.floor((fin * k) / FUNDIDO_TRAMOS)
+    const b = Math.floor((fin * (k + 1)) / FUNDIDO_TRAMOS)
+    const pts = tail.slice(a, b + 1).map((p) => [p.lat, p.lon] as [number, number])
+    if (pts.length >= 2) out.push({ pts, tinta: 0.12 + (0.8 * k) / (FUNDIDO_TRAMOS - 1) })
+  }
+  return out
 }
