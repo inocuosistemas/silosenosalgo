@@ -387,6 +387,25 @@ const RECOLOCA_M = 150
  */
 const SOSTENIDO_FACTOR = 2
 
+/** ¿Acaba donde empieza? */
+function esCircuito(linea: Polilinea): boolean {
+  return linea.length > 1 && metros(
+    { t: 0, lat: linea[0][0], lon: linea[0][1] },
+    { t: 0, lat: linea[linea.length - 1][0], lon: linea[linea.length - 1][1] },
+  ) < 200
+}
+
+/**
+ * En un circuito, ¿empieza la traza cuando aún es imposible haber acabado?
+ * (nadie va más rápido que el tope de su actividad). Entonces su primer punto,
+ * si empata, va a la salida: ver `empiezaEnSalida`.
+ */
+function arrancaEnSalida(linea: Polilinea, pts: TrailPoint[], salidaMs: number | null, maxKmh: number): boolean {
+  if (pts.length === 0 || !esCircuito(linea)) return false
+  const totalKm = linea[linea.length - 1][2]
+  return pts[0].t - (salidaMs ?? pts[0].t) < (totalKm / maxKmh) * 3_600_000
+}
+
 /** Hasta dónde son "los primeros kilómetros" de un circuito, y qué diferencia
  *  de distancia se considera un empate con la meta. */
 const SALIDA_KM = 3
@@ -544,11 +563,7 @@ export function calculaEstadisticas(
   const tolMeta = linea ? toleranciaMeta(linea) : (totalKm ?? 0) * 0.03
   // ¿Acaba donde empieza? Un circuito necesita precauciones que un punto a
   // punto no: en él, estar en la meta y estar en la salida es lo mismo.
-  const circuito = linea !== null && linea.length > 1
-    && metros(
-      { t: 0, lat: linea[0][0], lon: linea[0][1] },
-      { t: 0, lat: linea[linea.length - 1][0], lon: linea[linea.length - 1][1] },
-    ) < 200
+  const circuito = linea !== null && esCircuito(linea)
 
   for (const f of filas) {
     let pts: TrailPoint[] = []
@@ -592,10 +607,9 @@ export function calculaEstadisticas(
     // En un circuito, si su traza empieza cuando aún es imposible haber
     // acabado (nadie va más rápido que el tope de su actividad), se busca
     // desde la salida: ver `empiezaEnSalida`.
-    const salidaRef = startsAt ?? f.startedAt ?? pts[0].t
-    const minimoParaAcabarMs = totalKm != null ? (totalKm / lim.maxKmh) * 3_600_000 : 0
-    const empiezaEnSalida = circuito && pts[0].t - salidaRef < minimoParaAcabarMs
-    const avance = linea ? avanceSobreRuta(linea, pts, lim.maxKmh, undefined, empiezaEnSalida) : null
+    const avance = linea
+      ? avanceSobreRuta(linea, pts, lim.maxKmh, undefined, arrancaEnSalida(linea, pts, startsAt ?? f.startedAt, lim.maxKmh))
+      : null
 
     // El crono empieza en la SALIDA OFICIAL, como en cualquier carrera. Es lo
     // único que hace comparables los tiempos de gente que fue junta: la hora a
@@ -817,11 +831,11 @@ async function avanceDeUsuario(env: Env, eventId: string, userId: string): Promi
   const linea = await leePolilinea(env, eventId)
   if (!linea) return null
   const row = await env.DB.prepare(
-    `SELECT t.trail AS trail, e.activity AS activity
+    `SELECT t.trail AS trail, e.activity AS activity, e.starts_at AS startsAt, t.started_at AS startedAt
        FROM tracking_sessions t, events e
       WHERE e.id = ? AND t.event_id = e.id AND t.owner_user_id = ?
       ORDER BY COALESCE(t.updated_at, 0) DESC LIMIT 1`,
-  ).bind(eventId, userId).first<{ trail: string | null; activity: string | null }>()
+  ).bind(eventId, userId).first<{ trail: string | null; activity: string | null; startsAt: number | null; startedAt: number | null }>()
   if (!row?.trail) return null
   let pts: TrailPoint[] = []
   try {
@@ -830,7 +844,9 @@ async function avanceDeUsuario(env: Env, eventId: string, userId: string): Promi
   } catch { return null }
   pts.sort((a, b) => a.t - b.t)
   const limpios = sinSaltos(pts, row.activity)
-  return avanceSobreRuta(linea, limpios.length >= 2 ? limpios : pts, limitesDe(row.activity).maxKmh)
+  const usados = limpios.length >= 2 ? limpios : pts
+  const maxKmh = limitesDe(row.activity).maxKmh
+  return avanceSobreRuta(linea, usados, maxKmh, undefined, arrancaEnSalida(linea, usados, row.startsAt ?? row.startedAt, maxKmh))
 }
 
 /**
