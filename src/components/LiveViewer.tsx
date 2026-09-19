@@ -3037,10 +3037,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <div className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + var(--barra-app, 0px))' }}>
         <div className="p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+          <div className="mx-auto max-w-lg">
           {header}
           <p className="mt-1 text-xs text-slate-400">{statusLine}</p>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto p-3">
+          {/* El ancho de las secciones del evento: en un ordenador, a pantalla
+              completa, las fichas eran renglones de dos metros. */}
+          <div className="mx-auto max-w-lg space-y-2">
           <Confeti activo={reachedGoal} />
           {topHero}
           {panelComparar}
@@ -3170,6 +3175,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </p>
             </div>
           )}
+          </div>
         </div>
       </div>
     )
