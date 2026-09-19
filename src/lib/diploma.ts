@@ -236,7 +236,7 @@ export function dibujaDiploma(d: DatosDiploma): string {
       let min = Infinity, max = -Infinity
       for (const e of perfil) { if (e < min) min = e; if (e > max) max = e }
       const rango = Math.max(1, max - min)
-      const x = (i: number) => 34 + (i / (perfil.length - 1)) * (ANCHO - 68)
+      const x = (i: number) => 34 + (i / (perfil.length - 1)) * (ANCHO - 84)
       const yy = (e: number) => base - 4 - ((e - min) / rango) * (alto - 8)
       ctx.beginPath()
       ctx.moveTo(x(0), base)
@@ -255,7 +255,8 @@ export function dibujaDiploma(d: DatosDiploma): string {
       ctx.stroke()
       // Los puntos de paso, como en el dorsal: un punto sobre la línea.
       for (const f of d.pasos ?? []) {
-        if (!(f > 0 && f < 1)) continue
+        // El de la meta no: ahí va la bandera.
+        if (!(f > 0 && f < 0.985)) continue
         const i = Math.round(f * (perfil.length - 1))
         ctx.beginPath()
         ctx.arc(x(i), yy(perfil[i]), 2.6, 0, Math.PI * 2)
@@ -263,8 +264,22 @@ export function dibujaDiploma(d: DatosDiploma): string {
         ctx.lineWidth = 1.5; ctx.strokeStyle = ORO; ctx.stroke()
       }
       // La meta, al final del perfil.
-      ctx.font = fuente(14)
-      ctx.fillText('🏁', x(perfil.length - 1) - 4, yy(perfil[perfil.length - 1]) - 6)
+      // Dibujada y no un emoji: el emoji no se deja anclar al punto exacto y
+      // quedaba torcido encima del último paso. Un mástil que sale del final
+      // del perfil y una bandera de cuadros ondeando hacia fuera.
+      const fx = x(perfil.length - 1), fy = yy(perfil[perfil.length - 1])
+      const MASTIL = 22, AN = 14, AL = 10, C = 3.5
+      ctx.strokeStyle = TINTA; ctx.lineWidth = 1.5
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - MASTIL); ctx.stroke()
+      for (let fi = 0; fi < AL / C; fi++) {
+        for (let co = 0; co < AN / C; co++) {
+          ctx.fillStyle = (fi + co) % 2 === 0 ? TINTA : '#0f172a'
+          ctx.fillRect(fx + co * C, fy - MASTIL + fi * C, C, C)
+        }
+      }
+      ctx.strokeStyle = 'rgba(248,250,252,0.6)'; ctx.lineWidth = 0.5
+      ctx.strokeRect(fx, fy - MASTIL, AN, AL)
+      ctx.beginPath(); ctx.arc(fx, fy, 2.6, 0, Math.PI * 2); ctx.fillStyle = ORO; ctx.fill()
     }
   }
 
