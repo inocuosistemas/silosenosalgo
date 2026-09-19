@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CargandoMarca } from './CargandoMarca'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
@@ -946,6 +946,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // updatedAt values; the stale threshold = clamp(maxRecentGap × K + margin).
   /** Qué tramo se está mirando a pantalla completa, y el dedo que lo abrió. */
   const [tramoZoom, setTramoZoom] = useState<number | null>(null)
+  const [perfilMedido, setPerfilMedido] = useState<number | null>(null)
   const [pantalla, setPantalla] = useState(() => (typeof window === 'undefined'
     ? { an: 360, al: 720 }
     : { an: window.innerWidth, al: window.innerHeight }))
@@ -973,8 +974,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     // Lo que queda de alto tras la barra de arriba y el texto de la ficha,
     // devuelto a unidades sin ampliar.
     const libre = (pantalla.al - 90) / factor - 195
-    return { factor, perfil: Math.max(150, Math.min(420, libre)) }
+    return { factor, perfil: perfilMedido ?? Math.max(150, Math.min(420, libre)) }
   })()
+  /**
+   * Y el alto del perfil, MEDIDO: la cuenta de arriba supone cuánto ocupa el
+   * texto de la ficha, y en el navegador —con sus barras, y con los nombres y
+   * los cortes partiéndose en dos líneas— se quedaba corta y había que hacer
+   * scroll para ver el final del perfil. Aquí se mide lo que ocupa la ficha
+   * de verdad contra el hueco que hay, y el perfil se estira o se encoge lo
+   * que sobre o falte. Se repite en cada pintada (el texto cambia en directo)
+   * y solo se toca si la diferencia es de verdad, así que se queda quieto.
+   */
+  const zonaTramo = useRef<HTMLDivElement | null>(null)
+  const fichaTramo = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    if (tramoZoom === null) return
+    const zona = zonaTramo.current, ficha = fichaTramo.current
+    if (!zona || !ficha) return
+    const hueco = zona.clientHeight - 8 // el pt-2 de la zona
+    const exceso = ficha.getBoundingClientRect().height - hueco
+    if (Math.abs(exceso) < 3) return
+    const nuevo = Math.max(80, Math.min(640, ampliado.perfil - exceso / ampliado.factor))
+    if (Math.abs(nuevo - ampliado.perfil) >= 1) setPerfilMedido(nuevo)
+  })
+  // Otro tramo u otra pantalla: se vuelve a partir de la estimación.
+  useEffect(() => { setPerfilMedido(null) }, [tramoZoom, pantalla.an, pantalla.al])
   // Escape cierra, y las flechas pasan de tramo: en el ordenador es lo que se
   // espera, y no estorba en el móvil.
   useEffect(() => {
@@ -2672,8 +2696,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               }}
               onPointerCancel={() => { tocoTramo.current = null }}
             >
-              <div className="min-h-0 flex-1 overflow-auto px-2 pt-2">
-                <div style={{ zoom: ampliado.factor }}>
+              <div ref={zonaTramo} className="min-h-0 flex-1 overflow-auto px-2 pt-2">
+                <div ref={fichaTramo} style={{ zoom: ampliado.factor }}>
                   {tarjetaTramo(cards[tramoZoom], tramoZoom, true)}
                 </div>
               </div>
