@@ -1084,11 +1084,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const cumKm = plan.track.cumKm
     const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
     const { globalNearest, windowNearest } = makeRouteMatcher(planPts, cumKm, maxSpeedKmh)
+    // CIRCUITO: la misma regla que la posición en vivo (ver `nearest`). Sin
+    // ella, el primer punto —en la salida— caía en la META, y todo lo que se
+    // saca de esta lista salía torcido: en Matxicots 26 el estado de forma
+    // daba "−50% vs plan" y "fatiga +1922%", porque veía 57 km hechos en
+    // cinco minutos.
+    const salidaMs = state?.startedAt ?? null
+    const minimoParaAcabarMs = ((cumKm[cumKm.length - 1] ?? 0) / maxSpeedKmh) * 3_600_000
+    const circuito = esCircuito(planPts)
     const snaps: { idx: number; km: number; dist: number }[] = []
     let anchorKm = 0, anchorTs: number | null = null, seeded = false
     for (const p of trail) {
       let m: { idx: number; dist: number }
-      if (!seeded) { m = globalNearest(p.lat, p.lon); seeded = true }
+      if (!seeded) {
+        m = circuito && salidaMs != null && p.t - salidaMs < minimoParaAcabarMs
+          ? windowNearest(p.lat, p.lon, 0, Math.max(0, (p.t - salidaMs) / 1000))
+          : globalNearest(p.lat, p.lon)
+        seeded = true
+      }
       else {
         const dtSec = anchorTs != null ? (p.t - anchorTs) / 1000 : Infinity
         m = windowNearest(p.lat, p.lon, anchorKm, dtSec)
@@ -1098,7 +1111,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       snaps.push({ idx: m.idx, km: anchorKm, dist: m.dist })
     }
     return snaps
-  }, [plan, planPts, trail])
+  }, [plan, planPts, trail, state?.startedAt])
 
   /**
    * Cuándo cruzó la meta, buscado en TODA su traza. La regla y el porqué están
@@ -1251,11 +1264,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const formSamples = useMemo(() => {
     if (!trailSnaps) return [] as { km: number; t: number }[]
     const out: { km: number; t: number }[] = []
+    // Desde la salida: la espera en la línea no es ritmo, y sumada al primer
+    // tramo lo hacía parecer lento.
+    const salidaMs = state?.startedAt ?? -Infinity
     for (let i = 0; i < trail.length; i++) {
+      if (trail[i].t < salidaMs) continue
       if (trailSnaps[i].dist < onRouteTolKm(trail[i].a)) out.push({ km: trailSnaps[i].km, t: trail[i].t })
     }
     return out
-  }, [trail, trailSnaps])
+  }, [trail, trailSnaps, state?.startedAt])
   // Detected form (overall + subida/bajada/llano + fatiga). Observational only —
   // shown in both views; the runner confirms it to move the forecast.
   const detected = useMemo(
