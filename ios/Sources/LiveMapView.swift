@@ -22,85 +22,74 @@ struct LiveMapView: View {
         store.isSharing && offlineToken != nil && offlineToken == store.claveDeDatos
     }
 
-    /// Alto de la fila de botones flotantes: el de la barra de navegación de
-    /// iOS a la que sustituye, para que la tarjeta de datos del visor quede
-    /// exactamente donde estaba. Lo que crece es el mapa, no se mueve la tarjeta.
-    private static let altoBarra: CGFloat = 44
-
     var body: some View {
-        // El mapa de borde a borde —bajo la muesca y hasta la barra de inicio—
-        // con los botones flotando encima, como en cualquier app de mapas. Antes
-        // iba debajo de una barra de navegación que se comía la franja de
-        // arriba y en la que "En directo", "Volver" y tres botones no cabían.
-        ZStack(alignment: .top) {
+        // El mapa de borde a borde, bajo una barra de navegación TRANSPARENTE:
+        // los botones los dibuja iOS —el cristal de iOS 26, con el contraste
+        // que el sistema ajusta según lo que tienen debajo— y el mapa llega
+        // hasta arriba por detrás. Probé a pintarlos a mano, flotando, y se
+        // perdían sobre un mapa claro: el sistema hace algo que no se imita.
+        NavigationStack {
             WebView(source: source, barraApp: Self.altoBarra)
                 .ignoresSafeArea()
-
-            HStack(spacing: 8) {
-                Button { dismiss() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                        Text("Volver")
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 40)
-                }
-                .foregroundStyle(Theme.sky500)
-                .cristal()
-                .accessibilityLabel("Volver")
-
-                // El nombre, solo cuando no es la sesión que emite (una guía,
-                // un seguimiento anterior): de esa ya habla la pastilla de abajo.
-                if !esLaDeAhora && !title.isEmpty {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(height: 40)
-                        .cristal()
-                }
-
-                Spacer(minLength: 0)
-
-                if offlineToken != nil {
-                    HStack(spacing: 2) {
-                        if allowsEditing {
-                            botonFlotante("list.bullet.rectangle", "Ver notas, \(store.noteCount)") { showNotes = true }
-                            botonFlotante("square.and.pencil", "Añadir nota aquí") { showAddNote = true }
-                                .disabled(store.isStandby)
+                // Sin título en la sesión que emite: lo que decía lo dice la
+                // pastilla de abajo del mapa.
+                .navigationTitle(esLaDeAhora ? "" : title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button { dismiss() } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .font(.body.weight(.semibold))
+                                Text("Volver")
+                            }
                         }
-                        botonFlotante("arrow.down.circle", "Descargar mapa offline") { showDownload = true }
+                        .tint(Theme.sky500)
+                        .accessibilityLabel("Volver")
                     }
-                    .padding(.horizontal, 4)
-                    .cristal()
+                    if offlineToken != nil {
+                        ToolbarItemGroup(placement: .navigationBarTrailing) {
+                            if allowsEditing {
+                                Button { showNotes = true } label: {
+                                    Image(systemName: "list.bullet.rectangle")
+                                }
+                                .tint(Theme.sky500)
+                                .accessibilityLabel("Ver notas, \(store.noteCount)")
+
+                                Button { showAddNote = true } label: {
+                                    Image(systemName: "square.and.pencil")
+                                }
+                                .tint(Theme.sky500)
+                                .disabled(store.isStandby)
+                                .accessibilityLabel("Añadir nota aquí")
+                            }
+                            Button { showDownload = true } label: {
+                                Image(systemName: "arrow.down.circle")
+                            }
+                            .tint(Theme.sky500)
+                            .accessibilityLabel("Descargar mapa offline")
+                        }
+                    }
                 }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 2)
-            .frame(height: Self.altoBarra, alignment: .top)
-        }
-        .sheet(isPresented: $showDownload) {
-            MapDownloadView(routeName: nil,
-                            polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
-        }
-        .sheet(isPresented: $showAddNote) {
-            AddNoteView()
-        }
-        .sheet(isPresented: $showNotes) {
-            NotesListView()
+                .sheet(isPresented: $showDownload) {
+                    MapDownloadView(routeName: nil,
+                                    polyline: offlineToken.flatMap { PlanGeometry.routePolyline(forSession: $0) })
+                }
+                .sheet(isPresented: $showAddNote) {
+                    AddNoteView()
+                }
+                .sheet(isPresented: $showNotes) {
+                    NotesListView()
+                }
         }
     }
 
-    private func botonFlotante(_ icono: String, _ etiqueta: String, accion: @escaping () -> Void) -> some View {
-        Button(action: accion) {
-            Image(systemName: icono)
-                .font(.body)
-                .frame(width: 40, height: 40)
-        }
-        .foregroundStyle(Theme.sky500)
-        .accessibilityLabel(etiqueta)
-    }
+    /// Lo que el visor aparta su tarjeta de datos además de su margen seguro.
+    /// Cero: con una barra de navegación de verdad encima, el margen seguro que
+    /// le llega al visor YA incluye la barra, y sumarla otra vez bajaba la
+    /// tarjeta el doble.
+    private static let altoBarra: CGFloat = 0
 }
 
 /// La salida de emergencia de una pantalla completa que no tiene nada que
@@ -134,19 +123,6 @@ struct SinMapa: View {
                     .padding(.top, 8)
             }
             .padding(32)
-        }
-    }
-}
-
-private extension View {
-    /// El cristal de los botones de iOS: Liquid Glass del sistema desde iOS 26,
-    /// el mismo que llevan los botones de una barra de navegación, y que se
-    /// adapta solo al mapa que tiene debajo. Antes, el material translúcido.
-    @ViewBuilder func cristal() -> some View {
-        if #available(iOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: Capsule())
-        } else {
-            background(.ultraThinMaterial, in: Capsule())
         }
     }
 }

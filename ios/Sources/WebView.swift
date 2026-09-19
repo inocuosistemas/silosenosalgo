@@ -30,13 +30,11 @@ struct WebView: UIViewRepresentable {
         // De borde a borde de verdad: sin que la vista de desplazamiento meta
         // sus propios márgenes; los pone la página con `env(safe-area-inset-*)`.
         web.scrollView.contentInsetAdjustmentBehavior = .never
-        // Y sin el difuminado que iOS 26 pone en los bordes de todo lo que se
-        // desplaza: arriba caía justo sobre el mapa y bajo los botones de
-        // cristal, que se veían lavados. Aquí la página no se desplaza, es un
-        // mapa: sus bordes tienen que verse nítidos.
+        // Bajo la barra de navegación, iOS 26 pone una franja para que se lean
+        // la hora y los botones. Se deja —es lo que las hace legibles—, pero en
+        // su modo suave, un degradado: el mapa se sigue viendo hasta arriba.
         if #available(iOS 26.0, *) {
-            web.scrollView.topEdgeEffect.isHidden = true
-            web.scrollView.bottomEdgeEffect.isHidden = true
+            web.scrollView.topEdgeEffect.style = .soft
         }
         web.isOpaque = false
         web.backgroundColor = UIColor(red: 0.008, green: 0.024, blue: 0.090, alpha: 1) // slate-950
