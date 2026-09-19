@@ -162,6 +162,17 @@ const STALE_MS = 6 * 60_000
  */
 const DESVIADO_M = 100
 /**
+ * A partir de qué distancia del recorrido un punto NO entra en el historial que
+ * juzga los abandonos.
+ *
+ * Fuera del trazado, el "kilómetro" de un punto es el del trozo de recorrido
+ * que le pille más cerca, que puede estar a kilómetros por delante o por
+ * detrás. En Matxicots 26 Soriano fue diez minutos por otro camino, a 450 m
+ * del GPX, y esos puntos salían en el km 39 y luego en el 38: el detector vio
+ * un salto imposible a pie y le dio por retirado mientras paraba en ESP1730.
+ */
+const FUERA_HISTORIAL_M = 150
+/**
  * Cuándo se sospecha que la VENTANA de proyección se ha quedado atrás, y no que
  * el corredor se haya salido del recorrido.
  *
@@ -759,8 +770,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           const sembrado: Paso[] = []
           let c: number | null = null
           for (const p of r.tail) {
-            c = c == null ? primera(p) : projectKm(p.lat, p.lon, route, c)
-            if (c != null) sembrado.push({ t: p.t, km: c })
+            const lejos = { m: 0 }
+            const k: number | null = c == null ? primera(p) : projectKm(p.lat, p.lon, route, c, 3, lejos)
+            // Fuera del recorrido no hay kilómetro: ver FUERA_HISTORIAL_M.
+            if (k == null || lejos.m > FUERA_HISTORIAL_M) continue
+            c = k
+            sembrado.push({ t: p.t, km: k })
           }
           historial.current.set(key, sembrado)
         }
@@ -776,7 +791,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             medida.m = global.m
           }
         }
-        km = km ?? proyectado
+        // Lejos del recorrido, el km proyectado es el del trozo que le pille
+        // más cerca, no el suyo: se le deja en el último que tuvo sobre el
+        // trazado (y la lista ya dice que va fuera). Ver FUERA_HISTORIAL_M.
+        const ultimoBueno = kmPrevio.current.get(key)
+        km = km ?? (medida.m > FUERA_HISTORIAL_M && ultimoBueno != null ? ultimoBueno : proyectado)
         /**
          * CIRCUITO: la salida y la meta son el mismo sitio, y quien acaba de
          * salir cae igual de cerca del km 0 que del último. Si la proyección
@@ -806,7 +825,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       if (km != null) kmPrevio.current.set(key, km)
       // El punto de ahora al historial, si es nuevo. Tope de 400: en una ultra
       // de dos días son de sobra para juzgar una parada y no crece sin fin.
-      if (km != null && r.updatedAt != null) {
+      // Y lo mismo con el punto de ahora: si está lejos del recorrido, su
+      // "kilómetro" es inventado y no entra en lo que juzga el abandono.
+      if (km != null && r.updatedAt != null && medida.m <= FUERA_HISTORIAL_M) {
         const h = historial.current.get(key) ?? []
         if (h.length === 0 || h[h.length - 1].t < r.updatedAt) {
           h.push({ t: r.updatedAt, km })
