@@ -90,15 +90,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
             (SELECT t.id FROM tracking_sessions t
               WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
                 AND t.status = 'active' AND t.expires_at > ?
-              ORDER BY t.started_at DESC LIMIT 1) AS sessionId
+              ORDER BY t.started_at DESC LIMIT 1) AS sessionId,
+            (SELECT t.updated_at FROM tracking_sessions t
+              WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
+                AND t.status = 'active' AND t.expires_at > ?
+              ORDER BY t.started_at DESC LIMIT 1) AS sessionUpdatedAt
        FROM event_members m JOIN users u ON u.id = m.user_id
       WHERE m.event_id = ?
       ORDER BY m.joined_at ASC`,
-  ).bind(now, id).all<{
+  ).bind(now, now, id).all<{
     userId: string; username: string; color: string | null; bib: string | null
     bocadillo: string | null
     emoji: string | null; emojiKey: string | null
-    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null; retiredKm: number | null; manualPasos: string | null
+    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null; retiredKm: number | null; manualPasos: string | null; sessionUpdatedAt: number | null
     organizer: number
   }>()
 
@@ -120,6 +124,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     retiredAt: r.retiredAt,
     retiredKm: r.retiredKm,
     manualPasos: leePasosManuales(r.manualPasos),
+    sessionUpdatedAt: r.sessionUpdatedAt,
     sessionId: r.sessionId,
   }))
 

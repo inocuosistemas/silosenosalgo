@@ -49,6 +49,17 @@ import { downloadGpx } from '../lib/gpxSerialize'
  */
 
 const REFRESH_MS = 15_000
+/** A partir de cuánto silencio una sesión abierta deja de ser "emitiendo".
+ *  Veinte minutos: más que cualquier cadencia normal, incluidas las paradas. */
+const SIN_SENAL_MS = 20 * 60_000
+
+/** "8 min", "2 h 15". */
+function haceTexto(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60_000))
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60), m = min % 60
+  return m === 0 ? `${h} h` : `${h} h ${m}`
+}
 
 export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr }: {
   id: string
@@ -2083,6 +2094,12 @@ function MemberRow({
           </button>
         ) : m.manualPasos ? (
           <span className="text-sky-300">✎ manual</span>
+        ) : live && m.sessionUpdatedAt != null && now - m.sessionUpdatedAt > SIN_SENAL_MS ? (
+          // Sesión abierta no es emitir: la de Valen siguió abierta horas
+          // después de quedarse el móvil sin batería, y aquí decía "emitiendo".
+          <span className="text-amber-400" title="Su baliza sigue abierta, pero no llega nada">
+            📡 sin señal · hace {haceTexto(now - m.sessionUpdatedAt)}
+          </span>
         ) : live ? (
           <span className="text-emerald-400">● emitiendo</span>
         ) : online ? (

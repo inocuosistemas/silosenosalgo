@@ -470,6 +470,9 @@ export interface EventMember {
   /** Id de su sesión de seguimiento emitiendo en este evento, o null si no está
    *  emitiendo. Es el token público: con él se abre su baliza completa. */
   sessionId: string | null
+  /** Cuándo llegó su última posición a esa sesión (epoch ms), o null si aún
+   *  ninguna. Separa "emitiendo" de "sesión abierta pero callada". */
+  sessionUpdatedAt?: number | null
   /**
    * Cuándo lo dieron por retirado A MANO (epoch ms), o null.
    *
