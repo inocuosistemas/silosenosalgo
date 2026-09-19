@@ -428,6 +428,32 @@ interface SegProfile {
   /** Los metros que representa el alto de la caja. Con el mismo valor en todos
    *  los tramos, sus dibujos se pueden comparar de un vistazo. */
   escalaM: number
+  /** La curva muestreada: [km, altura en % desde ARRIBA de la caja]. Sirve
+   *  para posar la marca del corredor justo encima de la línea. */
+  muestras: [number, number][]
+}
+
+/** A qué altura de la caja (en % desde arriba) pasa la curva en ese km. */
+function alturaEnPerfil(p: SegProfile, km: number): number {
+  const m = p.muestras
+  if (m.length === 0) return 50
+  if (km <= m[0][0]) return m[0][1]
+  for (let i = 1; i < m.length; i++) {
+    if (km <= m[i][0]) {
+      const [k0, y0] = m[i - 1], [k1, y1] = m[i]
+      return k1 > k0 ? y0 + ((km - k0) / (k1 - k0)) * (y1 - y0) : y1
+    }
+  }
+  return m[m.length - 1][1]
+}
+
+/** Las iniciales de un nombre de usuario: "VM" para "valen.martinez", "S"
+ *  para "Soriano". Lo que cabe en la chapa redonda del perfil. */
+function iniciales(nombre: string | null | undefined): string {
+  const palabras = (nombre ?? '').split(/[\s._-]+/).filter(Boolean)
+  if (palabras.length === 0) return '·'
+  const letras = palabras.length >= 2 ? palabras[0][0] + palabras[1][0] : palabras[0][0]
+  return letras.toUpperCase()
 }
 
 /**
@@ -476,12 +502,13 @@ function buildSegmentProfile(
     span,
     rangoM,
     escalaM: eleSpan,
+    muestras: sel.map((i) => [cumKm[i], (y(points[i].ele) / PROFILE_H) * 100] as [number, number]),
   }
 }
 
 
 /** Mini elevation profile of a segment with a live position marker. */
-function SegmentProfile({ profile, posKm, alto, pasoM }: {
+function SegmentProfile({ profile, posKm, alto, pasoM, marca }: {
   profile: SegProfile | null
   posKm: number | null
   /** Alto en píxeles. El de la lista es una miniatura para una ojeada; el del
@@ -490,6 +517,8 @@ function SegmentProfile({ profile, posKm, alto, pasoM }: {
   alto?: number
   /** Cada cuántos metros se raya la regla. Sin él no se dibuja ninguna. */
   pasoM?: number
+  /** Lo que va en la chapa del corredor (sus iniciales). Solo en grande. */
+  marca?: string
 }) {
   if (!profile) return null
   const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
@@ -512,8 +541,22 @@ function SegmentProfile({ profile, posKm, alto, pasoM }: {
       .filter((m) => m < profile.escalaM * 0.98)
       .map((m) => ({ m, pct: (m / profile.escalaM) * 100 }))
     : []
+  /**
+   * La marca del corredor. En grande, una chapa redonda con sus iniciales
+   * ENCIMA del perfil y un hilo discontinuo que baja solo hasta la curva, como
+   * una aguja clavada en su punto: la raya blanca de antes cruzaba el dibujo
+   * de arriba abajo y tapaba justo la forma del terreno. Para la chapa se
+   * reserva una franja arriba. En la miniatura, un punto sobre la curva.
+   */
+  const conChapa = altoPx >= 90 && !!marca
+  const CHAPA = 26
+  const reserva = conChapa ? CHAPA + 8 : 0
+  const yPct = leftPct != null && profile ? alturaEnPerfil(profile, posKm!) : null
+  const yCurvaPx = yPct != null ? reserva + (yPct / 100) * (altoPx - reserva) : null
+  const izquierda = leftPct != null ? `clamp(${CHAPA / 2}px, ${leftPct}%, calc(100% - ${CHAPA / 2}px))` : undefined
   return (
     <div className="relative mt-1.5 w-full" style={{ height: altoPx }}>
+      <div className="absolute inset-x-0 bottom-0" style={{ top: reserva }}>
       {rayas.map((r) => (
         <div key={r.m} className="pointer-events-none absolute inset-x-0 border-t border-dashed border-slate-600/40"
              style={{ bottom: `${r.pct}%` }}>
@@ -528,10 +571,23 @@ function SegmentProfile({ profile, posKm, alto, pasoM }: {
         <path d={profile.area} fill="#0ea5e9" fillOpacity={0.12} />
         <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
       </svg>
-      {leftPct != null && (
-        <div className="absolute inset-y-0 w-px bg-white/80" style={{ left: `${leftPct}%` }}>
-          <span className="absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-white shadow" />
-        </div>
+      </div>
+      {leftPct != null && yCurvaPx != null && (
+        conChapa ? (
+          <>
+            <div className="pointer-events-none absolute border-l border-dashed border-sky-300/80"
+                 style={{ left: `${leftPct}%`, top: CHAPA, height: Math.max(0, yCurvaPx - CHAPA) }} />
+            <span className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-sky-500"
+                  style={{ left: `${leftPct}%`, top: yCurvaPx }} />
+            <span className="pointer-events-none absolute top-0 grid -translate-x-1/2 place-items-center rounded-full border-2 border-white bg-sky-500 text-[11px] font-bold leading-none text-white shadow-lg"
+                  style={{ left: izquierda, width: CHAPA, height: CHAPA }}>
+              {marca}
+            </span>
+          </>
+        ) : (
+          <span className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-sky-500 shadow"
+                style={{ left: `${leftPct}%`, top: yCurvaPx }} />
+        )
       )}
     </div>
   )
@@ -2703,6 +2759,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           posKm={progressKm}
           alto={grande ? ampliado.perfil : undefined}
           pasoM={c.regla?.pasoM}
+          marca={grande ? iniciales(state.username) : undefined}
         />
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
