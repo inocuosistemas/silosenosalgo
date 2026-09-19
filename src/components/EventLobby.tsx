@@ -184,9 +184,11 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
    */
   useEffect(() => {
     const ev = data?.event
-    // El recorrido se baja para el dorsal Y para señalar dónde se retiró
-    // alguien: los dos necesitan sus puntos de paso.
-    if ((dorsal === null && ajustando === null) || !ev) return
+    // El recorrido se baja para el dorsal, para señalar dónde se retiró
+    // alguien y para anotar pasos en modo manual: los tres necesitan sus
+    // puntos de paso. (El manual se olvidó aquí, y su panel salía sin
+    // controles donde poner las horas.)
+    if ((dorsal === null && ajustando === null && manualDe === null) || !ev) return
     let vivo = true
     if (carrera === null && ev.planShareId) {
       void (async () => {
@@ -229,7 +231,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
       })()
     }
     return () => { vivo = false }
-  }, [dorsal, ajustando, data, carrera, id])
+  }, [dorsal, ajustando, manualDe, data, carrera, id])
 
   const refresh = useCallback(async () => {
     try {

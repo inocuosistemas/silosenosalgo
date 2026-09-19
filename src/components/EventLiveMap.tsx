@@ -657,6 +657,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
        * de abandonos—: su silencio ya está explicado.
        */
       const pasosManual = r0.manualPasos && r0.manualPasos.length > 0 ? r0.manualPasos : null
+      // En manual aunque todavía no haya ningún paso anotado: su silencio ya
+      // está explicado desde que se le pasa, y hay que decirlo.
+      const modoManual = r0.manualPasos != null
       const manual = pasosManual ? pasosManual[pasosManual.length - 1] : null
       const puntoManual = manual && route ? coordsAtKm(route, manual[0]) : null
       const r = manual && puntoManual
@@ -829,11 +832,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
        * que mandarle a una familia.
        */
       const enPausa = r.pausaHasta != null && r.pausaHasta > now
-      const stale = !manual && (r.status === 'ended'
+      const stale = !modoManual && (r.status === 'ended'
         || (!enPausa && r.updatedAt !== null && now - r.updatedAt > Math.max(STALE_MS, plazos.callado)))
       // Callado desde hace MUCHO y todavía en marcha: el punto que se ve es su
       // última posición conocida, no donde está.
-      const lost = !manual && !enPausa && r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > plazos.perdido
+      const lost = !modoManual && !enPausa && r.status === 'active' && r.updatedAt !== null && now - r.updatedAt > plazos.perdido
       // PREPARADO: la baliza está armada y en silencio. La app deja la sesión
       // ABIERTA con la hora de salida por delante y no manda una sola posición
       // hasta que llega —así no se gasta batería ni se enseña dónde aparcó
@@ -933,7 +936,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         silencioMs: r.updatedAt !== null ? now - r.updatedAt : 0,
         totalKm: route?.totalKm ?? null,
         estabaParado: paradoMs > 0,
-        resuelto: acabo || r.status !== 'active' || manual !== null,
+        resuelto: acabo || r.status !== 'active' || modoManual,
         curva: curvaPlan,
         transcurridoMs: referencia !== null && r.updatedAt !== null ? r.updatedAt - referencia : null,
         velocidadKmH,
@@ -941,7 +944,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // Callado más de lo normal. No es todavía "sin cobertura" —eso son veinte
       // minutos— pero ya no es el pulso de la baliza, y decirlo es la mitad de
       // quitarle a quien mira la impresión de que esto no funciona.
-      const callado = !manual && !enPausa && r.status === 'active' && r.fix !== null && r.updatedAt !== null
+      const callado = !modoManual && !enPausa && r.status === 'active' && r.fix !== null && r.updatedAt !== null
         && now - r.updatedAt >= plazos.callado
       // RETIRADO: apagó la baliza sin cruzar la meta. Es lo que hace alguien
       // que se baja, y es una noticia distinta de un teléfono que se queda sin
@@ -963,7 +966,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       const ritmoMinKm = km != null && km > 1 && minutosEnCarrera != null && minutosEnCarrera > 0
         ? minutosEnCarrera / km
         : null
-      const abandono: Abandono | null = idle || armed || retirado || manual !== null
+      const abandono: Abandono | null = idle || armed || retirado || modoManual
         ? null
         : detectaAbandono({
             pasos,
@@ -1016,7 +1019,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // La cola se corta donde se acabó su carrera: lo de después es el viaje de
       // vuelta, y dibujarlo es contar una carrera que no hizo.
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
-      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs: manual ? 0 : paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa, manual }
+      return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs: modoManual ? 0 : paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa, manual, modoManual }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
   }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito])
 
@@ -2378,6 +2381,8 @@ type Row = {
   r: Runner
   /** Modo manual: su último paso anotado, `[km, epoch ms]`. Null = baliza. */
   manual: [number, number] | null
+  /** En modo manual, tenga o no pasos anotados. */
+  modoManual: boolean
   km: number | null
   margin: ReturnType<typeof marginToNextCutoff>
   stale: boolean
@@ -2524,7 +2529,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia, enPausa, manual }, i) => {
+        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia, enPausa, manual, modoManual }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -2652,6 +2657,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                       // Manual: lo que se sabe de él es su último paso anotado,
                       // y decirlo así explica por qué no se mueve.
                       : manual ? `✎ manual · pasó el km ${manual[0].toFixed(1)} a las ${hhmm(manual[1])}`
+                      : modoManual ? '✎ manual · sin pasos anotados todavía'
                       : enPausa ? `⏸ en pausa · vuelve en ${Math.max(1, Math.round((r.pausaHasta! - now) / 60_000))} min`
                       : lost ? `📡 ${silencioTexto(cadencia)} · hace ${agoLabel(now - r.updatedAt)}`
                       // Entre el pulso normal y la avería hay un rato largo que
@@ -2828,6 +2834,8 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
           ? <Dato valor={hhmm(congelado.at)} unidad="dejó la carrera" tono="text-rose-300" />
           : row.manual
           ? <Dato valor={hhmm(row.manual[1])} unidad={`paso manual · km ${row.manual[0].toFixed(1)}`} tono="text-sky-300" />
+          : row.modoManual
+          ? <Dato valor="✎" unidad="manual · sin pasos" tono="text-sky-300" />
           : <Dato
               valor={ago ?? '—'}
               unidad={row.lost ? silencioTexto(row.cadencia) : 'última señal'}

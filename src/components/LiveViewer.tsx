@@ -3337,7 +3337,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   <div>
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">Mapa fluido · beta</p>
+                        <p className="text-xs font-medium text-slate-200">Mapa fluido</p>
                         <p className="text-[10px] text-slate-400">Gira, inclina y hace zoom a la vez, con la traza pegada al terreno</p>
                       </div>
                       <button
@@ -3645,7 +3645,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><TrendingUp size={12} />Perfil del recorrido</p>
-                      <SegmentProfile profile={fullProfile} posKm={progressKm} />
+                      <SegmentProfile profile={fullProfile} posKm={progressKm} alto={64} />
                       <div className="flex justify-between text-[10px] text-slate-400">
                         <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
                       </div>

@@ -2,7 +2,7 @@
  * Con qué se dibuja el mapa de la baliza.
  *
  * - `clasico`: Leaflet, el de siempre. Mosaicos como imágenes y la traza en una
- *   capa SVG encima. Es el que va por defecto y el que no se toca.
+ *   capa SVG encima. Queda como opción.
  * - `fluido`: MapLibre, en la GPU. Mosaicos y traza se pintan en la MISMA
  *   superficie, fotograma a fotograma, así que al girar o hacer zoom la traza
  *   no puede separarse del terreno: son el mismo dibujo. Es como lo hacen
@@ -31,8 +31,15 @@ export function leeMotorMapa(): MotorMapa {
   try {
     const guardado = window.localStorage.getItem(CLAVE)
     if (esMotor(guardado)) return guardado
-  } catch { /* almacenamiento bloqueado (privado, vista previa): el de siempre */ }
-  return 'clasico'
+  } catch { /* almacenamiento bloqueado (privado, vista previa): el de por defecto */ }
+  // El fluido es el de por defecto en el navegador desde Matxicots 26, tras
+  // probarlo en carrera. Dentro de las apps (el visor incrustado) sigue el
+  // clásico hasta probar el fluido con sus mosaicos guardados para ir sin
+  // cobertura: ahí un fallo deja sin mapa a quien corre.
+  try {
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') return 'clasico'
+  } catch { /* sin dirección: navegador */ }
+  return 'fluido'
 }
 
 export function guardaMotorMapa(motor: MotorMapa): void {
