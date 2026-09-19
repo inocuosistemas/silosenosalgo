@@ -3,6 +3,8 @@ import type { VistaMapa } from '../lib/vistaEvento'
 import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
+import type { CorredorFluido } from './MapaEventoFluido'
+import { leeMotorMapa, guardaMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -131,6 +133,8 @@ function tramosDeCola(
 }
 
 /** La vista 3D solo se baja si se abre: MapLibre pesa más que todo el mapa. */
+/** El mapa fluido (MapLibre), solo si se usa: es la parte pesada. */
+const MapaEventoFluido = lazy(() => import('./MapaEventoFluido'))
 const EventMapa3D = lazy(() => import('./EventMapa3D'))
 
 const POLL_MS = 10_000
@@ -342,6 +346,16 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   })
   /** La vista 3D, encima del mapa; el mapa sigue debajo recibiendo posiciones. */
   const [en3D, setEn3D] = useState(false)
+  /**
+   * Con qué se dibuja el mapa: el fluido (MapLibre, en la GPU) por defecto en
+   * el navegador, el clásico (Leaflet) como opción. La misma preferencia que
+   * la baliza —es de quien mira— y el mismo respaldo: si el dispositivo no
+   * puede con el fluido, se queda el clásico.
+   */
+  const [motor, setMotor] = useState<MotorMapa>(leeMotorMapa)
+  const [falloFluido, setFalloFluido] = useState(false)
+  const usaFluido = motor === 'fluido' && !falloFluido
+  const cambiaMotor = (m: MotorMapa) => { setMotor(m); guardaMotorMapa(m); setFalloFluido(false) }
   const cambiaRelieve = (si: boolean) => {
     setRelieve(si)
     try { localStorage.setItem('mapaRelieve', si ? 'si' : 'no') } catch { /* modo privado */ }
@@ -1487,6 +1501,61 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       )}
       {view === 'mapa' && !mapaListo ? (
         <CargandoMarca texto={runners === null ? 'Cargando la carrera…' : 'Cargando el recorrido…'} />
+      ) : view === 'mapa' && usaFluido ? (
+        // El mapa fluido: lo mismo que el clásico de abajo, dibujado en la
+        // GPU. Toda la lógica —dónde va cada uno, qué se proyecta— es la de
+        // aquí; el componente solo pinta lo que se le da.
+        <Suspense fallback={<CargandoMarca texto="Cargando el mapa…" />}>
+          <MapaEventoFluido
+            relieve={relieve}
+            ruta={route?.pts ?? null}
+            queda={trazado?.queda ?? null}
+            hecho={trazado && trazado.hecho.length > 1 ? trazado.hecho : null}
+            pois={pois.map((poi) => ({
+              lat: poi.lat, lon: poi.lon, corte: !!poi.cutoffAt,
+              texto: `${poi.name}${poi.km != null ? ` · km ${poi.km.toFixed(1)}` : ''}${poi.cutoffAt ? ` · cierra ${hhmm(poi.cutoffAt)}` : ''}`,
+            }))}
+            nombresPois={showPoiNames}
+            corredores={withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma, modoManual }): CorredorFluido => {
+              const color = r.color ? eventColorHex(r.color) : '#94a3b8'
+              const isSel = key === selected
+              const recortada = r.tail.length >= EVENT_TAIL_POINTS
+              return {
+                clave: key,
+                pos: dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados),
+                icono: runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual),
+                color, seleccionado: isSel, resaltado: key === hoverKey, apagado: stale,
+                funde: colaDesvanecida(recortada ? tail : []).map((t, n) => ({ pts: t.pts, tinta: t.tinta, puntos: n === 0 })),
+                cola: tramosDeCola(recortada ? tail.slice(inicioNitido(tail.length)) : tail, route)
+                  .map((t) => ({ pts: t.pts, hueco: !!t.hueco })),
+                fantasma: fantasma && route
+                  ? {
+                      banda: tramoEntreKm(route, fantasma.desdeKm, fantasma.hastaKm),
+                      pos: coordsAtKm(route, fantasma.hastaKm),
+                      icono: fantasmaIcon(color),
+                      etiqueta: isSel || key === hoverKey ? textoFantasma(fantasma, modoManual) : null,
+                    }
+                  : null,
+              }
+            })}
+            marcaPerfil={hoverCoords
+              ? { pos: hoverCoords, texto: `km ${hoverKm!.toFixed(1)}${profile ? ` · ${Math.round(profile.eleAtKm(hoverKm!))} m` : ''}` }
+              : null}
+            fotos={fotos}
+            onAbrirFoto={setFotoAbierta}
+            previaFoto={previaFotoKm !== null && route ? coordsAtKm(route, previaFotoKm) : null}
+            seguir={followed?.r.fix ? [followed.r.fix.lat, followed.r.fix.lon] : null}
+            onSoltar={() => setFollowing(null)}
+            posiciones={posiciones}
+            esperaRuta={hayRuta && !route}
+            arriba={nav ? altoCabecera + 8 : undefined}
+            onElegir={(k) => setSelected((sel) => (sel === k ? null : k))}
+            onResaltar={setHoverKey}
+            onTocarMapa={() => setHoverKm(null)}
+            onZoom={setZoom}
+            onFallo={() => setFalloFluido(true)}
+          />
+        </Suspense>
       ) : view === 'mapa' ? (
         <MapContainer {...vistaInicial} className="h-full w-full" zoomControl={false} attributionControl={false}>
           <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -1652,13 +1721,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                             que ahí no hay nadie confirmado. */}
                         {(isSel || key === hoverKey) && (
                           <Tooltip direction="bottom" offset={[0, 12]} permanent className="poi-tip">
-                            {modoManual
-                              ? (fantasma.enMeta
-                                ? `modo manual · debería estar llegando · último paso hace ${agoLabel(fantasma.silencioMs)}`
-                                : `modo manual · por su ritmo debería ir por aquí · último paso hace ${agoLabel(fantasma.silencioMs)}`)
-                              : fantasma.enMeta
-                              ? `debería estar llegando · sin señal hace ${agoLabel(fantasma.silencioMs)}`
-                              : `debería ir por aquí · sin señal hace ${agoLabel(fantasma.silencioMs)}`}
+                            {textoFantasma(fantasma, modoManual)}
                           </Tooltip>
                         )}
                       </Marker>
@@ -1952,6 +2015,22 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       {relieve
                         ? 'El mapa plano, sin sombras: gasta menos datos.'
                         : 'Sombras en las montañas, para ver dónde está la cuesta.'}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => { cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido'); setOpcionesAbiertas(false) }}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <span>🗺️</span>
+                  <span>
+                    {usaFluido ? 'Usar el mapa clásico' : 'Usar el mapa fluido'}
+                    <span className="mt-0.5 block text-[10px] text-slate-500">
+                      {usaFluido
+                        ? 'El de antes: sin girar ni inclinar.'
+                        : falloFluido
+                        ? 'Este dispositivo no pudo con él; se puede volver a probar.'
+                        : 'Gira, inclina y hace zoom a la vez, con todo pegado al terreno.'}
                     </span>
                   </span>
                 </button>
@@ -3588,4 +3667,15 @@ function colaDesvanecida(tail: { lat: number; lon: number }[]): { pts: [number, 
     if (pts.length >= 2) out.push({ pts, tinta: 0.12 + (0.8 * k) / (FUNDIDO_TRAMOS - 1) })
   }
   return out
+}
+
+/** Lo que dice la proyección de alguien, en los dos mapas. */
+function textoFantasma(f: { enMeta: boolean; silencioMs: number }, manual: boolean): string {
+  const hace = agoLabel(f.silencioMs)
+  if (manual) {
+    return f.enMeta
+      ? `modo manual · debería estar llegando · último paso hace ${hace}`
+      : `modo manual · por su ritmo debería ir por aquí · último paso hace ${hace}`
+  }
+  return f.enMeta ? `debería estar llegando · sin señal hace ${hace}` : `debería ir por aquí · sin señal hace ${hace}`
 }

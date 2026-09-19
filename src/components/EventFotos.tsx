@@ -73,7 +73,7 @@ export const iconoFotoPrevia = L.divIcon({
 const CAMARA_SVG = (lado: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${lado}" height="${lado}" viewBox="0 0 24 24" fill="none" stroke="#f8fafc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`
 
 /** Por encima de tantas fotos en el mapa, marcos sin miniatura: no se descargan cien fotos para pintarlo. */
-const MINIATURAS_HASTA = 40
+export const MINIATURAS_HASTA = 40
 
 const iconosDeFoto = new Map<string, L.DivIcon>()
 
@@ -88,7 +88,7 @@ const iconosDeFoto = new Map<string, L.DivIcon>()
  * sea de noche y salga negra. Se guardan hechos: rehacer el icono en cada
  * refresco haría parpadear la miniatura.
  */
-function iconoDeFoto(url: string | null, cuantas: number): L.DivIcon {
+export function iconoDeFoto(url: string | null, cuantas: number): L.DivIcon {
   const clave = `${url ?? ''}|${cuantas}`
   const hecho = iconosDeFoto.get(clave)
   if (hecho) return hecho
@@ -120,7 +120,7 @@ export function htmlDeFoto(url: string | null, cuantas: number): string {
 }
 
 /** A cuántos píxeles dos fotos ya se pisan: casi el ancho de la miniatura. */
-const RADIO_GRUPO_PX = 34
+export const RADIO_GRUPO_PX = 34
 
 /**
  * Las fotos en el mapa, solo las que tienen sitio.

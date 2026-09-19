@@ -99,7 +99,7 @@ interface Props {
 const VACIO: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 /** MapLibre quiere [lon, lat]; el visor trabaja en [lat, lon], como Leaflet. */
-const lonLat = ([lat, lon]: [number, number]): [number, number] => [lon, lat]
+export const lonLat = ([lat, lon]: [number, number]): [number, number] => [lon, lat]
 
 function lineas(tramos: Tramo[]): GeoJSON.FeatureCollection {
   return {
@@ -136,7 +136,7 @@ function puntos(lista: [number, number][], props: Record<string, unknown>[] = []
  * las apps (`appweb://`) no tienen "origen" según el estándar. El `{s}` de
  * OpenStreetMap, que MapLibre no entiende, se reparte en sus tres servidores.
  */
-function urlsDeMosaicos(plantilla: string): string[] {
+export function urlsDeMosaicos(plantilla: string): string[] {
   // Relativa = mosaicos de la app: por el esquema propio (ver `MOSAICO_APP`).
   const absoluta = plantilla.startsWith('/')
     ? `${MOSAICO_APP}://${plantilla.slice(1)}`
@@ -161,7 +161,7 @@ function par(p: L.PointExpression | undefined): [number, number] | null {
  * mismo tamaño y la misma ancla. Así los iconos del visor (notas, pausas, el
  * punto que late) se definen UNA vez y los dos mapas los pintan idénticos.
  */
-function marcadorDeIcono(icon: L.DivIcon, capa: number, tocable: boolean): Marker {
+export function marcadorDeIcono(icon: L.DivIcon, capa: number, tocable: boolean): Marker {
   const o = icon.options
   const el = document.createElement('div')
   if (o.className) el.className = o.className
