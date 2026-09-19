@@ -2853,7 +2853,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {/* RainViewer solo sirve hasta el zoom 7: más cerca se estira esa
             imagen, igual que en el planificador. */}
         {radarFrames.length > 0 && <RainRadarLayer frames={radarFrames} currentIndex={radarIdx} />}
-        {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#818cf8', weight: 3, opacity: 0.6, dashArray: '6 6' }} />}
+        {/* El recorrido por hacer: un halo blanco tenue debajo y el trazo
+            discontinuo encima, más oscuro y más opaco. En lila claro al 60 %
+            se deshacía sobre el verde y el beige del mapa y no se veía por
+            dónde seguía la carrera. Sigue discontinuo: es el plan, no la
+            traza. */}
+        {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#ffffff', weight: 6, opacity: 0.55 }} interactive={false} />}
+        {planLatLng.length > 1 && <Polyline positions={planLatLng} pathOptions={{ color: '#6366f1', weight: 3, opacity: 0.85, dashArray: '6 6' }} />}
         {/* Mapa de calor: se pinta sobre la geometria de la ruta, no sobre la
             traza. En un circuito las pasadas se superponen y pintando la traza
             solo se veria la ultima vuelta; sobre la ruta cabe el acumulado. */}

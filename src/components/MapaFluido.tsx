@@ -259,11 +259,12 @@ export default function MapaFluido(p: Props) {
         layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
         ...extra,
       })
-      for (const id of ['plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'puntosRuta', 'hueco', 'huecoPunto']) {
+      for (const id of ['planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'puntosRuta', 'hueco', 'huecoPunto']) {
         map.addSource(id, { type: 'geojson', data: VACIO })
       }
       // Mismo orden, grosores y colores que el clásico.
-      map.addLayer(linea('plan', { paint: { 'line-color': '#818cf8', 'line-width': 3, 'line-opacity': 0.6, 'line-dasharray': [2, 2] } }))
+      map.addLayer(linea('planHalo', { paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.55 } }))
+      map.addLayer(linea('plan', { paint: { 'line-color': '#6366f1', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] } }))
       map.addLayer(linea('planBorde', { paint: { 'line-color': '#020617', 'line-width': 10, 'line-opacity': 0.55 } }))
       map.addLayer(linea('calor', { paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.9 } }))
       map.addLayer(linea('trazaBorde', { paint: { 'line-color': '#020617', 'line-width': 8, 'line-opacity': 0.55 } }))
@@ -354,7 +355,11 @@ export default function MapaFluido(p: Props) {
   // ── Las líneas ──────────────────────────────────────────────────────────
   const fuente = (id: string) => mapaRef.current?.getSource(id) as GeoJSONSource | undefined
 
-  useEffect(() => { if (listo) fuente('plan')?.setData(linea(p.plan)) }, [listo, p.plan])
+  useEffect(() => {
+    if (!listo) return
+    fuente('plan')?.setData(linea(p.plan))
+    fuente('planHalo')?.setData(linea(p.plan))
+  }, [listo, p.plan])
 
   // El calor llega recalculado en cada pintada del visor; se compara por una
   // firma barata para no rehacer la geometría si no ha cambiado nada.
