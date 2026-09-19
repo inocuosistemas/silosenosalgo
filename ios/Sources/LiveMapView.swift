@@ -36,6 +36,12 @@ struct LiveMapView: View {
                 .navigationTitle(esLaDeAhora ? "" : title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
+                // El cristal de los botones, en su variante OSCURA y con el
+                // texto en blanco: el claro, con el azul encima, se deshacía
+                // sobre un mapa claro. Sigue siendo el botón del sistema; solo
+                // cambia su esquema. La hora y la batería, en claro sobre el
+                // difuminado oscuro de arriba.
+                .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button { dismiss() } label: {
@@ -45,7 +51,7 @@ struct LiveMapView: View {
                                 Text("Volver")
                             }
                         }
-                        .tint(Theme.sky500)
+                        .tint(.white)
                         .accessibilityLabel("Volver")
                     }
                     if offlineToken != nil {
@@ -54,20 +60,20 @@ struct LiveMapView: View {
                                 Button { showNotes = true } label: {
                                     Image(systemName: "list.bullet.rectangle")
                                 }
-                                .tint(Theme.sky500)
+                                .tint(.white)
                                 .accessibilityLabel("Ver notas, \(store.noteCount)")
 
                                 Button { showAddNote = true } label: {
                                     Image(systemName: "square.and.pencil")
                                 }
-                                .tint(Theme.sky500)
+                                .tint(.white)
                                 .disabled(store.isStandby)
                                 .accessibilityLabel("Añadir nota aquí")
                             }
                             Button { showDownload = true } label: {
                                 Image(systemName: "arrow.down.circle")
                             }
-                            .tint(Theme.sky500)
+                            .tint(.white)
                             .accessibilityLabel("Descargar mapa offline")
                         }
                     }

@@ -8,6 +8,7 @@ import { iconoDeFoto, iconoFotoPrevia, MINIATURAS_HASTA, RADIO_GRUPO_PX } from '
 import { agrupaFotos } from '../lib/agrupaFotos'
 import { extremosDelRecorrido, flechasDelSentido, marcasDeExtremos, type LadoRotulo } from '../lib/sentidoRecorrido'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
+import { LADO_ICONO_PUNTO } from '../lib/iconosPunto'
 import type { EventFoto } from '../../shared/wireTypes'
 
 /**
@@ -45,7 +46,8 @@ interface Props {
   ruta: [number, number][] | null
   queda: [number, number][] | null
   hecho: [number, number][] | null
-  pois: { lat: number; lon: number; texto: string; corte: boolean }[]
+  /** `icono`: el HTML del avituallamiento; sin él, el círculo de siempre. */
+  pois: { lat: number; lon: number; texto: string; corte: boolean; icono?: string | null }[]
   nombresPois: boolean
   corredores: CorredorFluido[]
   marcaPerfil: { pos: [number, number]; texto: string } | null
@@ -117,6 +119,8 @@ export default function MapaEventoFluido(p: Props) {
   const avisos = useRef(p)
   avisos.current = p
 
+  /** El cartel abierto de un punto de paso: uno solo a la vez. */
+  const cartelPoiRef = useRef<Popup | null>(null)
   /** Nadie ha tocado el encuadre: mientras siga así, es nuestro. */
   const libre = useRef(true)
 
@@ -167,7 +171,6 @@ export default function MapaEventoFluido(p: Props) {
     map.on('moveend', () => setVista((v) => v + 1))
     map.on('zoomend', () => avisos.current.onZoom(map.getZoom()))
 
-    let cartelPoi: Popup | null = null
     map.on('load', () => {
       const linea = (id: string, fuente: string, extra: Record<string, unknown>) => ({
         id, type: 'line' as const, source: fuente,
@@ -225,8 +228,8 @@ export default function MapaEventoFluido(p: Props) {
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
         // Uno solo a la vez: tocar otro punto (o el mapa) cierra el anterior.
-        cartelPoi?.remove()
-        cartelPoi = new Popup({ offset: 8, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
+        cartelPoiRef.current?.remove()
+        cartelPoiRef.current = new Popup({ offset: 8, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
           .setLngLat(f.geometry.coordinates as [number, number])
           .setText(String(f.properties?.texto ?? ''))
           .addTo(map)
@@ -271,7 +274,7 @@ export default function MapaEventoFluido(p: Props) {
     pon('ruta', lineas(p.ruta ? [{ pts: p.ruta, props: {} }] : []))
     pon('queda', lineas(p.queda ? [{ pts: p.queda, props: {} }] : []))
     pon('hecho', lineas(p.hecho ? [{ pts: p.hecho, props: {} }] : []))
-    pon('pois', puntos(p.pois.map((q) => ({ p: [q.lat, q.lon], props: { texto: q.texto, corte: q.corte } }))))
+    pon('pois', puntos(p.pois.filter((q) => !q.icono).map((q) => ({ p: [q.lat, q.lon], props: { texto: q.texto, corte: q.corte } }))))
     const cs = p.corredores
     pon('banda', lineas(cs.flatMap((c) => (c.fantasma ? [{ pts: c.fantasma.banda, props: { color: c.color, w: c.seleccionado ? 10 : 9 } }] : []))))
     pon('cola', lineas(cs.flatMap((c) => c.cola.filter((t) => !t.hueco).map((t) => ({
@@ -336,6 +339,25 @@ export default function MapaEventoFluido(p: Props) {
       clave: c.clave, pos: c.fantasma.pos, firma: c.fantasma.etiqueta,
       crear: () => new Marker({ element: etiqueta(c.fantasma!.etiqueta!, Z.etiqueta), anchor: 'top', offset: [0, 14] }),
     }] : [])))
+    // Los avituallamientos, con su icono (ver `lib/iconosPunto`). Tocarlo
+    // enseña su cartel, como el círculo de los demás.
+    sincroniza('poiIcono', p.pois.filter((q) => q.icono).map((q) => ({
+      clave: `${q.lat},${q.lon}`, pos: [q.lat, q.lon] as [number, number], firma: q.icono! + q.texto,
+      crear: () => {
+        const el = document.createElement('div')
+        el.innerHTML = q.icono!
+        el.style.cssText = `width:${LADO_ICONO_PUNTO}px;height:${LADO_ICONO_PUNTO}px;cursor:pointer;z-index:${Z.poi}`
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          const map = mapaRef.current
+          if (!map) return
+          cartelPoiRef.current?.remove()
+          cartelPoiRef.current = new Popup({ offset: 12, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
+            .setLngLat([q.lon, q.lat]).setText(q.texto).addTo(map)
+        })
+        return new Marker({ element: el, anchor: 'center' })
+      },
+    })))
     sincroniza('poiTexto', p.nombresPois ? p.pois.map((q) => ({
       clave: `${q.lat},${q.lon}`, pos: [q.lat, q.lon] as [number, number], firma: q.texto,
       crear: () => new Marker({ element: etiqueta(q.texto, Z.poi), anchor: 'bottom', offset: [0, -7] }),

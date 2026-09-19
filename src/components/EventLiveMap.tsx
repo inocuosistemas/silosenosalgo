@@ -6,6 +6,8 @@ import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
+import { TIPO_PUNTO, esAvituallamiento, paradaDe, tipoDe, type TipoPunto } from '../lib/avituallamientos'
+import { htmlIconoPunto, LADO_ICONO_PUNTO } from '../lib/iconosPunto'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -553,10 +555,17 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   const pois = useMemo(() => {
     if (!plan) return []
     const cierres = new Map(cutoffs.map((c) => [c.name, c.at]))
-    return plan.track.namedWaypoints.map((w) => ({
-      lat: w.lat, lon: w.lon, name: w.name, km: w.distanceKm,
-      cutoffAt: cierres.get(w.name) ?? null,
-    }))
+    return plan.track.namedWaypoints.map((w) => {
+      // Qué es (avituallamiento, bolsa…) y cuánto se para: lo definido en la
+      // ruta, y si no, lo sugerido por su texto. Ver `lib/avituallamientos`.
+      const tipo = tipoDe(w, plan.track.totalDistanceKm)
+      return {
+        lat: w.lat, lon: w.lon, name: w.name, km: w.distanceKm,
+        cutoffAt: cierres.get(w.name) ?? null,
+        tipo,
+        paradaMin: paradaDe(w, plan.track.totalDistanceKm),
+      }
+    })
   }, [plan, cutoffs])
 
   /**
@@ -1555,7 +1564,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             hecho={trazado && trazado.hecho.length > 1 ? trazado.hecho : null}
             pois={pois.map((poi) => ({
               lat: poi.lat, lon: poi.lon, corte: !!poi.cutoffAt,
-              texto: `${poi.name}${poi.km != null ? ` · km ${poi.km.toFixed(1)}` : ''}${poi.cutoffAt ? ` · cierra ${hhmm(poi.cutoffAt)}` : ''}`,
+              texto: textoPoi(poi),
+              icono: htmlIconoPunto(poi.tipo, !!poi.cutoffAt),
             }))}
             nombresPois={showPoiNames}
             corredores={withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma, modoManual }): CorredorFluido => {
@@ -1639,7 +1649,17 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               que se lee la carrera, no lo que se mira. Pequeños y con el nombre
               solo al acercarse; con veinte puntos, veinte etiquetas fijas tapan
               justo lo que se ha venido a ver. */}
-          {pois.map((poi) => (
+          {pois.map((poi) => htmlIconoPunto(poi.tipo, !!poi.cutoffAt) ? (
+            <Marker
+              key={`${poi.lat},${poi.lon}`}
+              position={[poi.lat, poi.lon]}
+              icon={iconoPunto(poi.tipo, !!poi.cutoffAt)}
+            >
+              <Tooltip direction="top" offset={[0, -10]} permanent={showPoiNames} className="poi-tip">
+                {textoPoi(poi)}
+              </Tooltip>
+            </Marker>
+          ) : (
             <CircleMarker
               key={`${poi.lat},${poi.lon}`}
               center={[poi.lat, poi.lon]}
@@ -3721,4 +3741,23 @@ function textoFantasma(f: { enMeta: boolean; silencioMs: number }, manual: boole
       : `modo manual · por su ritmo debería ir por aquí · último paso hace ${hace}`
   }
   return f.enMeta ? `debería estar llegando · sin señal hace ${hace}` : `debería ir por aquí · sin señal hace ${hace}`
+}
+
+/** El cartel de un punto: nombre, km, qué es y cuánto se para, y su cierre. */
+function textoPoi(poi: { name: string; km: number | null; cutoffAt: number | null; tipo: TipoPunto; paradaMin: number }): string {
+  return `${poi.name}${poi.km != null ? ` · km ${poi.km.toFixed(1)}` : ''}`
+    + (esAvituallamiento(poi.tipo) ? ` · ${TIPO_PUNTO[poi.tipo].corta}${poi.paradaMin > 0 ? ` ~${poi.paradaMin} min` : ''}` : '')
+    + (poi.cutoffAt ? ` · cierra ${hhmm(poi.cutoffAt)}` : '')
+}
+
+const iconosPunto = new Map<string, L.DivIcon>()
+/** El icono de un avituallamiento para el mapa clásico (ver `lib/iconosPunto`). */
+function iconoPunto(tipo: TipoPunto, conCorte: boolean): L.DivIcon {
+  const clave = `${tipo}|${conCorte}`
+  const hecho = iconosPunto.get(clave)
+  if (hecho) return hecho
+  const lado = LADO_ICONO_PUNTO
+  const icono = L.divIcon({ className: '', html: htmlIconoPunto(tipo, conCorte) ?? '', iconSize: [lado, lado], iconAnchor: [lado / 2, lado / 2] })
+  iconosPunto.set(clave, icono)
+  return icono
 }
