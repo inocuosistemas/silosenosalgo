@@ -1250,6 +1250,17 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   }
 
   const withFix = useMemo(() => rows.filter((x) => x.r.fix), [rows])
+  /**
+   * Dónde se pinta cada uno, con los que caen en el mismo sitio SEPARADOS en
+   * abanico. Dos que acaban juntos —o dos anclados al mismo punto del
+   * recorrido— se tapaban: solo se veía el de arriba, y el de abajo parecía no
+   * haber llegado. El abanico se mide en píxeles de pantalla, así que al
+   * acercarse se abre y de lejos no ensucia el mapa.
+   */
+  const pintados = useMemo(() => {
+    const sitios = withFix.map((x) => ({ key: x.key, pos: dondeSePinta(x, route, anclados) }))
+    return separaJuntos(sitios, zoom)
+  }, [withFix, route, anclados, zoom])
   /** Lo que enseña la vista 3D: cada uno donde lo pinta el mapa, con lo justo para reconocerlo. */
   const corredores3D = useMemo<Corredor3D[]>(() => withFix.map((x) => ({
     key: x.key,
@@ -1651,8 +1662,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               const recortada = r.tail.length >= EVENT_TAIL_POINTS
               return {
                 clave: key,
-                pos: dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados),
-                icono: runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual),
+                pos: pintados.get(key) ?? dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados),
+                // La chapa MANUAL, mientras corre: dice por qué no se mueve su
+                // punto. Llegado a meta ya no explica nada y sobra.
+                icono: runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual && !acabo),
                 color, seleccionado: isSel, resaltado: key === hoverKey, apagado: stale,
                 funde: colaDesvanecida(recortada ? tail : []).map((t, n) => ({ pts: t.pts, tinta: t.tinta, puntos: n === 0 })),
                 cola: tramosDeCola(recortada ? tail.slice(inicioNitido(tail.length)) : tail, route)
@@ -1782,7 +1795,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             // meta: lo que se enseña de él ya no es dónde está, es hasta dónde
             // llegó — y su baliza puede estar en la autovía, a 173 km de aquí.
             // La regla vive en `dondeSePinta`: la vista 3D tiene que decir lo mismo.
-            const punto = dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados)
+            const punto = pintados.get(key) ?? dondeSePinta({ r, km, congelado, desviadoM, acabo }, route, anclados)
             const color = r.color ? eventColorHex(r.color) : '#94a3b8'
             const isSel = key === selected
             return (
@@ -1879,7 +1892,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                 )}
                 <Marker
                   position={punto}
-                  icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual)}
+                  icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual && !acabo)}
                   pane="corredores"
                   eventHandlers={{
                     click: () => setSelected(isSel ? null : key),
@@ -4099,3 +4112,46 @@ function MoverPunto({ moviendo, onCancelar, onGuardar }: {
   )
 }
 
+/**
+ * Los que caen en el mismo sitio, repartidos en un pequeño abanico alrededor
+ * de él. `zoom` manda: el radio son píxeles de pantalla, no metros, así que la
+ * separación se ve igual de cerca que de lejos y nadie se mueve del sitio más
+ * de lo que mide su propio icono.
+ */
+function separaJuntos(
+  sitios: { key: string; pos: [number, number] }[], zoom: number,
+): Map<string, [number, number]> {
+  const salida = new Map<string, [number, number]>()
+  if (sitios.length === 0) return salida
+  const lat0 = sitios[0].pos[0]
+  // Metros por píxel de un mapa de mosaicos a este zoom y esta latitud.
+  const mpp = (156543.03392 * Math.cos((lat0 * Math.PI) / 180)) / Math.pow(2, zoom)
+  const JUNTOS_PX = 20
+  const RADIO_PX = 15
+  const juntosM = JUNTOS_PX * mpp
+  const grupos: { key: string; pos: [number, number] }[][] = []
+  for (const s of sitios) {
+    const g = grupos.find((gr) => metrosEntre(gr[0].pos, s.pos) <= juntosM)
+    if (g) g.push(s)
+    else grupos.push([s])
+  }
+  for (const g of grupos) {
+    if (g.length === 1) { salida.set(g[0].key, g[0].pos); continue }
+    const radioM = RADIO_PX * mpp
+    g.forEach((s, i) => {
+      // Desde arriba y en el sentido del reloj: con dos, uno a cada lado.
+      const ang = (i / g.length) * 2 * Math.PI - Math.PI / 2
+      const dLat = (radioM * Math.sin(ang)) / 111_320
+      const dLon = (radioM * Math.cos(ang)) / (111_320 * Math.cos((g[0].pos[0] * Math.PI) / 180))
+      salida.set(s.key, [g[0].pos[0] + dLat, g[0].pos[1] + dLon])
+    })
+  }
+  return salida
+}
+
+/** Metros entre dos puntos, a ojo de pájaro y sin pretensiones. */
+function metrosEntre(a: [number, number], b: [number, number]): number {
+  const dLat = (b[0] - a[0]) * 111_320
+  const dLon = (b[1] - a[1]) * 111_320 * Math.cos((a[0] * Math.PI) / 180)
+  return Math.hypot(dLat, dLon)
+}
