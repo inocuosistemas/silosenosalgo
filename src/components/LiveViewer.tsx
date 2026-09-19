@@ -2159,7 +2159,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         kmUltimo: progressKm,
         silencioMs: Date.now() - fix.updatedAt,
         totalKm,
-        estabaParado: stoppedMs >= STOP_MIN_MS,
+        // "Parado" solo si la tarjeta lo dice (PARADO en vez de ritmo), como
+        // el mapa del evento: con la regla de los puntos amontonados, unas
+        // lecturas juntas antes de perder la señal apagaban la proyección
+        // aquí mientras el mapa del evento sí la enseñaba.
+        estabaParado: isStopped,
         resuelto: false,
         curva: plannedCurve,
         transcurridoMs: fix.updatedAt - sessionStart.getTime(),
