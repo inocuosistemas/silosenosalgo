@@ -1439,82 +1439,13 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           carrera, y luego se mira cero veces: plegado por defecto, con el
           estado en el encabezado para no tener que abrir para comprobar. Quien
           organiza también corre, y ese día lo que necesita es lo de arriba. */}
+      {/* Agrupadas por de qué van: con diez secciones seguidas no se
+          encontraba nada. */}
+      {event.canOrganize && <GrupoOrga titulo="La carrera" detalle="nombre, foto, salida, actividad" />}
       {/* El NOMBRE, el primero de la organización: es lo que ve todo el mundo en
           la lista y en el enlace que circula, y hasta ahora solo se escribía al
           crear la carrera. Corregir una errata obligaba a rehacer el evento
           entero, con código de unión nuevo y todos apuntándose otra vez. */}
-      {/* El ENLACE DE SEGUIMIENTO, para quien no corre: otra llave distinta de
-          la de unirse —con esta se mira, no se entra— que se puede regenerar o
-          quitar sin tocar el evento. Compartirlo lo hace cualquiera desde el
-          botón de arriba; crearlo, cambiarlo o apagarlo enseña o esconde la
-          carrera entera, y es de quien organiza: quien la creó y los
-          organizadores que nombró. */}
-      {event.canOrganize && (
-        <Plegable
-          orga
-          title="Enlace de seguimiento"
-          icon={<Share2 size={13} />}
-          summary={event.publicToken ? 'activo' : 'sin crear'}
-        >
-          {event.publicToken ? (
-            <>
-              <code className="block break-all rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300">
-                {eventPublicLink(event.publicToken)}
-              </code>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button onClick={() => void copyPublic()} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/50">
-                  {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
-                </button>
-                <button
-                  onClick={() => {
-                    if (window.confirm('Se crea un enlace nuevo y el actual deja de funcionar para quien lo tenga. ¿Seguro?')) void togglePublic(true)
-                  }}
-                  disabled={busy}
-                  className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Generar otro
-                </button>
-                <button onClick={() => void togglePublic(false)} disabled={busy} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
-                  Dejar de compartir
-                </button>
-              </div>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
-              </p>
-            </>
-          ) : (
-            <>
-              <button onClick={() => void togglePublic(true)} disabled={busy} className="rounded border border-sky-800 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
-                Crear enlace de seguimiento
-              </button>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Para que familia y amigos sigan la carrera sin cuenta. Con él, cada participante lo comparte desde el botón de arriba. Se puede quitar cuando quieras.
-              </p>
-            </>
-          )}
-        </Plegable>
-      )}
-
-      {/* Los PUNTOS DEL RECORRIDO: qué es cada uno (avituallamiento, bolsa de
-          vida…) y cuánto se para, sin volver a publicar la ruta. Lo cambiado
-          aquí manda sobre la ruta y lo usan el mapa y las previsiones. */}
-      {event.canOrganize === true && event.planShareId && (
-        <Plegable
-          orga
-          title="Puntos del recorrido"
-          icon={<MapPin size={13} />}
-          summary={resumenPuntos(event.puntosAjustes ?? null)}
-        >
-          <EditorPuntos
-            onNecesitaRuta={pideRutaPuntos}
-            ruta={baseRuta?.track ?? null}
-            ajustes={event.puntosAjustes ?? null}
-            busy={busy}
-            onCambio={(c) => void cambiaElPunto(c)}
-          />
-        </Plegable>
-      )}
-
       {event.canOrganize && (
         <Plegable orga title="Nombre de la carrera" summary={event.name}>
           <NombreEditor
@@ -1528,39 +1459,21 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
-      {/* El recorrido, para quien organiza. Estaba SOLO dentro de "Mi
-          planificación", que es de quien corre: un organizador que no corre se
-          quedaba sin manera de abrir la base para retocar un POI, que es la
-          edición más normal de todas —la organización mueve el avituallamiento
-          tres días antes—. El editor sigue siendo el planificador de siempre;
-          lo que faltaba era la puerta. */}
-      {event.canOrganize && (
-        <Plegable
-          orga
-          title="Recorrido del evento"
-          summary={event.planName ?? (event.planShareId ? 'puesto' : 'sin recorrido')}
-        >
-          {event.planShareId ? (
-            <>
-              <a
-                href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
-                  event.startsAt ? `&salida=${event.startsAt}` : ''
-                }`}
-                className="block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
-              >
-                Abrir el recorrido para ajustarlo →
-              </a>
-              <p className="mt-1.5 text-[11px] text-slate-500">
-                Se abre en el planificador con el recorrido, los controles y los cierres. Mueve o añade puntos y
-                pulsa «Actualizar el recorrido del evento» en la barra de arriba: se publica para todos.
-              </p>
-            </>
-          ) : (
-            <p className="text-[11px] text-slate-500">
-              Este evento aún no tiene recorrido. Abre una ruta tuya y usa «Convertir en evento» para
-              ponérselo.
-            </p>
-          )}
+      {event.canOrganize && !(event.hasPhoto && !event.isOwner) && (
+        <Plegable orga title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
+          <label className="inline-block px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50 cursor-pointer">
+            {event.hasPhoto ? 'Cambiar foto' : 'Subir foto'}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setCropping(f) }}
+            />
+          </label>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Podrás encuadrarla: lo que dejes en el marco es lo que verán todos, aquí y en la lista.
+          </p>
         </Plegable>
       )}
 
@@ -1626,9 +1539,158 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
-      {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
-          menú: es la acción que cierra la historia —congela los resultados y
-          deja de admitir gente— y hasta ahora sencillamente no existía. */}
+      {event.canOrganize && <GrupoOrga titulo="Recorrido" detalle="el trazado y sus puntos" />}
+      {/* El recorrido, para quien organiza. Estaba SOLO dentro de "Mi
+          planificación", que es de quien corre: un organizador que no corre se
+          quedaba sin manera de abrir la base para retocar un POI, que es la
+          edición más normal de todas —la organización mueve el avituallamiento
+          tres días antes—. El editor sigue siendo el planificador de siempre;
+          lo que faltaba era la puerta. */}
+      {event.canOrganize && (
+        <Plegable
+          orga
+          title="Recorrido del evento"
+          summary={event.planName ?? (event.planShareId ? 'puesto' : 'sin recorrido')}
+        >
+          {event.planShareId ? (
+            <>
+              <a
+                href={`/?s=${encodeURIComponent(event.planShareId)}&de=${encodeURIComponent(id)}${
+                  event.startsAt ? `&salida=${event.startsAt}` : ''
+                }`}
+                className="block rounded-lg border border-slate-700 py-2 text-center text-xs text-sky-400 transition-colors hover:bg-sky-950/40"
+              >
+                Abrir el recorrido para ajustarlo →
+              </a>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Se abre en el planificador con el recorrido, los controles y los cierres. Mueve o añade puntos y
+                pulsa «Actualizar el recorrido del evento» en la barra de arriba: se publica para todos.
+              </p>
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Este evento aún no tiene recorrido. Abre una ruta tuya y usa «Convertir en evento» para
+              ponérselo.
+            </p>
+          )}
+        </Plegable>
+      )}
+
+      {/* Los PUNTOS DEL RECORRIDO: qué es cada uno (avituallamiento, bolsa de
+          vida…) y cuánto se para, sin volver a publicar la ruta. Lo cambiado
+          aquí manda sobre la ruta y lo usan el mapa y las previsiones. */}
+      {event.canOrganize === true && event.planShareId && (
+        <Plegable
+          orga
+          title="Puntos del recorrido"
+          icon={<MapPin size={13} />}
+          summary={resumenPuntos(event.puntosAjustes ?? null)}
+        >
+          <EditorPuntos
+            onNecesitaRuta={pideRutaPuntos}
+            ruta={baseRuta?.track ?? null}
+            ajustes={event.puntosAjustes ?? null}
+            busy={busy}
+            onCambio={(c) => void cambiaElPunto(c)}
+          />
+        </Plegable>
+      )}
+
+      {event.canOrganize && <GrupoOrga titulo="Para el público" detalle="enlace de seguimiento y porra" />}
+      {/* El ENLACE DE SEGUIMIENTO, para quien no corre: otra llave distinta de
+          la de unirse —con esta se mira, no se entra— que se puede regenerar o
+          quitar sin tocar el evento. Compartirlo lo hace cualquiera desde el
+          botón de arriba; crearlo, cambiarlo o apagarlo enseña o esconde la
+          carrera entera, y es de quien organiza: quien la creó y los
+          organizadores que nombró. */}
+      {event.canOrganize && (
+        <Plegable
+          orga
+          title="Enlace de seguimiento"
+          icon={<Share2 size={13} />}
+          summary={event.publicToken ? 'activo' : 'sin crear'}
+        >
+          {event.publicToken ? (
+            <>
+              <code className="block break-all rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300">
+                {eventPublicLink(event.publicToken)}
+              </code>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => void copyPublic()} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/50">
+                  {copiedPublic ? 'Copiado ✓' : 'Copiar enlace'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('Se crea un enlace nuevo y el actual deja de funcionar para quien lo tenga. ¿Seguro?')) void togglePublic(true)
+                  }}
+                  disabled={busy}
+                  className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Generar otro
+                </button>
+                <button onClick={() => void togglePublic(false)} disabled={busy} className="rounded border border-slate-700 px-2.5 py-1 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50">
+                  Dejar de compartir
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Sin cuenta se ve el mapa con todos: nombre, color, kilómetro y margen sobre los cortes. No se comparten las balizas individuales de cada uno.
+              </p>
+            </>
+          ) : (
+            <>
+              <button onClick={() => void togglePublic(true)} disabled={busy} className="rounded border border-sky-800 px-2.5 py-1 text-xs text-sky-400 hover:bg-sky-950/40 disabled:opacity-50">
+                Crear enlace de seguimiento
+              </button>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Para que familia y amigos sigan la carrera sin cuenta. Con él, cada participante lo comparte desde el botón de arriba. Se puede quitar cuando quieras.
+              </p>
+            </>
+          )}
+        </Plegable>
+      )}
+
+      {/* La porra vive con los ajustes del EVENTO y no dentro de "Mi marca":
+          quien organiza puede no correr, y allí ni siquiera veía la casilla.
+          Es cosa de la carrera, como la salida o la foto. */}
+      {event.canOrganize && (
+        <Plegable
+          orga
+          title="🔮 La porra"
+          summary={event.betsEnabled ? 'abierta' : 'apagada'}
+        >
+          <label className="flex items-start gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={event.betsEnabled}
+              onChange={(e) => void togglePorra(e.target.checked)}
+              disabled={busy}
+              className="mt-0.5 accent-amber-500"
+            />
+            <span>
+              Abrir la porra en esta carrera
+              <span className="mt-0.5 block text-[11px] text-slate-500">
+                Quien MIRA la carrera pronostica quién gana, quién acaba y a qué hora — hasta la salida y
+                nada más. No se juega dinero: sale un ranking de aciertos, con corona para el primero.
+                Los que corréis no jugáis, que decidís el resultado con las piernas.
+              </span>
+            </span>
+          </label>
+          {!event.startsAt && (
+            <p className="mt-2 rounded border border-amber-900/60 bg-amber-950/30 px-2 py-1.5 text-[11px] text-amber-300">
+              Falta la hora de salida: es lo que cierra la porra, y sin ella no se admiten pronósticos.
+              Ponla arriba, en «Salida oficial».
+            </p>
+          )}
+          {event.betsEnabled && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Está abierta: sale como pestaña «🔮 Porra» en el mapa del evento y en el enlace público.
+              Apagarla no borra nada — los pronósticos vuelven si la reabres.
+            </p>
+          )}
+        </Plegable>
+      )}
+
+      {event.canOrganize && <GrupoOrga titulo="Meta" detalle="tiempos oficiales y cierre" />}
       {/* Los TIEMPOS OFICIALES de meta: los del cronometraje de la
           organización, al segundo. Mandan sobre la baliza y el paso manual, y
           son lo que deshace una llegada pegada que el GPS no sabe ordenar. Se
@@ -1651,6 +1713,9 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
+      {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
+          menú: es la acción que cierra la historia —congela los resultados y
+          deja de admitir gente— y hasta ahora sencillamente no existía. */}
       {event.canOrganize && (
         <Plegable
           orga
@@ -1755,64 +1820,6 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
-      {/* La porra vive con los ajustes del EVENTO y no dentro de "Mi marca":
-          quien organiza puede no correr, y allí ni siquiera veía la casilla.
-          Es cosa de la carrera, como la salida o la foto. */}
-      {event.canOrganize && (
-        <Plegable
-          orga
-          title="🔮 La porra"
-          summary={event.betsEnabled ? 'abierta' : 'apagada'}
-        >
-          <label className="flex items-start gap-2 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              checked={event.betsEnabled}
-              onChange={(e) => void togglePorra(e.target.checked)}
-              disabled={busy}
-              className="mt-0.5 accent-amber-500"
-            />
-            <span>
-              Abrir la porra en esta carrera
-              <span className="mt-0.5 block text-[11px] text-slate-500">
-                Quien MIRA la carrera pronostica quién gana, quién acaba y a qué hora — hasta la salida y
-                nada más. No se juega dinero: sale un ranking de aciertos, con corona para el primero.
-                Los que corréis no jugáis, que decidís el resultado con las piernas.
-              </span>
-            </span>
-          </label>
-          {!event.startsAt && (
-            <p className="mt-2 rounded border border-amber-900/60 bg-amber-950/30 px-2 py-1.5 text-[11px] text-amber-300">
-              Falta la hora de salida: es lo que cierra la porra, y sin ella no se admiten pronósticos.
-              Ponla arriba, en «Salida oficial».
-            </p>
-          )}
-          {event.betsEnabled && (
-            <p className="mt-2 text-[11px] text-slate-500">
-              Está abierta: sale como pestaña «🔮 Porra» en el mapa del evento y en el enlace público.
-              Apagarla no borra nada — los pronósticos vuelven si la reabres.
-            </p>
-          )}
-        </Plegable>
-      )}
-
-      {event.canOrganize && !(event.hasPhoto && !event.isOwner) && (
-        <Plegable orga title="Foto" summary={event.hasPhoto ? 'puesta' : 'sin foto'}>
-          <label className="inline-block px-2.5 py-1 rounded border border-slate-700 text-xs text-sky-400 hover:bg-sky-950/50 cursor-pointer">
-            {event.hasPhoto ? 'Cambiar foto' : 'Subir foto'}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              disabled={busy}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setCropping(f) }}
-            />
-          </label>
-          <p className="mt-1.5 text-[11px] text-slate-500">
-            Podrás encuadrarla: lo que dejes en el marco es lo que verán todos, aquí y en la lista.
-          </p>
-        </Plegable>
-      )}
 
 
 
@@ -2624,6 +2631,16 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual, igualar }: 
         </>
       )}
     </div>
+  )
+}
+
+/** El título de un grupo de secciones de Organización. */
+function GrupoOrga({ titulo, detalle }: { titulo: string; detalle: string }) {
+  return (
+    <h3 className="mt-5 flex items-baseline gap-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-amber-600/80">
+      {titulo}
+      <span className="text-[10px] font-normal normal-case tracking-normal text-slate-600">{detalle}</span>
+    </h3>
   )
 }
 
