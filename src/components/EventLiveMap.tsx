@@ -749,7 +749,16 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // En manual aunque todavía no haya ningún paso anotado: su silencio ya
       // está explicado desde que se le pasa, y hay que decirlo.
       const modoManual = r0.manualPasos != null
-      const manual = pasosManual ? pasosManual[pasosManual.length - 1] : null
+      /**
+       * Quien va en manual y YA LLEGÓ: su sitio es la meta, aunque nadie
+       * anotara el paso por ella. Lo dicen los resultados —la hora oficial de
+       * la organización, o su paso por meta—, y sin esto se quedaba clavada en
+       * su último control, como si aún estuviera corriendo.
+       */
+      const metaManual = modoManual ? metaOficial.get(r0.username) ?? null : null
+      const manual: PasoManual | null = metaManual != null && route
+        ? [route.totalKm, metaManual]
+        : pasosManual ? pasosManual[pasosManual.length - 1] : null
       const puntoManual = manual && route ? coordsAtKm(route, manual[0]) : null
       const r = modoManual && !(manual && puntoManual)
         // En manual sin pasos todavía: su última posición es la de la baliza,
@@ -2826,7 +2835,7 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
         <p className="mt-8 text-center text-sm text-slate-400">Nadie coincide con «{query.trim()}».</p>
       )}
       <ul className="space-y-1.5">
-        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia, enPausa, manual, modoManual }, i) => {
+        {shown.map(({ r, kmValido: km, congelado, margin, stale, idle, armed, lost, desviadoM, key, retirado, abandono, callado, fantasma, cadencia, enPausa, manual, modoManual, acabo }, i) => {
           return (
             <li key={key} className={`rounded-xl border p-2.5 ${
               armed ? 'border-amber-900/50 bg-amber-950/10'
@@ -2954,7 +2963,8 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                         anotado, y decirlo así explica por qué no se mueve. Y
                         quien va sin baliza desde el principio no tiene "señal"
                         que echar de menos. */}
-                    {manual ? `✎ manual · pasó el km ${manual[0].toFixed(1)} a las ${hhmm(manual[1])}`
+                    {manual && acabo ? `✎ manual · llegó a meta a las ${hhmm(manual[1])}`
+                      : manual ? `✎ manual · pasó el km ${manual[0].toFixed(1)} a las ${hhmm(manual[1])}`
                       : modoManual ? '✎ manual · sin pasos anotados todavía'
                       : r.updatedAt === null ? 'sin señal'
                       : enPausa ? `⏸ en pausa · vuelve en ${Math.max(1, Math.round((r.pausaHasta! - now) / 60_000))} min`
