@@ -2147,7 +2147,14 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               punto={puntoAvisos}
               evento={source.kind === 'member' ? { evento: source.id } : source.kind === 'public' ? { token: source.token } : null}
               logueado={!!user}
-              corredores={rows.map(({ r }) => ({ nombre: r.username, emoji: r.emoji }))}
+              // Quién puede pasar TODAVÍA por ese punto: ni quien ya pasó (o
+              // llegó a meta) ni quien lo dejó antes de llegar ahí.
+              corredores={rows.map(({ r, kmValido, acabo, congelado }) => ({
+                nombre: r.username,
+                emoji: r.emoji,
+                pasado: acabo || (kmValido != null && kmValido >= puntoAvisos.km - 0.05),
+                noPasara: !acabo && congelado != null && (congelado.km ?? 0) < puntoAvisos.km,
+              }))}
               onClose={() => setPuntoAvisos(null)}
             />
           )}
@@ -3791,9 +3798,12 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
   punto: { km: number; nombre: string }
   evento: EventoAvisos | null
   logueado: boolean
-  corredores: { nombre: string; emoji: string | null }[]
+  corredores: { nombre: string; emoji: string | null; pasado: boolean; noPasara: boolean }[]
   onClose: () => void
 }) {
+  /** Los que aún pueden pasar por aquí: solo de ellos tiene sentido avisar. */
+  const pendientes = corredores.filter((c) => !c.pasado && !c.noPasara)
+  const yaPasoAlguno = corredores.some((c) => c.pasado)
   const [avisos, setAvisos] = useState<AvisoDePaso[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
@@ -3830,6 +3840,10 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
       </div>
       {!evento ? (
         <p className="mt-2 text-xs text-slate-400">Los avisos no están disponibles en esta vista.</p>
+      ) : pendientes.length === 0 ? (
+        <p className="mt-2 text-xs text-slate-400">
+          Ya han pasado todos por aquí{corredores.some((c) => c.noPasara) ? ' (o lo dejaron antes)' : ''}: no queda nadie de quien avisar.
+        </p>
       ) : !logueado ? (
         <p className="mt-2 text-xs leading-snug text-slate-400">
           <b className="text-slate-200">Entra con tu cuenta</b> (arriba, «Entrar») y te avisamos en el iPhone cuando pase alguien por aquí.
@@ -3845,7 +3859,9 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
               disabled={ocupado || aqui.some((a) => a.corredor === null && a.disparadoAt === null)}
               className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
             >
-              Avísame del primero
+              {/* Si ya ha pasado alguno, "el primero" ya fue: el aviso sería el
+                  del siguiente, y se dice así. */}
+              {yaPasoAlguno ? 'Avísame del siguiente' : 'Avísame del primero'}
             </button>
             <select
               value={quien}
@@ -3854,7 +3870,7 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
               aria-label="Corredor"
             >
               <option value="">De un corredor…</option>
-              {corredores.map((c) => <option key={c.nombre} value={c.nombre}>{c.emoji ? `${c.emoji} ` : ''}{c.nombre}</option>)}
+              {pendientes.map((c) => <option key={c.nombre} value={c.nombre}>{c.emoji ? `${c.emoji} ` : ''}{c.nombre}</option>)}
             </select>
             <button
               onClick={() => { if (quien) { void pide(quien); setQuien('') } }}
@@ -3870,7 +3886,7 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
               {aqui.map((a) => (
                 <li key={a.id} className="flex items-center gap-2 text-xs">
                   <span className="min-w-0 flex-1 truncate text-slate-300">
-                    {a.corredor ? `Cuando pase ${a.corredor}` : 'Cuando pase el primero'}
+                    {a.corredor ? `Cuando pase ${a.corredor}` : 'Cuando pase el siguiente'}
                     {a.disparadoAt != null && (
                       <span className="text-emerald-400"> · avisado a las {new Date(a.disparadoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
                     )}
