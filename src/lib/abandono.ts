@@ -94,6 +94,10 @@ export const RETROCESO_KM = 1
 /** Cuántas veces su propio ritmo hay que sostener para que sea un vehículo.
  *  Tres: nadie triplica su ritmo de ultra a las diez horas de carrera. */
 export const SALTO_FACTOR = 3
+/** Sobre cuánto tiempo, como poco, se mide un salto; y cuánto hay que avanzar
+ *  en él. Por debajo de esto es el GPS bailando, no un coche. */
+export const SALTO_VENTANA_MS = 2 * 60_000
+export const SALTO_MIN_KM = 0.5
 /** Y un suelo, para que a ritmos muy lentos no salte con cualquier cosa. */
 export const SALTO_MIN_KMH = 12
 
@@ -154,11 +158,21 @@ export function detectaAbandono(d: DatosAbandono): Abandono | null {
     const techo = Math.max(SALTO_MIN_KMH, suyaKmh * SALTO_FACTOR)
     // De delante hacia atrás y se devuelve el PRIMERO: lo que interesa es dónde
     // dejó de ir a pie, no el último tramo del viaje en coche.
+    //
+    // Y medido sobre un trecho que signifique algo: con un punto cada quince
+    // segundos, el GPS que se va sesenta metros y vuelve da 33 km/h entre dos
+    // puntos seguidos. Pasó en Matxicots 26: Soriano "abandonó por avance
+    // imposible a pie" corriendo tan normal por el km 11. Un coche, en cambio,
+    // hace medio kilómetro en dos minutos sin ningún esfuerzo.
+    let j = 0
     for (let i = 1; i < pasos.length; i++) {
-      const a = pasos[i - 1], b = pasos[i]
+      const b = pasos[i]
+      // El punto más reciente que quede al menos SALTO_VENTANA_MS por detrás.
+      while (j + 1 < i && b.t - pasos[j + 1].t >= SALTO_VENTANA_MS) j++
+      const a = pasos[j]
       const horas = (b.t - a.t) / 3_600_000
-      if (horas <= 0) continue
-      if ((b.km - a.km) / horas > techo) {
+      if (horas * 3_600_000 < SALTO_VENTANA_MS) continue
+      if (b.km - a.km >= SALTO_MIN_KM && (b.km - a.km) / horas > techo) {
         return { motivo: 'salto', desdeMs: a.t, km: a.km }
       }
     }

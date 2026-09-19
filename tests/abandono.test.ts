@@ -130,6 +130,20 @@ describe('detectar un abandono', () => {
     expect(a.desdeMs).toBe(min(10))
   })
 
+  it('el GPS que baila entre dos puntos seguidos NO es un coche', () => {
+    // Matxicots 26, Soriano por el km 11: un punto cada quince segundos, uno se
+    // va sesenta metros y el siguiente cae 140 m más allá — 33 km/h de mentira.
+    const pasos = [
+      ...avanzando(10, 0.095, 20),
+      { t: min(40), km: 11.52 },
+      { t: min(40.25), km: 11.66 },
+      ...avanzando(11.7, 0.095, 10, 42),
+    ]
+    expect(detectaAbandono({
+      pasos, ahoraMs: min(61), corte: { km: 30, atMs: min(600) }, ritmoMinKm: 10.5,
+    })).toBeNull()
+  })
+
   it('a cinco kilómetros del recorrido ya no se está corriendo', () => {
     // El caso de Malore: su baliza siguió emitiendo desde 174 km, a 107 km/h y
     // a 341 m de altitud —la autovía, camino de casa— y el mapa lo ponía

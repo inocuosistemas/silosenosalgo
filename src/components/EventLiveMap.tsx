@@ -676,11 +676,25 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       const salidaRef = startMs ?? r.startedAt ?? null
       const pronto = (t: number | null | undefined) =>
         circuito && salidaRef != null && t != null && t - salidaRef < minimoParaAcabarMs
-      const semilla = (t: number) => (pronto(t) ? 0 : null)
+      /**
+       * La primera búsqueda de una cola: desde la salida, pero con una ventana
+       * de lo que le ha dado tiempo a recorrer (a la velocidad máxima de su
+       * actividad) y no de tres kilómetros. La cola son sus ÚLTIMOS puntos: a
+       * quien se abre el mapa a mitad de carrera, su primer punto ya no está en
+       * la salida, y con la ventana corta se le clavaba en el km 3 y el
+       * siguiente punto parecía un avance imposible a pie —Soriano, "abandonó
+       * en el km 2,9" en Matxicots 26 corriendo por el 12—.
+       */
+      const primera = (p: { lat: number; lon: number; t: number }) => {
+        if (!route) return null
+        if (!pronto(p.t) || salidaRef == null) return projectKm(p.lat, p.lon, route, null)
+        const alcanceKm = Math.max(0, (p.t - salidaRef) / 3_600_000) * velMaxR
+        return projectKm(p.lat, p.lon, route, 0, Math.max(3, alcanceKm))
+      }
       if (r.fix && route) {
         let cerca = kmPrevio.current.get(key) ?? null
         if (cerca == null && km == null) {
-          for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca ?? semilla(p.t))
+          for (const p of r.tail) cerca = cerca == null ? primera(p) : projectKm(p.lat, p.lon, route, cerca)
         }
         if (!historial.current.has(key)) {
           // El mismo recorrido de la cola, quedándose con cada kilómetro: el
@@ -690,7 +704,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           const sembrado: Paso[] = []
           let c: number | null = null
           for (const p of r.tail) {
-            c = projectKm(p.lat, p.lon, route, c ?? semilla(p.t))
+            c = c == null ? primera(p) : projectKm(p.lat, p.lon, route, c)
             if (c != null) sembrado.push({ t: p.t, km: c })
           }
           historial.current.set(key, sembrado)
