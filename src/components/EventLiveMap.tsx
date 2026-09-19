@@ -4127,7 +4127,10 @@ function separaJuntos(
   // Metros por píxel de un mapa de mosaicos a este zoom y esta latitud.
   const mpp = (156543.03392 * Math.cos((lat0 * Math.PI) / 180)) / Math.pow(2, zoom)
   const JUNTOS_PX = 20
-  const RADIO_PX = 15
+  // Lo justo para que se vean los dos: los iconos siguen solapándose un poco y
+  // se leen como un grupo en el mismo sitio. Más separación y parecían dos
+  // corredores en dos puntos distintos, lejos de la meta.
+  const RADIO_PX = 10
   const juntosM = JUNTOS_PX * mpp
   const grupos: { key: string; pos: [number, number] }[][] = []
   for (const s of sitios) {
@@ -4139,8 +4142,11 @@ function separaJuntos(
     if (g.length === 1) { salida.set(g[0].key, g[0].pos); continue }
     const radioM = RADIO_PX * mpp
     g.forEach((s, i) => {
-      // Desde arriba y en el sentido del reloj: con dos, uno a cada lado.
-      const ang = (i / g.length) * 2 * Math.PI - Math.PI / 2
+      // Con dos, uno a cada lado (en horizontal se leen mejor que apilados);
+      // con más, repartidos en círculo empezando por arriba.
+      const ang = g.length === 2
+        ? (i === 0 ? Math.PI : 0)
+        : (i / g.length) * 2 * Math.PI - Math.PI / 2
       const dLat = (radioM * Math.sin(ang)) / 111_320
       const dLon = (radioM * Math.cos(ang)) / (111_320 * Math.cos((g[0].pos[0] * Math.PI) / 180))
       salida.set(s.key, [g[0].pos[0] + dLat, g[0].pos[1] + dLon])
