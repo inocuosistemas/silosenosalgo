@@ -1303,12 +1303,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const fixLon = state?.fix?.lon ?? null
   const fixAt = state?.fix?.fixAt ?? null
   const fixUpdatedAt = state?.fix?.updatedAt ?? null
+  const startedAtMs = state?.startedAt ?? null
   const nearest = useMemo(() => {
     if (!plan || fixLat == null || fixLon == null) return null
     const pts = plan.track.points
     const cumKm = plan.track.cumKm
     const maxSpeedKmh = ACTIVITY_MAX_SPEED_KMH[plan.paceConfig.activity]
     const { globalNearest, windowNearest } = makeRouteMatcher(pts, cumKm, maxSpeedKmh)
+    // CIRCUITO (sale y llega al mismo sitio): quien está en la salida cae igual
+    // de cerca del km 0 que de la meta, y la búsqueda en todo el recorrido podía
+    // elegir la meta —"57.7 km, progreso 100%" a los dos minutos de salir—.
+    // Mientras es imposible haber acabado (nadie va más rápido que la velocidad
+    // máxima de su actividad), las búsquedas que empiezan de cero se hacen
+    // desde la salida. Pasó en directo en Matxicots 26.
+    const salidaMs = startedAtMs
+    const minimoParaAcabarMs = ((cumKm[cumKm.length - 1] ?? 0) / maxSpeedKmh) * 3_600_000
+    const circuito = esCircuito(pts)
+    const primeraBusqueda = (lat: number, lon: number, t: number | null) =>
+      circuito && salidaMs != null && t != null && t - salidaMs < minimoParaAcabarMs
+        ? windowNearest(lat, lon, 0, Math.max(0, (t - salidaMs) / 1000))
+        : globalNearest(lat, lon)
 
     // Walk the recorded trail (oldest → newest, seeded at the start) to build a
     // temporally-consistent anchor that stays on the correct leg through overlaps.
@@ -1317,7 +1331,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     let seeded = false
     for (const p of trail) {
       if (!seeded) {
-        anchorKm = cumKm[globalNearest(p.lat, p.lon).idx] ?? 0
+        anchorKm = cumKm[primeraBusqueda(p.lat, p.lon, p.t).idx] ?? 0
         anchorTs = p.t
         seeded = true
       } else {
@@ -1330,7 +1344,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     // Project the live fix: constrained to the trail anchor when we have one,
     // otherwise the plain global nearest (no trail yet → nothing to anchor to).
     if (!seeded) {
-      const g = globalNearest(fixLat, fixLon)
+      const g = primeraBusqueda(fixLat, fixLon, fixAt ?? fixUpdatedAt)
       return { km: cumKm[g.idx] ?? 0, distKm: g.dist, punto: pts[g.idx] ?? null }
     }
     const fixTs = fixAt ?? fixUpdatedAt
@@ -1339,7 +1353,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     // El punto del TRAZADO al que se ha emparejado: es donde se pinta al
     // corredor cuando está pegado al recorrido.
     return { km: cumKm[w.idx] ?? anchorKm, distKm: w.dist, punto: pts[w.idx] ?? null }
-  }, [plan, fixLat, fixLon, fixAt, fixUpdatedAt, trail])
+  }, [plan, fixLat, fixLon, fixAt, fixUpdatedAt, trail, startedAtMs])
 
   // Off-route with hysteresis (no flicker at the boundary): off at >250 m from
   // the route, back on at <120 m. Avoids snapping to a bogus "progress" when the
@@ -1585,7 +1599,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const sinCobertura = !!fix && !ended && Date.now() - fix.updatedAt > SIN_COBERTURA_MS
   const refNow = demoEnMs ?? (fix && (ended || sinCobertura) ? fix.updatedAt : Date.now())
   // Activated before the planned start → show a countdown, not projections.
-  const preStart = !ended && sessionStart.getTime() > refNow
+  // La cuenta atrás de la salida va con la hora de VERDAD, no con la
+  // congelada: con la señal parada antes de la salida, `refNow` se quedaba en
+  // la última posición y la pantalla seguía diciendo "Salida en 4:23" con la
+  // carrera ya empezada.
+  const preStart = !ended && sessionStart.getTime() > (demoEnMs ?? Date.now())
   const fr = fix ? freshness(fix.updatedAt, staleMsRef.current, demoEnMs ?? undefined) : null
   // "Parado": the position hasn't moved for a while while the beacon is still
   // reporting. A stationary beacon only pings via the heartbeat (~150 s), well
@@ -3015,7 +3033,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           {cheers.map((c) => {
                             const isNew = c.createdAt > cheersReadAt
                             // En ventana: todavía privado y retirable por su autor.
-                            const graceLeft = Math.ceil((c.publishAt - refNow) / 1000)
+                            // Hora real: el ánimo no tiene nada que ver con la
+                            // señal del corredor. Con la congelada, la cuenta
+                            // se quedaba fija (1421 s con 23 min sin señal).
+                            const graceLeft = Math.ceil((c.publishAt - (demoEnMs ?? Date.now())) / 1000)
                             const pending = c.mine && graceLeft > 0
                             return (
                               <div key={c.id} className={`rounded-lg px-2 py-1.5 ${
