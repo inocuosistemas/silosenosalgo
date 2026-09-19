@@ -47,7 +47,9 @@ interface Props {
   queda: [number, number][] | null
   hecho: [number, number][] | null
   /** `icono`: el HTML del avituallamiento; sin él, el círculo de siempre. */
-  pois: { lat: number; lon: number; texto: string; corte: boolean; icono?: string | null }[]
+  pois: { lat: number; lon: number; texto: string; corte: boolean; icono?: string | null; km: number | null; nombre: string }[]
+  /** Se ha tocado un punto: para pedir avisos de paso en él. */
+  onElegirPunto?: (punto: { km: number; nombre: string }) => void
   nombresPois: boolean
   corredores: CorredorFluido[]
   marcaPerfil: { pos: [number, number]; texto: string } | null
@@ -233,6 +235,8 @@ export default function MapaEventoFluido(p: Props) {
           .setLngLat(f.geometry.coordinates as [number, number])
           .setText(String(f.properties?.texto ?? ''))
           .addTo(map)
+        const km = Number(f.properties?.km)
+        if (Number.isFinite(km)) avisos.current.onElegirPunto?.({ km, nombre: String(f.properties?.nombre ?? '') })
       })
       map.on('mouseenter', 'pois', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'pois', () => { map.getCanvas().style.cursor = '' })
@@ -274,7 +278,7 @@ export default function MapaEventoFluido(p: Props) {
     pon('ruta', lineas(p.ruta ? [{ pts: p.ruta, props: {} }] : []))
     pon('queda', lineas(p.queda ? [{ pts: p.queda, props: {} }] : []))
     pon('hecho', lineas(p.hecho ? [{ pts: p.hecho, props: {} }] : []))
-    pon('pois', puntos(p.pois.filter((q) => !q.icono).map((q) => ({ p: [q.lat, q.lon], props: { texto: q.texto, corte: q.corte } }))))
+    pon('pois', puntos(p.pois.filter((q) => !q.icono).map((q) => ({ p: [q.lat, q.lon], props: { texto: q.texto, corte: q.corte, km: q.km, nombre: q.nombre } }))))
     const cs = p.corredores
     pon('banda', lineas(cs.flatMap((c) => (c.fantasma ? [{ pts: c.fantasma.banda, props: { color: c.color, w: c.seleccionado ? 10 : 9 } }] : []))))
     pon('cola', lineas(cs.flatMap((c) => c.cola.filter((t) => !t.hueco).map((t) => ({
@@ -354,6 +358,7 @@ export default function MapaEventoFluido(p: Props) {
           cartelPoiRef.current?.remove()
           cartelPoiRef.current = new Popup({ offset: 12, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
             .setLngLat([q.lon, q.lat]).setText(q.texto).addTo(map)
+          if (q.km != null) avisos.current.onElegirPunto?.({ km: q.km, nombre: q.nombre })
         })
         return new Marker({ element: el, anchor: 'center' })
       },

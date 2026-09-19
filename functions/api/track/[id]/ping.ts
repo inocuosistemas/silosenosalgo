@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
+import { revisaAvisosDePosicion } from '../../../lib/avisos'
 import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { countViewers } from '../../../lib/presence'
@@ -48,7 +49,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 
 interface NormFix { t: number; lat: number; lon: number; trackKm: number | null; speed: number | null; heading: number | null; accuracy: number | null; altitude: number | null }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, waitUntil }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
@@ -127,8 +128,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (incoming.length === 0) return json({ error: 'invalid_coords' }, 400)
 
   const row = await env.DB.prepare(
-    'SELECT owner_user_id AS owner, status, expires_at AS expiresAt, trail, battery_log AS bateriaLog FROM tracking_sessions WHERE id = ?',
-  ).bind(id).first<{ owner: string; status: string; expiresAt: number; trail: string | null; bateriaLog: string | null }>()
+    'SELECT owner_user_id AS owner, status, expires_at AS expiresAt, trail, battery_log AS bateriaLog, event_id AS eventId, km_ruta AS kmRuta FROM tracking_sessions WHERE id = ?',
+  ).bind(id).first<{ owner: string; status: string; expiresAt: number; trail: string | null; bateriaLog: string | null; eventId: string | null; kmRuta: number | null }>()
   if (!row) return json({ error: 'not_found' }, 404)
   if (row.owner !== user.id) return json({ error: 'forbidden' }, 403)
   if (row.status !== 'active' || now > row.expiresAt) return json({ error: 'ended' }, 410)
@@ -192,6 +193,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // Report how many followers are watching, so the beacon can show it live.
   // Best-effort: the fix is already saved above, so a presence failure must not
   // fail the ping — fall back to 0 followers.
+  // Los avisos de paso de quien sigue el evento (ver `lib/avisos`): después
+  // de guardar y sin hacer esperar a la baliza.
+  if (row.eventId) {
+    waitUntil(revisaAvisosDePosicion(env, id, row.eventId, row.owner, row.kmRuta, latest.lat, latest.lon, latest.t).catch(() => {}))
+  }
+
   let viewers = 0
   try { viewers = await countViewers(env, id) } catch { /* presence is non-critical */ }
   return json({ viewers } satisfies PingResponse, 200)

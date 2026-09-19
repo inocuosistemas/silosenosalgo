@@ -270,6 +270,10 @@
    tocarlo: como las `poi-tip` del clásico —pastilla oscura, texto claro—. Sin
    esto salía el bocadillo blanco de MapLibre con el texto claro de la página
    encima, y no se leía nada. */
+/* Y POR ENCIMA de todo lo del mapa: se abre a propósito, así que lo que se
+   quiere leer es él. Sin esto quedaba debajo de los iconos de avituallamiento,
+   que llevan su propio z-index. */
+.poi-popup { z-index: 50; }
 .poi-popup .maplibregl-popup-content {
   background: rgba(2, 6, 23, 0.9);
   color: #f8fafc;

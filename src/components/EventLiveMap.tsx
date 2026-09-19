@@ -8,6 +8,8 @@ import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
 import { TIPO_PUNTO, esAvituallamiento, paradaDe, tipoDe, type TipoPunto } from '../lib/avituallamientos'
 import { htmlIconoPunto, LADO_ICONO_PUNTO } from '../lib/iconosPunto'
+import { avisosDe, creaAviso, borraAviso, type EventoAvisos } from '../lib/eventsTransport'
+import type { AvisoDePaso } from '../../shared/wireTypes'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -360,6 +362,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   })
   /** La vista 3D, encima del mapa; el mapa sigue debajo recibiendo posiciones. */
   const [en3D, setEn3D] = useState(false)
+  /** El punto del recorrido que se ha tocado: para pedir avisos de paso. */
+  const [puntoAvisos, setPuntoAvisos] = useState<{ km: number; nombre: string } | null>(null)
   /**
    * Con qué se dibuja el mapa: el fluido (MapLibre, en la GPU) por defecto en
    * el navegador, el clásico (Leaflet) como opción. La misma preferencia que
@@ -1566,6 +1570,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               lat: poi.lat, lon: poi.lon, corte: !!poi.cutoffAt,
               texto: textoPoi(poi),
               icono: htmlIconoPunto(poi.tipo, !!poi.cutoffAt),
+              km: poi.km,
+              nombre: poi.name,
             }))}
             nombresPois={showPoiNames}
             corredores={withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma, modoManual }): CorredorFluido => {
@@ -1606,6 +1612,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             onTocarMapa={() => setHoverKm(null)}
             onZoom={setZoom}
             onFallo={() => setFalloFluido(true)}
+            onElegirPunto={(pt) => { setSelected(null); setPuntoAvisos(pt) }}
           />
         </Suspense>
       ) : view === 'mapa' ? (
@@ -1654,6 +1661,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               key={`${poi.lat},${poi.lon}`}
               position={[poi.lat, poi.lon]}
               icon={iconoPunto(poi.tipo, !!poi.cutoffAt)}
+              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name }) } } }}
             >
               <Tooltip direction="top" offset={[0, -10]} permanent={showPoiNames} className="poi-tip">
                 {textoPoi(poi)}
@@ -1664,6 +1672,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               key={`${poi.lat},${poi.lon}`}
               center={[poi.lat, poi.lon]}
               radius={poi.cutoffAt ? 5 : 4}
+              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name }) } } }}
               pathOptions={{
                 color: '#f8fafc',
                 weight: 1.5,
@@ -2131,6 +2140,17 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       {view === 'mapa' && (
         <div className="absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
           <div className="mx-auto w-full max-w-5xl p-3 pb-1">
+          {/* Avisos de paso: tocar un punto del recorrido deja pedir que te
+              avisen en el iPhone cuando pase alguien por ahí. */}
+          {puntoAvisos && !sel && (
+            <AvisosPunto
+              punto={puntoAvisos}
+              evento={source.kind === 'member' ? { evento: source.id } : source.kind === 'public' ? { token: source.token } : null}
+              logueado={!!user}
+              corredores={rows.map(({ r }) => ({ nombre: r.username, emoji: r.emoji }))}
+              onClose={() => setPuntoAvisos(null)}
+            />
+          )}
           {sel && (
             <RunnerCard
               row={sel} now={now} totalKm={route?.totalKm ?? null}
@@ -3760,4 +3780,109 @@ function iconoPunto(tipo: TipoPunto, conCorte: boolean): L.DivIcon {
   const icono = L.divIcon({ className: '', html: htmlIconoPunto(tipo, conCorte) ?? '', iconSize: [lado, lado], iconAnchor: [lado / 2, lado / 2] })
   iconosPunto.set(clave, icono)
   return icono
+}
+
+/**
+ * Pedir un AVISO DE PASO en un punto: que te avise en el iPhone cuando pase el
+ * primero, o un corredor concreto. Llega por la app con tu cuenta (APNs): es
+ * donde hay notificaciones de verdad, aunque lo pidas desde el navegador.
+ */
+function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
+  punto: { km: number; nombre: string }
+  evento: EventoAvisos | null
+  logueado: boolean
+  corredores: { nombre: string; emoji: string | null }[]
+  onClose: () => void
+}) {
+  const [avisos, setAvisos] = useState<AvisoDePaso[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+  const [quien, setQuien] = useState('')
+  useEffect(() => {
+    if (!logueado || !evento) return
+    let vivo = true
+    avisosDe(evento).then((a) => { if (vivo) setAvisos(a) }).catch(() => { if (vivo) setAvisos([]) })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logueado, evento && ('evento' in evento ? evento.evento : evento.token)])
+  const aqui = (avisos ?? []).filter((a) => Math.abs(a.km - punto.km) < 0.05)
+  const pide = async (corredor: string | null) => {
+    if (!evento) return
+    setOcupado(true); setError(null)
+    try { setAvisos(await creaAviso(evento, punto.km, punto.nombre, corredor)) }
+    catch { setError('No se ha podido guardar el aviso. Prueba otra vez.') }
+    finally { setOcupado(false) }
+  }
+  const quita = async (id: string) => {
+    setOcupado(true)
+    try { await borraAviso(id); setAvisos((a) => (a ?? []).filter((x) => x.id !== id)) } catch { /* se queda */ }
+    finally { setOcupado(false) }
+  }
+  return (
+    <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
+      <div className="flex items-center gap-2">
+        <span className="text-base" aria-hidden>🔔</span>
+        <p className="min-w-0 flex-1 truncate text-sm font-bold text-slate-100">
+          {punto.nombre} <span className="font-normal text-slate-400">· km {punto.km.toFixed(1)}</span>
+        </p>
+        <button onClick={onClose} aria-label="Cerrar"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-800/80 text-lg text-slate-300 hover:text-white">×</button>
+      </div>
+      {!evento ? (
+        <p className="mt-2 text-xs text-slate-400">Los avisos no están disponibles en esta vista.</p>
+      ) : !logueado ? (
+        <p className="mt-2 text-xs leading-snug text-slate-400">
+          <b className="text-slate-200">Entra con tu cuenta</b> (arriba, «Entrar») y te avisamos en el iPhone cuando pase alguien por aquí.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+            Te llega a la app de iPhone con tu cuenta, aunque lo pidas desde aquí.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => void pide(null)}
+              disabled={ocupado || aqui.some((a) => a.corredor === null && a.disparadoAt === null)}
+              className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              Avísame del primero
+            </button>
+            <select
+              value={quien}
+              onChange={(e) => setQuien(e.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200"
+              aria-label="Corredor"
+            >
+              <option value="">De un corredor…</option>
+              {corredores.map((c) => <option key={c.nombre} value={c.nombre}>{c.emoji ? `${c.emoji} ` : ''}{c.nombre}</option>)}
+            </select>
+            <button
+              onClick={() => { if (quien) { void pide(quien); setQuien('') } }}
+              disabled={ocupado || !quien}
+              className="rounded-lg border border-sky-700 px-3 py-1.5 text-xs font-semibold text-sky-300 disabled:opacity-40"
+            >
+              Avísame
+            </button>
+          </div>
+          {error && <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>}
+          {aqui.length > 0 && (
+            <ul className="mt-2 space-y-1 border-t border-slate-800 pt-2">
+              {aqui.map((a) => (
+                <li key={a.id} className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-slate-300">
+                    {a.corredor ? `Cuando pase ${a.corredor}` : 'Cuando pase el primero'}
+                    {a.disparadoAt != null && (
+                      <span className="text-emerald-400"> · avisado a las {new Date(a.disparadoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                    )}
+                  </span>
+                  <button onClick={() => void quita(a.id)} disabled={ocupado} aria-label="Quitar el aviso"
+                    className="shrink-0 px-1 text-slate-500 hover:text-rose-400 disabled:opacity-40">×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  )
 }

@@ -1046,3 +1046,15 @@ export interface EventFoto {
 export interface EventFotosResponse {
   fotos: EventFoto[]
 }
+
+/** Un aviso de paso de quien mira un evento (ver `functions/lib/avisos.ts`). */
+export interface AvisoDePaso {
+  id: string
+  km: number
+  /** El nombre del punto, como se enseña en el aviso. */
+  nombre: string
+  /** De quién: su nombre, o null para "el primero que pase". */
+  corredor: string | null
+  /** Cuándo sonó (epoch ms), o null si sigue esperando. */
+  disparadoAt: number | null
+}

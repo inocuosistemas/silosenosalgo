@@ -3,7 +3,7 @@
  * de `fetch` que nunca lanza excepciones de red crudas y traduce el código del
  * servidor a un mensaje en español.
  */
-import type { EventFoto, EventFotosResponse } from '../../shared/wireTypes'
+import type { EventFoto, EventFotosResponse, AvisoDePaso } from '../../shared/wireTypes'
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
 import { simplificaTrazado } from './eventPlan'
@@ -684,4 +684,31 @@ export async function sugiereKmFoto(id: string, at: number): Promise<number | nu
   } catch {
     return null
   }
+}
+
+/** De qué evento: por id (participantes) o por su token público. */
+export type EventoAvisos = { evento: string } | { token: string }
+
+/** Mis avisos de paso en un evento (ver `functions/api/avisos.ts`). */
+export async function avisosDe(ev: EventoAvisos): Promise<AvisoDePaso[]> {
+  const q = 'evento' in ev ? `evento=${encodeURIComponent(ev.evento)}` : `token=${encodeURIComponent(ev.token)}`
+  const res = await fetchSafe(`/api/avisos?${q}`, { credentials: 'same-origin', cache: 'no-store' })
+  if (!res.ok) throw errFrom(res)
+  return ((await res.json()) as { avisos: AvisoDePaso[] }).avisos
+}
+
+/** Pedir un aviso: del primero que pase (`corredor` null) o de alguien. */
+export async function creaAviso(ev: EventoAvisos, km: number, nombre: string, corredor: string | null): Promise<AvisoDePaso[]> {
+  const res = await fetchSafe('/api/avisos', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...ev, km, nombre, corredor }),
+  })
+  if (!res.ok) throw errFrom(res)
+  return ((await res.json()) as { avisos: AvisoDePaso[] }).avisos
+}
+
+export async function borraAviso(id: string): Promise<void> {
+  const res = await fetchSafe(`/api/avisos?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
 }

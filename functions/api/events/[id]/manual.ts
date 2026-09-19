@@ -5,6 +5,7 @@ import { getSessionUser } from '../../../lib/session'
 import { puedeOrganizar } from '../../../lib/organiza'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { cierraEvento, leePasosManuales } from '../../../lib/eventStats'
+import { disparaAvisos } from '../../../lib/avisos'
 
 /**
  * POST /api/events/:id/manual — pasar a alguien a MODO MANUAL y anotar sus
@@ -27,7 +28,7 @@ import { cierraEvento, leePasosManuales } from '../../../lib/eventStats'
 
 const MAX_PASOS = 100
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, waitUntil }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
   const id = String(params.id)
   if (!TOKEN_RE.test(id)) return json({ error: 'bad_id' }, 400)
@@ -51,6 +52,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   if (!fila) return json({ error: 'not_found' }, 404)
 
   let nuevo: string | null
+  /** El paso recién anotado, para los avisos: se disparan después de guardarlo. */
+  let avisar: { desde: number; km: number; at: number } | null = null
   if (body.modo === false) {
     nuevo = null
   } else if (body.modo === true) {
@@ -59,6 +62,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     if (typeof body.km !== 'number' || !Number.isFinite(body.km) || body.km < 0) return json({ error: 'invalid_request' }, 400)
     const km = Math.round(body.km * 100) / 100
     let pasos = leePasosManuales(fila.pasos) ?? []
+    // Hasta dónde se sabía que había llegado ANTES de este paso: los avisos
+    // entre eso y este km son los que acaba de cruzar. Sin pasos anteriores,
+    // solo los de justo este punto: los de antes los cruzó a otra hora.
+    const antes = pasos.filter(([k]) => k < km - 0.05).reduce((m, [k]) => Math.max(m, k), -1)
+    const desdeAviso = antes >= 0 ? antes : km - 0.5
     pasos = pasos.filter(([k]) => Math.abs(k - km) >= 0.05)
     if (body.at !== null) {
       if (typeof body.at !== 'number' || !Number.isFinite(body.at) || body.at <= 0) return json({ error: 'invalid_request' }, 400)
@@ -67,6 +75,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       if (ev.startsAt !== null && at < ev.startsAt) return json({ error: 'invalid_request' }, 400)
       if (at > Date.now() + 5 * 60_000) return json({ error: 'invalid_request' }, 400)
       pasos.push([km, at])
+      avisar = { desde: desdeAviso, km, at }
     }
     pasos.sort((a, b) => a[0] - b[0])
     if (pasos.length > MAX_PASOS) return json({ error: 'invalid_request' }, 400)
@@ -75,6 +84,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   await env.DB.prepare('UPDATE event_members SET manual_pasos = ? WHERE event_id = ? AND user_id = ?')
     .bind(nuevo, id, fila.userId).run()
+  if (avisar) waitUntil(disparaAvisos(env, id, fila.userId, avisar.desde, avisar.km, avisar.at).catch(() => 0))
   // Con la carrera cerrada, sus resultados se rehacen: es para lo que sirve.
   if (ev.endedAt) await cierraEvento(env, id, ev.endedAt, ev.km)
   return new Response(null, { status: 204 })
