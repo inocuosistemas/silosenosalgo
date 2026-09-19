@@ -2729,6 +2729,20 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
         {r.bib && <Dorsal bib={r.bib} size="md" />}
         <span className="truncate text-sm font-bold text-slate-100">{r.username}</span>
         {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+        {/* La batería, siempre que la mande: en la lista solo sale cuando
+            preocupa, pero quien abre la tarjeta de alguien está preguntando
+            justo por él —y si lleva rato callado, la primera sospecha es que
+            se le ha acabado—. Es la de su última señal, no la de ahora. */}
+        {r.bateria != null && (
+          <span
+            className={`shrink-0 text-xs tabular-nums ${
+              r.bateria <= 15 ? 'text-rose-400' : r.bateria <= 30 ? 'text-amber-400' : 'text-slate-400'
+            }`}
+            title={`Batería en su última señal${ago ? ` (hace ${ago})` : ''}`}
+          >
+            🔋{r.bateria}%
+          </span>
+        )}
         {/* Seguir: el mapa se recoloca solo en cada refresco y deja de hacerlo
             en cuanto se arrastra con la mano. */}
         {r.fix && (
