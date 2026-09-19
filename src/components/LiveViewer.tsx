@@ -2772,14 +2772,35 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const realMs = passed ? pasoReal(r.w.distanceKm) : null
       const realPrevMs = passed ? pasoReal(anterior) : null
       const previstoPrevMs = i > 0 ? (planRows ?? [])[i - 1].plannedElapsedMs : 0
+      const previstoTramoPlan = r.plannedElapsedMs != null && previstoPrevMs != null
+        ? (r.plannedElapsedMs - previstoPrevMs) / 60_000
+        : null
+      /**
+       * Lo que se PREVEÍA AL ENTRAR en el tramo: lo que habría dicho el modelo
+       * por terreno (ver `lib/ritmoTerreno`) con lo que se sabía justo en ese
+       * momento —el terreno del tramo y el ritmo que llevaba hasta ahí—. Es la
+       * comparación que dice algo: con un plan en "ritmo fijo", comparar con el
+       * plan solo mide lo lejos que estaba el plan. Sin datos para ajustar (los
+       * primeros km), lo del plan para ese tramo.
+       */
+      const previstoAlEntrarMs = (() => {
+        if (!passed || realPrevMs == null) return null
+        if (perfilEsfuerzo && state.startedAt != null) {
+          const rt = ajustaRitmo(perfilEsfuerzo, formSamples.filter((x) => x.t <= realPrevMs), state.startedAt)
+          const t = rt ? prediceLlegada(perfilEsfuerzo, rt, anterior, realPrevMs, r.w.distanceKm, state.startedAt) : null
+          if (t != null) return t
+        }
+        return previstoTramoPlan != null ? realPrevMs + previstoTramoPlan * 60_000 : null
+      })()
       const real = realMs != null && plannedETA
         ? {
             pasoMs: realMs,
             difMin: (realMs - plannedETA.getTime()) / 60_000,
             tramoMin: realPrevMs != null && realMs > realPrevMs ? (realMs - realPrevMs) / 60_000 : null,
-            previstoTramoMin: r.plannedElapsedMs != null && previstoPrevMs != null
-              ? (r.plannedElapsedMs - previstoPrevMs) / 60_000
-              : null,
+            previstoTramoMin: previstoTramoPlan,
+            alEntrarMs: previstoAlEntrarMs,
+            alEntrarDifMin: previstoAlEntrarMs != null ? (realMs - previstoAlEntrarMs) / 60_000 : null,
+            alEntrarTramoMin: previstoAlEntrarMs != null && realPrevMs != null ? (previstoAlEntrarMs - realPrevMs) / 60_000 : null,
           }
         : null
       // Y el margen al corte, el que TUVO al pasar, no uno proyectado.
@@ -2810,10 +2831,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {c.real ? (
             <span className="text-slate-300">
               Pasó <span className="font-medium">{clockDay(new Date(c.real.pasoMs), sessionStart)}</span>
-              {c.plannedETA && <> · previsto {clockDay(c.plannedETA, sessionStart)}</>}
-              {Math.abs(c.real.difMin) >= 1
-                ? <> · <span className={c.real.difMin < 0 ? 'text-emerald-400' : 'text-amber-400'}>{hhmm(c.real.difMin)} {c.real.difMin < 0 ? 'antes' : 'después'}</span></>
-                : <> · <span className="text-emerald-400">en hora</span></>}
+              {/* Contra lo previsto AL ENTRAR en el tramo, que es lo que dice
+                  cómo le fue; el plan de la salida, detrás y en gris. */}
+              {c.real.alEntrarMs != null && c.real.alEntrarDifMin != null ? (
+                <>
+                  {' · '}previsto al entrar {clockDay(new Date(c.real.alEntrarMs), sessionStart)}
+                  {Math.abs(c.real.alEntrarDifMin) >= 1
+                    ? <> · <span className={c.real.alEntrarDifMin < 0 ? 'text-emerald-400' : 'text-amber-400'}>{hhmm(c.real.alEntrarDifMin)} {c.real.alEntrarDifMin < 0 ? 'antes' : 'después'}</span></>
+                    : <> · <span className="text-emerald-400">clavado</span></>}
+                  {c.plannedETA && <span className="text-slate-500"> · plan {clockDay(c.plannedETA, sessionStart)}</span>}
+                </>
+              ) : (
+                <>
+                  {c.plannedETA && <> · previsto {clockDay(c.plannedETA, sessionStart)}</>}
+                  {Math.abs(c.real.difMin) >= 1
+                    ? <> · <span className={c.real.difMin < 0 ? 'text-emerald-400' : 'text-amber-400'}>{hhmm(c.real.difMin)} {c.real.difMin < 0 ? 'antes' : 'después'}</span></>
+                    : <> · <span className="text-emerald-400">en hora</span></>}
+                </>
+              )}
             </span>
           ) : (
             <span className="text-slate-300">Paso previsto: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
@@ -2839,11 +2874,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {/* Tramo hecho: cuánto tardó contra lo previsto al salir. En
               porcentaje de TIEMPO, igual que el estado de forma, y en
               palabras. */}
-          {c.real?.tramoMin != null && c.real.previstoTramoMin != null && c.real.previstoTramoMin > 0 && (() => {
-            const pct = Math.round((c.real.tramoMin / c.real.previstoTramoMin - 1) * 100)
+          {c.real?.tramoMin != null && (c.real.alEntrarTramoMin ?? c.real.previstoTramoMin) != null && (c.real.alEntrarTramoMin ?? c.real.previstoTramoMin)! > 0 && (() => {
+            const previsto = (c.real.alEntrarTramoMin ?? c.real.previstoTramoMin)!
+            const pct = Math.round((c.real.tramoMin / previsto - 1) * 100)
             return (
               <span className="font-medium text-slate-200">
-                tramo en {hhmm(c.real.tramoMin)} · previsto {hhmm(c.real.previstoTramoMin)}
+                tramo en {hhmm(c.real.tramoMin)} · previsto {c.real.alEntrarTramoMin != null ? 'al entrar ' : ''}{hhmm(previsto)}
                 {pct !== 0 && <> · <span className={pct < 0 ? 'text-emerald-400' : 'text-amber-400'}>{masLentoORapido(pct)}</span></>}
               </span>
             )

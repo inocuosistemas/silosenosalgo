@@ -2120,10 +2120,16 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           {/* Hueco para los globos: la tira desliza en horizontal, y eso
               recorta también por arriba. */}
           <div className={`mt-2 flex gap-1.5 overflow-x-auto pb-1 pt-11 ${withFix.length === 0 ? 'hidden' : ''}`}>
-            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo, enPausa }) => {
+            {rows.map(({ r, key, idle, armed, lost, desviadoM, paradoMs, congelado, acabo, enPausa, stale, callado, modoManual }) => {
               // Su carrera ya terminó —en meta o donde la dejó— y su marca está
               // clavada ahí: los avisos de baliza dejan de tener sentido.
               const fijado = acabo || congelado !== null
+              // EN DIRECTO: su baliza está llegando ahora, al ritmo que promete.
+              // Es lo que dice el punto que late de la baliza individual, y aquí
+              // lo mismo: late solo entonces. Callado, sin cobertura, en pausa,
+              // en manual o ya fuera de carrera, el punto se queda quieto.
+              const enDirecto = !!r.fix && r.status === 'active' && !idle && !armed && !stale && !lost
+                && !callado && !enPausa && !modoManual && !fijado
               const color = r.color ? eventColorHex(r.color) : '#94a3b8'
               const isSel = key === selected
               return (
@@ -2146,7 +2152,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   {r.emoji
                     ? <span className={`text-sm leading-none ${idle ? 'grayscale' : ''}`}>{r.emoji}</span>
                     : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
-                  <span className="h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
+                  <span className="relative inline-flex h-2 w-2 shrink-0" title={enDirecto ? 'En directo: su baliza está llegando' : undefined}>
+                    {enDirecto && (
+                      <span className="absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping" style={{ background: color }} />
+                    )}
+                    <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
+                  </span>
                   {/* Sin dorsal: esta tira va SOBRE el mapa y compite con él por
                       el sitio. Aquí se busca a alguien por su cara —el emoji y
                       el color, que son su marca— y el nombre; el dorsal sale en
