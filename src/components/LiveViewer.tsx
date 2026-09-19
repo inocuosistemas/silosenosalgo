@@ -235,6 +235,12 @@ function lapTime(min: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`
 }
 
+/** Un porcentaje de TIEMPO frente al plan, en palabras: "6% más lento". */
+function masLentoORapido(pct: number): string {
+  if (pct === 0) return 'igual'
+  return `${Math.abs(pct)}% más ${pct > 0 ? 'lento' : 'rápido'}`
+}
+
 function deltaLabel(min: number): string {
   if (Math.abs(Math.round(min)) === 0) return 'en hora'
   return `${hhmm(min)} por ${min < 0 ? 'delante' : 'detrás'}`
@@ -2396,7 +2402,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return (
       <div className={`rounded-xl border p-3 ${slower ? 'border-amber-600 bg-amber-950/50 text-amber-100' : 'border-emerald-700 bg-emerald-950/40 text-emerald-100'}`}>
         <p className="text-sm font-semibold">
-          {slower ? '📉' : '📈'} Ritmo detectado: {slower ? '+' : '−'}{Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
+          {slower ? '📉' : '📈'} Ritmo detectado: {Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
         </p>
         {newFinish && (() => {
           // Lo que de verdad se pregunta quien va con el reloj encima: ¿llego
@@ -2439,7 +2445,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const canUpdate = embedded && detectedFactor != null && Math.abs(detectedFactor - confirmedFactor) > 0.03
     const compPct = (r: number | null | undefined) => (r == null ? null : Math.round((r - 1) * 100))
     const up = compPct(detected?.subida), down = compPct(detected?.bajada), flat = compPct(detected?.llano)
-    const fmt = (v: number | null) => (v == null ? null : `${v >= 0 ? '+' : '−'}${Math.abs(v)}%`)
+    // En palabras y no con signo: los porcentajes son de TIEMPO frente al
+    // plan, así que un "+6%" era más lento, y eso no se lee a la primera.
+    const fmt = (v: number | null) => (v == null ? null : masLentoORapido(v))
     const fat = detected?.fatigue ?? null
     return (
       <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
@@ -2447,20 +2455,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {detPct != null && (
           <div className="mt-1 flex items-center justify-between gap-2">
             <span className="text-[11px] text-slate-400">Detectado en vivo{!confSlower && confPct === 0 ? '' : ''} · sin confirmar</span>
-            <span className={`text-xs font-semibold ${detSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{detSlower ? '+' : '−'}{Math.abs(detPct)}% vs plan</span>
+            <span className={`text-xs font-semibold ${detSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{masLentoORapido(detPct)} que el plan</span>
           </div>
         )}
         {(up != null || down != null || flat != null) && (
           <p className="mt-0.5 text-[11px] text-slate-400">
-            {up != null && <>↑ subida {fmt(up)}   </>}
-            {down != null && <>↓ bajada {fmt(down)}   </>}
-            {flat != null && <>llano {fmt(flat)}</>}
-            {fat != null && Math.abs(fat) > 0.05 && <> · fatiga: {fat > 0 ? `apagándote (+${Math.round(fat * 100)}%)` : 'remontando'}</>}
+            {[
+              up != null ? `↑ subida ${fmt(up)}` : null,
+              down != null ? `↓ bajada ${fmt(down)}` : null,
+              flat != null ? `llano ${fmt(flat)}` : null,
+            ].filter(Boolean).join(' · ')}
+            {fat != null && Math.abs(fat) > 0.05 && <> · fatiga: {masLentoORapido(Math.round(fat * 100))} que al principio</>}
           </p>
         )}
         <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
           <span className="text-[11px] text-slate-400">{confPct === 0 && formLog.length === 0 ? 'Según el plan' : embedded ? 'Confirmado (tu previsión)' : 'Confirmado por el corredor'}</span>
-          <span className={`text-xs font-semibold ${confPct === 0 ? 'text-slate-300' : confSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{confPct === 0 ? 'según plan' : `${confSlower ? '+' : '−'}${Math.abs(confPct)}% vs plan`}</span>
+          <span className={`text-xs font-semibold ${confPct === 0 ? 'text-slate-300' : confSlower ? 'text-amber-400' : 'text-emerald-400'}`}>{confPct === 0 ? 'según plan' : `${masLentoORapido(confPct)} que el plan`}</span>
         </div>
         {last && <p className="mt-0.5 text-[11px] text-slate-400">confirmado{last.km != null && <> · km {last.km.toFixed(1)}</>} · {agoLabel(last.t)}</p>}
         {formLog.length > 0 && (
@@ -2476,7 +2486,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </p>
         {canUpdate && (
           <button onClick={approveFactor} className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white">
-            Confirmar lo detectado ({(detPct ?? 0) >= 0 ? '+' : '−'}{Math.abs(detPct ?? 0)}%)
+            Confirmar lo detectado ({masLentoORapido(detPct ?? 0)})
           </button>
         )}
       </div>
