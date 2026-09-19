@@ -2204,11 +2204,22 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   {r.emoji
                     ? <span className={`text-sm leading-none ${idle ? 'grayscale' : ''}`}>{r.emoji}</span>
                     : <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
-                  <span className="relative inline-flex h-2 w-2 shrink-0" title={enDirecto ? 'En directo: su baliza está llegando' : undefined}>
+                  {/* En directo: más grande, con su onda que late y un halo FIJO del
+                      mismo color —con "Reducir movimiento" el latido no se ve, y
+                      el halo sigue diciendo quién tiene señal—. Sin señal
+                      reciente, el punto a secas y más apagado. */}
+                  <span className="relative inline-flex h-2.5 w-2.5 shrink-0" title={enDirecto ? 'En directo: su baliza está llegando ahora' : 'Sin señal reciente'}>
                     {enDirecto && (
-                      <span className="absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping" style={{ background: color }} />
+                      <span className="absolute -inset-0.5 inline-flex rounded-full opacity-80 motion-safe:animate-ping" style={{ background: color }} />
                     )}
-                    <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: color, opacity: idle ? 0.4 : 1 }} />
+                    <span
+                      className="relative inline-flex h-2.5 w-2.5 rounded-full"
+                      style={{
+                        background: color,
+                        opacity: idle ? 0.4 : enDirecto ? 1 : 0.55,
+                        boxShadow: enDirecto ? `0 0 0 2.5px ${color}55, 0 0 6px ${color}` : undefined,
+                      }}
+                    />
                   </span>
                   {/* Sin dorsal: esta tira va SOBRE el mapa y compite con él por
                       el sitio. Aquí se busca a alguien por su cara —el emoji y
