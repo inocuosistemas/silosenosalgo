@@ -22,8 +22,17 @@
  *    principio (5,7 → 11,6 min), y con la media el aro de Valen corría por
  *    delante de él. Una primera versión separaba subida y resto con toda la
  *    carrera, y aprendía "el resto" de los primeros kilómetros corribles.
- * 3. La DERIVA: ese ritmo sigue empeorando con el esfuerzo que queda (1 % por
+ * 3. SU FORMA: cuánto le cuesta subir frente al resto, aprendido con TODA la
+ *    carrera (a Valen subir le cuesta un 82 % más por unidad de esfuerzo; a
+ *    Soriano, un 25 %). El ritmo de ahora se traduce con ella al terreno que
+ *    viene: si lo último que se sabe de alguien es una subida muy dura, no
+ *    se le aplica tal cual a la bajada de después —lo que hacía que el aro de
+ *    Valen se quedara por detrás de él—.
+ * 4. La DERIVA: ese ritmo sigue empeorando con el esfuerzo que queda (1 % por
  *    unidad). Sin ella la previsión salía optimista siempre.
+ *
+ * Con pocas lecturas la previsión no es más optimista ni más pesimista: es
+ * menos segura, y se equivoca hacia donde fuera lo último que se sabe.
  */
 
 /** Resolución del perfil de esfuerzo, en km. */
@@ -41,6 +50,12 @@ const VENTANA_MIN = 60
 const ESFUERZO_MIN = 1
 /** Lo mínimo para ajustar: kilómetros hechos. */
 const MIN_KM = 3
+/** Para la forma: tramos de al menos esto, y cuánto pesa la media (ancla). */
+const TRAMO_KM = 0.5
+const ANCLA = 2
+/** Una forma fuera de esto no se cree (datos raros): se acota. */
+const FORMA_MIN = 0.7
+const FORMA_MAX = 2.5
 
 /** Tobler: tiempo relativo a llano según la pendiente (fracción). */
 export function costeRelativo(pendiente: number): number {
@@ -93,10 +108,43 @@ function acumulado(serie: Float64Array, km: number): number {
 }
 
 export interface RitmoAjustado {
-  /** Minutos por km de esfuerzo en subida y en el resto (hoy, el mismo: el
-   *  que lleva). Se mantienen separados por si un ajuste futuro los distingue. */
+  /** Minutos por km de esfuerzo en subida y en el resto: el ritmo que lleva,
+   *  repartido según su forma. */
   sube: number
   resto: number
+}
+
+/**
+ * Su forma: cuánto más le cuesta subir que el resto, por unidad de esfuerzo,
+ * con toda la carrera. Mínimos cuadrados con un ancla hacia 1 (sin datos, la
+ * de Tobler tal cual).
+ */
+function formaDe(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number): number {
+  const tramos: { up: number; ot: number; min: number }[] = []
+  let a = { km: 0, t: salidaMs }
+  for (const s of muestras) {
+    if (s.t <= a.t || s.km - a.km < TRAMO_KM) continue
+    tramos.push({
+      up: acumulado(perfil.sube, s.km) - acumulado(perfil.sube, a.km),
+      ot: acumulado(perfil.resto, s.km) - acumulado(perfil.resto, a.km),
+      min: (s.t - a.t) / 60_000,
+    })
+    a = s
+  }
+  const sumE = tramos.reduce((x, t) => x + t.up + t.ot, 0)
+  if (tramos.length < 2 || !(sumE > 0)) return 1
+  const media = tramos.reduce((x, t) => x + t.min, 0) / sumE
+  let suu = ANCLA, soo = ANCLA, suo = 0, sut = ANCLA * media, sot = ANCLA * media
+  for (const t of tramos) {
+    suu += t.up * t.up; soo += t.ot * t.ot; suo += t.up * t.ot
+    sut += t.up * t.min; sot += t.ot * t.min
+  }
+  const det = suu * soo - suo * suo
+  if (!(det > 0)) return 1
+  const sube = (sut * soo - sot * suo) / det
+  const resto = (sot * suu - sut * suo) / det
+  if (!(sube > 0) || !(resto > 0)) return 1
+  return Math.max(FORMA_MIN, Math.min(FORMA_MAX, sube / resto))
 }
 
 /**
@@ -120,11 +168,15 @@ export function ajustaRitmo(perfil: PerfilEsfuerzo, muestras: { km: number; t: n
     const dentroDeLaHora = ultima.t - s.t <= VENTANA_MIN * 60_000
     if (!dentroDeLaHora && eUltima - esfuerzo(s.km) >= ESFUERZO_MIN) break
   }
-  const dE = eUltima - esfuerzo(desde.km)
   const dMin = (ultima.t - desde.t) / 60_000
-  if (!(dE > 0) || !(dMin > 0)) return null
-  const ritmo = dMin / dE
-  return { sube: ritmo, resto: ritmo }
+  const upR = acumulado(perfil.sube, ultima.km) - acumulado(perfil.sube, desde.km)
+  const otR = acumulado(perfil.resto, ultima.km) - acumulado(perfil.resto, desde.km)
+  const q = formaDe(perfil, validas, salidaMs)
+  // El ritmo de ahora, en "resto": lo reciente, descontando su forma.
+  const pesoReciente = q * upR + otR
+  if (!(pesoReciente > 0) || !(dMin > 0)) return null
+  const resto = dMin / pesoReciente
+  return { sube: resto * q, resto }
 }
 
 /**
