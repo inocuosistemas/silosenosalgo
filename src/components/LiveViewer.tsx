@@ -880,6 +880,30 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
   const advDragStartY = useRef<number | null>(null)
   const advDraggedRef = useRef(false)
+  /**
+   * La tarjeta en su tamaño MÍNIMO: una línea con lo que se viene a mirar —el
+   * margen al corte y el kilómetro— y el mapa para todo lo demás. La tarjeta
+   * normal fue creciendo con cada dato nuevo, y en carrera, con el móvil en la
+   * mano, a veces lo que se quiere es ver el mapa. Tres tamaños sobre el mismo
+   * tirador: arrastrar hacia arriba encoge, hacia abajo agranda. Se recuerda
+   * en este dispositivo: es una preferencia de quien mira.
+   */
+  /** La pastilla de abajo, abierta con la leyenda y el radar. Plegada por
+   *  defecto; se recuerda en este dispositivo. */
+  const [pastillaAbierta, setPastillaAbierta] = useState(() => {
+    try { return localStorage.getItem('slsns.pastillaAbierta') === '1' } catch { return false }
+  })
+  const cambiaPastilla = (v: boolean) => {
+    setPastillaAbierta(v)
+    try { localStorage.setItem('slsns.pastillaAbierta', v ? '1' : '0') } catch { /* solo esta vez */ }
+  }
+  const [mini, setMiniState] = useState(() => {
+    try { return localStorage.getItem('slsns.tarjetaMini') === '1' } catch { return false }
+  })
+  const setMini = (v: boolean) => {
+    setMiniState(v)
+    try { localStorage.setItem('slsns.tarjetaMini', v ? '1' : '0') } catch { /* sin almacenamiento: solo esta vez */ }
+  }
   // Embedded in the native app (served under the appweb:// scheme): route map
   // tiles through the app's on-disk cache (`/_tile/...`) so the map works offline.
   /**
@@ -2541,6 +2565,37 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     )
   })() : null
 
+  /** La tarjeta mínima: ver `mini`. Tocarla la devuelve a su tamaño normal. */
+  const margenMini = nextCutoff && !preStart && !reachedGoal && !ended ? nextCutoff : null
+  const tarjetaMini = (
+    <button
+      type="button"
+      onClick={() => setMini(false)}
+      aria-label="Agrandar la tarjeta"
+      className="flex w-full items-center gap-2 px-3 py-2 text-left"
+    >
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
+        {state.username ? `@${state.username}` : headline}
+      </span>
+      {margenMini && (
+        <span className={`shrink-0 text-sm font-extrabold tabular-nums ${
+          sinCobertura ? 'text-slate-300'
+            : margenMini.marginMin < 0 ? 'text-rose-400'
+            : margenMini.marginMin < 15 ? 'text-amber-400' : 'text-emerald-400'
+        }`}>
+          {margenMini.marginMin < 0 ? '−' : '+'}{hhmm(margenMini.marginMin)}
+          <span className="ml-1 text-[10px] font-medium text-slate-400">{margenMini.name}</span>
+        </span>
+      )}
+      {/* Los ánimos sin leer no se pueden perder por encoger la tarjeta. */}
+      {unreadCheers > 0 && <span className="shrink-0 text-xs font-semibold text-fuchsia-300">💬{unreadCheers}</span>}
+      {reachedGoal && <span className="shrink-0 text-sm font-bold text-emerald-400">🏁 en meta</span>}
+      {progressKm != null && !reachedGoal && (
+        <span className="shrink-0 text-xs tabular-nums text-slate-300">{progressKm.toFixed(1)} km</span>
+      )}
+    </button>
+  )
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -3017,6 +3072,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             pastilla de estado: desplegado, el cuadro llegaba casi al borde y el
             tirador quedaba fuera de pantalla, sin forma de volver a plegarlo. */}
         <div className="flex max-h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl">
+          {mini && !showAdvanced ? tarjetaMini : (<>
           <div className="shrink-0 px-3 pt-2.5 pb-1.5">
             {header}
           </div>
@@ -3551,6 +3607,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               </>
             )}
           </div>
+          </>)}
           {/* Barra de progreso a sangre en el borde inferior, justo encima del
               tirador. El degradado ocupa SIEMPRE el ancho completo y lo que se
               tapa es lo que falta, asi que el color del extremo lleno indica por
@@ -3577,15 +3634,31 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             no se vea la costura entre ambos. */}
         {fix && (
           <button
-            onClick={() => { if (advDraggedRef.current) { advDraggedRef.current = false; return } setShowAdvanced((v) => !v) }}
-            onTouchStart={(e) => { advDragStartY.current = e.touches[0].clientY; advDraggedRef.current = false }}
-            onTouchMove={(e) => {
-              if (advDragStartY.current == null) return
-              const dy = e.touches[0].clientY - advDragStartY.current
-              if (Math.abs(dy) > 24) { advDraggedRef.current = true; setShowAdvanced(dy > 0) }
+            onClick={() => {
+              if (advDraggedRef.current) { advDraggedRef.current = false; return }
+              if (mini) setMini(false)
+              else setShowAdvanced((v) => !v)
             }}
-            onTouchEnd={() => { advDragStartY.current = null }}
-            aria-label={showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca o arrastra)'}
+            // Con el puntero y no con toques: así también se arrastra con el
+            // ratón. UN escalón por gesto —si no, un arrastre largo desde
+            // desplegado se saltaba la normal y acababa en la mínima—.
+            onPointerDown={(e) => {
+              advDragStartY.current = e.clientY
+              advDraggedRef.current = false
+              try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* sin captura, igual funciona con el dedo */ }
+            }}
+            onPointerMove={(e) => {
+              if (advDragStartY.current == null || advDraggedRef.current) return
+              const dy = e.clientY - advDragStartY.current
+              if (Math.abs(dy) <= 24) return
+              advDraggedRef.current = true
+              if (dy > 0) { if (mini) setMini(false); else setShowAdvanced(true) }
+              else if (showAdvanced) setShowAdvanced(false)
+              else setMini(true)
+            }}
+            onPointerUp={() => { advDragStartY.current = null }}
+            onPointerCancel={() => { advDragStartY.current = null }}
+            aria-label={mini ? 'Agrandar la tarjeta' : showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca, o arrastra hacia arriba para encoger)'}
             className="group absolute left-1/2 top-full flex w-16 -translate-x-1/2 -translate-y-px touch-none items-center justify-center gap-1 rounded-b-xl border border-t-0 border-slate-700 bg-slate-900/85 py-1.5 shadow-lg backdrop-blur"
           >
             {[0, 1, 2].map((i) => (
@@ -3669,11 +3742,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           in one bottom card so the trail colours read alongside "en directo". */}
       <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
-        <div className={`${hasAccuracyData || heatLegendItems ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
-          <div className="whitespace-nowrap">{statusLine}</div>
+        {/* Plegada por defecto: solo "en directo · visto hace…", que es lo que
+            se mira siempre. La hora del radar y la leyenda de colores aparecen
+            al tocarla, y se recuerda en este dispositivo. Con las tres líneas
+            fijas la pastilla tapaba medio mapa por abajo mientras la tarjeta
+            lo tapaba por arriba. Es un <button>: en el Safari del iPhone un
+            div no recibe el toque. */}
+        <button
+          type="button"
+          onClick={() => cambiaPastilla(!pastillaAbierta)}
+          aria-expanded={pastillaAbierta}
+          aria-label={pastillaAbierta ? 'Ocultar la leyenda' : 'Ver la leyenda y el radar'}
+          className={`${pastillaAbierta && (hasAccuracyData || heatLegendItems || radar) ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
+          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+            {statusLine}
+            {!pastillaAbierta && (hasAccuracyData || heatLegendItems || radar) && (
+              <span className="text-[10px] text-slate-500" aria-hidden="true">▴</span>
+            )}
+          </div>
           {/* De cuándo es la lluvia que se ve: una imagen de hace media hora
               tomada por la de ahora engaña justo cuando importa. */}
-          {radar && (
+          {pastillaAbierta && radar && (
             <div className="mt-0.5 whitespace-nowrap text-[10px] text-violet-300">
               {radarFrame
                 ? <>🛰️ lluvia de las {formatTime(new Date(radarFrame.timeMs))}{radarEsLaUltima ? ' · la última' : ' ▸'}</>
@@ -3684,7 +3773,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               puesto, los colores de la traza son ritmo y no precision, asi que
               enseñar la escala de precision seria describir un mapa que ya no
               esta ahi. Una leyenda a la vez, la del modo activo. */}
-          {heatLegendItems ? (
+          {!pastillaAbierta ? null : heatLegendItems ? (
             <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
               <span className="uppercase tracking-wide text-slate-400">{showPace ? 'Ritmo' : 'Velocidad'}</span>
               {heatLegendItems.map((b) => (
@@ -3705,7 +3794,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               ))}
             </div>
           )}
-        </div>
+        </button>
       </div>
 
       {photoViewer && (
