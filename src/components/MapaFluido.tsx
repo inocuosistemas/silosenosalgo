@@ -473,10 +473,13 @@ export default function MapaFluido(p: Props) {
     if (!listo) return
     const f = p.fantasma
     suelto('fantasma', f ? 'fantasma' : null, () => {
-      // El corredor virtual: apagado a propósito, para no competir con el real.
+      // El corredor virtual: visible pero distinto del real —aro discontinuo
+      // violeta oscuro con halo blanco, frente al punto azul macizo—. Igual
+      // que en el mapa clásico.
       const el = document.createElement('div')
-      el.style.cssText = 'width:16px;height:16px;border-radius:9999px;box-sizing:border-box;cursor:pointer;'
-        + `border:2px solid rgba(167,139,250,.7);background:rgba(167,139,250,.25);z-index:${CAPA.fantasma}`
+      el.style.cssText = 'width:18px;height:18px;border-radius:9999px;box-sizing:border-box;cursor:pointer;'
+        + 'border:2.5px dashed #6d28d9;background:rgba(196,181,253,.6);box-shadow:0 0 0 2.5px rgba(255,255,255,.85);'
+        + `z-index:${CAPA.fantasma}`
       el.addEventListener('click', (ev) => {
         ev.stopPropagation()
         const actual = fantasmaRef.current

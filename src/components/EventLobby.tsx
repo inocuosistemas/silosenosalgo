@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { X, UserPlus, Shield, Download, Share2, MessageSquare } from 'lucide-react'
+import { X, UserPlus, Shield, Download, Share2, MessageSquare, PenLine, Check } from 'lucide-react'
 import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
@@ -11,7 +11,7 @@ import {
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual,
   expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -67,6 +67,8 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   const [expulsando, setExpulsando] = useState<string | null>(null)
   /** De quién se está precisando dónde lo dejó (su nombre), o ninguno. */
   const [ajustando, setAjustando] = useState<string | null>(null)
+  /** De quién está abierto el panel de modo manual. */
+  const [manualDe, setManualDe] = useState<string | null>(null)
   /** De quién se está mirando el dorsal en grande (su userId), o null. */
   const [dorsal, setDorsal] = useState<string | null>(null)
   /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
@@ -560,6 +562,20 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     } finally { setBusy(false) }
   }
 
+  /**
+   * Modo manual: cuando la baliza de alguien no sirve, quien organiza anota
+   * sus pasos por los controles desde el cronometraje oficial.
+   */
+  async function cambiaManual(username: string, cambio: { modo: boolean } | { km: number; at: number | null }) {
+    setBusy(true); setError(null)
+    try {
+      await marcaManual(id, username, cambio)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   /** Guarda el evento ahora: el replay, el recorrido y la foto, sin caducidad. */
   async function guardar() {
     setBusy(true); setError(null)
@@ -1024,6 +1040,14 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               onAjustar={() => setAjustando(ajustando === m.username ? null : m.username)}
               puntos={carrera?.puntos ?? []}
               onPunto={(km) => void marcaAbandono(m.username, true, km)}
+              // Modo manual: solo quien organiza, que es quien tiene el
+              // cronometraje oficial delante.
+              canManual={event.canOrganize === true}
+              manualAbierto={manualDe === m.username}
+              onToggleManual={() => setManualDe(manualDe === m.username ? null : m.username)}
+              onManual={(cambio) => void cambiaManual(m.username, cambio)}
+              salidaMs={event.startsAt}
+              totalKm={carrera?.km ?? null}
             />
           ))}
         </ul>
@@ -1915,6 +1939,7 @@ function MemberRow({
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
   canRetire, onRetire, ajustando, onAjustar, puntos, onPunto,
+  canManual, manualAbierto, onToggleManual, onManual, salidaMs, totalKm,
 }: {
   m: EventMember
   now: number
@@ -1956,6 +1981,14 @@ function MemberRow({
   /** Los puntos de paso del recorrido, para señalar uno. */
   puntos: { nombre: string; km: number }[]
   onPunto: (km: number) => void
+  /** Modo manual (ver `cambiaManual`): quien organiza. */
+  canManual: boolean
+  manualAbierto: boolean
+  onToggleManual: () => void
+  onManual: (cambio: { modo: boolean } | { km: number; at: number | null }) => void
+  /** La salida, para convertir "07:21" en una hora del día de la carrera. */
+  salidaMs: number | null
+  totalKm: number | null
 }) {
   const live = m.sessionId !== null
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
@@ -2048,6 +2081,8 @@ function MemberRow({
             ⊘ se retiró
             {m.retiredKm != null && <span className="text-slate-400"> · km {m.retiredKm.toFixed(1)}</span>}
           </button>
+        ) : m.manualPasos ? (
+          <span className="text-sky-300">✎ manual</span>
         ) : live ? (
           <span className="text-emerald-400">● emitiendo</span>
         ) : online ? (
@@ -2091,6 +2126,22 @@ function MemberRow({
             </div>
           )}
         </div>
+      )}
+      {canManual && (
+        <button
+          onClick={onToggleManual}
+          title={`Modo manual de ${m.username}: anotar sus pasos por los controles`}
+          aria-label="Modo manual"
+          aria-expanded={manualAbierto}
+          className={`shrink-0 px-1 transition-colors ${m.manualPasos ? 'text-sky-300' : 'text-slate-600 hover:text-sky-400'}`}
+        >
+          <PenLine size={13} />
+        </button>
+      )}
+      {manualAbierto && (
+        <PanelManual
+          m={m} busy={busy} puntos={puntos} salidaMs={salidaMs} totalKm={totalKm} onManual={onManual}
+        />
       )}
       {canRetire && (
         <button
@@ -2262,4 +2313,110 @@ function fmtDate(ms: number): string {
   try {
     return new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
   } catch { return '' }
+}
+
+/**
+ * El panel del modo manual de un corredor.
+ *
+ * Para cuando su baliza no sirve —se quedó sin batería, no la llevaba—: quien
+ * organiza copia sus pasos del cronometraje oficial ("Pujalt 07:21") y con
+ * ellos se le sigue en el mapa, cuenta en la clasificación y en la porra. Un
+ * control por fila con su hora; la meta al final aunque el recorrido no la
+ * tenga como punto.
+ */
+function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
+  m: EventMember
+  busy: boolean
+  puntos: { nombre: string; km: number }[]
+  salidaMs: number | null
+  totalKm: number | null
+  onManual: (cambio: { modo: boolean } | { km: number; at: number | null }) => void
+}) {
+  const pasos = m.manualPasos ?? null
+  const filas = [...puntos]
+  if (totalKm != null && !filas.some((p) => Math.abs(p.km - totalKm) < 0.2)) filas.push({ nombre: 'Meta', km: totalKm })
+  const [horas, setHoras] = useState<Record<string, string>>({})
+  const hora = (ms: number) => new Date(ms).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  /** "07:21" → epoch ms del día de la carrera; si cae antes de la salida, del día siguiente. */
+  const aEpoch = (hhmm: string): number | null => {
+    const mm = /^(\d{1,2}):(\d{2})$/.exec(hhmm)
+    if (!mm) return null
+    const d = new Date(salidaMs ?? Date.now())
+    d.setHours(Number(mm[1]), Number(mm[2]), 0, 0)
+    let t = d.getTime()
+    if (salidaMs != null && t < salidaMs) t += 24 * 3600_000
+    return t
+  }
+  return (
+    <div className="mt-1.5 w-full rounded-lg border border-sky-900/60 bg-slate-950/60 p-2">
+      {pasos === null ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] text-slate-400">
+            Si su baliza no funciona, pásalo a modo manual y anota sus pasos por los controles.
+          </p>
+          <button
+            onClick={() => onManual({ modo: true })}
+            disabled={busy}
+            className="shrink-0 rounded-md bg-sky-700 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+          >
+            Pasar a manual
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[11px] text-slate-400">
+            Modo manual: mandan estos pasos, no su baliza. Copia las horas del cronometraje oficial.
+          </p>
+          <div className="mt-1.5 space-y-1">
+            {filas.map((p) => {
+              const clave = p.km.toFixed(2)
+              const anotado = pasos.find(([k]) => Math.abs(k - p.km) < 0.05) ?? null
+              const valor = horas[clave] ?? (anotado ? hora(anotado[1]) : '')
+              const at = aEpoch(valor)
+              const cambiado = at != null && (!anotado || Math.abs(anotado[1] - at) >= 60_000)
+              return (
+                <div key={clave} className="flex items-center gap-2 text-[11px]">
+                  <span className={`min-w-0 flex-1 truncate ${anotado ? 'text-slate-200' : 'text-slate-400'}`}>
+                    {p.nombre} <span className="text-slate-500">km {p.km.toFixed(1)}</span>
+                  </span>
+                  <input
+                    type="time"
+                    value={valor}
+                    onChange={(e) => setHoras((h) => ({ ...h, [clave]: e.target.value }))}
+                    className="w-[5.5rem] rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-slate-200"
+                    aria-label={`Hora de paso por ${p.nombre}`}
+                  />
+                  <button
+                    onClick={() => at != null && onManual({ km: p.km, at })}
+                    disabled={busy || !cambiado}
+                    title="Guardar este paso"
+                    aria-label={`Guardar el paso por ${p.nombre}`}
+                    className="shrink-0 text-emerald-400 disabled:opacity-20"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => { setHoras((h) => ({ ...h, [clave]: '' })); onManual({ km: p.km, at: null }) }}
+                    disabled={busy || !anotado}
+                    title="Borrar este paso"
+                    aria-label={`Borrar el paso por ${p.nombre}`}
+                    className="shrink-0 text-slate-500 hover:text-rose-400 disabled:opacity-20"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <button
+            onClick={() => onManual({ modo: false })}
+            disabled={busy}
+            className="mt-2 text-[11px] text-slate-400 underline hover:text-sky-300 disabled:opacity-40"
+          >
+            Volver a su baliza (borra los pasos anotados)
+          </button>
+        </>
+      )}
+    </div>
+  )
 }

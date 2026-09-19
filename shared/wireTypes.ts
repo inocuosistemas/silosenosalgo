@@ -481,6 +481,9 @@ export interface EventMember {
   /** Y dónde lo dejó, si se precisó: km del recorrido. Normalmente sale de
    *  señalar un punto del trazado, que se recuerda mejor que un número. */
   retiredKm: number | null
+  /** Modo manual: sus pasos anotados por quien organiza, `[km, epoch ms]`.
+   *  Null = manda su baliza. */
+  manualPasos?: [number, number][] | null
 }
 
 export interface EventInfo {
@@ -601,6 +604,9 @@ export interface EventPublicRunner {
   retiradoAt?: number | null
   /** Y dónde lo dejó, si se precisó (km del recorrido). */
   retiradoKm?: number | null
+  /** MODO MANUAL: sus pasos por los controles, `[km, epoch ms]`, anotados por
+   *  quien organiza porque su baliza no sirve. Null = manda la baliza. */
+  manualPasos?: [number, number][] | null
   /**
    * Hasta cuándo está EN PAUSA a propósito (epoch ms), o null.
    *

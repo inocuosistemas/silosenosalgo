@@ -3169,11 +3169,23 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               Deliberadamente apagado (violeta translucido, sin borde blanco)
               para que no compita con el punto real. Se dibuja ANTES que el, asi
               que si coinciden queda debajo y el de verdad se ve. */}
+          {/* Más visible que antes —violeta claro al 70% pasaba desapercibido
+              sobre la traza de colores—, pero sin parecerse al de verdad: aro
+              DISCONTINUO violeta oscuro con halo blanco, frente al punto azul
+              macizo del corredor. */}
           {ghostPos && (
             <CircleMarker
               center={ghostPos}
-              radius={7}
-              pathOptions={{ color: '#a78bfa', weight: 2, opacity: 0.7, fillColor: '#a78bfa', fillOpacity: 0.25 }}
+              radius={10}
+              interactive={false}
+              pathOptions={{ color: '#ffffff', weight: 3, opacity: 0.85, fill: false }}
+            />
+          )}
+          {ghostPos && (
+            <CircleMarker
+              center={ghostPos}
+              radius={8}
+              pathOptions={{ color: '#6d28d9', weight: 2.5, opacity: 1, dashArray: '3 3', fillColor: '#c4b5fd', fillOpacity: 0.6 }}
             >
               <Tooltip direction="top" offset={[0, -6]}>
                 Según el plan deberías ir por aquí · km {ghostKm!.toFixed(1)}

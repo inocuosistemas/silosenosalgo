@@ -538,6 +538,22 @@ interface FilaSesion {
   updatedAt: number | null
   trackKm: number | null
   trail: string | null
+  /** Modo manual: sus pasos por los controles anotados por quien organiza,
+   *  `[[km, epoch ms], ...]` en JSON. Null = manda la baliza. */
+  manualPasos?: string | null
+}
+
+/** Los pasos manuales de un corredor, ordenados por km. Null si no está en
+ *  modo manual (o no se entienden). */
+export function leePasosManuales(crudo: string | null | undefined): [number, number][] | null {
+  if (crudo == null) return null
+  try {
+    const v = JSON.parse(crudo) as unknown
+    if (!Array.isArray(v)) return null
+    return v
+      .filter((e): e is [number, number] => Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number')
+      .sort((a, b) => a[0] - b[0])
+  } catch { return null }
 }
 
 /**
@@ -566,6 +582,40 @@ export function calculaEstadisticas(
   const circuito = linea !== null && esCircuito(linea)
 
   for (const f of filas) {
+    /**
+     * MODO MANUAL: su baliza no sirve —se quedó sin batería, no la llevaba— y
+     * quien organiza anota sus pasos por los controles desde el cronometraje
+     * oficial. Entonces mandan esos pasos, no la traza: el kilómetro es el del
+     * último control anotado, y la meta, si se anotó, su hora de llegada. Es
+     * lo que permite que la clasificación y la porra le cuenten.
+     */
+    const pasos = leePasosManuales(f.manualPasos)
+    if (pasos && pasos.length > 0) {
+      const desdeM = startsAt ?? f.startedAt ?? pasos[0][1]
+      const enMeta = totalKm != null
+        ? pasos.find(([km]) => km >= totalKm - tolMeta / 1000) ?? null
+        : null
+      const ultimo = pasos[pasos.length - 1]
+      const retiradoM = !enMeta && (f.retiredAt != null || f.retiredKm != null)
+      const kmM = enMeta ? totalKm! : retiradoM && f.retiredKm != null ? f.retiredKm : ultimo[0]
+      const hastaM = enMeta ? enMeta[1] : ultimo[1]
+      const minutosM = Math.max(0, (hastaM - desdeM) / 60_000)
+      corredores.push({
+        username: f.username, bib: f.bib, emoji: f.emoji, color: f.color,
+        km: Math.round(kmM * 100) / 100,
+        minutos: Math.round(minutosM),
+        ritmoMinKm: kmM > 0.5 ? Math.round((minutosM / kmM) * 100) / 100 : null,
+        mejorKmMin: null, mejorKmDesde: null,
+        finished: enMeta !== null,
+        finishedAt: enMeta ? enMeta[1] : null,
+        margenMs: null,
+        puesto: null,
+        tracked: true,
+        abandono: retiradoM,
+        abandonoAt: retiradoM ? (f.retiredAt ?? ultimo[1]) : null,
+      })
+      continue
+    }
     let pts: TrailPoint[] = []
     if (f.trail) {
       try {
@@ -773,7 +823,7 @@ export async function sesionesDelEvento(env: Env, eventId: string): Promise<Fila
     `SELECT u.username AS username, m.bib AS bib, m.emoji AS emoji, m.color AS color,
             m.retired_at AS retiredAt, m.retired_km AS retiredKm,
             t.status AS status, t.started_at AS startedAt, t.updated_at AS updatedAt,
-            t.track_km AS trackKm, t.trail AS trail
+            t.track_km AS trackKm, t.trail AS trail, m.manual_pasos AS manualPasos
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t

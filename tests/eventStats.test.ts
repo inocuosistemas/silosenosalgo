@@ -685,3 +685,38 @@ describe('circuito: quien acaba de salir no está en la meta', () => {
     expect(a.finished).toBe(false)
   })
 })
+
+// ── Modo manual: la baliza no sirve y organiza anota los pasos ──────────────
+
+describe('modo manual', () => {
+  // Matxicots 26: la baliza de Valen se apagó en el km 12 a las 08:02. Con sus
+  // pasos anotados desde el cronometraje oficial se le sigue contando.
+  const salida = 6 * 3600_000
+  const baliza = corriendo(0, 12, 6, 60, salida)
+  const conPasos = (pasos: [number, number][]) => ({
+    ...corredor('Valen', baliza), status: 'active', manualPasos: JSON.stringify(pasos),
+  })
+
+  it('en carrera: su kilómetro es el del último control anotado, no el de su baliza', () => {
+    const r = calculaEstadisticas([conPasos([[22.9, salida + 4.5 * 3600_000], [9.8, salida + 1.5 * 3600_000]])], 57.7, null, salida, 'run')
+    const v = r.corredores[0]
+    expect(v.km).toBe(22.9)
+    expect(v.finished).toBe(false)
+    expect(v.abandono).toBe(false)
+    expect(v.minutos).toBe(270)
+  })
+
+  it('con la meta anotada, llega: esa es su hora, para la clasificación y la porra', () => {
+    const meta = salida + 11 * 3600_000
+    const r = calculaEstadisticas([conPasos([[22.9, salida + 4.5 * 3600_000], [57.7, meta]])], 57.7, null, salida, 'run')
+    const v = r.corredores[0]
+    expect(v.finished).toBe(true)
+    expect(v.finishedAt).toBe(meta)
+    expect(v.minutos).toBe(660)
+  })
+
+  it('en manual pero sin pasos todavía, manda su baliza', () => {
+    const r = calculaEstadisticas([conPasos([])], 57.7, null, salida, 'run')
+    expect(r.corredores[0].km).toBeGreaterThan(11)
+  })
+})

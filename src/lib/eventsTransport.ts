@@ -220,6 +220,22 @@ export async function marcaRetirado(
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/**
+ * Modo manual de un corredor (ver `functions/api/events/[id]/manual.ts`):
+ * `{ modo: true|false }` lo pasa a manual o lo devuelve a su baliza;
+ * `{ km, at }` anota su paso por ese km (`at: null` lo borra).
+ */
+export async function marcaManual(
+  id: string, username: string, cambio: { modo: boolean } | { km: number; at: number | null },
+): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/manual`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, ...cambio }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
 /** La hora a la que cierra meta (epoch ms), o null para quitarla. */
 export async function setEventEnd(id: string, endsAt: number | null): Promise<void> {
   return setEventSettings(id, { endsAt })
