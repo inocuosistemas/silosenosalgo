@@ -64,7 +64,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (claimed?.usedAt !== now) return json({ error: 'invalid_reset' }, 410)
 
   const { hash, salt, iterations } = await hashPassword(password)
-  await env.DB.prepare('UPDATE users SET password_hash=?, salt=?, iterations=? WHERE id=?')
+  // Nunca a un corredor sin baliza: ponerle contraseña lo convertiría en una
+  // cuenta que nadie ha creado.
+  await env.DB.prepare('UPDATE users SET password_hash=?, salt=?, iterations=? WHERE id=? AND sin_cuenta = 0')
     .bind(hash, salt, iterations, row.userId).run()
   // Fuera todas las sesiones vivas de esa cuenta, incluidas las de las apps.
   await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(row.userId).run()

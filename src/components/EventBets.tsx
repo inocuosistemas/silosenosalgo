@@ -585,60 +585,95 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           ranking de abajo sigue sin repartir un punto hasta que la carrera
           esté decidida, y así tiene que ser. Esto es lo que hace que valga la
           pena mirar el móvil durante las cinco horas. */}
-      {vanGanando.length > 0 && (
-        <section className="mb-4 overflow-hidden rounded-xl border border-emerald-900/50 bg-gradient-to-b from-emerald-950/30 to-slate-900/60">
-          <header className="flex items-center justify-between gap-2 border-b border-emerald-900/40 px-3.5 py-2.5">
-            <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-              </span>
-              Si acabaran así…
-            </h2>
-            <span className="shrink-0 text-[10px] uppercase tracking-wide text-emerald-500/80">provisional</span>
+      {/* Sin sesión la porra llega sin nombres (ver `EventBet.author`): un
+          podio de un solo "jugador" anónimo no dice nada. */}
+      {vanGanando.length > 0 && vanGanando.some((x) => x.author) && (() => {
+        // Hecha para CAPTURARSE: es lo que se manda al grupo mientras se
+        // corre. Por eso lleva el nombre de la carrera y la hora —una captura
+        // sin contexto no dice nada al cabo de un rato—, un podio que se lee
+        // de un vistazo y barras en vez de solo números.
+        const top = vanGanando.slice(0, 5)
+        const max = Math.max(1, ...top.map((x) => x.points))
+        const podio = [top[1], top[0], top[2]]
+        const alturas = ['h-16', 'h-24', 'h-12']
+        const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        // Lo apostado al km más rápido de quien va en manual, en UNA línea.
+        const manuales = runners.filter((r) => r.manual)
+          .map((r) => ({ name: r.username, n: (data?.bets ?? []).filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length }))
+          .filter((x) => x.n > 0)
+        const nulos = manuales.reduce((t, x) => t + x.n, 0)
+        // Con alguien en manual, "quién lleva el km más rápido" ya no da lugar:
+        // a él no se le puede medir, así que el récord no es de la carrera.
+        const hayManual = runners.some((r) => r.manual)
+        return (
+        <section className="mb-4 overflow-hidden rounded-2xl border border-emerald-800/60 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.22),transparent_60%),linear-gradient(to_bottom,#052e2b,#0b1220)] shadow-lg shadow-emerald-950/40">
+          <header className="flex items-start justify-between gap-2 px-4 pb-1 pt-3">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-300">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
+                Si acabaran así…
+              </h2>
+              {eventName && <p className="mt-0.5 truncate text-sm font-semibold text-white">🔮 La porra de {eventName}</p>}
+            </div>
+            <div className="shrink-0 text-right">
+              <span className="rounded-full border border-emerald-700/70 bg-emerald-950/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">provisional</span>
+              <p className="mt-1 text-[10px] tabular-nums text-emerald-500/80">a las {hora}</p>
+            </div>
           </header>
-          <ul className="divide-y divide-slate-800/70">
-            {vanGanando.slice(0, 5).map((s, i) => (
-              <li key={s.author} className="flex items-center gap-2 px-3.5 py-2">
-                <span className="w-5 shrink-0 text-center text-sm">{betMedal(i, s.points)}</span>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
-                  {s.author}
-                  {s.author === data?.me && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
+
+          {/* El podio: el primero en medio y más alto. */}
+          <div className="grid grid-cols-3 items-end gap-2 px-4 pb-3 pt-3">
+            {podio.map((x, k) => x ? (
+              <div key={x.author} className="flex min-w-0 flex-col items-center">
+                <span className={k === 1 ? 'text-3xl' : 'text-2xl'}>{betMedal(k === 1 ? 0 : k === 0 ? 1 : 2, x.points)}</span>
+                <span className={`mt-1 w-full truncate text-center font-bold text-white ${k === 1 ? 'text-base' : 'text-sm'}`}>
+                  {x.author}{x.author === data?.me && <span className="ml-1 text-[10px] font-medium text-sky-300">tú</span>}
                 </span>
-                <span className="shrink-0 text-sm font-bold tabular-nums text-emerald-300">{s.points}</span>
-              </li>
-            ))}
-          </ul>
-          {/* Quién lleva el kilómetro más rápido, que también se apuesta y hasta
-              ahora solo se sabía al cerrar. */}
-          {/* Lo apostado al km más rápido de quien va en modo manual: dicho
-              aquí, que es donde se mira el km más rápido, y no solo en el
-              desglose de cada jugador. */}
-          {(() => {
-            const manuales = runners.filter((r) => r.manual)
-              .map((r) => ({ name: r.username, n: (data?.bets ?? []).filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length }))
-              .filter((x) => x.n > 0)
-            if (manuales.length === 0) return null
-            return (
-              <p className="flex items-start gap-1.5 border-t border-slate-800/70 px-3.5 py-2 text-[11px] text-slate-400">
-                <span aria-hidden className="text-slate-500">∅</span>
-                <span className="min-w-0 flex-1">
-                  {manuales.map((x, i) => (
-                    <span key={x.name}>
-                      {i > 0 && ' · '}
-                      <b className="text-slate-300">{x.n === 1 ? '1 pronóstico' : `${x.n} pronósticos`}</b> al km más rápido de <b className="text-slate-300">{x.name}</b>
-                    </span>
-                  ))}
-                  {' '}no {manuales.reduce((t, x) => t + x.n, 0) === 1 ? 'computa' : 'computan'}: va en modo manual, y sin baliza no se mide su km más rápido. Ni suman ni cuentan como fallo.
-                </span>
-              </p>
-            )
-          })()}
-          {data?.recordVivo && (() => {
+                <div className={`mt-1.5 flex w-full items-start justify-center rounded-t-lg border border-b-0 ${
+                  k === 1 ? 'border-amber-400/50 bg-gradient-to-b from-amber-400/30 to-amber-400/5'
+                    : k === 0 ? 'border-slate-300/40 bg-gradient-to-b from-slate-300/25 to-slate-300/5'
+                    : 'border-orange-400/40 bg-gradient-to-b from-orange-400/25 to-orange-400/5'
+                } ${alturas[k]}`}>
+                  <span className={`mt-1.5 font-extrabold tabular-nums text-white ${k === 1 ? 'text-2xl' : 'text-xl'}`}>{x.points}</span>
+                </div>
+              </div>
+            ) : <div key={k} />)}
+          </div>
+
+          {/* Del cuarto en adelante, con su barra frente al primero. */}
+          {top.length > 3 && (
+            <ul className="space-y-1.5 border-t border-emerald-900/40 px-4 py-2.5">
+              {top.slice(3).map((x, i) => (
+                <li key={x.author} className="flex items-center gap-2 text-sm">
+                  <span className="w-5 shrink-0 text-center text-xs font-bold tabular-nums text-slate-400">{i + 4}º</span>
+                  <span className="w-28 shrink-0 truncate font-semibold text-slate-100">
+                    {x.author}{x.author === data?.me && <span className="ml-1 text-[10px] text-sky-400">tú</span>}
+                  </span>
+                  <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-800">
+                    <span className="block h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${(x.points / max) * 100}%` }} />
+                  </span>
+                  <span className="w-7 shrink-0 text-right font-bold tabular-nums text-emerald-300">{x.points}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {nulos > 0 && (
+            <p className="flex items-center gap-1.5 border-t border-emerald-900/40 px-4 py-1.5 text-[11px] text-slate-400">
+              <span aria-hidden className="text-slate-500">∅</span>
+              <span className="min-w-0 flex-1">
+                Km más rápido: {nulos === 1 ? '1 pronóstico no computa' : `${nulos} pronósticos no computan`} · {manuales.map((x) => x.name).join(', ')} va{manuales.length > 1 ? 'n' : ''} en modo manual
+              </span>
+            </p>
+          )}
+          {!hayManual && data?.recordVivo && (() => {
             const r = data.recordVivo
             const loDijeron = data.bets.filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length
             return (
-              <p className="flex items-center gap-1.5 border-t border-slate-800/70 px-3.5 py-2 text-[11px] text-amber-100">
+              <p className="flex items-center gap-1.5 border-t border-emerald-900/40 px-4 py-1.5 text-[11px] text-amber-100">
                 <span aria-hidden>⚡</span>
                 <span className="min-w-0 flex-1">
                   Km más rápido, de momento: <b>{r.username}</b>
@@ -650,12 +685,12 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
               </p>
             )
           })()}
-          <p className="border-t border-slate-800/70 px-3.5 py-2 text-[10px] leading-snug text-slate-500">
-            Contado con el ritmo que lleva cada uno ahora mismo: cambia con cada
-            posición que llega, y no vale nada hasta que crucen la meta de verdad.
+          <p className="border-t border-emerald-900/40 px-4 py-1.5 text-[10px] leading-snug text-slate-500">
+            Al ritmo de ahora · cambia con cada posición y no vale hasta que crucen la meta · SiLoSeNoSalgo
           </p>
         </section>
-      )}
+        )
+      })()}
 
       {/* LA PORRA, RESUELTA. Cuando la carrera cerró y hay puntos repartidos,
           esto es lo primero y lo único que se viene a ver: quién ganó. Un podio

@@ -29,7 +29,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const row = await env.DB.prepare(
-    'SELECT id, username, password_hash AS hash, salt, iterations, is_admin AS isAdmin FROM users WHERE username_ci = ?',
+    // Los corredores sin baliza (sin_cuenta) no son una cuenta de nadie: no entran.
+    'SELECT id, username, password_hash AS hash, salt, iterations, is_admin AS isAdmin FROM users WHERE username_ci = ? AND sin_cuenta = 0',
   ).bind(usernameCi).first<{ id: string; username: string; hash: string; salt: string; iterations: number; isAdmin: number }>()
 
   if (!row) {

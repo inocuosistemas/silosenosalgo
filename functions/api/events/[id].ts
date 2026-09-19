@@ -86,7 +86,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     `SELECT m.user_id AS userId, u.username AS username, m.color AS color, m.bib AS bib,
             m.bocadillo AS bocadillo,
             m.emoji AS emoji, m.emoji_key AS emojiKey, m.joined_at AS joinedAt, m.last_seen AS lastSeen,
-            m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer, m.retired_at AS retiredAt, m.retired_km AS retiredKm, m.manual_pasos AS manualPasos,
+            m.plan_overlay IS NOT NULL AS hasPlan, m.organizer AS organizer, m.retired_at AS retiredAt, m.retired_km AS retiredKm, m.manual_pasos AS manualPasos, u.sin_cuenta AS sinCuenta,
             (SELECT t.id FROM tracking_sessions t
               WHERE t.event_id = m.event_id AND t.owner_user_id = m.user_id
                 AND t.status = 'active' AND t.expires_at > ?
@@ -102,7 +102,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     userId: string; username: string; color: string | null; bib: string | null
     bocadillo: string | null
     emoji: string | null; emojiKey: string | null
-    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null; retiredKm: number | null; manualPasos: string | null; sessionUpdatedAt: number | null
+    joinedAt: number; lastSeen: number | null; hasPlan: number; sessionId: string | null; retiredAt: number | null; retiredKm: number | null; manualPasos: string | null; sessionUpdatedAt: number | null; sinCuenta: number
     organizer: number
   }>()
 
@@ -125,6 +125,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     retiredKm: r.retiredKm,
     manualPasos: leePasosManuales(r.manualPasos),
     sessionUpdatedAt: r.sessionUpdatedAt,
+    sinCuenta: r.sinCuenta === 1,
     sessionId: r.sessionId,
   }))
 

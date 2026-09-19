@@ -2777,14 +2777,16 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
                   "llega su señal"— y juntas no caben en un móvil sin que una se
                   escape por la derecha. El estado se recorta con puntos
                   suspensivos antes que empujar a nadie fuera. */}
-              {!idle && !armed && (
+              {(!idle || modoManual) && !armed && (
                 <div className="mt-1 flex items-center gap-2.5 overflow-hidden whitespace-nowrap pl-7 text-[11px]">
                   <span className={`min-w-0 truncate ${stale || callado ? 'text-amber-400' : 'text-slate-500'}`}>
-                    {r.updatedAt === null ? 'sin señal'
-                      // Manual: lo que se sabe de él es su último paso anotado,
-                      // y decirlo así explica por qué no se mueve.
-                      : manual ? `✎ manual · pasó el km ${manual[0].toFixed(1)} a las ${hhmm(manual[1])}`
+                    {/* Manual primero: lo que se sabe de él es su último paso
+                        anotado, y decirlo así explica por qué no se mueve. Y
+                        quien va sin baliza desde el principio no tiene "señal"
+                        que echar de menos. */}
+                    {manual ? `✎ manual · pasó el km ${manual[0].toFixed(1)} a las ${hhmm(manual[1])}`
                       : modoManual ? '✎ manual · sin pasos anotados todavía'
+                      : r.updatedAt === null ? 'sin señal'
                       : enPausa ? `⏸ en pausa · vuelve en ${Math.max(1, Math.round((r.pausaHasta! - now) / 60_000))} min`
                       : lost ? `📡 ${silencioTexto(cadencia)} · hace ${agoLabel(now - r.updatedAt)}`
                       // Entre el pulso normal y la avería hay un rato largo que

@@ -11,7 +11,7 @@ import {
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual, anadeSinBaliza,
   expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -589,6 +589,17 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     } finally { setBusy(false) }
   }
 
+  /** Da de alta a un corredor sin baliza: va en modo manual desde el principio. */
+  async function altaSinBaliza(nombre: string, dorsal: string) {
+    setBusy(true); setError(null)
+    try {
+      await anadeSinBaliza(id, nombre, dorsal)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
   /** Guarda el evento ahora: el replay, el recorrido y la foto, sin caducidad. */
   async function guardar() {
     setBusy(true); setError(null)
@@ -1064,6 +1075,13 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
             />
           ))}
         </ul>
+        {/* Corredores SIN BALIZA: quien organiza ya sabe que alguno no la va a
+            llevar (no tiene la app, su móvil no aguanta…). Se le da de alta
+            aquí y va en modo manual desde el principio: sus pasos se anotan
+            del cronometraje oficial, como los de quien se queda sin batería. */}
+        {event.canOrganize === true && !event.endedAt && (
+          <AltaSinBaliza busy={busy} onAlta={(nombre, dorsal) => void altaSinBaliza(nombre, dorsal)} />
+        )}
       </section>
 
       {/* Invitar, PEGADO a la lista de quién hay: es la respuesta a la pregunta
@@ -2094,6 +2112,8 @@ function MemberRow({
             ⊘ se retiró
             {m.retiredKm != null && <span className="text-slate-400"> · km {m.retiredKm.toFixed(1)}</span>}
           </button>
+        ) : m.sinCuenta ? (
+          <span className="text-sky-300" title="Dado de alta sin baliza: se le sigue con sus pasos por los controles">✎ sin baliza</span>
         ) : m.manualPasos ? (
           <span className="text-sky-300">✎ manual</span>
         ) : live && m.sessionUpdatedAt != null && now - m.sessionUpdatedAt > SIN_SENAL_MS ? (
@@ -2488,6 +2508,66 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
           </button>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * El alta de un corredor sin baliza: su nombre y, si lo tiene, su dorsal.
+ * Plegado en una línea hasta que se pulsa: es de las cosas que se hacen una
+ * vez por carrera y no puede competir con la parrilla por el sitio.
+ */
+function AltaSinBaliza({ busy, onAlta }: { busy: boolean; onAlta: (nombre: string, dorsal: string) => void }) {
+  const [abierto, setAbierto] = useState(false)
+  const [nombre, setNombre] = useState('')
+  const [dorsal, setDorsal] = useState('')
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 transition-colors hover:border-sky-700 hover:text-sky-300"
+      >
+        <PenLine size={13} /> Añadir un corredor sin baliza
+      </button>
+    )
+  }
+  const ok = nombre.trim().length >= 3
+  return (
+    <div className="mt-2 rounded-lg border border-sky-900/60 bg-slate-950/60 p-2.5">
+      <p className="text-[11px] leading-snug text-slate-400">
+        Para quien ya se sabe que no llevará la app: irá en <b className="text-slate-300">modo manual</b> desde
+        el principio, y sus pasos se anotan del cronometraje oficial. No es una cuenta: no puede entrar ni emitir.
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          placeholder="Nombre"
+          maxLength={40}
+          className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+          aria-label="Nombre del corredor"
+        />
+        <input
+          value={dorsal}
+          onChange={(e) => setDorsal(e.target.value)}
+          placeholder="Dorsal"
+          maxLength={12}
+          className="w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs tabular-nums text-slate-200"
+          aria-label="Dorsal (opcional)"
+        />
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button onClick={() => { setAbierto(false); setNombre(''); setDorsal('') }} className="px-2 py-1 text-xs text-slate-400 hover:text-slate-200">
+          Cancelar
+        </button>
+        <button
+          onClick={() => { onAlta(nombre.trim(), dorsal.trim()); setAbierto(false); setNombre(''); setDorsal('') }}
+          disabled={busy || !ok}
+          className="rounded-md bg-sky-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
+        >
+          Añadir
+        </button>
+      </div>
     </div>
   )
 }

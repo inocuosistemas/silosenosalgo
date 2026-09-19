@@ -220,6 +220,17 @@ export async function marcaRetirado(
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
 
+/** Da de alta a un corredor SIN BALIZA (va en modo manual desde el principio). */
+export async function anadeSinBaliza(id: string, nombre: string, dorsal: string): Promise<{ username: string }> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/sin-baliza`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre, dorsal: dorsal || undefined }),
+  })
+  if (!res.ok) throw errFrom(res)
+  return res.json() as Promise<{ username: string }>
+}
+
 /**
  * Modo manual de un corredor (ver `functions/api/events/[id]/manual.ts`):
  * `{ modo: true|false }` lo pasa a manual o lo devuelve a su baliza;
@@ -589,6 +600,8 @@ export function eventsErrorMessage(code: string): string {
     case 'not_found': return 'Este evento ya no existe o no participas en él.'
     case 'no_session': return 'No tienes ninguna baliza emitiendo ahora mismo. Empieza a compartir tu posición y vuelve.'
     case 'bad_bib': return 'Ese dorsal no vale: hasta 12 caracteres, letras y números.'
+    case 'bad_name': return 'Ese nombre no vale: al menos 3 letras o números.'
+    case 'username_taken': return 'No se ha encontrado un nombre libre para ese corredor. Prueba con otro.'
     case 'bad_url': return 'El enlace tiene que empezar por http:// o https://.'
     case 'color_taken': return 'Ese color acaba de cogerlo otro participante. Elige otro.'
     case 'emoji_taken': return 'Ese emoji acaba de cogerlo otro participante. Elige otro.'

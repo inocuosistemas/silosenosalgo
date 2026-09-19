@@ -60,6 +60,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     .bind(id, target).run()
   await env.DB.prepare('UPDATE tracking_sessions SET event_id = NULL WHERE event_id = ? AND owner_user_id = ?')
     .bind(id, target).run()
+  // Un corredor SIN BALIZA (ver `sin-baliza.ts`) no es la cuenta de nadie: fuera
+  // del evento que lo dio de alta no tiene razón de existir.
+  await env.DB.prepare(
+    'DELETE FROM users WHERE id = ? AND sin_cuenta = 1 AND NOT EXISTS (SELECT 1 FROM event_members WHERE user_id = ?)',
+  ).bind(target, target).run()
   // Sus pronósticos y los que le apuntaban. `target_id` guarda el id de quien
   // corre, y '' es la apuesta a la carrera entera —el ganador—, que no es de
   // nadie en particular y se queda.

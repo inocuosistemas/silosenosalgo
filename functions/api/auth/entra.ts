@@ -34,7 +34,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const userId = await env.SHARE_KV.get(clave)
     if (userId) {
       await env.SHARE_KV.delete(clave)
-      const existe = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first()
+      const existe = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND sin_cuenta = 0').bind(userId).first()
       if (existe) {
         const token = await createSession(env, userId)
         headers.append('Set-Cookie', buildSessionCookie(requestHost(request), token))

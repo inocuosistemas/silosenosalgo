@@ -473,6 +473,9 @@ export interface EventMember {
   /** Cuándo llegó su última posición a esa sesión (epoch ms), o null si aún
    *  ninguna. Separa "emitiendo" de "sesión abierta pero callada". */
   sessionUpdatedAt?: number | null
+  /** Corredor SIN BALIZA dado de alta por quien organiza: no es una cuenta y
+   *  va siempre en modo manual. */
+  sinCuenta?: boolean
   /**
    * Cuándo lo dieron por retirado A MANO (epoch ms), o null.
    *
