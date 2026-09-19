@@ -2098,35 +2098,6 @@ function MemberRow({
       {/* ¿Dónde lo dejó? Señalar un punto del recorrido en vez de teclear un
           kilómetro: el sitio se recuerda y el número no. De ahí salen el
           kilómetro y —mirando su traza— la hora. */}
-      {ajustando && (
-        <div className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 p-2">
-          <p className="text-[11px] text-slate-400">
-            ¿Dónde dejó la carrera {m.username}?
-          </p>
-          {puntos.length === 0 ? (
-            <p className="mt-1 text-[11px] text-slate-600">
-              Esta carrera no tiene puntos de paso en el recorrido.
-            </p>
-          ) : (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {puntos.map((p) => (
-                <button
-                  key={`${p.nombre}-${p.km}`}
-                  onClick={() => onPunto(p.km)}
-                  disabled={busy}
-                  className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40 ${
-                    m.retiredKm != null && Math.abs(m.retiredKm - p.km) < 0.05
-                      ? 'border-rose-500 bg-rose-500/15 text-rose-200'
-                      : 'border-slate-700 text-slate-300 hover:border-rose-500 hover:text-rose-300'
-                  }`}
-                >
-                  {p.nombre} <span className="text-slate-500">km {p.km.toFixed(1)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       {canManual && (
         <button
           onClick={onToggleManual}
@@ -2137,11 +2108,6 @@ function MemberRow({
         >
           <PenLine size={13} />
         </button>
-      )}
-      {manualAbierto && (
-        <PanelManual
-          m={m} busy={busy} puntos={puntos} salidaMs={salidaMs} totalKm={totalKm} onManual={onManual}
-        />
       )}
       {canRetire && (
         <button
@@ -2183,6 +2149,42 @@ function MemberRow({
         delante. Un `confirm()` del navegador taparía la lista justo cuando hace
         falta ver a quién se está sacando, y "¿seguro?" a secas no dice que
         también se van sus pronósticos. */}
+    {/* Los paneles, DEBAJO de la fila y a todo el ancho: dentro de la fila
+        competían por el sitio con los botones y el texto salía en columna. */}
+    {ajustando && (
+      <div className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+        <p className="text-[11px] text-slate-400">
+          ¿Dónde dejó la carrera {m.username}?
+        </p>
+        {puntos.length === 0 ? (
+          <p className="mt-1 text-[11px] text-slate-600">
+            Esta carrera no tiene puntos de paso en el recorrido.
+          </p>
+        ) : (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {puntos.map((p) => (
+              <button
+                key={`${p.nombre}-${p.km}`}
+                onClick={() => onPunto(p.km)}
+                disabled={busy}
+                className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40 ${
+                  m.retiredKm != null && Math.abs(m.retiredKm - p.km) < 0.05
+                    ? 'border-rose-500 bg-rose-500/15 text-rose-200'
+                    : 'border-slate-700 text-slate-300 hover:border-rose-500 hover:text-rose-300'
+                }`}
+              >
+                {p.nombre} <span className="text-slate-500">km {p.km.toFixed(1)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+    {manualAbierto && (
+      <PanelManual
+        m={m} busy={busy} puntos={puntos} salidaMs={salidaMs} totalKm={totalKm} onManual={onManual}
+      />
+    )}
     {confirmingExpel && (
       <div className="mt-2 border-t border-slate-800 pt-2 text-[11px]">
         <p className="text-slate-400">
