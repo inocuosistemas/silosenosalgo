@@ -2688,6 +2688,24 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     color: state.marca?.color ? eventColorHex(state.marca.color) : '#0ea5e9',
   }
 
+  /**
+   * A qué hora pasó DE VERDAD por un kilómetro: la primera vez que su traza
+   * sobre el recorrido lo alcanza, interpolando entre sus dos lecturas. Es lo
+   * que permite enseñar, en los tramos ya hechos, lo previsto al salir contra
+   * lo que pasó. Null si su traza no llega (o no hay traza).
+   */
+  const pasoReal = (km: number): number | null => {
+    if (km <= 0.05) return sessionStart.getTime()
+    const m = formSamples
+    for (let k = 0; k < m.length; k++) {
+      if (m[k].km < km) continue
+      if (k === 0) return m[0].t
+      const a = m[k - 1], b = m[k]
+      return b.km > a.km ? a.t + ((km - a.km) / (b.km - a.km)) * (b.t - a.t) : b.t
+    }
+    return null
+  }
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -2722,7 +2740,27 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const queda = dentro
         ? elevationStatsForSegment(plan.track, progressKm!, r.w.distanceKm, plan.paceConfig)
         : null
-      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, regla: r.regla, plannedETA, cutoff, projectedETA, marginMin, passed, band, reqPace, wx }
+      /**
+       * Tramo HECHO: lo previsto al salir contra lo que pasó. La previsión es
+       * la del plan tal cual se publicó —no la reajustada sobre la marcha, que
+       * a toro pasado siempre acierta— y lo real sale de su traza.
+       */
+      const realMs = passed ? pasoReal(r.w.distanceKm) : null
+      const realPrevMs = passed ? pasoReal(anterior) : null
+      const previstoPrevMs = i > 0 ? (planRows ?? [])[i - 1].plannedElapsedMs : 0
+      const real = realMs != null && plannedETA
+        ? {
+            pasoMs: realMs,
+            difMin: (realMs - plannedETA.getTime()) / 60_000,
+            tramoMin: realPrevMs != null && realMs > realPrevMs ? (realMs - realPrevMs) / 60_000 : null,
+            previstoTramoMin: r.plannedElapsedMs != null && previstoPrevMs != null
+              ? (r.plannedElapsedMs - previstoPrevMs) / 60_000
+              : null,
+          }
+        : null
+      // Y el margen al corte, el que TUVO al pasar, no uno proyectado.
+      const margenFinal = real && cutoff ? (cutoff.getTime() - real.pasoMs) / 60_000 : marginMin
+      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, regla: r.regla, plannedETA, cutoff, projectedETA, marginMin: margenFinal, passed, band, reqPace, wx, real }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
 
@@ -2734,7 +2772,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    */
   const tarjetaTramo = (c: typeof cards[number], i: number, grande = false) => (
     <div
-        className={`rounded-xl border p-3 ${i === nextIdx ? 'border-sky-600 bg-sky-950/30' : c.passed ? 'border-slate-800 bg-slate-900/40 opacity-60' : 'border-slate-700 bg-slate-900'}`}
+        className={`rounded-xl border p-3 ${i === nextIdx ? 'border-sky-600 bg-sky-950/30' : c.passed ? 'border-slate-800 bg-slate-900/40 opacity-80' : 'border-slate-700 bg-slate-900'}`}
       >
         <div className="flex items-baseline justify-between gap-2">
           <p className="font-semibold truncate">
@@ -2745,11 +2783,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </div>
         {c.w.desc && <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{c.w.desc}</p>}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span className="text-slate-300">Paso previsto: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
+          {c.real ? (
+            <span className="text-slate-300">
+              Pasó <span className="font-medium">{clockDay(new Date(c.real.pasoMs), sessionStart)}</span>
+              {c.plannedETA && <> · previsto {clockDay(c.plannedETA, sessionStart)}</>}
+              {Math.abs(c.real.difMin) >= 1
+                ? <> · <span className={c.real.difMin < 0 ? 'text-emerald-400' : 'text-amber-400'}>{hhmm(c.real.difMin)} {c.real.difMin < 0 ? 'antes' : 'después'}</span></>
+                : <> · <span className="text-emerald-400">en hora</span></>}
+            </span>
+          ) : (
+            <span className="text-slate-300">Paso previsto: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
+          )}
           {c.cutoff && (
             <span className={marginTone(c.marginMin)}>
               Corte {clockDay(c.cutoff, sessionStart)}
-              {c.marginMin != null && <> · {c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
+              {c.marginMin != null && <> · {c.real ? 'pasó con ' : ''}{c.marginMin < 0 ? '−' : '+'}{hhmm(c.marginMin)}</>}
               {c.reqPace != null && <> · {c.reqPace === Infinity ? 'vencido' : `necesitas ${paceLabel(c.reqPace)}`}</>}
             </span>
           )}
@@ -2764,8 +2812,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               quedan {c.queda.distanceKm.toFixed(1)} km · ↑{Math.round(c.queda.elevGainM)} ↓{Math.round(c.queda.elevLossM)} m · ~{Math.round(c.queda.estimatedMinutes)} min
             </span>
           )}
+          {/* Tramo hecho: cuánto tardó contra lo previsto al salir. En
+              porcentaje de TIEMPO, igual que el estado de forma, y en
+              palabras. */}
+          {c.real?.tramoMin != null && c.real.previstoTramoMin != null && c.real.previstoTramoMin > 0 && (() => {
+            const pct = Math.round((c.real.tramoMin / c.real.previstoTramoMin - 1) * 100)
+            return (
+              <span className="font-medium text-slate-200">
+                tramo en {hhmm(c.real.tramoMin)} · previsto {hhmm(c.real.previstoTramoMin)}
+                {pct !== 0 && <> · <span className={pct < 0 ? 'text-emerald-400' : 'text-amber-400'}>{masLentoORapido(pct)}</span></>}
+              </span>
+            )
+          })()}
           <span className={c.queda ? 'text-slate-500' : undefined}>
-            {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min
+            {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}%{!c.real && <> · ~{Math.round(c.seg.estimatedMinutes)} min</>}
           </span>
           {c.w.ele != null && <span><Mountain size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
           {c.w.pauseMin != null && c.w.pauseMin > 0 && <span><Pause size={11} className="inline-block -mt-0.5 align-middle" /> {c.w.pauseMin} min</span>}
