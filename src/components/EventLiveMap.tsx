@@ -659,10 +659,28 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       const key = r.userId ?? r.username
       const medida = { m: 0 }
       let km: number | null = r.fix?.trackKm ?? null
+      // CIRCUITO: mientras es imposible haber acabado (nadie va más rápido que
+      // la velocidad máxima de su actividad), las búsquedas que empiezan de
+      // cero se siembran en la SALIDA y no en todo el recorrido: si no, el
+      // primer punto de quien está en la salida caía en la meta —mismo sitio—
+      // y todo lo que se reconstruía detrás (su kilómetro, su historial, el
+      // detector de abandonos) arrastraba ese 57,7. Ver el bloque de abajo.
+      const actR = r.activity ?? actividad
+      const velMaxR = actR && actR in ACTIVITY_MAX_SPEED_KMH
+        ? ACTIVITY_MAX_SPEED_KMH[actR as keyof typeof ACTIVITY_MAX_SPEED_KMH]
+        : 25
+      const minimoParaAcabarMs = route ? (route.totalKm / velMaxR) * 3_600_000 : 0
+      // La salida oficial, o la de su sesión si la del evento aún no ha
+      // llegado: el historial se siembra UNA vez, y si se sembraba antes de
+      // tener la hora, se quedaba con el 57,7 para siempre.
+      const salidaRef = startMs ?? r.startedAt ?? null
+      const pronto = (t: number | null | undefined) =>
+        circuito && salidaRef != null && t != null && t - salidaRef < minimoParaAcabarMs
+      const semilla = (t: number) => (pronto(t) ? 0 : null)
       if (r.fix && route) {
         let cerca = kmPrevio.current.get(key) ?? null
         if (cerca == null && km == null) {
-          for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca)
+          for (const p of r.tail) cerca = projectKm(p.lat, p.lon, route, cerca ?? semilla(p.t))
         }
         if (!historial.current.has(key)) {
           // El mismo recorrido de la cola, quedándose con cada kilómetro: el
@@ -672,7 +690,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           const sembrado: Paso[] = []
           let c: number | null = null
           for (const p of r.tail) {
-            c = projectKm(p.lat, p.lon, route, c)
+            c = projectKm(p.lat, p.lon, route, c ?? semilla(p.t))
             if (c != null) sembrado.push({ t: p.t, km: c })
           }
           historial.current.set(key, sembrado)
@@ -705,13 +723,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
          * la meta es la salida. Solo si casa igual de bien (el mismo sitio): a
          * quien va de verdad por la segunda mitad no se le toca.
          */
-        if (circuito && km != null && km > route.totalKm / 2 && startMs != null && r.updatedAt != null) {
-          const act = r.activity ?? actividad
-          const velMax = act && act in ACTIVITY_MAX_SPEED_KMH
-            ? ACTIVITY_MAX_SPEED_KMH[act as keyof typeof ACTIVITY_MAX_SPEED_KMH]
-            : 25
-          const minimoParaAcabarMs = (route.totalKm / velMax) * 3_600_000
-          if (r.updatedAt - startMs < minimoParaAcabarMs) {
+        if (km != null && km > route.totalKm / 2 && pronto(r.updatedAt)) {
+          {
             const enSalida = { m: 0 }
             const kmSalida = projectKm(r.fix.lat, r.fix.lon, route, 0, route.totalKm / 2, enSalida)
             if (kmSalida != null && enSalida.m <= medida.m + 150) {
