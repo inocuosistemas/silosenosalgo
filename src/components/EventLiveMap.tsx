@@ -363,7 +363,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   /** La vista 3D, encima del mapa; el mapa sigue debajo recibiendo posiciones. */
   const [en3D, setEn3D] = useState(false)
   /** El punto del recorrido que se ha tocado: para pedir avisos de paso. */
-  const [puntoAvisos, setPuntoAvisos] = useState<{ km: number; nombre: string } | null>(null)
+  const [puntoAvisos, setPuntoAvisos] = useState<{ km: number; nombre: string; texto?: string } | null>(null)
   /**
    * Con qué se dibuja el mapa: el fluido (MapLibre, en la GPU) por defecto en
    * el navegador, el clásico (Leaflet) como opción. La misma preferencia que
@@ -1661,7 +1661,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               key={`${poi.lat},${poi.lon}`}
               position={[poi.lat, poi.lon]}
               icon={iconoPunto(poi.tipo, !!poi.cutoffAt)}
-              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name }) } } }}
+              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name, texto: textoPoi(poi) }) } } }}
             >
               <Tooltip direction="top" offset={[0, -10]} permanent={showPoiNames} className="poi-tip">
                 {textoPoi(poi)}
@@ -1672,7 +1672,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
               key={`${poi.lat},${poi.lon}`}
               center={[poi.lat, poi.lon]}
               radius={poi.cutoffAt ? 5 : 4}
-              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name }) } } }}
+              eventHandlers={{ click: () => { if (poi.km != null) { setSelected(null); setPuntoAvisos({ km: poi.km, nombre: poi.name, texto: textoPoi(poi) }) } } }}
               pathOptions={{
                 color: '#f8fafc',
                 weight: 1.5,
@@ -3795,7 +3795,7 @@ function iconoPunto(tipo: TipoPunto, conCorte: boolean): L.DivIcon {
  * donde hay notificaciones de verdad, aunque lo pidas desde el navegador.
  */
 function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
-  punto: { km: number; nombre: string }
+  punto: { km: number; nombre: string; texto?: string }
   evento: EventoAvisos | null
   logueado: boolean
   corredores: { nombre: string; emoji: string | null; pasado: boolean; noPasara: boolean }[]
@@ -3832,9 +3832,15 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
     <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/95 p-3 backdrop-blur">
       <div className="flex items-center gap-2">
         <span className="text-base" aria-hidden>🔔</span>
-        <p className="min-w-0 flex-1 truncate text-sm font-bold text-slate-100">
-          {punto.nombre} <span className="font-normal text-slate-400">· km {punto.km.toFixed(1)}</span>
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-slate-100">
+            {punto.nombre} <span className="font-normal text-slate-400">· km {punto.km.toFixed(1)}</span>
+          </p>
+          {/* Lo que decía su cartel: qué es, cuánto se para, cuándo cierra. */}
+          {punto.texto && punto.texto.split(' · ').length > 2 && (
+            <p className="truncate text-[11px] text-slate-400">{punto.texto.split(' · ').slice(2).join(' · ')}</p>
+          )}
+        </div>
         <button onClick={onClose} aria-label="Cerrar"
           className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-800/80 text-lg text-slate-300 hover:text-white">×</button>
       </div>

@@ -49,7 +49,7 @@ interface Props {
   /** `icono`: el HTML del avituallamiento; sin él, el círculo de siempre. */
   pois: { lat: number; lon: number; texto: string; corte: boolean; icono?: string | null; km: number | null; nombre: string }[]
   /** Se ha tocado un punto: para pedir avisos de paso en él. */
-  onElegirPunto?: (punto: { km: number; nombre: string }) => void
+  onElegirPunto?: (punto: { km: number; nombre: string; texto: string }) => void
   nombresPois: boolean
   corredores: CorredorFluido[]
   marcaPerfil: { pos: [number, number]; texto: string } | null
@@ -231,12 +231,17 @@ export default function MapaEventoFluido(p: Props) {
         if (!f || f.geometry.type !== 'Point') return
         // Uno solo a la vez: tocar otro punto (o el mapa) cierra el anterior.
         cartelPoiRef.current?.remove()
+        const km = Number(f.properties?.km)
+        const texto = String(f.properties?.texto ?? '')
+        // Con la tarjeta de avisos, el cartel sobra: ella ya dice todo.
+        if (Number.isFinite(km) && avisos.current.onElegirPunto) {
+          avisos.current.onElegirPunto({ km, nombre: String(f.properties?.nombre ?? ''), texto })
+          return
+        }
         cartelPoiRef.current = new Popup({ offset: 8, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
           .setLngLat(f.geometry.coordinates as [number, number])
-          .setText(String(f.properties?.texto ?? ''))
+          .setText(texto)
           .addTo(map)
-        const km = Number(f.properties?.km)
-        if (Number.isFinite(km)) avisos.current.onElegirPunto?.({ km, nombre: String(f.properties?.nombre ?? '') })
       })
       map.on('mouseenter', 'pois', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'pois', () => { map.getCanvas().style.cursor = '' })
@@ -356,9 +361,14 @@ export default function MapaEventoFluido(p: Props) {
           const map = mapaRef.current
           if (!map) return
           cartelPoiRef.current?.remove()
+          // Con la tarjeta de avisos, el cartel sobra: ella ya dice todo lo
+          // del punto (y con zoom el nombre ya está puesto: salían dos).
+          if (q.km != null && avisos.current.onElegirPunto) {
+            avisos.current.onElegirPunto({ km: q.km, nombre: q.nombre, texto: q.texto })
+            return
+          }
           cartelPoiRef.current = new Popup({ offset: 12, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
             .setLngLat([q.lon, q.lat]).setText(q.texto).addTo(map)
-          if (q.km != null) avisos.current.onElegirPunto?.({ km: q.km, nombre: q.nombre })
         })
         return new Marker({ element: el, anchor: 'center' })
       },
