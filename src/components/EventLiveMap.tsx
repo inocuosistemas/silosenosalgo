@@ -2742,7 +2742,15 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
             {following ? '◎ siguiendo' : '◎ seguir'}
           </button>
         )}
-        <button onClick={onClose} className={`shrink-0 text-lg leading-none text-slate-500 hover:text-slate-300 ${r.fix ? '' : 'ml-auto'}`}>×</button>
+        {/* Cerrar, con un blanco de dedo (40 px) y separado de "seguir": como
+            un × de texto suelto había que acertar en catorce píxeles, y al
+            lado del otro botón se pulsaba el que no era. Los márgenes negativos
+            lo dejan crecer sin hacer más alta la cabecera. */}
+        <button
+          onClick={onClose}
+          aria-label="Cerrar"
+          className={`-my-2 -mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800/80 text-xl leading-none text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600 ${r.fix ? 'ml-2' : 'ml-auto'}`}
+        >×</button>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         <Dato valor={km !== null ? km.toFixed(1) : '—'} unidad={totalKm ? `de ${totalKm.toFixed(0)} km` : 'km'} />
