@@ -387,8 +387,21 @@ const RECOLOCA_M = 150
  */
 const SOSTENIDO_FACTOR = 2
 
+/** Hasta dónde son "los primeros kilómetros" de un circuito, y qué diferencia
+ *  de distancia se considera un empate con la meta. */
+const SALIDA_KM = 3
+const EMPATE_M = 25
+
 function avanceSobreRuta(
   linea: Polilinea, pts: TrailPoint[], maxKmh = Infinity, toleranciaM = FUERA_DE_RUTA_M,
+  /**
+   * Ante un empate, colocar el primer punto en la SALIDA y no en la meta. Para un
+   * circuito cuya traza empieza cuando aún es imposible haber acabado: en él la
+   * salida y la meta son el mismo sitio, y el primer punto caía en la meta —el
+   * "más lejos que ha llegado" salía 57,7 km desde el primer minuto, y con él
+   * el ritmo y el kilómetro de un abandono—. Pasó en Matxicots 26.
+   */
+  empiezaEnSalida = false,
 ): Avance | null {
   if (linea.length < 2 || pts.length === 0) return null
   let previo: number | null = null
@@ -420,6 +433,17 @@ function avanceSobreRuta(
       if (desde > hasta) desde = hasta
     }
     let { mejor, mejorD } = masCerca(p, desde, hasta)
+    if (previo === null && empiezaEnSalida && mejor >= 0) {
+      // Si los primeros kilómetros casan igual de bien que el mejor vértice
+      // —en un circuito, la salida es la meta—, se queda con los primeros.
+      let fin = 0
+      while (fin + 1 < linea.length && linea[fin + 1][2] <= SALIDA_KM) fin++
+      const cerca = masCerca(p, 0, fin)
+      if (cerca.mejor >= 0 && cerca.mejorD <= mejorD + EMPATE_M) {
+        mejor = cerca.mejor
+        mejorD = cerca.mejorD
+      }
+    }
     let tolerancia = toleranciaM
     if ((mejor < 0 || mejorD > toleranciaM) && previo !== null && p.t > ultimoMs) {
       // No encaja donde se le esperaba: puede haber reaparecido más adelante.
@@ -565,7 +589,13 @@ export function calculaEstadisticas(
     // daba 8,69 km en una carrera de 7,46— y porque cuenta igual de bien lo que
     // se anda que lo que se hace en coche.
     const kmTraza = acumulado[acumulado.length - 1] / 1000
-    const avance = linea ? avanceSobreRuta(linea, pts, lim.maxKmh) : null
+    // En un circuito, si su traza empieza cuando aún es imposible haber
+    // acabado (nadie va más rápido que el tope de su actividad), se busca
+    // desde la salida: ver `empiezaEnSalida`.
+    const salidaRef = startsAt ?? f.startedAt ?? pts[0].t
+    const minimoParaAcabarMs = totalKm != null ? (totalKm / lim.maxKmh) * 3_600_000 : 0
+    const empiezaEnSalida = circuito && pts[0].t - salidaRef < minimoParaAcabarMs
+    const avance = linea ? avanceSobreRuta(linea, pts, lim.maxKmh, undefined, empiezaEnSalida) : null
 
     // El crono empieza en la SALIDA OFICIAL, como en cualquier carrera. Es lo
     // único que hace comparables los tiempos de gente que fue junta: la hora a

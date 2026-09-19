@@ -643,3 +643,45 @@ describe('la CanFranc-CanFranc, con sus cuatro balizas', () => {
     expect(r.fastestKm!.minutos).toBeGreaterThan(5)
   })
 })
+
+// ── Circuito: la salida no es la meta ────────────────────────────────────
+
+/**
+ * Un circuito cuadrado de 4 km (1 km por lado) que acaba donde empieza.
+ * Pasó en Matxicots 26: a los pocos minutos de salir, el avance sobre el
+ * recorrido ponía a los dos corredores en el km final, porque su primer punto
+ * —en la salida— casaba igual de bien con la meta.
+ */
+function circuitoCuadrado(pasoM = 10): Polilinea {
+  const linea: Polilinea = []
+  const d = 1 / GRADO_KM // 1 km en grados de latitud
+  const dLon = d / Math.cos((LAT0 * Math.PI) / 180)
+  const esquinas: [number, number][] = [[LAT0, LON0], [LAT0 + d, LON0], [LAT0 + d, LON0 + dLon], [LAT0, LON0 + dLon], [LAT0, LON0]]
+  let km = 0
+  for (let s = 0; s < 4; s++) {
+    const [a, b] = [esquinas[s], esquinas[s + 1]]
+    for (let m = 0; m < 1000; m += pasoM) {
+      const f = m / 1000
+      linea.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, km + f])
+    }
+    km += 1
+  }
+  linea.push([LAT0, LON0, 4])
+  return linea
+}
+
+describe('circuito: quien acaba de salir no está en la meta', () => {
+  it('en la salida y en los primeros metros, el avance es cero y no el total', () => {
+    const linea = circuitoCuadrado()
+    // Salida a t=0; tres lecturas en la salida y subiendo el primer lado.
+    const puntos = [
+      { t: -60_000, lat: LAT0, lon: LON0, a: 5 },
+      { t: 60_000, lat: LAT0 + 0.1 / GRADO_KM, lon: LON0, a: 5 },
+      { t: 120_000, lat: LAT0 + 0.2 / GRADO_KM, lon: LON0, a: 5 },
+    ]
+    const fila = { ...corredor('A', puntos), status: 'active' }
+    const a = calculaEstadisticas([fila], 4, linea, 0, 'run').corredores[0]
+    expect(a.km).toBeLessThan(0.5)
+    expect(a.finished).toBe(false)
+  })
+})
