@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { TIPOS_PUNTO, TIPO_PUNTO, aplicaAjustes, sugiereTipo, tipoDe, paradaDe, type TipoPunto } from '../lib/avituallamientos'
+import type { GpxNamedWaypoint } from '../lib/gpx'
+import type { PuntosAjustes } from '../../shared/wireTypes'
 import { createPortal } from 'react-dom'
 import { X, UserPlus, Shield, Download, Share2, MessageSquare, PenLine, Check } from 'lucide-react'
 import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
@@ -11,7 +14,7 @@ import {
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual, anadeSinBaliza,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual, anadeSinBaliza, guardaAjustePunto,
   expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
@@ -80,6 +83,11 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   const [ajustando, setAjustando] = useState<string | null>(null)
   /** De quién está abierto el panel de modo manual. */
   const [manualDe, setManualDe] = useState<string | null>(null)
+  /** El editor de los puntos del recorrido (qué es cada uno, cuánto se para). */
+  const [puntosAbierto, setPuntosAbierto] = useState(false)
+  /** Los puntos tal como vienen en la ruta: para el editor y sus sugerencias. */
+  const [puntosRuta, setPuntosRuta] = useState<GpxNamedWaypoint[] | null>(null)
+  const [totalRuta, setTotalRuta] = useState<number | null>(null)
   /** De quién se está mirando el dorsal en grande (su userId), o null. */
   const [dorsal, setDorsal] = useState<string | null>(null)
   /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
@@ -188,13 +196,15 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     // alguien y para anotar pasos en modo manual: los tres necesitan sus
     // puntos de paso. (El manual se olvidó aquí, y su panel salía sin
     // controles donde poner las horas.)
-    if ((dorsal === null && ajustando === null && manualDe === null) || !ev) return
+    if ((dorsal === null && ajustando === null && manualDe === null && !puntosAbierto) || !ev) return
     let vivo = true
-    if (carrera === null && ev.planShareId) {
+    if ((carrera === null || puntosRuta === null) && ev.planShareId) {
       void (async () => {
         try {
           const base = await getEventPlan(ev.planShareId!)
           if (!vivo) return
+          setPuntosRuta(base.track.namedWaypoints ?? [])
+          setTotalRuta(base.track.totalDistanceKm ?? null)
           setCarrera(carreraDeBase(base, {
             nombre: ev.name,
             salida: ev.startsAt,
@@ -231,7 +241,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
       })()
     }
     return () => { vivo = false }
-  }, [dorsal, ajustando, manualDe, data, carrera, id])
+  }, [dorsal, ajustando, manualDe, puntosAbierto, puntosRuta, data, carrera, id])
 
   const refresh = useCallback(async () => {
     try {
@@ -583,6 +593,17 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     setBusy(true); setError(null)
     try {
       await marcaManual(id, username, cambio)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  /** Cambia en el evento qué es un punto y cuánto se para (null = lo de la ruta). */
+  async function guardaPunto(km: number, aid: TipoPunto | null, pausa: number | null) {
+    setBusy(true); setError(null)
+    try {
+      await guardaAjustePunto(id, km, aid, pausa)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -1083,6 +1104,22 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           <AltaSinBaliza busy={busy} onAlta={(nombre, dorsal) => void altaSinBaliza(nombre, dorsal)} />
         )}
       </section>
+
+      {/* Los puntos del recorrido, para quien organiza: qué es cada uno
+          (avituallamiento, bolsa de vida…) y cuánto se para, sin volver a
+          publicar la ruta. Lo que se cambia aquí manda sobre la ruta y lo usan
+          el mapa y las previsiones. */}
+      {event.canOrganize === true && event.planShareId && (
+        <EditorPuntos
+          abierto={puntosAbierto}
+          onAbrir={() => setPuntosAbierto((v) => !v)}
+          puntos={puntosRuta}
+          totalKm={totalRuta}
+          ajustes={event.puntosAjustes ?? null}
+          busy={busy}
+          onGuardar={(km, aid, pausa) => void guardaPunto(km, aid, pausa)}
+        />
+      )}
 
       {/* Invitar, PEGADO a la lista de quién hay: es la respuesta a la pregunta
           que se hace mirándola —falta fulano— y estaba al final de la pantalla,
@@ -2569,5 +2606,103 @@ function AltaSinBaliza({ busy, onAlta }: { busy: boolean; onAlta: (nombre: strin
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * El editor de los puntos del recorrido en el evento: qué es cada uno y cuánto
+ * se para. Lo que dice la ruta (o lo que se sugiere por su texto) sale como
+ * punto de partida; lo cambiado se marca y se puede devolver a la ruta.
+ */
+function EditorPuntos({ abierto, onAbrir, puntos, totalKm, ajustes, busy, onGuardar }: {
+  abierto: boolean
+  onAbrir: () => void
+  puntos: GpxNamedWaypoint[] | null
+  totalKm: number | null
+  ajustes: PuntosAjustes | null
+  busy: boolean
+  onGuardar: (km: number, aid: TipoPunto | null, pausa: number | null) => void
+}) {
+  const [borrador, setBorrador] = useState<Record<string, { aid: TipoPunto | ''; pausa: string }>>({})
+  const conAjustes = puntos ? aplicaAjustes(puntos, ajustes) : []
+  return (
+    <section className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60">
+      <button onClick={onAbrir} className="flex w-full items-center justify-between px-3.5 py-2.5 text-left">
+        <span className="text-[11px] uppercase tracking-wider text-slate-500">Puntos del recorrido · avituallamientos</span>
+        <span className="text-xs text-slate-500">{abierto ? '▲' : '▼'}</span>
+      </button>
+      {abierto && (
+        <div className="border-t border-slate-800 px-3.5 pb-3 pt-2">
+          <p className="text-[11px] leading-snug text-slate-500">
+            Qué es cada punto y cuánto se para uno ahí. Lo que cambies aquí manda sobre la ruta, sin volver a publicarla,
+            y lo usan el mapa y las previsiones.
+          </p>
+          {puntos === null ? (
+            <p className="mt-2 text-xs text-slate-500">Cargando el recorrido…</p>
+          ) : puntos.length === 0 ? (
+            <p className="mt-2 text-xs text-slate-500">Esta ruta no tiene puntos.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {conAjustes.slice().sort((a, b) => a.distanceKm - b.distanceKm).map((w) => {
+                const clave = w.distanceKm.toFixed(2)
+                const ajuste = ajustes?.[clave] ?? null
+                const original = puntos.find((p) => p.distanceKm.toFixed(2) === clave)
+                const tipo = tipoDe(w, totalKm)
+                const sugerido = original ? sugiereTipo(original, totalKm != null && totalKm - original.distanceKm < 0.2) : tipo
+                const b = borrador[clave] ?? { aid: ajuste?.aid ?? '', pausa: ajuste?.pausa != null ? String(ajuste.pausa) : '' }
+                const cambiado = (b.aid || '') !== (ajuste?.aid ?? '') || b.pausa !== (ajuste?.pausa != null ? String(ajuste.pausa) : '')
+                const pausa = b.pausa.trim() === '' ? null : Number(b.pausa)
+                const pausaOk = pausa === null || (Number.isFinite(pausa) && pausa >= 0 && pausa <= 600)
+                return (
+                  <li key={clave} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                    <span className="min-w-0 flex-1 truncate text-slate-200">
+                      {w.name} <span className="text-slate-500">km {w.distanceKm.toFixed(1)}</span>
+                      {ajuste && <span className="ml-1 rounded bg-sky-950/70 px-1 text-[10px] text-sky-300">cambiado</span>}
+                    </span>
+                    <select
+                      value={b.aid}
+                      onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, aid: e.target.value as TipoPunto | '' } }))}
+                      className="rounded border border-slate-700 bg-slate-950 px-1 py-1 text-slate-200"
+                      aria-label={`Qué es ${w.name}`}
+                    >
+                      <option value="">Según la ruta · {TIPO_PUNTO[original?.aid ?? sugerido].corta}</option>
+                      {TIPOS_PUNTO.map((t) => <option key={t} value={t}>{TIPO_PUNTO[t].etiqueta}</option>)}
+                    </select>
+                    <input
+                      type="number" min={0} max={600} step={1}
+                      value={b.pausa}
+                      onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, pausa: e.target.value } }))}
+                      placeholder={`${TIPO_PUNTO[b.aid || tipo].paradaMin} min`}
+                      className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-right tabular-nums text-slate-200"
+                      aria-label={`Parada en ${w.name}, minutos`}
+                    />
+                    <button
+                      onClick={() => { onGuardar(w.distanceKm, b.aid || null, pausa); setBorrador((d) => { const n = { ...d }; delete n[clave]; return n }) }}
+                      disabled={busy || !cambiado || !pausaOk}
+                      className="rounded-md bg-sky-700 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-30"
+                    >
+                      Guardar
+                    </button>
+                    {ajuste && (
+                      <button
+                        onClick={() => { onGuardar(w.distanceKm, null, null); setBorrador((d) => { const n = { ...d }; delete n[clave]; return n }) }}
+                        disabled={busy}
+                        title="Volver a lo que dice la ruta"
+                        className="text-[11px] text-slate-500 underline hover:text-sky-300 disabled:opacity-30"
+                      >
+                        ruta
+                      </button>
+                    )}
+                    <span className="basis-full pl-0.5 text-[10px] text-slate-500">
+                      Ahora: {TIPO_PUNTO[tipo].corta}{paradaDe(w, totalKm) > 0 ? ` · parada ${paradaDe(w, totalKm)} min` : ''}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

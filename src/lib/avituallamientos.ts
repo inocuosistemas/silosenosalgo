@@ -11,7 +11,8 @@
  * que mande.
  */
 
-export type TipoPunto = 'control' | 'liquido' | 'solido' | 'completo' | 'bolsa' | 'meta'
+import type { TipoPunto, PuntosAjustes } from '../../shared/wireTypes'
+export type { TipoPunto } from '../../shared/wireTypes'
 
 export const TIPOS_PUNTO: TipoPunto[] = ['control', 'liquido', 'solido', 'completo', 'bolsa', 'meta']
 
@@ -78,4 +79,62 @@ export function paradaDe(
 
 export function esAvituallamiento(t: TipoPunto): boolean {
   return t === 'liquido' || t === 'solido' || t === 'completo' || t === 'bolsa'
+}
+
+/** La clave de un punto en los ajustes del evento: su km con 2 decimales. */
+export function clavePunto(km: number): string {
+  return km.toFixed(2)
+}
+
+/**
+ * Los puntos del recorrido con lo que quien organiza ha cambiado en el evento
+ * (qué es y cuánto se para), que manda sobre lo que trae la ruta.
+ */
+export function aplicaAjustes<W extends { distanceKm: number; aid?: TipoPunto; pauseMin?: number }>(
+  puntos: W[], ajustes: PuntosAjustes | null | undefined,
+): W[] {
+  if (!ajustes) return puntos
+  return puntos.map((w) => {
+    const a = ajustes[clavePunto(w.distanceKm)]
+    if (!a) return w
+    return { ...w, ...(a.aid ? { aid: a.aid } : {}), ...(a.pausa != null ? { pauseMin: a.pausa } : {}) }
+  })
+}
+
+/**
+ * Las paradas previstas del recorrido, en orden: lo que las previsiones
+ * tienen que sumar al pasar por cada avituallamiento.
+ */
+export function paradasDe(
+  puntos: { name?: string; desc?: string; sym?: string; type?: string; aid?: TipoPunto; distanceKm: number; pauseMin?: number }[],
+  totalKm: number | null,
+): { km: number; min: number }[] {
+  return puntos
+    .map((w) => ({ km: w.distanceKm, min: paradaDe(w, totalKm) }))
+    .filter((p) => p.min > 0)
+    .sort((a, b) => a.km - b.km)
+}
+
+/**
+ * Las paradas que SUMAN las previsiones: solo las largas y deliberadas.
+ *
+ * Probado con la traza de Soriano en Matxicots 26: sumar las paradas cortas por
+ * defecto (1-5 min) empeoraba la previsión unos 4 min, porque ya van dentro de
+ * su ritmo —para 2-7 min en cada avituallamiento y eso ya está en lo que lleva—.
+ * Lo que sí cuenta es lo que no está en su ritmo: una parada que quien organiza
+ * ha puesto a propósito (una neutralización de 20 min, la comida caliente) o la
+ * bolsa de vida.
+ */
+export function paradasPrevistas(
+  puntos: { name?: string; desc?: string; sym?: string; type?: string; aid?: TipoPunto; distanceKm: number; pauseMin?: number }[],
+  totalKm: number | null,
+): { km: number; min: number }[] {
+  return puntos
+    .map((w) => {
+      if (w.pauseMin != null && w.pauseMin > 0) return { km: w.distanceKm, min: w.pauseMin }
+      if (tipoDe(w, totalKm) === 'bolsa') return { km: w.distanceKm, min: TIPO_PUNTO.bolsa.paradaMin }
+      return null
+    })
+    .filter((p): p is { km: number; min: number } => p !== null)
+    .sort((a, b) => a.km - b.km)
 }

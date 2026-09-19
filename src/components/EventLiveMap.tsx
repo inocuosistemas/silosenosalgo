@@ -1,15 +1,15 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { VistaMapa } from '../lib/vistaEvento'
-import { Search, Settings, X } from 'lucide-react'
+import { Pause, Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
-import { TIPO_PUNTO, esAvituallamiento, paradaDe, tipoDe, type TipoPunto } from '../lib/avituallamientos'
+import { TIPO_PUNTO, aplicaAjustes, esAvituallamiento, paradaDe, paradasPrevistas, tipoDe, type TipoPunto } from '../lib/avituallamientos'
 import { htmlIconoPunto, LADO_ICONO_PUNTO } from '../lib/iconosPunto'
 import { avisosDe, creaAviso, borraAviso, type EventoAvisos } from '../lib/eventsTransport'
-import type { AvisoDePaso } from '../../shared/wireTypes'
+import type { AvisoDePaso, PuntosAjustes } from '../../shared/wireTypes'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -362,6 +362,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   })
   /** La vista 3D, encima del mapa; el mapa sigue debajo recibiendo posiciones. */
   const [en3D, setEn3D] = useState(false)
+  /** Lo que quien organiza ha cambiado de los puntos en el evento (tipo, parada). */
+  const [ajustesPuntos, setAjustesPuntos] = useState<PuntosAjustes | null>(null)
   /** El punto del recorrido que se ha tocado: para pedir avisos de paso. */
   const [puntoAvisos, setPuntoAvisos] = useState<{ km: number; nombre: string; texto?: string } | null>(null)
   /**
@@ -477,6 +479,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         setEndedAt(live.endedAt)
         setStats(live.stats)
         setActividad(live.activity)
+        setAjustesPuntos(live.puntosAjustes ?? null)
         await loadPlan(live.planShareId)
       } else {
         const live = await getEventLive(source.id)
@@ -489,6 +492,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         setEndedAt(live.endedAt)
         setStats(live.stats)
         setActividad(live.activity)
+        setAjustesPuntos(live.puntosAjustes ?? null)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -559,7 +563,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   const pois = useMemo(() => {
     if (!plan) return []
     const cierres = new Map(cutoffs.map((c) => [c.name, c.at]))
-    return plan.track.namedWaypoints.map((w) => {
+    return aplicaAjustes(plan.track.namedWaypoints, ajustesPuntos).map((w) => {
       // Qué es (avituallamiento, bolsa…) y cuánto se para: lo definido en la
       // ruta, y si no, lo sugerido por su texto. Ver `lib/avituallamientos`.
       const tipo = tipoDe(w, plan.track.totalDistanceKm)
@@ -570,7 +574,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         paradaMin: paradaDe(w, plan.track.totalDistanceKm),
       }
     })
-  }, [plan, cutoffs])
+  }, [plan, cutoffs, ajustesPuntos])
 
   /**
    * El último kilómetro conocido de cada corredor, para que la proyección no
@@ -681,6 +685,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   /** El esfuerzo del recorrido, para el margen al corte por terreno (ver
    *  `lib/ritmoTerreno`): el mismo cálculo que la baliza, mismos números. */
   const perfilEsfuerzo = useMemo(() => (pista ? perfilDeEsfuerzo(pista) : null), [pista])
+  /** Las paradas largas y deliberadas (ver `paradasPrevistas`): las mismas que
+   *  usa la baliza, con lo que haya cambiado quien organiza. */
+  const paradasEvento = useMemo(
+    () => (plan ? paradasPrevistas(aplicaAjustes(plan.track.namedWaypoints, ajustesPuntos), plan.track.totalDistanceKm) : []),
+    [plan, ajustesPuntos],
+  )
 
   const curvaPlan = useMemo(
     // Con `pista` y no con `plan.track`: es el mismo recorrido con las horas ya
@@ -877,6 +887,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             perfilEsfuerzo,
             pasosManual ? pasosManual.map(([k, t]) => ({ km: k, t })) : (historial.current.get(key) ?? []),
             referencia,
+            paradasEvento,
           )
         : null
       // Y contando con el desnivel que queda, que es la misma cuenta que hace
@@ -1100,7 +1111,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
       return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs: modoManual ? 0 : paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa, manual, modoManual }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito, perfilEsfuerzo])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito, perfilEsfuerzo, paradasEvento])
 
   /**
    * La parrilla de la cuenta atrás, BARAJADA hasta que se sale.
@@ -2242,7 +2253,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   {/* Los avisos de baliza son para quien está corriendo. Al que
                       ya se retiró no le corresponde ninguno: claro que está sin
                       cobertura y fuera del recorrido, está en su casa. */}
-                  {enPausa && <span className="text-[10px] text-amber-300" title="En pausa: lo ha dicho, no le ha pasado nada">⏸</span>}
+                  {enPausa && <span className="text-amber-300" title="En pausa: lo ha dicho, no le ha pasado nada"><Pause size={10} strokeWidth={2.5} aria-hidden /></span>}
                   {!fijado && lost && <span className="text-[10px] text-amber-400/80" title="Sin cobertura: su punto es la última posición conocida">📡</span>}
                   {!fijado && desviadoM > DESVIADO_M && (
                     <span className="text-[10px] text-amber-400/80" title={`Fuera del recorrido: a unos ${Math.round(desviadoM)} m`}>↯</span>
@@ -2255,10 +2266,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       eso es esperar a que cambie un semáforo. */}
                   {!fijado && paradoMs >= PARADO_MIN_MS && (
                     <span
-                      className="text-[10px] tabular-nums text-amber-400/80"
+                      className="flex items-center gap-0.5 text-[10px] tabular-nums text-amber-400/80"
                       title={`Sin moverse desde hace ${Math.round(paradoMs / 60_000)} min`}
                     >
-                      ⏸{Math.round(paradoMs / 60_000)}
+                      <Pause size={10} strokeWidth={2.5} aria-hidden />{Math.round(paradoMs / 60_000)}
                     </span>
                   )}
                 </button>
@@ -3033,7 +3044,7 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
         {congelado
           ? <Dato valor="⊘" unidad="se retiró" tono="text-rose-300" />
           : row.paradoMs >= PARADO_MIN_MS
-          ? <Dato valor={`⏸ ${Math.round(row.paradoMs / 60_000)}`} unidad="min parado" tono="text-amber-300" />
+          ? <Dato valor={String(Math.round(row.paradoMs / 60_000))} unidad="min parado" tono="text-amber-300" />
           : <Dato valor={r.fix?.speed != null ? paceOrSpeed(r.fix.speed, r.activity) : '—'} unidad={isFoot(r.activity) ? 'min/km' : 'km/h'} />}
         {congelado?.at != null
           ? <Dato valor={hhmm(congelado.at)} unidad="dejó la carrera" tono="text-rose-300" />

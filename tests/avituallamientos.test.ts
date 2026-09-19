@@ -27,3 +27,16 @@ describe('qué es cada punto', () => {
     expect(tipoDe({ name: 'Rialp', distanceKm: 57.7 }, 57.72)).toBe('meta')
   })
 })
+
+describe('las paradas que suman las previsiones', () => {
+  it('solo las puestas a propósito y la bolsa de vida; las cortas por defecto ya van en su ritmo', async () => {
+    const { paradasPrevistas } = await import('../src/lib/avituallamientos')
+    const p = paradasPrevistas([
+      { name: 'SOR', desc: 'Líquido', distanceKm: 6 },
+      { name: 'ESP', desc: 'Completo', distanceKm: 38.4 },
+      { name: 'Refugio', desc: 'Bolsa de vida', distanceKm: 45 },
+      { name: 'CAR', desc: 'Completo', distanceKm: 51, pauseMin: 20 },
+    ], 57.7)
+    expect(p).toEqual([{ km: 45, min: 12 }, { km: 51, min: 20 }])
+  })
+})

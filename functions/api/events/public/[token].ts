@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
+import { leeAjustes } from '../../../lib/puntos'
 import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
@@ -27,12 +28,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   if (!TOKEN_RE.test(token)) return json({ error: 'bad_id' }, 400)
 
   const ev = await env.DB.prepare(
-    `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl,
+    `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl, puntos_ajustes AS puntosAjustes,
             starts_at AS startsAt, photo_key AS photoKey, photo_at AS photoAt, bets_enabled AS betsEnabled, activity,
             ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats_at AS statsAt, stats
        FROM events WHERE public_token = ?`,
   ).bind(token).first<{
-    id: string; name: string; planShareId: string | null
+    id: string; name: string; planShareId: string | null; puntosAjustes: string | null
     trackingUrl: string | null; websiteUrl: string | null
     startsAt: number | null; photoKey: string | null; photoAt: number | null; betsEnabled: number
     endsAt: number | null; endedAt: number | null; planTotalKm: number | null; statsAt: number | null; stats: string | null
@@ -129,6 +130,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     name: ev.name,
     betsEnabled: ev.betsEnabled === 1,
     planShareId: ev.planShareId,
+    puntosAjustes: leeAjustes(ev.puntosAjustes),
     startsAt: ev.startsAt,
     photoUrl: ev.photoKey
       ? `/api/events/${encodeURIComponent(ev.id)}/photo${ev.photoAt ? `?v=${ev.photoAt}` : ''}`

@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
+import { leeAjustes } from '../../../lib/puntos'
 import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
@@ -37,13 +38,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const ev = await env.DB.prepare(
-    `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, activity,
+    `SELECT plan_share_id AS planShareId, starts_at AS startsAt, bets_enabled AS betsEnabled, activity, puntos_ajustes AS puntosAjustes,
             ends_at AS endsAt, ended_at AS endedAt, plan_total_km AS planTotalKm, stats_at AS statsAt, created_by AS createdBy,
             name, photo_key AS photoKey, photo_at AS photoAt, stats,
             tracking_url AS trackingUrl, website_url AS websiteUrl
        FROM events WHERE id = ?`)
     .bind(id).first<{
-      planShareId: string | null; startsAt: number | null; betsEnabled: number
+      planShareId: string | null; startsAt: number | null; betsEnabled: number; puntosAjustes: string | null
       endsAt: number | null; endedAt: number | null; planTotalKm: number | null; statsAt: number | null; createdBy: string
       name: string; photoKey: string | null; photoAt: number | null; stats: string | null
       activity: string | null
@@ -161,6 +162,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // es el que va a buscar el enlace oficial en mitad de la carrera.
   const res: EventLiveResponse = {
     planShareId: ev.planShareId,
+    puntosAjustes: leeAjustes(ev.puntosAjustes),
     startsAt: ev.startsAt,
     betsEnabled: ev.betsEnabled === 1,
     name: ev.name,

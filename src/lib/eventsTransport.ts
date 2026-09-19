@@ -712,3 +712,13 @@ export async function borraAviso(id: string): Promise<void> {
   const res = await fetchSafe(`/api/avisos?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
+
+/** Cambiar en el evento qué es un punto y cuánto se para (`null` = lo de la ruta). */
+export async function guardaAjustePunto(id: string, km: number, aid: string | null, pausa: number | null): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/puntos`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ km, aid, pausa }),
+  })
+  if (!res.ok) throw errFrom(res)
+}

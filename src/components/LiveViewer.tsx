@@ -42,6 +42,7 @@ import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from 
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { estimaBateria } from '../lib/bateria'
 import { ajustaRitmo, perfilDeEsfuerzo, prediceLlegada } from '../lib/ritmoTerreno'
+import { aplicaAjustes, paradasPrevistas } from '../lib/avituallamientos'
 import { eventColorHex } from '../../shared/eventColors'
 import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
@@ -1406,11 +1407,17 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    * frente a 41 del plan × factor.
    */
   const perfilEsfuerzo = useMemo(() => (plan ? perfilDeEsfuerzo(plan.track) : null), [plan])
+  /** Las paradas largas y deliberadas del recorrido (ver `paradasPrevistas`),
+   *  con lo que haya cambiado quien organiza en el evento. */
+  const paradasBaliza = useMemo(
+    () => (plan ? paradasPrevistas(aplicaAjustes(plan.track.namedWaypoints, state?.puntosAjustes), plan.track.totalDistanceKm) : []),
+    [plan, state?.puntosAjustes],
+  )
   const ritmoTerreno = useMemo(
     () => (perfilEsfuerzo && state?.startedAt != null && formSamples.length > 0
-      ? ajustaRitmo(perfilEsfuerzo, formSamples, state.startedAt)
+      ? ajustaRitmo(perfilEsfuerzo, formSamples, state.startedAt, paradasBaliza)
       : null),
-    [perfilEsfuerzo, formSamples, state?.startedAt],
+    [perfilEsfuerzo, formSamples, state?.startedAt, paradasBaliza],
   )
 
   // Detected form (overall + subida/bajada/llano + fatiga). Observational only —
@@ -2827,7 +2834,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       const previstoAlEntrarMs = (() => {
         if (!passed || realPrevMs == null) return null
         if (perfilEsfuerzo && state.startedAt != null) {
-          const rt = ajustaRitmo(perfilEsfuerzo, formSamples.filter((x) => x.t <= realPrevMs), state.startedAt)
+          const rt = ajustaRitmo(perfilEsfuerzo, formSamples.filter((x) => x.t <= realPrevMs), state.startedAt, paradasBaliza)
           const t = rt ? prediceLlegada(perfilEsfuerzo, rt, anterior, realPrevMs, r.w.distanceKm, state.startedAt) : null
           if (t != null) return t
         }

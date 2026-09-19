@@ -377,6 +377,9 @@ export interface TrackStateResponse {
   /** Su marca en el evento —emoji y color, los mismos del mapa del evento—
    *  si la baliza es de uno. Null fuera de un evento. */
   marca?: { emoji: string | null; color: string | null } | null
+  /** Lo que quien organiza ha cambiado de los puntos del recorrido en el
+   *  evento (qué es cada uno, cuánto se para). */
+  puntosAjustes?: PuntosAjustes | null
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */
@@ -493,6 +496,9 @@ export interface EventMember {
 }
 
 export interface EventInfo {
+  /** Lo que quien organiza ha cambiado de los puntos del recorrido (qué es
+   *  cada uno, cuánto se para). Manda sobre la ruta. */
+  puntosAjustes?: PuntosAjustes | null
   id: string
   name: string
   /** Base común: id KV del SharePayload con recorrido, controles y cierres. */
@@ -625,6 +631,9 @@ export interface EventPublicRunner {
 }
 
 export interface EventPublicResponse {
+  /** Lo que quien organiza ha cambiado de los puntos del recorrido (qué es
+   *  cada uno, cuánto se para). Manda sobre la ruta. */
+  puntosAjustes?: PuntosAjustes | null
   /** Id del evento. Lo necesita quien mira desde fuera para jugar la porra
    *  (los pronósticos se guardan contra el evento); sin él tendría que sacarlo
    *  de la url de la foto, que es peor. Solo abre puertas a quien tenga cuenta
@@ -949,6 +958,9 @@ export interface EventLiveRunner {
 
 /** GET /api/events/:id/live — todos los participantes, de una vez. */
 export interface EventLiveResponse {
+  /** Lo que quien organiza ha cambiado de los puntos del recorrido (qué es
+   *  cada uno, cuánto se para). Manda sobre la ruta. */
+  puntosAjustes?: PuntosAjustes | null
   /** La base común, para pintar el recorrido una sola vez. */
   planShareId: string | null
   /** Salida oficial (epoch ms) o null — la cuenta atrás del mapa. */
@@ -1058,3 +1070,16 @@ export interface AvisoDePaso {
   /** Cuándo sonó (epoch ms), o null si sigue esperando. */
   disparadoAt: number | null
 }
+
+/** Qué es un punto del recorrido. Ver `src/lib/avituallamientos.ts`. */
+export type TipoPunto = 'control' | 'liquido' | 'solido' | 'completo' | 'bolsa' | 'meta'
+
+/** Lo que quien organiza cambia de un punto EN EL EVENTO. */
+export interface AjustePunto {
+  aid?: TipoPunto
+  /** Parada prevista (min). */
+  pausa?: number
+}
+
+/** Por km del punto (2 decimales): ver `puntos_ajustes` en `events`. */
+export type PuntosAjustes = Record<string, AjustePunto>

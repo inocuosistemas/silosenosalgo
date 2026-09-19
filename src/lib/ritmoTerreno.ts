@@ -41,8 +41,15 @@ const PASO_KM = 0.05
 const VENTANA = 2
 /** A partir de qué pendiente cuenta como subida (fracción). */
 const SUBIDA = 0.03
-/** Cuánto empeora su ritmo por unidad de esfuerzo que queda. Ver la cabecera. */
-export const DERIVA = 0.01
+/**
+ * Cuánto empeora su ritmo por unidad de esfuerzo que queda. Ver la cabecera.
+ *
+ * 0,6 %: con la traza de Soriano hasta el km 51 (73 previsiones desde ocho
+ * puntos de la carrera), 0 salía optimista (−26 min de sesgo), 1 % pesimista
+ * (+18) y esto, sin sesgo y ~16 min de error medio. El 1 % se había ajustado
+ * con media carrera y se pasaba en las previsiones largas.
+ */
+export const DERIVA = 0.006
 /** Su ritmo "de ahora": el de este rato hacia atrás. */
 const VENTANA_MIN = 60
 /** Y como poco este esfuerzo, para que un par de lecturas no decidan solas:
@@ -112,6 +119,20 @@ export interface RitmoAjustado {
    *  repartido según su forma. */
   sube: number
   resto: number
+  /** Las paradas previstas en los avituallamientos (ver `lib/avituallamientos`):
+   *  se descuentan al medir su ritmo y se suman al prever. */
+  paradas?: Parada[]
+}
+
+/** Una parada prevista: en qué km y cuántos minutos. */
+export interface Parada { km: number; min: number }
+
+/** Los minutos de parada previstos entre dos km (sin incluir el primero). */
+function paradaEntre(paradas: Parada[] | undefined, desdeKm: number, hastaKm: number): number {
+  if (!paradas) return 0
+  let min = 0
+  for (const p of paradas) if (p.km > desdeKm + 0.02 && p.km <= hastaKm + 0.02) min += p.min
+  return min
 }
 
 /**
@@ -119,7 +140,7 @@ export interface RitmoAjustado {
  * con toda la carrera. Mínimos cuadrados con un ancla hacia 1 (sin datos, la
  * de Tobler tal cual).
  */
-function formaDe(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number): number {
+function formaDe(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number, paradas?: Parada[]): number {
   const tramos: { up: number; ot: number; min: number }[] = []
   let a = { km: 0, t: salidaMs }
   for (const s of muestras) {
@@ -127,7 +148,7 @@ function formaDe(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], 
     tramos.push({
       up: acumulado(perfil.sube, s.km) - acumulado(perfil.sube, a.km),
       ot: acumulado(perfil.resto, s.km) - acumulado(perfil.resto, a.km),
-      min: (s.t - a.t) / 60_000,
+      min: Math.max((s.t - a.t) / 120_000, (s.t - a.t) / 60_000 - paradaEntre(paradas, a.km, s.km)),
     })
     a = s
   }
@@ -153,7 +174,11 @@ function formaDe(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], 
  *
  * @param muestras `{km, t}` sobre el recorrido, en orden, desde la salida.
  */
-export function ajustaRitmo(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number): RitmoAjustado | null {
+export function ajustaRitmo(
+  perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number,
+  /** Las paradas previstas: su tiempo no es ritmo, y se descuenta. */
+  paradas?: Parada[],
+): RitmoAjustado | null {
   const validas = muestras.filter((s) => s.t > salidaMs)
   if (validas.length === 0) return null
   const ultima = validas[validas.length - 1]
@@ -168,15 +193,18 @@ export function ajustaRitmo(perfil: PerfilEsfuerzo, muestras: { km: number; t: n
     const dentroDeLaHora = ultima.t - s.t <= VENTANA_MIN * 60_000
     if (!dentroDeLaHora && eUltima - esfuerzo(s.km) >= ESFUERZO_MIN) break
   }
-  const dMin = (ultima.t - desde.t) / 60_000
+  // Lo parado en los avituallamientos no es ritmo: se descuenta (como mucho la
+  // mitad del rato, por si el corredor no paró lo previsto).
+  const brutoMin = (ultima.t - desde.t) / 60_000
+  const dMin = Math.max(brutoMin / 2, brutoMin - paradaEntre(paradas, desde.km, ultima.km))
   const upR = acumulado(perfil.sube, ultima.km) - acumulado(perfil.sube, desde.km)
   const otR = acumulado(perfil.resto, ultima.km) - acumulado(perfil.resto, desde.km)
-  const q = formaDe(perfil, validas, salidaMs)
+  const q = formaDe(perfil, validas, salidaMs, paradas)
   // El ritmo de ahora, en "resto": lo reciente, descontando su forma.
   const pesoReciente = q * upR + otR
   if (!(pesoReciente > 0) || !(dMin > 0)) return null
   const resto = dMin / pesoReciente
-  return { sube: resto * q, resto }
+  return { sube: resto * q, resto, paradas }
 }
 
 /**
@@ -194,6 +222,8 @@ export function prediceLlegada(
   const dE = up + ot
   if (!(dE >= 0)) return null
   const minutos = (ritmo.sube * up + ritmo.resto * ot) * (1 + (DERIVA * dE) / 2)
+    // Y lo que se para en los avituallamientos de por medio.
+    + paradaEntre(ritmo.paradas, desdeKm, hasta)
   return desdeMs + minutos * 60_000
 }
 

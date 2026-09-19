@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../lib/db'
+import { leeAjustes } from '../../lib/puntos'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { cierraSiTocaEvento, fotoDeResultadosSiToca, leeStats, leePasosManuales } from '../../lib/eventStats'
@@ -25,7 +26,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   if (!user) return json({ error: 'unauthorized' }, 401)
 
   const ev = await env.DB.prepare(
-    `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey,
+    `SELECT id, name, plan_share_id AS planShareId, plan_name AS planName, photo_key AS photoKey, puntos_ajustes AS puntosAjustes,
             photo_at AS photoAt, starts_at AS startsAt, created_at AS createdAt, colors_locked AS colorsLocked,
             bets_enabled AS betsEnabled, ends_at AS endsAt, stats AS stats, stats_at AS statsAt, limit_min AS limitMin,
             plan_polyline IS NOT NULL AS hasPolyline, json_array_length(plan_polyline) AS polylinePts, activity,
@@ -35,7 +36,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
             plan_updated_at AS planUpdatedAt, plan_change AS planChange
        FROM events WHERE id = ?`,
   ).bind(id).first<{
-    id: string; name: string; planShareId: string | null; planName: string | null
+    id: string; name: string; planShareId: string | null; planName: string | null; puntosAjustes: string | null
     photoKey: string | null; photoAt: number | null; startsAt: number | null; createdAt: number
     colorsLocked: number; betsEnabled: number
     endsAt: number | null; stats: string | null; statsAt: number | null; planTotalKm: number | null; limitMin: number | null
@@ -133,6 +134,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     id: ev.id,
     name: ev.name,
     planShareId: ev.planShareId,
+    puntosAjustes: leeAjustes(ev.puntosAjustes),
     planName: ev.planName,
     hasPhoto: ev.photoKey !== null,
     photoAt: ev.photoAt,

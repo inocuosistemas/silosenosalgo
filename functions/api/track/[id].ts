@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../lib/db'
+import { leeAjustes } from '../../lib/puntos'
 import { json, csrfOk } from '../../lib/http'
 import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
@@ -48,9 +49,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
             ts.activity AS activity, u.username AS username,
             ts.event_id AS eventId, ts.battery_pct AS bateria, ts.battery_log AS bateriaLog,
-            m.emoji AS marcaEmoji, m.color AS marcaColor
+            m.emoji AS marcaEmoji, m.color AS marcaColor, ev.puntos_ajustes AS puntosAjustes
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
        LEFT JOIN event_members m ON m.event_id = ts.event_id AND m.user_id = ts.owner_user_id
+       LEFT JOIN events ev ON ev.id = ts.event_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
     status: string; title: string | null; planShareId: string | null
@@ -61,7 +63,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     pinned: number | null; formFactor: number | null; formLog: string | null
     activity: string | null; username: string | null; eventId: string | null
     bateria: number | null; bateriaLog: string | null
-    marcaEmoji: string | null; marcaColor: string | null
+    marcaEmoji: string | null; marcaColor: string | null; puntosAjustes: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -235,6 +237,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     bateria: row.bateria,
     bateriaLog: leeBateriaLog(row.bateriaLog),
     marca: row.eventId ? { emoji: row.marcaEmoji, color: row.marcaColor } : null,
+    puntosAjustes: leeAjustes(row.puntosAjustes),
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }

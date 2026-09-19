@@ -66,3 +66,15 @@ describe('dónde debería ir ahora', () => {
     expect(enSubida).toBeLessThan(enLlano * 0.75)
   })
 })
+
+describe('con paradas', () => {
+  it('la previsión suma la parada de por medio', () => {
+    const perfil = perfilDeEsfuerzo(pista())!
+    const muestras = Array.from({ length: 17 }, (_, i) => ({ km: i * 0.5, t: min(i * 3) }))
+    const sin = ajustaRitmo(perfil, muestras, SALIDA)!
+    const con = { ...sin, paradas: [{ km: 9, min: 20 }] }
+    const a = prediceLlegada(perfil, sin, 8, min(48), 10, SALIDA)!
+    const b = prediceLlegada(perfil, con, 8, min(48), 10, SALIDA)!
+    expect(Math.round((b - a) / 60_000)).toBe(20)
+  })
+})
