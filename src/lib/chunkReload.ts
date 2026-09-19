@@ -88,7 +88,21 @@ export function reloadForChunkError(): boolean {
     return true
   }
   const espera = ESPERAS_MS[intentos]
-  if (espera > 0) window.setTimeout(() => window.location.reload(), espera)
-  else window.location.reload()
+  // La segunda, SIN CACHÉ: con un parámetro nuevo en la dirección, el
+  // navegador (o el visor de las apps) no puede darle el documento que ya
+  // tenía. Pasó en Matxicots 26: Safari agotó las dos recargas normales con
+  // el documento de antes y acabó enseñando "Importing a module script
+  // failed". El parámetro no significa nada para la página.
+  const recarga = intentos === 0
+    ? () => window.location.reload()
+    : () => {
+        try {
+          const u = new URL(window.location.href)
+          u.searchParams.set('_r', String(Date.now()))
+          window.location.replace(u.toString())
+        } catch { window.location.reload() }
+      }
+  if (espera > 0) window.setTimeout(recarga, espera)
+  else recarga()
   return true
 }

@@ -62,7 +62,15 @@ export class ErrorBoundary extends Component<Props, State> {
             </pre>
           )}
           <button
-            onClick={() => window.location.reload()}
+            // Sin caché, con un parámetro nuevo: si el fallo era un documento
+            // viejo guardado, una recarga normal podía volver a traer el mismo.
+            onClick={() => {
+              try {
+                const u = new URL(window.location.href)
+                u.searchParams.set('_r', String(Date.now()))
+                window.location.replace(u.toString())
+              } catch { window.location.reload() }
+            }}
             className="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg px-4 py-2.5 transition-colors"
           >
             Recargar la página
