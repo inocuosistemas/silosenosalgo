@@ -40,6 +40,7 @@ import { buildPlannedCurve, kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { estimaBateria } from '../lib/bateria'
+import { eventColorHex } from '../../shared/eventColors'
 import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
 
@@ -517,8 +518,9 @@ function SegmentProfile({ profile, posKm, alto, pasoM, marca }: {
   alto?: number
   /** Cada cuántos metros se raya la regla. Sin él no se dibuja ninguna. */
   pasoM?: number
-  /** Lo que va en la chapa del corredor (sus iniciales). Solo en grande. */
-  marca?: string
+  /** La chapa del corredor: su emoji del evento (o sus iniciales) sobre su
+   *  color. Solo en grande. */
+  marca?: { texto: string; color: string }
 }) {
   if (!profile) return null
   const inSeg = posKm != null && posKm >= profile.fromKm && posKm <= profile.fromKm + profile.span
@@ -575,13 +577,20 @@ function SegmentProfile({ profile, posKm, alto, pasoM, marca }: {
       {leftPct != null && yCurvaPx != null && (
         conChapa ? (
           <>
-            <div className="pointer-events-none absolute border-l border-dashed border-sky-300/80"
-                 style={{ left: `${leftPct}%`, top: CHAPA, height: Math.max(0, yCurvaPx - CHAPA) }} />
-            <span className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-sky-500"
-                  style={{ left: `${leftPct}%`, top: yCurvaPx }} />
-            <span className="pointer-events-none absolute top-0 grid -translate-x-1/2 place-items-center rounded-full border-2 border-white bg-sky-500 text-[11px] font-bold leading-none text-white shadow-lg"
-                  style={{ left: izquierda, width: CHAPA, height: CHAPA }}>
-              {marca}
+            {/* El hilo, como una franja de 2 px con rayas pintadas y no como
+                el borde discontinuo de una caja de ancho cero: el Safari del
+                iPhone, con el `zoom` del tramo ampliado, no pintaba ese
+                borde y la chapa quedaba flotando sin unir a la curva. */}
+            <div className="pointer-events-none absolute -translate-x-1/2"
+                 style={{
+                   left: `${leftPct}%`, top: CHAPA, width: 2, height: Math.max(0, yCurvaPx - CHAPA),
+                   backgroundImage: `repeating-linear-gradient(to bottom, ${marca!.color} 0 4px, transparent 4px 8px)`,
+                 }} />
+            <span className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+                  style={{ left: `${leftPct}%`, top: yCurvaPx, background: marca!.color }} />
+            <span className="pointer-events-none absolute top-0 grid -translate-x-1/2 place-items-center rounded-full border-2 border-white text-[13px] font-bold leading-none text-white shadow-lg"
+                  style={{ left: izquierda, width: CHAPA, height: CHAPA, background: marca!.color }}>
+              {marca!.texto}
             </span>
           </>
         ) : (
@@ -2672,6 +2681,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     </button>
   )
 
+  /** Su marca en la chapa del perfil: la del evento —el mismo emoji y color
+   *  que en el mapa del evento— y, fuera de uno, sus iniciales en azul. */
+  const marcaCorredor = {
+    texto: state.marca?.emoji || iniciales(state.username),
+    color: state.marca?.color ? eventColorHex(state.marca.color) : '#0ea5e9',
+  }
+
   // ── Cards (plan de paso) view ──────────────────────────────────────────────
   if (viewMode === 'cards' && plan) {
     const cards = (planRows ?? []).map((r, i) => {
@@ -2729,7 +2745,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </div>
         {c.w.desc && <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{c.w.desc}</p>}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span className="text-slate-300">Paso: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
+          <span className="text-slate-300">Paso previsto: <span className="font-medium">{c.projectedETA ? clockDay(c.projectedETA, sessionStart) : '—'}</span></span>
           {c.cutoff && (
             <span className={marginTone(c.marginMin)}>
               Corte {clockDay(c.cutoff, sessionStart)}
@@ -2759,7 +2775,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           posKm={progressKm}
           alto={grande ? ampliado.perfil : undefined}
           pasoM={c.regla?.pasoM}
-          marca={grande ? iniciales(state.username) : undefined}
+          marca={grande ? marcaCorredor : undefined}
         />
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">

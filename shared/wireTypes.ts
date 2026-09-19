@@ -374,6 +374,9 @@ export interface TrackStateResponse {
   /** Cómo ha ido bajando: `[epoch ms, %]`, una entrada cada vez que cambia.
    *  Con él se estima cuánto le va a durar. Ver `src/lib/bateria.ts`. */
   bateriaLog?: [number, number][]
+  /** Su marca en el evento —emoji y color, los mismos del mapa del evento—
+   *  si la baliza es de uno. Null fuera de un evento. */
+  marca?: { emoji: string | null; color: string | null } | null
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */

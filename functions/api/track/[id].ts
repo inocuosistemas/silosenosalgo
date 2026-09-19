@@ -47,8 +47,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.fix_at AS fixAt, ts.updated_at AS updatedAt, ts.trail AS trail,
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
             ts.activity AS activity, u.username AS username,
-            ts.event_id AS eventId, ts.battery_pct AS bateria, ts.battery_log AS bateriaLog
+            ts.event_id AS eventId, ts.battery_pct AS bateria, ts.battery_log AS bateriaLog,
+            m.emoji AS marcaEmoji, m.color AS marcaColor
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
+       LEFT JOIN event_members m ON m.event_id = ts.event_id AND m.user_id = ts.owner_user_id
       WHERE ts.id = ?`,
   ).bind(id).first<{
     status: string; title: string | null; planShareId: string | null
@@ -59,6 +61,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     pinned: number | null; formFactor: number | null; formLog: string | null
     activity: string | null; username: string | null; eventId: string | null
     bateria: number | null; bateriaLog: string | null
+    marcaEmoji: string | null; marcaColor: string | null
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -231,6 +234,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     official: oficial,
     bateria: row.bateria,
     bateriaLog: leeBateriaLog(row.bateriaLog),
+    marca: row.eventId ? { emoji: row.marcaEmoji, color: row.marcaColor } : null,
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }
