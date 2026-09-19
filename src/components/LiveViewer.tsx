@@ -4,7 +4,7 @@ import { CargandoMarca } from './CargandoMarca'
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
 import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag } from 'lucide-react'
-import { ClipboardList, Trash2 } from 'lucide-react'
+import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -258,8 +258,8 @@ function clockDay(date: Date, ref: Date): string {
   return off > 0 ? `${formatTime(date)} +${off}d` : formatTime(date)
 }
 
-function bandIcon(band: DaylightBand): string {
-  return band === 'night' ? '🌙' : band === 'civil' ? '🌆' : '☀️'
+function bandIcon(band: DaylightBand): ReactNode {
+  return band === 'night' ? <Moon size={12} className="inline-block -mt-0.5 align-middle" /> : band === 'civil' ? <Sunset size={12} className="inline-block -mt-0.5 align-middle" /> : <Sun size={12} className="inline-block -mt-0.5 align-middle" />
 }
 
 function formatDist(km: number): string {
@@ -880,6 +880,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Drag-to-open for the advanced panel: pull the handle down to open, up to close.
   const advDragStartY = useRef<number | null>(null)
   const advDraggedRef = useRef(false)
+  /**
+   * El estirón: mientras se arrastra el tirador, la tarjeta sigue al dedo —se
+   * alarga dejando ver lo que viene, o se encoge— y al soltar se asienta en el
+   * tamaño más cercano con una transición corta. Antes el tirador era un botón
+   * que saltaba de golpe a los 24 px, y no se entendía que se podía estirar.
+   */
+  const tarjetaRef = useRef<HTMLDivElement | null>(null)
+  const estiron = useRef<{ alto0: number; desde: 'mini' | 'normal' | 'ampliada'; y0: number } | null>(null)
+  /** Alto impuesto a la tarjeta: el del dedo mientras arrastra, el del destino
+   *  mientras se asienta. Null = el suyo. */
+  const [altoForzado, setAltoForzado] = useState<number | null>(null)
+  const [asentando, setAsentando] = useState(false)
   /**
    * La tarjeta en su tamaño MÍNIMO: una línea con lo que se viene a mirar —el
    * margen al corte y el kilómetro— y el mapa para todo lo demás. La tarjeta
@@ -1790,7 +1802,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   }
 
   // Next cut-off ahead — the headline "are you OK?" info.
-  let nextCutoff: { name: string; km: number; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number; fila: number } | null = null
+  let nextCutoff: { name: string; km: number; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number; fila: number; eta: Date } | null = null
   if (plan && planRows && progressKm != null && !offRoute && deltaMin != null) {
     for (const [fila, r] of planRows.entries()) {
       if (r.w.distanceKm <= progressKm + 0.05) continue
@@ -1809,6 +1821,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         reqPace: availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null,
         remDist,
         fila,
+        eta: projectedETA,
       }
       break
     }
@@ -2112,7 +2125,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // not in the truncated header — as a bottom pill over the map, and as its own
   // line in the cards view.
   const statusLine = reachedGoal
-    ? <><span className="text-emerald-400">🏁 llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
+    ? <><span className="text-emerald-400"><Flag size={12} className="inline-block -mt-0.5 align-middle" /> llegó a meta</span>{arrivalAt && <> · {clockDay(arrivalAt, sessionStart)}</>}{totalMin != null && <> · {hhmm(totalMin)}</>}</>
     : ended
     ? (fix && fr
         ? <><span className="inline-flex items-center gap-1 font-semibold text-slate-200"><Flag size={12} /> finalizado</span> · última posición <span className="text-slate-300">visto {fr.label}</span></>
@@ -2277,10 +2290,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       <p className="text-xs opacity-90">
         {sinCobertura
           ? <>como iba en su último punto · a {nextCutoff.remDist.toFixed(1)} km del corte de las {clockDay(nextCutoff.cutoff, sessionStart)}</>
-          : <>
-              Corte {clockDay(nextCutoff.cutoff, sessionStart)} · a {nextCutoff.remDist.toFixed(1)} km
-              {nextCutoff.reqPace != null && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
-            </>}
+          // En UNA línea, pase lo que pase: la llegada estimada a su ritmo
+          // (lo que se quiere saber: "¿a qué hora pasa?") y el corte con la
+          // distancia. El ritmo necesario solo cuando aprieta —con una hora
+          // de margen salía "necesitas 80:25/km", que no le sirve a nadie—.
+          // Si aun así no cabe, la línea se desliza en vez de partirse en dos.
+          : <AutoScroll className="block">
+              Llegada ~{clockDay(nextCutoff.eta, sessionStart)} · corte {clockDay(nextCutoff.cutoff, sessionStart)} · a {nextCutoff.remDist.toFixed(1)} km
+              {nextCutoff.reqPace != null && nextCutoff.marginMin < 30 && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
+            </AutoScroll>}
       </p>
     </button>
   )
@@ -2297,7 +2315,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // terminada se leyera como una que se quedó a medias.
   const goalHero = reachedGoal && (
     <div className="rounded-xl border border-emerald-700 bg-emerald-950/50 p-3 text-center text-emerald-100">
-      <p className="text-[11px] uppercase tracking-wide opacity-80">🏁 Meta</p>
+      <p className="text-[11px] uppercase tracking-wide opacity-80"><Flag size={11} className="inline-block -mt-0.5 align-middle" /> Meta</p>
       <p className="text-3xl font-extrabold leading-tight">
         {totalMin != null ? hhmm(totalMin) : '—'}
       </p>
@@ -2355,12 +2373,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return (
       <div className="rounded-xl border border-slate-700 bg-slate-900 p-2.5">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium text-slate-200">🔋 Batería de la baliza</p>
+          <p className="flex items-center gap-1 text-xs font-medium text-slate-200"><BatteryMedium size={14} /> Batería de la baliza</p>
           <p className={`text-sm font-bold tabular-nums ${tono}`}>{pctBateria}%</p>
         </div>
         <p className="mt-0.5 text-[11px] leading-snug text-slate-400">
           {ended ? 'Al terminar.'
-            : bateria?.cargando ? 'Cargando ⚡'
+            : bateria?.cargando ? <><BatteryCharging size={12} className="inline-block -mt-0.5 align-middle" /> Cargando</>
             : bateria?.porHora != null && bateria.agotaMs != null && quedaMs != null
               ? quedaMs > 0
                 ? <>Gasta {Math.round(bateria.porHora)} %/h en carrera: a este ritmo le quedan{' '}
@@ -2449,7 +2467,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return (
       <div className={`rounded-xl border p-3 ${slower ? 'border-amber-600 bg-amber-950/50 text-amber-100' : 'border-emerald-700 bg-emerald-950/40 text-emerald-100'}`}>
         <p className="text-sm font-semibold">
-          {slower ? '📉' : '📈'} Ritmo detectado: {Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
+          {slower ? <TrendingDown size={14} className="inline-block -mt-0.5 align-middle" /> : <TrendingUp size={14} className="inline-block -mt-0.5 align-middle" />} Ritmo detectado: {Math.abs(pctNum)}% {slower ? 'más lento' : 'más rápido'} de lo previsto
         </p>
         {newFinish && (() => {
           // Lo que de verdad se pregunta quien va con el reloj encima: ¿llego
@@ -2461,11 +2479,11 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               <p className="mt-0.5 text-xs opacity-95">
                 Meta estimada → <span className="font-semibold">{clockDay(newFinish, sessionStart)}</span>
                 {vsPlanMin != null && <> · llegarías {deltaLabel(vsPlanMin)}</>}
-                {suggMargin != null && nextCutoff && <> · corte {nextCutoff.name} {suggMargin < 0 ? '−' : '+'}{hhmm(suggMargin)}{suggMargin < 15 ? ' ⚠️' : ''}</>}
+                {suggMargin != null && nextCutoff && <> · corte {nextCutoff.name} {suggMargin < 0 ? '−' : '+'}{hhmm(suggMargin)}{suggMargin < 15 && <> <AlertTriangle size={11} className="inline-block -mt-0.5 align-middle" /></>}</>}
               </p>
               {fuera && (
                 <p className="mt-0.5 text-xs font-semibold text-rose-300">
-                  ⛔ Fuera de control: la meta cierra a las {clockDay(cierreMeta!, sessionStart)}
+                  <OctagonX size={12} className="inline-block -mt-0.5 align-middle" /> Fuera de control: la meta cierra a las {clockDay(cierreMeta!, sessionStart)}
                 </p>
               )}
             </>
@@ -2529,7 +2547,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <p className="mt-1.5 text-[11px] text-slate-300">
           Meta estimada <span className="font-semibold">{projFinish ? clockDay(projFinish, sessionStart) : '—'}</span>
           {vsPlanMin != null && <> · {deltaLabel(vsPlanMin)}</>}
-          {nextCutoff && <> · corte {nextCutoff.name} {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}{nextCutoff.marginMin < 15 ? ' ⚠️' : ''}</>}
+          {nextCutoff && <> · corte {nextCutoff.name} {nextCutoff.marginMin < 0 ? '−' : '+'}{hhmm(nextCutoff.marginMin)}{nextCutoff.marginMin < 15 && <> <AlertTriangle size={11} className="inline-block -mt-0.5 align-middle" /></>}</>}
         </p>
         {canUpdate && (
           <button onClick={approveFactor} className="mt-2 w-full rounded-lg bg-sky-600/90 py-1.5 text-xs font-semibold text-white">
@@ -2558,7 +2576,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <span className={onPlan ? 'text-slate-300' : slower ? 'text-amber-400' : 'text-emerald-400'}>
           {/* Corto: va en la MISMA línea que "43 min por delante del plan",
               que ya dice contra qué se compara. */}
-          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${Math.abs(pct)}% más ${slower ? 'lento' : 'rápido'}`}
+          {onPlan
+            ? <><Timer size={13} className="inline-block -mt-0.5 align-middle" /> a ritmo previsto</>
+            : <>{slower ? <TrendingDown size={13} className="inline-block -mt-0.5 align-middle" /> : <TrendingUp size={13} className="inline-block -mt-0.5 align-middle" />} {Math.abs(pct)}% más {slower ? 'lento' : 'rápido'}</>}
         </span>
         {suggestFactor && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true" />}
       </button>
@@ -2588,8 +2608,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </span>
       )}
       {/* Los ánimos sin leer no se pueden perder por encoger la tarjeta. */}
-      {unreadCheers > 0 && <span className="shrink-0 text-xs font-semibold text-fuchsia-300">💬{unreadCheers}</span>}
-      {reachedGoal && <span className="shrink-0 text-sm font-bold text-emerald-400">🏁 en meta</span>}
+      {unreadCheers > 0 && <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold text-fuchsia-300"><MessageSquare size={12} />{unreadCheers}</span>}
+      {reachedGoal && <span className="flex shrink-0 items-center gap-1 text-sm font-bold text-emerald-400"><Flag size={13} /> en meta</span>}
       {progressKm != null && !reachedGoal && (
         <span className="shrink-0 text-xs tabular-nums text-slate-300">{progressKm.toFixed(1)} km</span>
       )}
@@ -2647,7 +2667,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <div className="flex items-baseline justify-between gap-2">
           <p className="font-semibold truncate">
             {i === nextIdx && <ChevronRight size={12} className="mr-0.5 inline text-sky-400" />}
-            {poiIcon(c.w)}{c.band ? ` ${bandIcon(c.band)}` : ''} {c.w.name}
+            {poiIcon(c.w)}{c.band ? <> {bandIcon(c.band)}</> : ''} {c.w.name}
           </p>
           <span className="text-xs text-slate-400 shrink-0">{c.w.distanceKm.toFixed(1)} km</span>
         </div>
@@ -2675,8 +2695,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <span className={c.queda ? 'text-slate-500' : undefined}>
             {c.queda && 'tramo: '}↔ {c.seg.distanceKm.toFixed(1)} km · ↑{Math.round(c.seg.elevGainM)} ↓{Math.round(c.seg.elevLossM)} m · {Math.round(c.seg.avgGradePct)}% · ~{Math.round(c.seg.estimatedMinutes)} min
           </span>
-          {c.w.ele != null && <span>⛰ {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
-          {c.w.pauseMin != null && c.w.pauseMin > 0 && <span>⏸ {c.w.pauseMin} min</span>}
+          {c.w.ele != null && <span><Mountain size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.w.ele)} m · D+ {Math.round(c.cumGainM)} m</span>}
+          {c.w.pauseMin != null && c.w.pauseMin > 0 && <span><Pause size={11} className="inline-block -mt-0.5 align-middle" /> {c.w.pauseMin} min</span>}
         </div>
         <SegmentProfile
           profile={c.profile}
@@ -2686,9 +2706,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         />
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
-            <span>🌡️ {Math.round(c.wx.temp)}°</span>
-            <span>💧 {Math.round(c.wx.precip)}%</span>
-            <span>💨 {Math.round(c.wx.wind)} km/h</span>
+            <span><Thermometer size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.wx.temp)}°</span>
+            <span><Droplets size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.wx.precip)}%</span>
+            <span><Wind size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.wx.wind)} km/h</span>
           </div>
         )}
       </div>
@@ -2749,7 +2769,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           </div>
           {offRoute && !reachedGoal && (
             <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-2.5 text-xs text-amber-300">
-              ⚠️ Fuera de ruta · a {nearest ? formatDist(nearest.distKm) : ''} de la traza. Los tiempos mostrados son los del plan, no proyecciones en vivo.
+              <AlertTriangle size={12} className="inline-block -mt-0.5 align-middle" /> Fuera de ruta · a {nearest ? formatDist(nearest.distKm) : ''} de la traza. Los tiempos mostrados son los del plan, no proyecciones en vivo.
             </div>
           )}
           {cards.length === 0 ? (
@@ -2840,7 +2860,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // mapas: el fluido pinta EXACTAMENTE esto dentro de su bocadillo.
   const contenidoParada = (p: (typeof stops)[number]) => (
     <div style={{ minWidth: 130 }}>
-      <div style={{ fontWeight: 600 }}>{p.open ? '⏸️ Parado ahora' : '⏸️ Parada'}</div>
+      <div style={{ fontWeight: 600 }}><Pause size={12} className="inline-block -mt-0.5 align-middle" /> {p.open ? 'Parado ahora' : 'Parada'}</div>
       <div style={{ marginTop: 2 }}>
         {p.open
           ? `Lleva ${hhmm((refNow - p.from) / 60_000)}`
@@ -3071,7 +3091,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {/* El alto maximo deja hueco por debajo para la lenguesta Y para la
             pastilla de estado: desplegado, el cuadro llegaba casi al borde y el
             tirador quedaba fuera de pantalla, sin forma de volver a plegarlo. */}
-        <div className="flex max-h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl">
+        <div
+          ref={tarjetaRef}
+          className="flex max-h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl"
+          style={altoForzado != null
+            ? { height: altoForzado, transition: asentando ? 'height 220ms cubic-bezier(.2,.8,.2,1)' : 'none' }
+            : undefined}
+        >
           {mini && !showAdvanced ? tarjetaMini : (<>
           <div className="shrink-0 px-3 pt-2.5 pb-1.5">
             {header}
@@ -3109,7 +3135,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 ) : (
                   <Stat
                     label={isStopped ? 'Parado' : showPace ? 'Ritmo' : 'Velocidad'}
-                    value={isStopped ? `⏸️ ${hhmm(stoppedMs / 60_000)}` : fmtSpeed(speedKmh)}
+                    value={isStopped ? hhmm(stoppedMs / 60_000) : fmtSpeed(speedKmh)}
                     tone={isStopped ? 'amber' : undefined}
                   />
                 )}
@@ -3146,7 +3172,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   finisher es cambiarle la mejor noticia del día por una
                   alarma. */}
               {hasPlan && offRoute && nearest && !reachedGoal && (
-                <p className="mt-2 text-xs text-amber-400">⚠️ Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
+                <p className="mt-2 text-xs text-amber-400"><AlertTriangle size={12} className="inline-block -mt-0.5 align-middle" /> Fuera de ruta · a {formatDist(nearest.distKm)} de la traza</p>
               )}
               {showAdvanced && (
                 <div className="mt-2 border-t border-slate-800 pt-2 space-y-3">
@@ -3465,7 +3491,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           speed unreachable for the (declared or detected) activity. */}
                       {hiddenForSpeed > 0 && effectiveActivity && (
                         <p className="mt-1.5 text-[10px] text-amber-400">
-                          ⚠️ {hiddenForSpeed} {hiddenForSpeed === 1 ? 'punto oculto' : 'puntos ocultos'} por velocidad imposible para {ACTIVITY_LABEL[effectiveActivity].label.toLowerCase()}
+                          <AlertTriangle size={11} className="inline-block -mt-0.5 align-middle" /> {hiddenForSpeed} {hiddenForSpeed === 1 ? 'punto oculto' : 'puntos ocultos'} por velocidad imposible para {ACTIVITY_LABEL[effectiveActivity].label.toLowerCase()}
                           {activityIsAuto && ' (detectado)'}
                         </p>
                       )}
@@ -3473,14 +3499,14 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   )}
                   {hasPlan && fullProfile && (
                     <div>
-                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><span className="text-xs">📈</span>Perfil del recorrido</p>
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><TrendingUp size={12} />Perfil del recorrido</p>
                       <SegmentProfile profile={fullProfile} posKm={progressKm} />
                       <div className="flex justify-between text-[10px] text-slate-400">
                         <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
                       </div>
                     </div>
                   )}
-                  <MetricSection icon="💨" title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>
+                  <MetricSection icon={<Gauge size={12} />} title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>
                     <Stat label="Actual" value={fmtSpeed(speedKmh)} />
                     <Stat label="Media total" value={fmtSpeed(avgSpeedKmh)} />
                     <Stat label="Media en mov." value={fmtSpeed(movingAvgKmh)} />
@@ -3495,7 +3521,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       "Precisión" y "Calidad" eran el mismo dato dos veces (la
                       etiqueta salía de los mismos metros), así que van juntas. */}
                   {!ended && fix.accuracy != null && (
-                    <MetricSection icon="📡" title="Señal GPS" cols={2}>
+                    <MetricSection icon={<RadioTower size={12} />} title="Señal GPS" cols={2}>
                       <Stat
                         label={`Precisión${accuracyLabel(fix.accuracy) ? ` · ${accuracyLabel(fix.accuracy)}` : ''}`}
                         value={`± ${Math.round(fix.accuracy)} m`}
@@ -3504,7 +3530,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       <Stat label="Frecuencia" value={sampleSec != null ? sampleLabel(sampleSec) : '—'} />
                     </MetricSection>
                   )}
-                  <MetricSection icon="⏱️" title="Tiempo" cols={2}>
+                  <MetricSection icon={<Timer size={12} />} title="Tiempo" cols={2}>
                     <Stat label="Inicio" value={formatTime(sessionStart)} />
                     <Stat label="En marcha" value={elapsedMin > 0 ? hhmm(elapsedMin) : '—'} />
                     <Stat label="En movimiento" value={movingMin > 0 ? hhmm(movingMin) : '—'} />
@@ -3518,7 +3544,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       {/* Llegado a meta, "restante" y "meta prevista" ya no son
                           datos: son un pronóstico de algo que ya pasó. Se
                           sustituyen por lo que de verdad interesa después. */}
-                      <MetricSection icon="🏁" title="Meta" cols={2}>
+                      <MetricSection icon={<Flag size={12} />} title="Meta" cols={2}>
                         {reachedGoal ? (
                           <>
                             <Stat label="Llegada" value={arrivalAt ? clockDay(arrivalAt, sessionStart) : '—'} />
@@ -3531,7 +3557,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           </>
                         )}
                       </MetricSection>
-                      <MetricSection icon="⛰️" title="Desnivel" cols={3}>
+                      <MetricSection icon={<Mountain size={12} />} title="Desnivel" cols={3}>
                         <Stat label="D+ hecho" value={`${Math.round(advStats.done.elevGainM)}/${Math.round(advStats.totalGainM)} m`} />
                         <Stat label="D+ restante" value={`${Math.round(advStats.rem.elevGainM)} m`} />
                         <Stat label="D− hecho" value={`${Math.round(advStats.done.elevLossM)} m`} />
@@ -3643,21 +3669,67 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             // ratón. UN escalón por gesto —si no, un arrastre largo desde
             // desplegado se saltaba la normal y acababa en la mínima—.
             onPointerDown={(e) => {
+              const alto0 = tarjetaRef.current?.getBoundingClientRect().height
+              if (alto0 == null) return
               advDragStartY.current = e.clientY
               advDraggedRef.current = false
+              estiron.current = { alto0, desde: mini ? 'mini' : showAdvanced ? 'ampliada' : 'normal', y0: e.clientY }
               try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* sin captura, igual funciona con el dedo */ }
             }}
             onPointerMove={(e) => {
-              if (advDragStartY.current == null || advDraggedRef.current) return
-              const dy = e.clientY - advDragStartY.current
-              if (Math.abs(dy) <= 24) return
-              advDraggedRef.current = true
-              if (dy > 0) { if (mini) setMini(false); else setShowAdvanced(true) }
-              else if (showAdvanced) setShowAdvanced(false)
-              else setMini(true)
+              const est = estiron.current
+              if (!est) return
+              const dy = e.clientY - est.y0
+              if (!advDraggedRef.current && Math.abs(dy) < 6) return
+              if (!advDraggedRef.current) {
+                advDraggedRef.current = true
+                setAsentando(false)
+                // Lo que se va a ver al estirar tiene que estar ya pintado
+                // debajo: el dedo lo va destapando.
+                if (dy > 0 && est.desde === 'normal') setShowAdvanced(true)
+                if (dy > 0 && est.desde === 'mini') setMiniState(false)
+              }
+              // Hacia donde no hay más tamaño, con resistencia: se nota que
+              // cede un poco y vuelve, como un elástico.
+              const sinSalida = (dy < 0 && est.desde === 'mini') || (dy > 0 && est.desde === 'ampliada')
+              const tope = window.innerHeight - 144 // el max-h de la tarjeta
+              setAltoForzado(Math.max(40, Math.min(tope, est.alto0 + (sinSalida ? dy * 0.2 : dy))))
             }}
-            onPointerUp={() => { advDragStartY.current = null }}
-            onPointerCancel={() => { advDragStartY.current = null }}
+            onPointerUp={(e) => {
+              const est = estiron.current
+              estiron.current = null
+              advDragStartY.current = null
+              if (!est || !advDraggedRef.current) return
+              const dy = e.clientY - est.y0
+              const UMBRAL = 50
+              let destino: 'mini' | 'normal' | 'ampliada' = est.desde
+              if (est.desde === 'normal') destino = dy > UMBRAL ? 'ampliada' : dy < -UMBRAL ? 'mini' : 'normal'
+              else if (est.desde === 'ampliada') destino = dy < -UMBRAL ? 'normal' : 'ampliada'
+              else destino = dy > UMBRAL * 0.8 ? 'normal' : 'mini'
+              setShowAdvanced(destino === 'ampliada')
+              setMini(destino === 'mini')
+              // Asentarse: con el contenido del destino ya pintado (y
+              // recortado al alto del dedo), se mide cuánto ocupa de verdad y
+              // se anima hasta ahí; luego la tarjeta vuelve a su alto natural.
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                const t = tarjetaRef.current
+                if (!t) { setAltoForzado(null); return }
+                let natural = 0
+                for (const hijo of Array.from(t.children) as HTMLElement[]) {
+                  natural += hijo.classList.contains('overflow-y-auto') ? hijo.scrollHeight : hijo.offsetHeight
+                }
+                natural += 2 // el borde
+                setAsentando(true)
+                setAltoForzado(Math.min(window.innerHeight - 144, natural))
+                window.setTimeout(() => { setAltoForzado(null); setAsentando(false) }, 240)
+              }))
+            }}
+            onPointerCancel={() => {
+              estiron.current = null
+              advDragStartY.current = null
+              advDraggedRef.current = false
+              setAltoForzado(null)
+            }}
             aria-label={mini ? 'Agrandar la tarjeta' : showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca, o arrastra hacia arriba para encoger)'}
             className="group absolute left-1/2 top-full flex w-16 -translate-x-1/2 -translate-y-px touch-none items-center justify-center gap-1 rounded-b-xl border border-t-0 border-slate-700 bg-slate-900/85 py-1.5 shadow-lg backdrop-blur"
           >
@@ -3765,8 +3837,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           {pastillaAbierta && radar && (
             <div className="mt-0.5 whitespace-nowrap text-[10px] text-violet-300">
               {radarFrame
-                ? <>🛰️ lluvia de las {formatTime(new Date(radarFrame.timeMs))}{radarEsLaUltima ? ' · la última' : ' ▸'}</>
-                : radarFallo ? <>🛰️ radar sin conexión</> : <>🛰️ cargando radar…</>}
+                ? <><CloudRain size={11} className="inline-block -mt-0.5 align-middle" /> lluvia de las {formatTime(new Date(radarFrame.timeMs))}{radarEsLaUltima ? ' · la última' : ' ▸'}</>
+                : radarFallo ? <><CloudRain size={11} className="inline-block -mt-0.5 align-middle" /> radar sin conexión</> : <><CloudRain size={11} className="inline-block -mt-0.5 align-middle" /> cargando radar…</>}
             </div>
           )}
           {/* La leyenda explica LO QUE SE ESTA VIENDO: con el mapa de calor
@@ -3939,11 +4011,11 @@ function marginTone(marginMin: number | null): string {
   return 'text-emerald-400'
 }
 
-function MetricSection({ icon, title, cols, children }: { icon: string; title: string; cols: 2 | 3; children: ReactNode }) {
+function MetricSection({ icon, title, cols, children }: { icon: ReactNode; title: string; cols: 2 | 3; children: ReactNode }) {
   return (
     <div>
       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
-        <span className="text-xs">{icon}</span>{title}
+        <span className="flex text-slate-400">{icon}</span>{title}
       </p>
       <div className={`grid ${cols === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-2 text-center`}>{children}</div>
     </div>
