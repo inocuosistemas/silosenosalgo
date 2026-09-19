@@ -84,6 +84,8 @@ interface Props {
   notas: MarcaConContenido[]
   hueco: { desde: [number, number]; hasta: [number, number]; etiqueta: string } | null
   fantasma: { pos: [number, number]; etiqueta: string } | null
+  /** Sin cobertura: la banda donde tiene que estar y el aro en su extremo. */
+  sinSenal?: { banda: [number, number][]; pos: [number, number]; etiqueta: string } | null
   corredor: { pos: [number, number]; icon: L.DivIcon } | null
   destello: { clave: number; pos: [number, number]; icon: L.DivIcon } | null
   seguir: { lat: number; lon: number; nudge: number } | null
@@ -259,10 +261,15 @@ export default function MapaFluido(p: Props) {
         layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
         ...extra,
       })
-      for (const id of ['planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'puntosRuta', 'hueco', 'huecoPunto']) {
+      for (const id of ['sinSenal', 'planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'puntosRuta', 'hueco', 'huecoPunto']) {
         map.addSource(id, { type: 'geojson', data: VACIO })
       }
       // Mismo orden, grosores y colores que el clásico.
+      // La banda sin cobertura: migas de pan sueltas, del azul del corredor.
+      map.addLayer({
+        id: 'sinSenal', type: 'circle', source: 'sinSenal',
+        paint: { 'circle-radius': 4.5, 'circle-color': '#0ea5e9', 'circle-opacity': 0.7 },
+      })
       map.addLayer(linea('planHalo', { paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.55 } }))
       map.addLayer(linea('plan', { paint: { 'line-color': '#6366f1', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] } }))
       map.addLayer(linea('planBorde', { paint: { 'line-color': '#020617', 'line-width': 10, 'line-opacity': 0.55 } }))
@@ -465,6 +472,49 @@ export default function MapaFluido(p: Props) {
     }, h ? h.desde : null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listo, firmaHueco])
+
+  // Sin cobertura: las migas cada ~16 px a este zoom (con `line-dasharray`
+  // salían churros) y el aro con su etiqueta, como en el mapa del evento.
+  const [zoomVista, setZoomVista] = useState(0)
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map) return
+    const z = () => setZoomVista(map.getZoom())
+    map.on('zoomend', z)
+    z()
+    return () => { map.off('zoomend', z) }
+  }, [listo])
+  const firmaSinSenal = p.sinSenal ? `${p.sinSenal.banda.length}|${p.sinSenal.pos.join(',')}` : ''
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map) return
+    const banda = p.sinSenal?.banda ?? []
+    const migas: [number, number][] = []
+    let sobra = 0
+    for (let i = 1; i < banda.length; i++) {
+      const a = map.project(lonLat(banda[i - 1])), b = map.project(lonLat(banda[i]))
+      const largo = Math.hypot(b.x - a.x, b.y - a.y)
+      let d = sobra
+      while (d <= largo) {
+        const t = largo > 0 ? d / largo : 0
+        const q = map.unproject([a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t])
+        migas.push([q.lat, q.lng])
+        d += 16
+      }
+      sobra = d - largo
+    }
+    fuente('sinSenal')?.setData(puntos(migas))
+    suelto('sinSenal', p.sinSenal ? p.sinSenal.etiqueta : null, () => {
+      const el = document.createElement('div')
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;pointer-events:none;z-index:' + CAPA.fantasma
+      el.innerHTML = '<div style="width:22px;height:22px;border-radius:50%;border:2px dashed #0ea5e9;background:rgba(2,6,23,0.6);'
+        + 'display:grid;place-items:center;font:700 12px/1 system-ui,sans-serif;color:#0ea5e9">?</div>'
+        + '<div style="margin-top:4px;background:rgba(2,6,23,.82);color:#f8fafc;font:600 10px/1.3 system-ui,sans-serif;'
+        + 'padding:2px 6px;border-radius:6px;white-space:nowrap">' + p.sinSenal!.etiqueta.replace(/</g, '&lt;') + '</div>'
+      return new Marker({ element: el, anchor: 'top', offset: [0, -11] })
+    }, p.sinSenal ? p.sinSenal.pos : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, firmaSinSenal, zoomVista])
 
   const fantasmaRef = useRef(p.fantasma)
   fantasmaRef.current = p.fantasma

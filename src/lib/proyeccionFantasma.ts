@@ -59,7 +59,10 @@ import { kmEnElMomento, type PerfilEsfuerzo, type RitmoAjustado } from './ritmoT
 /** Menos de esto es el pulso normal de la baliza, no un hueco de cobertura. */
 export const SILENCIO_MIN_MS = 3 * 60_000
 /** Más de esto y la proyección habla del modelo, no del corredor. */
-export const SILENCIO_MAX_MS = 30 * 60_000
+// Tres horas: con el modelo por terreno (ver `lib/ritmoTerreno`) una hora sin
+// cobertura en el monte se proyecta con sentido. Con media hora, en Matxicots 26
+// el aro de Soriano desapareció a los 34 min, justo cuando más se miraba.
+export const SILENCIO_MAX_MS = 3 * 60 * 60_000
 
 export interface Fantasma {
   /** Su último punto real: el corredor está entre este kilómetro y el otro. */

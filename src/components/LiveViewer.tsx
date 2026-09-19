@@ -37,6 +37,7 @@ import { accuracyToColor, accuracyLabel, ACCURACY_LEGEND } from '../lib/mapColor
 import { detectForm } from '../lib/formCalibration'
 import { detectLaps, currentLap, lapSplits, projectNextLapMin } from '../lib/laps'
 import { buildPlannedCurve, kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
+import { proyeccionFantasma } from '../lib/proyeccionFantasma'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { estimaBateria } from '../lib/bateria'
@@ -108,6 +109,16 @@ function Rumbo({ onRumbo }: { onRumbo: (grados: number) => void }) {
  * —la misma en la web y en las dos apps— porque en la barra de arriba de la
  * app no cabía con el resto.
  */
+/** El aro de la proyección sin cobertura: hueco, discontinuo, con su "?". El
+ *  mismo que usa el mapa del evento, en el azul del corredor de la baliza. */
+const iconoSinSenal = L.divIcon({
+  className: '',
+  html: `<div style="width:22px;height:22px;border-radius:50%;border:2px dashed #0ea5e9;background:rgba(2,6,23,0.6);
+    box-shadow:0 0 0 1px rgba(2,6,23,0.5);display:grid;place-items:center;font-size:12px;font-weight:700;line-height:1;color:#0ea5e9">?</div>`,
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+})
+
 function PuntoEmision({ tono, late }: { tono: 'verde' | 'ambar' | 'rojo'; late: boolean }) {
   const color = tono === 'verde' ? 'bg-emerald-400' : tono === 'ambar' ? 'bg-amber-400' : 'bg-rose-500'
   return (
@@ -2133,6 +2144,40 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // lo rematara.
   const reachedGoal = resultadoOficial?.finished === true || (hasPlan
     && (cruceMeta !== null || (ended && remainingKm != null && remainingKm <= goalTolKm)))
+
+  /**
+   * SIN COBERTURA: dónde debería ir ahora, por su ritmo y el terreno. La MISMA
+   * cuenta que el mapa del evento (`proyeccionFantasma`, con su ritmo por
+   * terreno): las dos pantallas tienen que decir lo mismo del mismo corredor.
+   *
+   * Solo para quien mira DE LEJOS: dentro de la app, el propio corredor tiene
+   * su posición en vivo en el móvil y un aro "deberías ir por aquí" sobre la de
+   * verdad solo confundiría.
+   */
+  const sinSenal = !embedded && fix && plan && progressKm != null && !ended && !reachedGoal && !preStart
+    ? proyeccionFantasma({
+        kmUltimo: progressKm,
+        silencioMs: Date.now() - fix.updatedAt,
+        totalKm,
+        estabaParado: stoppedMs >= STOP_MIN_MS,
+        resuelto: false,
+        curva: plannedCurve,
+        transcurridoMs: fix.updatedAt - sessionStart.getTime(),
+        velocidadKmH: fix.speed != null ? fix.speed * 3.6 : null,
+        terreno: ritmoTerreno && perfilEsfuerzo && state.startedAt != null
+          ? { perfil: perfilEsfuerzo, ritmo: ritmoTerreno, salidaMs: state.startedAt, ultimoMs: fix.updatedAt }
+          : null,
+      })
+    : null
+  const sinSenalBanda: [number, number][] = sinSenal && plan
+    ? plan.track.points
+      .filter((_, i) => plan.track.cumKm[i] >= sinSenal.desdeKm && plan.track.cumKm[i] <= sinSenal.hastaKm)
+      .map((p) => [p.lat, p.lon] as [number, number])
+    : []
+  const sinSenalPos = sinSenal && plan ? pointAtKm(plan.track, sinSenal.hastaKm) : null
+  const sinSenalTexto = sinSenal
+    ? `${sinSenal.enMeta ? 'debería estar llegando' : 'por su ritmo debería ir por aquí'} · km ${sinSenal.hastaKm.toFixed(1)} · sin señal hace ${hhmm(sinSenal.silencioMs / 60_000)}`
+    : null
   // Hora de llegada: el instante en que se dejó de AVANZAR, no el de la última
   // posición ni el de parar la baliza.
   //
@@ -3130,6 +3175,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 }
               : null}
             fantasma={ghostPos ? { pos: ghostPos, etiqueta: `Según el plan deberías ir por aquí · km ${ghostKm!.toFixed(1)}` } : null}
+            sinSenal={sinSenalPos && sinSenalTexto ? { banda: sinSenalBanda, pos: sinSenalPos, etiqueta: sinSenalTexto } : null}
             corredor={fix && posicionPintada ? { pos: posicionPintada, icon: pulseDivIcon(fixColor, !ended && !fr?.stale) } : null}
             destello={focus && ping > 0 ? { clave: ping, pos: [focus.lat, focus.lon], icon: notePingIcon } : null}
             seguir={fix ? { lat: fix.lat, lon: fix.lon, nudge: recentre } : null}
@@ -3229,6 +3275,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               Deliberadamente apagado (violeta translucido, sin borde blanco)
               para que no compita con el punto real. Se dibuja ANTES que el, asi
               que si coinciden queda debajo y el de verdad se ve. */}
+          {/* SIN COBERTURA: la banda de recorrido donde tiene que estar y el aro
+              hueco en su extremo, como en el mapa del evento. Migas de pan
+              sueltas del color del corredor, que no se confunden con su cola. */}
+          {sinSenalBanda.length > 1 && (
+            <Polyline
+              positions={sinSenalBanda}
+              pathOptions={{ color: '#0ea5e9', weight: 9, opacity: 0.7, dashArray: '0.1 16', lineCap: 'round' }}
+              interactive={false}
+            />
+          )}
+          {sinSenalPos && sinSenalTexto && (
+            <Marker position={sinSenalPos} icon={iconoSinSenal} interactive={false}>
+              <Tooltip direction="bottom" offset={[0, 12]} permanent className="poi-tip">{sinSenalTexto}</Tooltip>
+            </Marker>
+          )}
           {/* Más visible que antes —violeta claro al 70% pasaba desapercibido
               sobre la traza de colores—, pero sin parecerse al de verdad: aro
               DISCONTINUO violeta oscuro con halo blanco, frente al punto azul
