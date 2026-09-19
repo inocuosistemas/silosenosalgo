@@ -2356,7 +2356,17 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
   const pasos = m.manualPasos ?? null
   const filas = [...puntos]
   if (totalKm != null && !filas.some((p) => Math.abs(p.km - totalKm) < 0.2)) filas.push({ nombre: 'Meta', km: totalKm })
+  // Los pasos anotados en un km que no es un punto del recorrido: el
+  // cronometraje de la organización tiene más controles que los cortes del
+  // GPX. Salen en la lista, en su sitio por km, para corregirlos o borrarlos.
+  for (const [km] of pasos ?? []) {
+    if (!filas.some((p) => Math.abs(p.km - km) < 0.05)) filas.push({ nombre: 'Control', km })
+  }
+  filas.sort((a, b) => a.km - b.km)
   const [horas, setHoras] = useState<Record<string, string>>({})
+  /** El control libre: cualquier kilómetro con su hora. */
+  const [kmLibre, setKmLibre] = useState('')
+  const [horaLibre, setHoraLibre] = useState('')
   const hora = (ms: number) => new Date(ms).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
   /** "07:21" → epoch ms del día de la carrera; si cae antes de la salida, del día siguiente. */
   const aEpoch = (hhmm: string): number | null => {
@@ -2429,6 +2439,46 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
               )
             })}
           </div>
+          {(() => {
+            const km = Number(kmLibre.replace(',', '.'))
+            const kmOk = kmLibre.trim() !== '' && Number.isFinite(km) && km > 0 && (totalKm == null || km <= totalKm + 0.5)
+            const at = aEpoch(horaLibre)
+            return (
+              <div className="mt-2 flex items-center gap-2 border-t border-slate-800 pt-2 text-[11px]">
+                <span className="min-w-0 flex-1 truncate text-slate-400">Otro punto · km</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={kmLibre}
+                  onChange={(e) => setKmLibre(e.target.value)}
+                  placeholder="15,2"
+                  className="w-14 rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-right tabular-nums text-slate-200"
+                  aria-label="Kilómetro del control"
+                />
+                <input
+                  type="time"
+                  value={horaLibre}
+                  onChange={(e) => setHoraLibre(e.target.value)}
+                  className="w-[5.5rem] rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-slate-200"
+                  aria-label="Hora de paso por ese control"
+                />
+                <button
+                  onClick={() => {
+                    if (!kmOk || at == null) return
+                    onManual({ km, at })
+                    setKmLibre(''); setHoraLibre('')
+                  }}
+                  disabled={busy || !kmOk || at == null}
+                  title="Guardar este paso"
+                  aria-label="Guardar el paso por ese kilómetro"
+                  className="shrink-0 text-emerald-400 disabled:opacity-20"
+                >
+                  <Check size={14} />
+                </button>
+                <span className="w-[13px] shrink-0" aria-hidden="true" />
+              </div>
+            )
+          })()}
           <button
             onClick={() => onManual({ modo: false })}
             disabled={busy}
