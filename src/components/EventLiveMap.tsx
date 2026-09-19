@@ -27,6 +27,7 @@ import { isHttpUrl } from '../../shared/validate'
 import { paradoDesde } from '../lib/parado'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { ACTIVITY_MAX_SPEED_KMH, haversineKm } from '../lib/timing'
+import { esCircuito } from '../lib/cruceMeta'
 import { pathBetweenKm } from '../lib/speedHeat'
 import { projectKm } from '../lib/kmDelRecorrido'
 import { MarkBadge } from './MarkPicker'
@@ -618,6 +619,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
    * copia—, pero manda la del evento: es la que el organizador puede corregir
    * sin volver a publicar el recorrido.
    */
+  /** Si el recorrido acaba donde empieza (ver `lib/cruceMeta`). */
+  const circuito = useMemo(
+    () => (route ? esCircuito(route.pts.map(([lat, lon]) => ({ lat, lon }))) : false),
+    [route],
+  )
+
   const startMs = useMemo(() => {
     if (startsAt) return startsAt
     const t = plan ? Date.parse(plan.startTimeISO) : NaN
@@ -683,6 +690,36 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           }
         }
         km = km ?? proyectado
+        /**
+         * CIRCUITO: la salida y la meta son el mismo sitio, y quien acaba de
+         * salir cae igual de cerca del km 0 que del último. Si la proyección
+         * elegía el final, la regla de la meta le daba por llegado a los dos
+         * minutos de empezar. Pasó en Matxicots 26: los dos en la salida de
+         * Rialp, "en meta".
+         *
+         * No se puede resolver mirando por dónde pasó —de quien entra en meta
+         * solo queda su última hora, y esa cae entera en el tramo final—, pero
+         * sí con algo que no falla: nadie acaba más deprisa que la velocidad
+         * máxima de su actividad. Mientras no haya pasado ese mínimo desde la
+         * salida oficial, un punto que casa igual de bien con la salida que con
+         * la meta es la salida. Solo si casa igual de bien (el mismo sitio): a
+         * quien va de verdad por la segunda mitad no se le toca.
+         */
+        if (circuito && km != null && km > route.totalKm / 2 && startMs != null && r.updatedAt != null) {
+          const act = r.activity ?? actividad
+          const velMax = act && act in ACTIVITY_MAX_SPEED_KMH
+            ? ACTIVITY_MAX_SPEED_KMH[act as keyof typeof ACTIVITY_MAX_SPEED_KMH]
+            : 25
+          const minimoParaAcabarMs = (route.totalKm / velMax) * 3_600_000
+          if (r.updatedAt - startMs < minimoParaAcabarMs) {
+            const enSalida = { m: 0 }
+            const kmSalida = projectKm(r.fix.lat, r.fix.lon, route, 0, route.totalKm / 2, enSalida)
+            if (kmSalida != null && enSalida.m <= medida.m + 150) {
+              km = kmSalida
+              medida.m = enSalida.m
+            }
+          }
+        }
       }
       if (km != null) kmPrevio.current.set(key, km)
       // El punto de ahora al historial, si es nuevo. Tope de 400: en una ultra
@@ -931,7 +968,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
       return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito])
 
   /**
    * La parrilla de la cuenta atrás, BARAJADA hasta que se sale.
