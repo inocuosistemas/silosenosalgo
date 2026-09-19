@@ -3645,7 +3645,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><TrendingUp size={12} />Perfil del recorrido</p>
-                      <SegmentProfile profile={fullProfile} posKm={progressKm} alto={64} />
+                      <SegmentProfile profile={fullProfile} posKm={progressKm} alto={120} />
                       <div className="flex justify-between text-[10px] text-slate-400">
                         <span>0 km</span><span>{totalKm.toFixed(0)} km</span>
                       </div>
