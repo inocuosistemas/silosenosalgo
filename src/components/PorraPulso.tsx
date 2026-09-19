@@ -257,10 +257,16 @@ export function PorraPulso({ bets, me, players, runners, startsAt, limitMin, eve
         <Titulo color={C_RAPIDO}>{TITULOS_PULSO.rapidos}</Titulo>
         <ul className="mt-2 space-y-1.5">
           {pulso.rapidos.map((v) => (
-            <li key={v.name} className="flex items-center gap-2" title={`${v.name}: ${v.n} de ${pulso.jugadores}`}>
+            <li key={v.name} className="flex flex-wrap items-center gap-x-2 gap-y-0.5" title={`${v.name}: ${v.n} de ${pulso.jugadores}`}>
               <Corredor r={dame(v.name)} name={v.name} />
-              <Barra n={v.n} max={maxRapidos} color={C_RAPIDO} marca={marcaEn('rapidos', v.name)} />
+              {/* Quien va en modo manual: su barra apagada y dicho por qué. */}
+              <span className={`flex min-w-0 flex-1 items-center gap-2 ${dame(v.name)?.manual ? 'opacity-35' : ''}`}>
+                <Barra n={v.n} max={maxRapidos} color={C_RAPIDO} marca={marcaEn('rapidos', v.name)} />
+              </span>
               <span className="w-5 shrink-0 text-right text-xs font-bold tabular-nums text-slate-200">{v.n}</span>
+              {dame(v.name)?.manual && (
+                <span className="basis-full pl-1 text-[10px] text-slate-500">∅ no computa: va en modo manual, sin baliza no se mide su km más rápido</span>
+              )}
             </li>
           ))}
         </ul>

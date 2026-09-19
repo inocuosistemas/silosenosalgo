@@ -1263,7 +1263,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
 
   /** La parrilla tal como la necesita la porra: sin posiciones, solo identidad. */
   const betRunners = useMemo<BetRunner[]>(
-    () => rows.map(({ r }) => ({ username: r.username, bib: r.bib, emoji: r.emoji, color: r.color })),
+    () => rows.map(({ r, modoManual }) => ({ username: r.username, bib: r.bib, emoji: r.emoji, color: r.color, manual: modoManual })),
     [rows],
   )
 

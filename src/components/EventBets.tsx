@@ -36,6 +36,8 @@ export interface BetRunner {
   bib: string | null
   emoji: string | null
   color: string | null
+  /** En modo manual: su km más rápido no se mide y lo apostado a él no computa. */
+  manual?: boolean
 }
 
 /**
@@ -609,6 +611,29 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           </ul>
           {/* Quién lleva el kilómetro más rápido, que también se apuesta y hasta
               ahora solo se sabía al cerrar. */}
+          {/* Lo apostado al km más rápido de quien va en modo manual: dicho
+              aquí, que es donde se mira el km más rápido, y no solo en el
+              desglose de cada jugador. */}
+          {(() => {
+            const manuales = runners.filter((r) => r.manual)
+              .map((r) => ({ name: r.username, n: (data?.bets ?? []).filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length }))
+              .filter((x) => x.n > 0)
+            if (manuales.length === 0) return null
+            return (
+              <p className="flex items-start gap-1.5 border-t border-slate-800/70 px-3.5 py-2 text-[11px] text-slate-400">
+                <span aria-hidden className="text-slate-500">∅</span>
+                <span className="min-w-0 flex-1">
+                  {manuales.map((x, i) => (
+                    <span key={x.name}>
+                      {i > 0 && ' · '}
+                      <b className="text-slate-300">{x.n === 1 ? '1 pronóstico' : `${x.n} pronósticos`}</b> al km más rápido de <b className="text-slate-300">{x.name}</b>
+                    </span>
+                  ))}
+                  {' '}no {manuales.reduce((t, x) => t + x.n, 0) === 1 ? 'computa' : 'computan'}: va en modo manual, y sin baliza no se mide su km más rápido. Ni suman ni cuentan como fallo.
+                </span>
+              </p>
+            )
+          })()}
           {data?.recordVivo && (() => {
             const r = data.recordVivo
             const loDijeron = data.bets.filter((b) => b.kind === 'fastest_km' && (b.target || b.value) === r.username).length
