@@ -92,13 +92,20 @@ export interface EntradaFantasma {
   transcurridoMs: number | null
   /** Sin plan, el respaldo: su velocidad reciente sobre el recorrido (km/h). */
   velocidadKmH: number | null
+  /**
+   * En MODO MANUAL: lo último que se sabe es un paso por un control anotado
+   * a mano, y entre dos controles pueden pasar horas. Ahí la proyección no es
+   * un parche para un rato sin cobertura sino lo único que hay, así que no se
+   * corta a la media hora: se sigue hasta que se anote el siguiente paso.
+   */
+  manual?: boolean
 }
 
 export function proyeccionFantasma(e: EntradaFantasma): Fantasma | null {
   const { kmUltimo, silencioMs, totalKm } = e
   if (kmUltimo === null || totalKm === null || totalKm <= 0) return null
   if (e.resuelto || e.estabaParado) return null
-  if (silencioMs < SILENCIO_MIN_MS || silencioMs > SILENCIO_MAX_MS) return null
+  if (silencioMs < SILENCIO_MIN_MS || (!e.manual && silencioMs > SILENCIO_MAX_MS)) return null
   // Ya estaba en la meta cuando se le perdió: no hay hacia dónde proyectar.
   if (kmUltimo >= totalKm) return null
 

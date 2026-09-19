@@ -90,3 +90,17 @@ describe('la proyección de quien no da señal', () => {
     expect(proyeccionFantasma({ ...base, kmUltimo: null })).toBe(null)
   })
 })
+
+describe('en modo manual', () => {
+  it('se proyecta aunque su último paso sea de hace horas, con el terreno por delante', () => {
+    // Anotado en el km 10 en plan. Dos horas después: 10 km de llano (60 min)
+    // y luego la subida al doble (60 min = 5 km) → km 25.
+    const f = proyeccionFantasma({ ...base, silencioMs: 120 * 60_000, manual: true })!
+    expect(f).not.toBeNull()
+    expect(f.hastaKm).toBeCloseTo(25, 0)
+  })
+
+  it('sin modo manual, dos horas de silencio no se proyectan', () => {
+    expect(proyeccionFantasma({ ...base, silencioMs: 120 * 60_000 })).toBeNull()
+  })
+})

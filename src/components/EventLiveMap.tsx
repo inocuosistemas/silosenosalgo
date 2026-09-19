@@ -662,7 +662,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       const modoManual = r0.manualPasos != null
       const manual = pasosManual ? pasosManual[pasosManual.length - 1] : null
       const puntoManual = manual && route ? coordsAtKm(route, manual[0]) : null
-      const r = manual && puntoManual
+      const r = modoManual && !(manual && puntoManual)
+        // En manual sin pasos todavía: su última posición es la de la baliza,
+        // pero su carrera sigue viva —no está "terminado"— para poder
+        // proyectarla.
+        ? { ...r0, status: 'active' as const }
+        : manual && puntoManual
         ? {
             ...r0,
             status: 'active' as const,
@@ -670,7 +675,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             tail: [],
             fix: {
               lat: puntoManual[0], lon: puntoManual[1], trackKm: manual[0],
-              speed: null, heading: null, accuracy: null, altitude: null,
+              // Su ritmo MEDIO hasta ese control (m/s), que es lo único que
+              // se sabe: de la salida al último paso anotado.
+              speed: startMs != null && manual[1] > startMs && manual[0] > 0
+                ? (manual[0] * 1000) / ((manual[1] - startMs) / 1000)
+                : null,
+              heading: null, accuracy: null, altitude: null,
               fixAt: manual[1], updatedAt: manual[1],
             },
           }
@@ -936,7 +946,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         silencioMs: r.updatedAt !== null ? now - r.updatedAt : 0,
         totalKm: route?.totalKm ?? null,
         estabaParado: paradoMs > 0,
-        resuelto: acabo || r.status !== 'active' || modoManual,
+        resuelto: acabo || r.status !== 'active',
+        manual: modoManual,
         curva: curvaPlan,
         transcurridoMs: referencia !== null && r.updatedAt !== null ? r.updatedAt - referencia : null,
         velocidadKmH,
@@ -1540,7 +1551,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           {/* Los corredores, en una capa por encima de las fotos: en carrera lo
               primero es quién va dónde, y una miniatura no puede taparlo. */}
           <CapaAlta nombre="corredores" z={665} />
-          {withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma }) => {
+          {withFix.map(({ r, stale, key, km, congelado, desviadoM, tail, acabo, fantasma, modoManual }) => {
             // Dónde se le pinta: pegado a su kilómetro del recorrido si el modo
             // está puesto y no se ha ido lejos; si no, donde dice su GPS.
             // Quien terminó va EN la meta, se esté imantando o no: su última
@@ -1641,7 +1652,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                             que ahí no hay nadie confirmado. */}
                         {(isSel || key === hoverKey) && (
                           <Tooltip direction="bottom" offset={[0, 12]} permanent className="poi-tip">
-                            {fantasma.enMeta
+                            {modoManual
+                              ? (fantasma.enMeta
+                                ? `modo manual · debería estar llegando · último paso hace ${agoLabel(fantasma.silencioMs)}`
+                                : `modo manual · por su ritmo debería ir por aquí · último paso hace ${agoLabel(fantasma.silencioMs)}`)
+                              : fantasma.enMeta
                               ? `debería estar llegando · sin señal hace ${agoLabel(fantasma.silencioMs)}`
                               : `debería ir por aquí · sin señal hace ${agoLabel(fantasma.silencioMs)}`}
                           </Tooltip>
@@ -1652,7 +1667,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                 )}
                 <Marker
                   position={punto}
-                  icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji)}
+                  icon={runnerIcon(color, r.emoji, isSel, stale, showEmoji, modoManual)}
                   pane="corredores"
                   eventHandlers={{
                     click: () => setSelected(isSel ? null : key),
@@ -2711,6 +2726,14 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
               )}
               {/* A lo ancho y debajo, no dentro de la línea: es una explicación,
                   no un dato, y metida en el flex partía la fila entera. */}
+              {/* Modo manual: dicho con todas las letras a quien sigue la
+                  carrera, que ve un punto que no se mueve y un aro que sí. */}
+              {modoManual && (
+                <p className="mt-1 pl-7 text-[10px] leading-snug text-sky-300/80">
+                  Su baliza no emite: está en modo manual. Su posición es su último paso oficial por un control
+                  {fantasma ? ', y el aro hueco del mapa, por dónde debería ir según su ritmo y el terreno' : ''}.
+                </p>
+              )}
               {callado && !idle && !armed && (
                 <p className="mt-1 pl-7 text-[10px] leading-snug text-slate-500">
                   {fantasma
@@ -2783,6 +2806,12 @@ function RunnerCard({ row, now, totalKm, eventId, following, onFollow, onClose }
         {r.bib && <Dorsal bib={r.bib} size="md" />}
         <span className="truncate text-sm font-bold text-slate-100">{r.username}</span>
         {r.status === 'ended' && <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-300">terminado</span>}
+        {row.modoManual && (
+          <span className="shrink-0 rounded bg-sky-800 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-100"
+                title="Su baliza no emite: su posición sale de los pasos oficiales por los controles">
+            manual
+          </span>
+        )}
         {/* La batería, siempre que la mande: en la lista solo sale cuando
             preocupa, pero quien abre la tarjeta de alguien está preguntando
             justo por él —y si lleva rato callado, la primera sospecha es que
@@ -3012,9 +3041,9 @@ function Encuadre({ points, route, esperaRuta, arriba }: {
  * Se cachean por variante para no reiniciar la animación en cada refresco.
  */
 const iconCache = new Map<string, L.DivIcon>()
-function runnerIcon(color: string, emoji: string | null, selected: boolean, stale: boolean, withEmoji: boolean): L.DivIcon {
+function runnerIcon(color: string, emoji: string | null, selected: boolean, stale: boolean, withEmoji: boolean, manual = false): L.DivIcon {
   const showEmoji = withEmoji && !!emoji
-  const key = `${color}|${emoji ?? ''}|${selected}|${stale}|${showEmoji}`
+  const key = `${color}|${emoji ?? ''}|${selected}|${stale}|${showEmoji}|${manual}`
   const hit = iconCache.get(key)
   if (hit) return hit
   const size = showEmoji ? (selected ? 34 : 26) : (selected ? 22 : 16)
@@ -3026,7 +3055,16 @@ function runnerIcon(color: string, emoji: string | null, selected: boolean, stal
     : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};
         border:2px solid ${selected ? '#f8fafc' : 'rgba(2,6,23,0.85)'};opacity:${stale ? 0.45 : 1};
         box-shadow:0 0 0 1px rgba(2,6,23,0.6)"></div>`
-  const icon = L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+  // MODO MANUAL: una chapita "MANUAL" colgada del punto. Quien sigue la
+  // carrera tiene que saber de un vistazo que esa posición no la manda su
+  // móvil sino el cronometraje oficial, y por qué no se mueve entre controles.
+  const conChapa = manual
+    ? `<div style="position:relative;width:${size}px;height:${size}px">${html}
+        <div style="position:absolute;left:50%;top:${size + 2}px;transform:translateX(-50%);
+          background:#0369a1;color:#fff;font:700 8px/1 system-ui,sans-serif;letter-spacing:.04em;
+          padding:2px 4px;border-radius:4px;border:1px solid #e0f2fe;white-space:nowrap">MANUAL</div></div>`
+    : html
+  const icon = L.divIcon({ className: '', html: conChapa, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
   iconCache.set(key, icon)
   return icon
 }
