@@ -1,4 +1,9 @@
-import type { EventStats } from '../../shared/wireTypes'
+import { useState } from 'react'
+import { Award } from 'lucide-react'
+import type { EventStats, EventRunnerStats } from '../../shared/wireTypes'
+import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
+import { dibujaDiploma } from '../lib/diploma'
+import { cargaImagen } from '../lib/porraCard'
 import { MarkBadge } from './MarkPicker'
 import { Dorsal } from './Dorsal'
 
@@ -76,16 +81,65 @@ export function ultimoControl(
   return ultimo
 }
 
-export function ListaResultados({ stats, controles = [], salidaMs = null }: {
+/** Lo de la carrera que lleva el diploma (ver `lib/diploma`). */
+export interface CarreraDiploma {
+  nombre: string
+  fotoUrl: string | null
+  km: number | null
+  desnivelM: number | null
+  perfil: number[] | null
+  /** Los puntos de paso, como fracción del recorrido (0–1). */
+  pasos?: number[]
+}
+
+export function ListaResultados({ stats, controles = [], salidaMs = null, diploma }: {
   stats: EventStats
+  /** Con esto, cada uno que llegó a meta tiene su diploma para sacar. */
+  diploma?: CarreraDiploma
   /** La salida oficial: con ella, el tiempo oficial se enseña al segundo. */
   salidaMs?: number | null
   /** Los controles de la carrera, para poder decir por cuál consta cada uno.
    *  Vacío si el evento no tiene recorrido con puntos de paso. */
   controles?: { nombre: string; km: number }[]
 }) {
+  const { pide, vistaPrevia } = useVistaPreviaCompartir()
+  const [sacando, setSacando] = useState<string | null>(null)
+  const llegados = stats.corredores.filter((c) => c.finished).length
+  /** El diploma de `c`, a la vista previa de compartir. */
+  async function sacaDiploma(c: EventRunnerStats) {
+    if (!diploma || sacando) return
+    setSacando(c.username)
+    try {
+      const foto = diploma.fotoUrl ? await cargaImagen(diploma.fotoUrl) : null
+      const oficialAlSegundo = c.oficial && c.finishedAt != null && salidaMs != null
+      const url = dibujaDiploma({
+        evento: diploma.nombre,
+        foto,
+        dia: salidaMs ?? c.finishedAt,
+        km: diploma.km ?? c.km,
+        desnivelM: diploma.desnivelM,
+        corredor: { nombre: c.username, emoji: c.emoji, color: c.color, dorsal: c.bib },
+        tiempo: oficialAlSegundo ? conSegundos(c.finishedAt! - salidaMs!) : fmtDuracion(c.minutos),
+        fuenteTiempo: c.oficial ? 'TIEMPO OFICIAL'
+          : c.manual ? 'TIEMPO DEL PASO POR META'
+          : c.margenMs != null && c.margenMs >= 5000 ? `TIEMPO GPS · ±${Math.round(c.margenMs / 1000)} S` : 'TIEMPO GPS',
+        puesto: c.puesto,
+        llegados,
+        ritmo: c.ritmoMinKm != null ? fmtRitmo(c.ritmoMinKm) : null,
+        llegada: c.finishedAt != null
+          ? new Date(c.finishedAt).toLocaleTimeString('es-ES', c.oficial
+            ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+            : { hour: '2-digit', minute: '2-digit' })
+          : null,
+        perfil: diploma.perfil,
+        pasos: diploma.pasos,
+      })
+      await pide(url, `diploma-${c.username}.png`, `Diploma de ${c.username} · ${diploma.nombre}`)
+    } finally { setSacando(null) }
+  }
   return (
     <>
+      {vistaPrevia}
       {/* Si hay empates hay que decir por qué: sin esto alguien discute un
           puesto que el cronómetro no ha decidido. */}
       {hayEmpate(stats) && (
@@ -154,6 +208,16 @@ export function ListaResultados({ stats, controles = [], salidaMs = null }: {
                 {c.ritmoMinKm != null && <span>· {fmtRitmo(c.ritmoMinKm)} /km de media</span>}
                 {c.mejorKmMin != null && (
                   <span>· mejor km {fmtRitmo(c.mejorKmMin)}{c.mejorKmDesde != null ? ` (km ${c.mejorKmDesde.toFixed(1)})` : ''}</span>
+                )}
+                {/* Su diploma: solo quien llegó a meta. */}
+                {diploma && c.finished && (
+                  <button
+                    onClick={() => void sacaDiploma(c)}
+                    disabled={sacando !== null}
+                    className="ml-auto inline-flex items-center gap-1 rounded-full border border-amber-700/60 px-2 py-0.5 text-[11px] text-amber-300 hover:bg-amber-950/40 disabled:opacity-50"
+                  >
+                    <Award size={12} aria-hidden /> {sacando === c.username ? 'Preparando…' : 'Diploma'}
+                  </button>
                 )}
               </p>
             )}

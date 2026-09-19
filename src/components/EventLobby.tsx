@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { TIPOS_PUNTO, TIPO_PUNTO, sugiereTipo, tipoDe, type TipoPunto } from '../lib/avituallamientos'
 import { puntosDelEvento, rutaDelEvento, sitioEnKm } from '../lib/puntosEvento'
+import { perfilParaDiploma } from '../lib/diploma'
 import { referenciaDe, PRECISO_M, type Referencia } from '../lib/igualaCon'
 import type { SharePayloadV1 } from '../lib/sharePayload'
 import type { PuntosAjustes } from '../../shared/wireTypes'
@@ -90,6 +91,8 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   /** Los puntos tal como vienen en la ruta: para el editor y sus sugerencias. */
   const [baseRuta, setBaseRuta] = useState<SharePayloadV1 | null>(null)
   const pideRutaPuntos = useCallback(() => setPuntosAbierto(true), [])
+  // Con la carrera terminada, el recorrido se baja para el perfil del diploma.
+  useEffect(() => { if (data?.event.endedAt) setPuntosAbierto(true) }, [data?.event.endedAt])
   /** De quién se está mirando el dorsal en grande (su userId), o null. */
   const [dorsal, setDorsal] = useState<string | null>(null)
   /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
@@ -1418,7 +1421,20 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           summary={`${event.stats.finishers} de ${event.stats.runners}`}
         >
           <RecordDeKm stats={event.stats} />
-          <ListaResultados stats={event.stats} salidaMs={event.startsAt} />
+          <ListaResultados
+            stats={event.stats}
+            salidaMs={event.startsAt}
+            diploma={{
+              nombre: event.name,
+              fotoUrl: event.hasPhoto ? eventPhotoUrl(event.id, event.photoAt) : null,
+              km: baseRuta?.track.totalDistanceKm ?? null,
+              desnivelM: baseRuta?.track.elevGainM ?? null,
+              perfil: perfilParaDiploma(baseRuta ? rutaDelEvento(baseRuta, event.puntosAjustes).track : null),
+              pasos: baseRuta
+                ? rutaDelEvento(baseRuta, event.puntosAjustes).track.namedWaypoints.map((w) => w.distanceKm / baseRuta.track.totalDistanceKm)
+                : [],
+            }}
+          />
         </Plegable>
       )}
 

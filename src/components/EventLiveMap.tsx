@@ -7,6 +7,7 @@ import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
 import { viewerId } from '../lib/liveTrack'
+import { perfilParaDiploma } from '../lib/diploma'
 import { rutaDelEvento, puntosDelEvento, kmMasCerca, sitioEnKm } from '../lib/puntosEvento'
 import { TIPO_PUNTO, esAvituallamiento, paradaDe, paradasPrevistas, tipoDe, type TipoPunto } from '../lib/avituallamientos'
 import { htmlIconoPunto, LADO_ICONO_PUNTO } from '../lib/iconosPunto'
@@ -41,7 +42,7 @@ import { pathBetweenKm } from '../lib/speedHeat'
 import { projectKm } from '../lib/kmDelRecorrido'
 import { MarkBadge } from './MarkPicker'
 import { Dorsal } from './Dorsal'
-import { conSegundos, ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
+import { conSegundos, ListaResultados, type CarreraDiploma, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
@@ -597,6 +598,20 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       }
     })
   }, [plan, cutoffs, ajustesPuntos])
+
+  /** Lo de la carrera que lleva el diploma: nombre, cartel, distancia, desnivel, perfil y pasos. */
+  const diploma = useMemo<CarreraDiploma | undefined>(() => {
+    if (!eventName) return undefined
+    const total = plan?.track.totalDistanceKm ?? null
+    return {
+      nombre: eventName,
+      fotoUrl: photoUrl,
+      km: total,
+      desnivelM: plan?.track.elevGainM ?? null,
+      perfil: perfilParaDiploma(plan?.track),
+      pasos: total ? plan!.track.namedWaypoints.map((w) => w.distanceKm / total) : [],
+    }
+  }, [eventName, photoUrl, plan])
 
   /**
    * El último kilómetro conocido de cada corredor, para que la proyección no
@@ -1428,7 +1443,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
       : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} planId={planShareId} nombre={eventName} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
-    <ResultsView stats={stats} endedAt={endedAt} controles={controles} salidaMs={startsAt} />
+    <ResultsView stats={stats} endedAt={endedAt} controles={controles} salidaMs={startsAt} diploma={diploma} />
   ) : view === 'porra' && eventId ? (
     <EventBets
       eventId={eventId}
@@ -3027,9 +3042,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
  * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
  * purgan y esto tiene que seguir contando quién ganó el sábado.
  */
-function ResultsView({ stats, endedAt, controles, salidaMs }: {
+function ResultsView({ stats, endedAt, controles, salidaMs, diploma }: {
   stats: EventStats
   endedAt: number | null
+  /** Para sacar el diploma de cada uno que llegó. */
+  diploma?: CarreraDiploma
   /** La salida oficial: el tiempo oficial se enseña al segundo. */
   salidaMs: number | null
   /** Los controles de la carrera: los puntos con hora de cierre, que son los
@@ -3050,7 +3067,7 @@ function ResultsView({ stats, endedAt, controles, salidaMs }: {
         </header>
 
         <RecordDeKm stats={stats} />
-        <ListaResultados stats={stats} controles={controles} salidaMs={salidaMs} />
+        <ListaResultados stats={stats} controles={controles} salidaMs={salidaMs} diploma={diploma} />
       </div>
     </div>
   )
