@@ -728,11 +728,11 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                     return (
                     <li key={k} className="flex items-center gap-1.5 text-[11px]">
                       <span className={
-                        b.state === 'ok' ? 'text-emerald-400' : b.state === 'ko' ? 'text-slate-600' : 'text-slate-500'
+                        b.state === 'ok' ? 'text-emerald-400' : b.state === 'ko' ? 'text-slate-600' : b.state === 'nula' ? 'text-slate-600' : 'text-slate-500'
                       }>
-                        {b.state === 'ok' ? '✓' : b.state === 'ko' ? '✗' : '·'}
+                        {b.state === 'ok' ? '✓' : b.state === 'ko' ? '✗' : b.state === 'nula' ? '∅' : '·'}
                       </span>
-                      <span className="min-w-0 truncate text-slate-400">
+                      <span className={`min-w-0 truncate text-slate-400 ${b.state === 'nula' ? 'line-through decoration-slate-500' : ''}`}>
                         {b.kind === 'winner' ? `gana ${b.said}`
                           : b.kind === 'fastest_km' ? `⚡ ${b.said}`
                           : `${b.target}: ${b.said}`}

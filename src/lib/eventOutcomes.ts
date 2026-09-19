@@ -34,6 +34,8 @@ export interface FilaDeMeta {
   /** Dónde dejó la carrera quien no llegó (km del recorrido). Es contra lo que
    *  se puntúa el pronóstico del kilómetro de abandono. */
   kmAbandono?: number | null
+  /** En modo manual: su kilómetro más rápido no se puede medir. */
+  manual?: boolean
 }
 
 export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
@@ -47,5 +49,6 @@ export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
     // para probar y la apagó puede estar corriendo con el móvil en el bolsillo.
     settled: f.acabo || f.retirado,
     kmAbandono: f.acabo ? null : (f.kmAbandono ?? null),
+    manual: f.manual ?? false,
   }))
 }

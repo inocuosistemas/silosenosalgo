@@ -214,3 +214,28 @@ describe('quién va delante con los mismos puntos', () => {
     expect(tabla.map((s) => s.author)).toEqual(['tarde', 'pronto'])
   })
 })
+
+describe('la porra con alguien en modo manual', () => {
+  // Matxicots 26: la baliza de Valen se quedó sin batería y pasó a manual.
+  const bet = (author: string, target: string): EventBet => ({ author, target, kind: 'fastest_km', value: target, createdAt: 1 })
+  const corredores: RunnerOutcome[] = [
+    { username: 'Soriano', tracked: true, finished: true, finishedAt: 100, settled: true, kmAbandono: null },
+    { username: 'Valen', tracked: true, finished: true, finishedAt: 120, settled: true, kmAbandono: null, manual: true },
+  ]
+
+  it('el km más rápido apostado a quien va en manual no computa: ni suma ni es fallo', () => {
+    const tabla = scoreBets([bet('Ana', 'Valen'), bet('Luis', 'Soriano')], corredores, 0, null, { recordKm: 'Soriano' })
+    const ana = tabla.find((s) => s.author === 'Ana')!
+    expect(ana.bets[0].state).toBe('nula')
+    expect(ana.points).toBe(0)
+    expect(ana.pending).toBe(0)
+    const luis = tabla.find((s) => s.author === 'Luis')!
+    expect(luis.bets[0].state).toBe('ok')
+  })
+
+  it('se sabe desde que pasa a manual, sin esperar al cierre', () => {
+    const enCarrera = corredores.map((o) => ({ ...o, finished: false, finishedAt: null, settled: false }))
+    const tabla = scoreBets([bet('Ana', 'Valen')], enCarrera, 0, null, { recordKm: null })
+    expect(tabla[0].bets[0].state).toBe('nula')
+  })
+})

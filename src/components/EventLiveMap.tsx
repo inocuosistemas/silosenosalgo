@@ -1207,7 +1207,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
    * `lib/eventOutcomes.ts`.
    */
   const outcomes = useMemo<RunnerOutcome[]>(
-    () => resultadosDeCarrera(rows.map(({ r, acabo, metaEn, retirado, kmValido, congelado }) => ({
+    () => resultadosDeCarrera(rows.map(({ r, acabo, metaEn, retirado, kmValido, congelado, modoManual }) => ({
       username: r.username,
       emitiendo: r.fix !== null,
       acabo,
@@ -1216,6 +1216,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // Dónde lo dejó: el del abandono si se sabe, y si no el último que se le
       // vio. Es contra lo que se puntúa quien apostó a que no acababa.
       kmAbandono: congelado?.km ?? kmValido,
+      manual: modoManual,
     }))),
     [rows],
   )

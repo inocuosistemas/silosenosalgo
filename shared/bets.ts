@@ -133,6 +133,13 @@ export interface RunnerOutcome {
    * `paradaFinal` en `functions/lib/eventStats.ts`.
    */
   kmAbandono?: number | null
+  /**
+   * Va en MODO MANUAL: su baliza no sirve y quien organiza anota sus pasos por
+   * los controles. Llegada, puesto y abandono se siguen sabiendo —del
+   * cronometraje oficial—, pero su kilómetro más rápido no: sin traza no se
+   * mide. Por eso lo que se apostó a él en esa categoría queda NULO.
+   */
+  manual?: boolean
 }
 
 /**
@@ -157,7 +164,9 @@ export interface ScoredBet {
   /** Lo que dijo, ya en cristiano. */
   said: string
   points: number
-  state: 'ok' | 'ko' | 'pending'
+  /** `nula`: no computa —ni suma ni es un fallo— porque lo apostado ya no se
+   *  puede medir (ver `RunnerOutcome.manual`). */
+  state: 'ok' | 'ko' | 'pending' | 'nula'
   /** Coletilla del resultado ("clavada", "por 4 min", …). */
   note?: string
 }
@@ -388,6 +397,16 @@ function scoreOne(
     // Quién, en `target`: así el nombre lo resuelve la consulta y por el cable
     // no viaja ningún id de cuenta.
     const said = b.target
+    // A quien va en modo manual no se le puede medir el kilómetro más rápido:
+    // sin traza no hay kilómetros sueltos, solo pasos por controles. Lo
+    // apostado a él no computa —ni suma ni se cuenta como fallo—, y se sabe
+    // desde que pasa a manual, sin esperar al cierre.
+    if (porNombre.get(said)?.manual) {
+      return {
+        kind: b.kind, target: b.target, said, points: 0, state: 'nula',
+        note: 'no computa: sin baliza no se mide su km más rápido',
+      }
+    }
     // Se sabe al cerrar la carrera, con la traza entera: hasta entonces, el
     // kilómetro más rápido puede hacerlo cualquiera que aún esté corriendo.
     if (!recordFirme || recordKm === null) {

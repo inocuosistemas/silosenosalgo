@@ -611,6 +611,7 @@ export function calculaEstadisticas(
         margenMs: null,
         puesto: null,
         tracked: true,
+        manual: true,
         abandono: retiradoM,
         abandonoAt: retiradoM ? (f.retiredAt ?? ultimo[1]) : null,
       })
@@ -1009,6 +1010,7 @@ async function congelaPorra(
     // Dónde lo dejó quien no llegó: es contra lo que se puntúa el kilómetro de
     // abandono, y sale del mismo cálculo que la clasificación.
     kmAbandono: c.abandono ? c.km : null,
+    manual: c.manual ?? false,
   }))
   return scoreBets(apuestas, outcomes, ev.startsAt, ev.limitMin, {
     totalKm: stats.totalKm,

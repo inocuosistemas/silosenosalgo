@@ -788,6 +788,9 @@ export interface EventRunnerStats {
   puesto: number | null
   /** Llegó a mandar alguna posición. */
   tracked: boolean
+  /** Corrió (o acabó) en MODO MANUAL: sus datos salen de los pasos anotados,
+   *  así que su kilómetro más rápido no se mide. */
+  manual?: boolean
   /**
    * Abandonó: PARÓ su baliza sin haber cruzado la meta.
    *
