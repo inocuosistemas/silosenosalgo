@@ -4,7 +4,7 @@ import { Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
-import { leeMotorMapa, guardaMotorMapa, type MotorMapa } from '../lib/motorMapa'
+import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
@@ -364,10 +364,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
    * la baliza —es de quien mira— y el mismo respaldo: si el dispositivo no
    * puede con el fluido, se queda el clásico.
    */
-  const [motor, setMotor] = useState<MotorMapa>(leeMotorMapa)
+  const [motor] = useState<MotorMapa>(leeMotorMapa)
   const [falloFluido, setFalloFluido] = useState(false)
   const usaFluido = motor === 'fluido' && !falloFluido
-  const cambiaMotor = (m: MotorMapa) => { setMotor(m); guardaMotorMapa(m); setFalloFluido(false) }
   const cambiaRelieve = (si: boolean) => {
     setRelieve(si)
     try { localStorage.setItem('mapaRelieve', si ? 'si' : 'no') } catch { /* modo privado */ }
@@ -2058,22 +2057,6 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                       {relieve
                         ? 'El mapa plano, sin sombras: gasta menos datos.'
                         : 'Sombras en las montañas, para ver dónde está la cuesta.'}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  onClick={() => { cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido'); setOpcionesAbiertas(false) }}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
-                >
-                  <span>🗺️</span>
-                  <span>
-                    {usaFluido ? 'Usar el mapa clásico' : 'Usar el mapa fluido'}
-                    <span className="mt-0.5 block text-[10px] text-slate-500">
-                      {usaFluido
-                        ? 'El de antes: sin girar ni inclinar.'
-                        : falloFluido
-                        ? 'Este dispositivo no pudo con él; se puede volver a probar.'
-                        : 'Gira, inclina y hace zoom a la vez, con todo pegado al terreno.'}
                     </span>
                   </span>
                 </button>

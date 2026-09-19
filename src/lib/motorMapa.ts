@@ -27,15 +27,15 @@ export function leeMotorMapa(): MotorMapa {
   try {
     const pedido = new URLSearchParams(window.location.search).get('mapa')
     if (esMotor(pedido)) return pedido
-  } catch { /* sin dirección que leer: se sigue con lo guardado */ }
-  try {
-    const guardado = window.localStorage.getItem(CLAVE)
-    if (esMotor(guardado)) return guardado
-  } catch { /* almacenamiento bloqueado (privado, vista previa): el de por defecto */ }
-  // El fluido es el de por defecto en el navegador desde Matxicots 26, tras
-  // probarlo en carrera. Dentro de las apps (el visor incrustado) sigue el
-  // clásico hasta probar el fluido con sus mosaicos guardados para ir sin
-  // cobertura: ahí un fallo deja sin mapa a quien corre.
+  } catch { /* sin dirección que leer: se sigue */ }
+  // Ya no hay interruptor: el fluido es EL mapa, y el clásico queda como
+  // respaldo automático para los dispositivos que no pueden con él (ver
+  // `onFallo`). Lo guardado se ignora a propósito: quien había elegido el
+  // clásico se quedaría atrapado en él sin forma de volver.
+  //
+  // Dentro de las apps (el visor incrustado) sigue el clásico hasta probar el
+  // fluido con sus mosaicos guardados para ir sin cobertura: ahí un fallo deja
+  // sin mapa a quien corre.
   try {
     if (new URLSearchParams(window.location.search).get('embedded') === '1') return 'clasico'
   } catch { /* sin dirección: navegador */ }

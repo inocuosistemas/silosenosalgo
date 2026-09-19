@@ -9,7 +9,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
-import { guardaMotorMapa, leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
+import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { fetchRadarFrames, type RadarFrame } from '../lib/rainRadar'
 import { RainRadarLayer } from './RainRadarLayer'
 import type { ApiMapaFluido } from './MapaFluido'
@@ -875,7 +875,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // Con qué se dibuja el mapa. El clásico por defecto; el fluido, si se elige
   // en los ajustes del panel. Si el dispositivo no puede con el fluido (sin
   // WebGL), se vuelve al clásico para esta visita sin tocar la preferencia.
-  const [motor, setMotor] = useState<MotorMapa>(leeMotorMapa)
+  // Ya no se elige (ver `lib/motorMapa`): el fluido, y el clásico de respaldo.
+  const [motor] = useState<MotorMapa>(leeMotorMapa)
   const [falloFluido, setFalloFluido] = useState<string | null>(null)
   const usaFluido = motor === 'fluido' && !falloFluido
   const [inclinado, setInclinado] = useState(false)
@@ -933,15 +934,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const radarFrame = radarFrames[radarIdx] ?? null
   const radarEsLaUltima = radarIdx === radarFrames.length - 1
 
-  const cambiaMotor = (m: MotorMapa) => {
-    guardaMotorMapa(m)
-    setMotor(m)
-    setFalloFluido(null)
-    // El mapa nuevo nace mirando al norte.
-    setRumbo(0)
-    setInclinado(false)
-    apiFluido.current = null
-  }
   // Punto al que saltar cuando se toca una nota. `n` incrementa en cada toque
   // para que repetir la misma nota vuelva a centrar.
   const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
@@ -3452,33 +3444,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       cuando. */}
                   {panelBateria}
                   {panelComparar}
-                  {/* Con qué se dibuja el mapa, lo PRIMERO del panel. Estuvo al
-                      fondo, con los demás mandos del mapa, y ahí no lo encontraba
-                      nadie: por encima quedan los ánimos, las vueltas y el calor,
-                      y el panel hace scroll. Un ajuste que no se encuentra no
-                      existe. El clásico sigue por defecto; el fluido es el de la
-                      GPU, donde la traza no puede nadar sobre el terreno. Se
-                      recuerda en este dispositivo. */}
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">Mapa fluido</p>
-                        <p className="text-[10px] text-slate-400">Gira, inclina y hace zoom a la vez, con la traza pegada al terreno</p>
-                      </div>
-                      <button
-                        role="switch"
-                        aria-checked={motor === 'fluido'}
-                        aria-label="Mapa fluido"
-                        onClick={() => cambiaMotor(motor === 'fluido' ? 'clasico' : 'fluido')}
-                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${motor === 'fluido' ? 'bg-sky-600' : 'bg-slate-700'}`}
-                      >
-                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${motor === 'fluido' ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
-                    </div>
-                    {falloFluido && (
-                      <p className="mt-1.5 text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido; se queda el clásico.</p>
-                    )}
-                  </div>
+                  {/* Ya no se elige el mapa: el fluido es EL mapa y el clásico
+                      solo entra solo si el dispositivo no puede con él (ver
+                      `lib/motorMapa`). Se dice, para que nadie lo busque. */}
+                  {falloFluido && (
+                    <p className="text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido: se usa el clásico.</p>
+                  )}
                   <div>
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
