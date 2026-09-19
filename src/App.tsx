@@ -1412,14 +1412,29 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
       nearestTrackIndex: pos.nearestIndex,
       name: draft.name.trim() || current.name,
       desc: draft.desc.trim() || undefined,
+      // Qué es y cuánto se para: solo si vienen en el borrador (mover la
+      // bandera en el mapa no los toca). `null` = volver a lo automático.
+      ...(draft.aid !== undefined ? { aid: draft.aid ?? undefined } : {}),
+      ...(draft.pauseMin !== undefined ? { pauseMin: draft.pauseMin != null && draft.pauseMin > 0 ? draft.pauseMin : undefined } : {}),
     }
     const newKey = wptKey(updated.lat, updated.lon)
 
     const nextWaypoints = track.namedWaypoints
       .map((w, i) => (i === idx ? updated : w))
       .sort((a, b) => a.distanceKm - b.distanceKm)
-    setTrack({ ...track, namedWaypoints: nextWaypoints })
+    const nextTrack: GpxTrack = { ...track, namedWaypoints: nextWaypoints }
+    setTrack(nextTrack)
     saveCustomPois(track.name, nextWaypoints.filter((w) => w.custom))
+    // Si cambia la parada, la previsión se rehace como con `setPauseAtKm`.
+    if (updated.pauseMin !== current.pauseMin && isDone && appMode === 'plan' && baseWaypoints.length > 0) {
+      const nextPauses: PausePoint[] = nextWaypoints
+        .filter((w) => w.pauseMin != null && w.pauseMin > 0)
+        .map((w) => ({ km: w.distanceKm, minutes: w.pauseMin! }))
+      setBaseWaypoints(computeWaypoints(
+        nextTrack, startTime, effectivePaceConfig, sampling,
+        effectiveSegmentPaces ?? undefined, nextPauses,
+      ))
+    }
 
     setCutoffWallClocksState((prev) => {
       const next = new Map(prev)

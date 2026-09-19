@@ -33,12 +33,8 @@ export function leeMotorMapa(): MotorMapa {
   // `onFallo`). Lo guardado se ignora a propósito: quien había elegido el
   // clásico se quedaría atrapado en él sin forma de volver.
   //
-  // Dentro de las apps (el visor incrustado) sigue el clásico hasta probar el
-  // fluido con sus mosaicos guardados para ir sin cobertura: ahí un fallo deja
-  // sin mapa a quien corre.
-  try {
-    if (new URLSearchParams(window.location.search).get('embedded') === '1') return 'clasico'
-  } catch { /* sin dirección: navegador */ }
+  // También dentro de las apps: probado en carrera (Matxicots 26), con sus
+  // mosaicos guardados para ir sin cobertura.
   return 'fluido'
 }
 

@@ -1,3 +1,5 @@
+import { esTipoPunto, type TipoPunto } from './avituallamientos'
+
 export interface GpxPoint {
   lat: number
   lon: number
@@ -57,6 +59,12 @@ export interface GpxNamedWaypoint {
    * evaluated against the arrival time, not the departure.
    */
   pauseMin?: number
+  /**
+   * Qué es este punto (control, avituallamiento, bolsa de vida, meta), si se
+   * ha DEFINIDO. Sin él, se sugiere por el texto: ver `lib/avituallamientos`.
+   * <extensions><silosenosalgo:aid>liquido</...></extensions>
+   */
+  aid?: TipoPunto
 }
 
 export interface GpxTrack {
@@ -151,6 +159,7 @@ export function parseGpx(xml: string): GpxTrack {
       const persistedKm = readDistanceKmFromExtensions(el)
       const custom = readCustomFlagFromExtensions(el)
       const pauseMin = readPauseMinFromExtensions(el)
+      const aid = readAidFromExtensions(el)
 
       let distanceKm: number
       let nearestTrackIndex: number
@@ -174,7 +183,7 @@ export function parseGpx(xml: string): GpxTrack {
       }
 
       const validTime = time && !Number.isNaN(time.getTime()) ? time : undefined
-      return { lat, lon, ele, name, desc, sym, type, time: validTime, links: links.length ? links : undefined, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined, pauseMin: pauseMin ?? undefined }
+      return { lat, lon, ele, name, desc, sym, type, time: validTime, links: links.length ? links : undefined, cutoffWallClock, distanceKm, nearestTrackIndex, custom: custom || undefined, pauseMin: pauseMin ?? undefined, aid: aid ?? undefined }
     })
 
   return { name, points, totalDistanceKm, elevGainM, elevLossM, namedWaypoints, cumKm }
@@ -253,6 +262,19 @@ function readPauseMinFromExtensions(el: Element): number | null {
     if (child.localName === 'pauseMin') {
       const v = parseFloat((child.textContent ?? '').trim())
       return Number.isFinite(v) && v > 0 ? v : null
+    }
+  }
+  return null
+}
+
+/** Reads the point type (aid station…) from `<wpt><extensions>`. */
+function readAidFromExtensions(el: Element): TipoPunto | null {
+  const exts = el.getElementsByTagName('extensions')[0]
+  if (!exts) return null
+  for (const child of Array.from(exts.children)) {
+    if (child.localName === 'aid') {
+      const v = (child.textContent ?? '').trim()
+      return esTipoPunto(v) ? v : null
     }
   }
   return null

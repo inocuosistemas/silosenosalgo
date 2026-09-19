@@ -72,8 +72,11 @@ describe('la proyección de quien no da señal', () => {
     expect(proyeccionFantasma({ ...base, silencioMs: SILENCIO_MIN_MS - 1 })).toBe(null)
   })
 
-  it('calla pasada la media hora: ahí ya habla el modelo, no el corredor', () => {
-    expect(proyeccionFantasma({ ...base, silencioMs: 31 * 60_000 })).toBe(null)
+  it('calla pasadas tres horas: ahí ya habla el modelo, no el corredor', () => {
+    expect(proyeccionFantasma({ ...base, silencioMs: 181 * 60_000 })).toBe(null)
+    // Y a los 40 min sigue: en Matxicots 26 se apagaba a la media hora, justo
+    // cuando Soriano llevaba 34 sin cobertura y más se miraba.
+    expect(proyeccionFantasma({ ...base, silencioMs: 40 * 60_000 })).not.toBe(null)
   })
 
   it('no proyecta a quien ya cruzó ni a quien cerró la baliza', () => {
@@ -100,7 +103,7 @@ describe('en modo manual', () => {
     expect(f.hastaKm).toBeCloseTo(25, 0)
   })
 
-  it('sin modo manual, dos horas de silencio no se proyectan', () => {
-    expect(proyeccionFantasma({ ...base, silencioMs: 120 * 60_000 })).toBeNull()
+  it('sin modo manual, cuatro horas de silencio no se proyectan', () => {
+    expect(proyeccionFantasma({ ...base, silencioMs: 240 * 60_000 })).toBeNull()
   })
 })

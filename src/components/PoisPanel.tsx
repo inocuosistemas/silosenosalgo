@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { TIPOS_PUNTO, TIPO_PUNTO, sugiereTipo, tipoDe, paradaDe, type TipoPunto } from '../lib/avituallamientos'
 import { Pencil } from 'lucide-react'
 import type { GpxNamedWaypoint, GpxTrack } from '../lib/gpx'
 import {
@@ -17,6 +18,10 @@ export interface PoiUpdateDraft {
   name: string
   desc: string
   cutoff: CutoffWallClock | null
+  /** Qué es el punto. `undefined` = no tocarlo; `null` = volver a lo sugerido. */
+  aid?: TipoPunto | null
+  /** Parada prevista (min). `undefined` = no tocarla; `null` = la de su tipo. */
+  pauseMin?: number | null
 }
 
 interface Props {
@@ -265,6 +270,10 @@ export function PoisPanel({
     name: string
     desc: string
     cutoff: string
+    /** '' = automático (lo sugerido por el texto). */
+    aid: TipoPunto | ''
+    /** '' = la de su tipo. */
+    pausa: string
   } | null>(null)
   const [preview,     setPreview]     = useState<{
     valid:      ValidatedRow[]
@@ -296,6 +305,8 @@ export function PoisPanel({
       name: w.name,
       desc: w.desc ?? '',
       cutoff: cutoffInputValue(cutoff),
+      aid: w.aid ?? '',
+      pausa: w.pauseMin != null ? String(w.pauseMin) : '',
     })
   }
 
@@ -321,11 +332,18 @@ export function PoisPanel({
       setTransientStatus('Corte no válido: usa HH:MM')
       return
     }
+    const pausa = editDraft.pausa.trim() === '' ? null : Number(editDraft.pausa.replace(',', '.'))
+    if (pausa !== null && (!Number.isFinite(pausa) || pausa < 0 || pausa > 600)) {
+      setTransientStatus('Parada no válida: minutos, entre 0 y 600')
+      return
+    }
     onUpdatePoi(w.lat, w.lon, {
       distanceKm: km,
       name,
       desc: editDraft.desc,
       cutoff,
+      aid: editDraft.aid === '' ? null : editDraft.aid,
+      pauseMin: pausa,
     })
     setTransientStatus('✓ POI actualizado')
     cancelEdit()
@@ -665,6 +683,7 @@ export function PoisPanel({
                       <th className="py-1.5 pr-2 text-right font-medium w-16">Km</th>
                       <th className="py-1.5 pr-2 text-left font-medium">Nombre</th>
                       <th className="py-1.5 pr-2 text-left font-medium">Descripción</th>
+                      <th className="py-1.5 pr-2 text-left font-medium w-32">Tipo · parada</th>
                       <th className="py-1.5 pr-2 text-left font-medium w-24">Corte oficial</th>
                       <th className="py-1.5 text-right font-medium w-24">Acciones</th>
                     </tr>
@@ -723,6 +742,44 @@ export function PoisPanel({
                               ) : (
                                 <span className="block text-slate-500 truncate max-w-[18rem]" title={w.desc ?? ''}>{w.desc ?? ''}</span>
                               )}
+                            </td>
+                            <td className="py-1.5 pr-2 align-top">
+                              {/* Qué es y cuánto se para: lo DEFINIDO manda; si no
+                                  hay nada, lo sugerido por el texto, en cursiva y
+                                  con interrogación, para que se vea que falta. */}
+                              {editing ? (
+                                <div className="flex flex-col gap-1">
+                                  <select
+                                    value={editDraft.aid}
+                                    onChange={(e) => setEditDraft({ ...editDraft, aid: e.target.value as TipoPunto | '' })}
+                                    className="bg-slate-950 border border-slate-700 rounded px-1 py-1 text-slate-200 focus:outline-none focus:border-sky-600"
+                                  >
+                                    <option value="">Automático · {TIPO_PUNTO[sugiereTipo(w, track.totalDistanceKm - w.distanceKm < 0.2)].corta}</option>
+                                    {TIPOS_PUNTO.map((t) => <option key={t} value={t}>{TIPO_PUNTO[t].etiqueta}</option>)}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={600}
+                                    step={1}
+                                    value={editDraft.pausa}
+                                    onChange={(e) => setEditDraft({ ...editDraft, pausa: e.target.value })}
+                                    placeholder={`parada ${TIPO_PUNTO[editDraft.aid || tipoDe(w, track.totalDistanceKm)].paradaMin} min`}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none focus:border-sky-600"
+                                    aria-label="Parada prevista en minutos"
+                                  />
+                                </div>
+                              ) : (() => {
+                                const t = tipoDe(w, track.totalDistanceKm)
+                                const parada = paradaDe(w, track.totalDistanceKm)
+                                return (
+                                  <span className={w.aid ? 'text-slate-200' : 'italic text-slate-500'}
+                                        title={w.aid ? 'Definido' : 'Sugerido por el texto: edítalo para confirmarlo'}>
+                                    {TIPO_PUNTO[t].corta}{w.aid ? '' : '?'}
+                                    {parada > 0 && <span className="text-slate-500"> · {parada} min</span>}
+                                  </span>
+                                )
+                              })()}
                             </td>
                             <td className="py-1.5 pr-2 font-mono text-amber-300 align-top">
                               {editing ? (
