@@ -1408,6 +1408,20 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </a>
       )}
 
+      {/* Los resultados, para todos: es lo que queda de la carrera. Van ANTES
+          de la raya de Organización —estaban entre sus secciones y, sin la banda
+          ámbar, parecían una opción de quien organiza mal pintada—. */}
+      {event.endedAt && event.stats && event.stats.corredores.length > 0 && (
+        <Plegable
+          title="🏆 Resultados"
+          defaultOpen
+          summary={`${event.stats.finishers} de ${event.stats.runners}`}
+        >
+          <RecordDeKm stats={event.stats} />
+          <ListaResultados stats={event.stats} salidaMs={event.startsAt} />
+        </Plegable>
+      )}
+
       {/* La frontera, dicha. Todo lo de abajo lo ve TODO EL MUNDO cuando se
           toca: la hora que se cambia aquí es la hora de la carrera, no una
           preferencia de uno. Con la banda ámbar de cada sección, esta línea es
@@ -1738,18 +1752,6 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               </button>
             </>
           )}
-        </Plegable>
-      )}
-
-      {/* Los resultados, para todos: es lo que queda de la carrera. */}
-      {event.endedAt && event.stats && event.stats.corredores.length > 0 && (
-        <Plegable
-          title="🏆 Resultados"
-          defaultOpen
-          summary={`${event.stats.finishers} de ${event.stats.runners}`}
-        >
-          <RecordDeKm stats={event.stats} />
-          <ListaResultados stats={event.stats} salidaMs={event.startsAt} />
         </Plegable>
       )}
 
