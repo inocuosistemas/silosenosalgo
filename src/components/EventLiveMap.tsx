@@ -1,15 +1,17 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { VistaMapa } from '../lib/vistaEvento'
-import { Pause, Search, Settings, X } from 'lucide-react'
+import { Eye, Move, Pause, Search, Settings, X } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
 import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
-import { TIPO_PUNTO, aplicaAjustes, esAvituallamiento, paradaDe, paradasPrevistas, tipoDe, type TipoPunto } from '../lib/avituallamientos'
+import { viewerId } from '../lib/liveTrack'
+import { rutaDelEvento, puntosDelEvento, kmMasCerca, sitioEnKm } from '../lib/puntosEvento'
+import { TIPO_PUNTO, esAvituallamiento, paradaDe, paradasPrevistas, tipoDe, type TipoPunto } from '../lib/avituallamientos'
 import { htmlIconoPunto, LADO_ICONO_PUNTO } from '../lib/iconosPunto'
-import { avisosDe, creaAviso, borraAviso, type EventoAvisos } from '../lib/eventsTransport'
-import type { AvisoDePaso, PuntosAjustes } from '../../shared/wireTypes'
+import { avisosDe, creaAviso, borraAviso, cambiaPunto, type EventoAvisos } from '../lib/eventsTransport'
+import type { AvisoDePaso, PasoManual, PuntosAjustes } from '../../shared/wireTypes'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -39,7 +41,7 @@ import { pathBetweenKm } from '../lib/speedHeat'
 import { projectKm } from '../lib/kmDelRecorrido'
 import { MarkBadge } from './MarkPicker'
 import { Dorsal } from './Dorsal'
-import { ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
+import { conSegundos, ListaResultados, RecordDeKm, fmtRitmo } from './EventResults'
 import { EventBets, type BetRunner } from './EventBets'
 import { EventReplay } from './EventReplay'
 import { AuthMenu } from './AuthMenu'
@@ -279,7 +281,8 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   /** Cuándo terminó la carrera y qué quedó de ella. */
   const [endedAt, setEndedAt] = useState<number | null>(null)
   const [stats, setStats] = useState<EventStats | null>(null)
-  const [plan, setPlan] = useState<SharePayloadV1 | null>(null)
+  /** La ruta tal como se publicó; `plan`, más abajo, es la del evento (con sus ajustes). */
+  const [planRuta, setPlan] = useState<SharePayloadV1 | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [vistaPropia, setVistaPropia] = useState<VistaMapa>(vista ?? 'mapa')
@@ -364,8 +367,24 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   const [en3D, setEn3D] = useState(false)
   /** Lo que quien organiza ha cambiado de los puntos en el evento (tipo, parada). */
   const [ajustesPuntos, setAjustesPuntos] = useState<PuntosAjustes | null>(null)
+  /**
+   * La ruta del EVENTO: con los puntos que quien organiza ha añadido o movido
+   * (y sus cortes con ellos) y lo que ha cambiado de cada uno. Todo lo de
+   * abajo trabaja con esta y no sabe nada de ajustes.
+   */
+  const plan = useMemo(() => (planRuta ? rutaDelEvento(planRuta, ajustesPuntos) : null), [planRuta, ajustesPuntos])
   /** El punto del recorrido que se ha tocado: para pedir avisos de paso. */
   const [puntoAvisos, setPuntoAvisos] = useState<{ km: number; nombre: string; texto?: string } | null>(null)
+  /** Si quien mira organiza: puede recolocar los puntos tocando el mapa. */
+  const [organiza, setOrganiza] = useState(false)
+  /** Cuánta gente mira el mapa ahora mismo (null: no se sabe, o la carrera acabó). */
+  const [mirando, setMirando] = useState<number | null>(null)
+  /**
+   * Recolocando un punto: cuál (su km ahora) y, cuando se ha tocado el
+   * recorrido, a dónde iría. Se confirma antes de guardar: un toque de más en
+   * un mapa es demasiado fácil para mover un control de la carrera.
+   */
+  const [moviendo, setMoviendo] = useState<{ km: number; nombre: string; destino: { km: number; lat: number; lon: number; metros: number } | null; guardando: boolean; error: string | null } | null>(null)
   /**
    * Con qué se dibuja el mapa: el fluido (MapLibre, en la GPU) por defecto en
    * el navegador, el clásico (Leaflet) como opción. La misma preferencia que
@@ -468,7 +487,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         return
       }
       if (source.kind === 'public') {
-        const live = await getEventPublic(source.token)
+        const live = await getEventPublic(source.token, viewerId())
         setRunners(live.runners)
         setEventName(live.name)
         setLinks({ trackingUrl: live.trackingUrl, websiteUrl: live.websiteUrl })
@@ -479,10 +498,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         setEndedAt(live.endedAt)
         setStats(live.stats)
         setActividad(live.activity)
-        setAjustesPuntos(live.puntosAjustes ?? null)
+        setAjustesPuntos((antes) => mismosAjustes(antes, live.puntosAjustes ?? null))
+        setMirando(live.mirando ?? null)
         await loadPlan(live.planShareId)
       } else {
-        const live = await getEventLive(source.id)
+        const live = await getEventLive(source.id, viewerId())
         setRunners(live.runners as Runner[])
         setStartsAt(live.startsAt)
         setBetsEnabled(live.betsEnabled)
@@ -492,7 +512,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         setEndedAt(live.endedAt)
         setStats(live.stats)
         setActividad(live.activity)
-        setAjustesPuntos(live.puntosAjustes ?? null)
+        setAjustesPuntos((antes) => mismosAjustes(antes, live.puntosAjustes ?? null))
+        setMirando(live.mirando ?? null)
+        setOrganiza(live.puedeOrganizar === true)
         await loadPlan(live.planShareId)
       }
       setError(null)
@@ -563,7 +585,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   const pois = useMemo(() => {
     if (!plan) return []
     const cierres = new Map(cutoffs.map((c) => [c.name, c.at]))
-    return aplicaAjustes(plan.track.namedWaypoints, ajustesPuntos).map((w) => {
+    return plan.track.namedWaypoints.map((w) => {
       // Qué es (avituallamiento, bolsa…) y cuánto se para: lo definido en la
       // ruta, y si no, lo sugerido por su texto. Ver `lib/avituallamientos`.
       const tipo = tipoDe(w, plan.track.totalDistanceKm)
@@ -688,7 +710,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
   /** Las paradas largas y deliberadas (ver `paradasPrevistas`): las mismas que
    *  usa la baliza, con lo que haya cambiado quien organiza. */
   const paradasEvento = useMemo(
-    () => (plan ? paradasPrevistas(aplicaAjustes(plan.track.namedWaypoints, ajustesPuntos), plan.track.totalDistanceKm) : []),
+    () => (plan ? paradasPrevistas(plan.track.namedWaypoints, plan.track.totalDistanceKm) : []),
     [plan, ajustesPuntos],
   )
 
@@ -1261,8 +1283,12 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // vio. Es contra lo que se puntúa quien apostó a que no acababa.
       kmAbandono: congelado?.km ?? kmValido,
       manual: modoManual,
+      // De los resultados congelados: lo que puede fallar su hora de meta y si
+      // es la oficial. Es lo que deja en revisión una llegada pegada.
+      margenMs: stats?.corredores.find((c) => c.username === r.username)?.margenMs ?? null,
+      oficial: stats?.corredores.find((c) => c.username === r.username)?.oficial ?? false,
     }))),
-    [rows],
+    [rows, stats],
   )
 
   /**
@@ -1402,7 +1428,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       ? <p className="p-6 text-center text-sm text-slate-400">El replay no está disponible en la demo.</p>
       : <EventReplay source={source} route={route?.pts ?? null} relieve={relieve} planId={planShareId} nombre={eventName} onBack={() => setView('mapa')} />
   ) : view === 'meta' && stats ? (
-    <ResultsView stats={stats} endedAt={endedAt} controles={controles} />
+    <ResultsView stats={stats} endedAt={endedAt} controles={controles} salidaMs={startsAt} />
   ) : view === 'porra' && eventId ? (
     <EventBets
       eventId={eventId}
@@ -1473,6 +1499,16 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   <span>{raceStats.km.toFixed(1)} km</span>
                   <span className="text-slate-600">·</span>
                   <span>↑{Math.round(raceStats.gain).toLocaleString('es-ES')} m</span>
+                  {/* Cuánta gente está mirando ahora: la carrera también se vive
+                      desde fuera, y saberlo es parte de la gracia. */}
+                  {mirando != null && mirando > 0 && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <span className="inline-flex items-center gap-1 text-slate-300" title={`${mirando} ${mirando === 1 ? 'persona mirando' : 'personas mirando'} ahora`}>
+                        <Eye size={12} aria-hidden /> {mirando}
+                      </span>
+                    </>
+                  )}
                   {raceStats.limitMin !== null && (
                     <>
                       <span className="text-slate-600">·</span>
@@ -1607,7 +1643,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                   : null,
               }
             })}
-            marcaPerfil={hoverCoords
+            marcaPerfil={moviendo?.destino
+              ? { pos: [moviendo.destino.lat, moviendo.destino.lon], texto: `${moviendo.nombre} · km ${moviendo.destino.km.toFixed(2)}` }
+              : hoverCoords
               ? { pos: hoverCoords, texto: `km ${hoverKm!.toFixed(1)}${profile ? ` · ${Math.round(profile.eleAtKm(hoverKm!))} m` : ''}` }
               : null}
             fotos={fotos}
@@ -1624,6 +1662,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             onZoom={setZoom}
             onFallo={() => setFalloFluido(true)}
             onElegirPunto={(pt) => { setSelected(null); setPuntoAvisos(pt) }}
+            onTocarSitio={moviendo && planRuta ? (lat, lon) => {
+              const c = kmMasCerca(planRuta.track, lat, lon)
+              const sitio = c ? sitioEnKm(planRuta.track, c.km) : null
+              if (c && sitio) setMoviendo((m) => m && { ...m, destino: { km: Math.round(c.km * 100) / 100, lat: sitio.lat, lon: sitio.lon, metros: c.metros }, error: null })
+            } : undefined}
           />
         </Suspense>
       ) : view === 'mapa' ? (
@@ -2153,7 +2196,31 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           <div className="mx-auto w-full max-w-5xl p-3 pb-1">
           {/* Avisos de paso: tocar un punto del recorrido deja pedir que te
               avisen en el iPhone cuando pase alguien por ahí. */}
-          {puntoAvisos && !sel && (
+          {moviendo && (
+            <MoverPunto
+              moviendo={moviendo}
+              onCancelar={() => setMoviendo(null)}
+              onGuardar={async () => {
+                if (!moviendo.destino || source.kind !== 'member' || !planRuta) return
+                const p = puntosDelEvento(planRuta.track, ajustesPuntos).puntos.find((w) => Math.abs(w.distanceKm - moviendo.km) < 0.005)
+                if (!p) { setMoviendo({ ...moviendo, error: 'Ese punto ya no está: recarga el mapa.' }); return }
+                setMoviendo({ ...moviendo, guardando: true, error: null })
+                try {
+                  const pos = moviendo.destino.km
+                  const kmRuta = p.kmRuta ?? p.distanceKm
+                  const a = ajustesPuntos?.[p.clave]
+                  const nuevos = p.nuevo
+                    ? await cambiaPunto(source.id, { clave: p.clave, pos, aid: a?.aid ?? 'control', pausa: a?.pausa ?? null })
+                    : await cambiaPunto(source.id, { km: kmRuta, aid: a?.aid ?? null, pausa: a?.pausa ?? null, pos: Math.abs(pos - kmRuta) < 0.005 ? null : pos })
+                  setAjustesPuntos(nuevos)
+                  setMoviendo(null)
+                } catch (e) {
+                  setMoviendo((m) => m && { ...m, guardando: false, error: eventsErrorMessage(e instanceof EventsError ? e.code : 'network') })
+                }
+              }}
+            />
+          )}
+          {puntoAvisos && !sel && !moviendo && (
             <AvisosPunto
               punto={puntoAvisos}
               evento={source.kind === 'member' ? { evento: source.id } : source.kind === 'public' ? { token: source.token } : null}
@@ -2167,6 +2234,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                 noPasara: !acabo && congelado != null && (congelado.km ?? 0) < puntoAvisos.km,
               }))}
               onClose={() => setPuntoAvisos(null)}
+              // Quien organiza lo recoloca aquí mismo, tocando el recorrido.
+              onMover={organiza && source.kind === 'member' && usaFluido ? () => {
+                setMoviendo({ km: puntoAvisos.km, nombre: puntoAvisos.nombre, destino: null, guardando: false, error: null })
+                setPuntoAvisos(null)
+              } : undefined}
             />
           )}
           {sel && (
@@ -2372,14 +2444,24 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
                           <span className="w-4 text-center">{MEDALLAS[(c.puesto ?? i + 1) - 1] ?? '·'}</span>
                           <MarkBadge emoji={c.emoji} color={c.color} size={18} />
                           <span className="min-w-0 flex-1 truncate text-slate-100">{c.username}</span>
+                          {/* El tiempo OFICIAL, al segundo y marcado: es el que
+                              deshace una llegada pegada, y sin los segundos dos
+                              "13h 17m" no dicen quién entró antes. */}
+                          {c.oficial && (
+                            <span className="shrink-0 rounded bg-emerald-950/70 px-1 text-[9px] text-emerald-300" title="Tiempo oficial de la organización">oficial</span>
+                          )}
                           <span className="shrink-0 font-bold tabular-nums text-emerald-300">
-                            {c.minutos != null ? durLabel(c.minutos) : '—'}
+                            {c.oficial && c.finishedAt != null && startsAt != null
+                              ? conSegundos(c.finishedAt - startsAt)
+                              : c.minutos != null ? durLabel(c.minutos) : '—'}
                           </span>
                         </li>
                       ))}
                     </ul>
                   )}
-                  {stats.fastestKm && (
+                  {/* Con alguien en modo manual no hay km más rápido DE LA
+                      CARRERA: a él no se le puede medir. */}
+                  {stats.fastestKm && !stats.corredores.some((c) => c.manual) && (
                     <p className="mt-2 text-[11px] text-amber-200/90">
                       ⚡ Kilómetro más rápido: <b>{fmtRitmo(stats.fastestKm.minutos)}</b>{' '}
                       — {stats.fastestKm.username}
@@ -2580,7 +2662,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
 type Row = {
   r: Runner
   /** Modo manual: su último paso anotado, `[km, epoch ms]`. Null = baliza. */
-  manual: [number, number] | null
+  manual: PasoManual | null
   /** En modo manual, tenga o no pasos anotados. */
   modoManual: boolean
   km: number | null
@@ -2945,9 +3027,11 @@ function ListView({ rows, totalKm, now, isPublic, eventId, yoKey, esDemo, follow
  * CONGELADOS al cerrar el evento, no de las sesiones: a las 48 h las trazas se
  * purgan y esto tiene que seguir contando quién ganó el sábado.
  */
-function ResultsView({ stats, endedAt, controles }: {
+function ResultsView({ stats, endedAt, controles, salidaMs }: {
   stats: EventStats
   endedAt: number | null
+  /** La salida oficial: el tiempo oficial se enseña al segundo. */
+  salidaMs: number | null
   /** Los controles de la carrera: los puntos con hora de cierre, que son los
    *  que la organización cronometra. */
   controles: { nombre: string; km: number }[]
@@ -2966,7 +3050,7 @@ function ResultsView({ stats, endedAt, controles }: {
         </header>
 
         <RecordDeKm stats={stats} />
-        <ListaResultados stats={stats} controles={controles} />
+        <ListaResultados stats={stats} controles={controles} salidaMs={salidaMs} />
       </div>
     </div>
   )
@@ -3816,12 +3900,14 @@ function iconoPunto(tipo: TipoPunto, conCorte: boolean): L.DivIcon {
  * primero, o un corredor concreto. Llega por la app con tu cuenta (APNs): es
  * donde hay notificaciones de verdad, aunque lo pidas desde el navegador.
  */
-function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
+function AvisosPunto({ punto, evento, logueado, corredores, onClose, onMover }: {
   punto: { km: number; nombre: string; texto?: string }
   evento: EventoAvisos | null
   logueado: boolean
   corredores: { nombre: string; emoji: string | null; pasado: boolean; noPasara: boolean }[]
   onClose: () => void
+  /** Solo quien organiza: recolocar el punto en el mapa. */
+  onMover?: () => void
 }) {
   /** Los que aún pueden pasar por aquí: solo de ellos tiene sentido avisar. */
   const pendientes = corredores.filter((c) => !c.pasado && !c.noPasara)
@@ -3927,6 +4013,62 @@ function AvisosPunto({ punto, evento, logueado, corredores, onClose }: {
           )}
         </>
       )}
+      {onMover && (
+        <button
+          onClick={onMover}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-md border border-amber-700/60 py-1.5 text-xs text-amber-300 hover:bg-amber-950/40"
+        >
+          <Move size={13} aria-hidden /> Mover este punto
+        </button>
+      )}
     </div>
   )
 }
+
+/** Los ajustes nuevos solo si han cambiado: cada sondeo trae un objeto nuevo y la ruta del evento se rehace con cada uno. */
+function mismosAjustes(antes: PuntosAjustes | null, ahora: PuntosAjustes | null): PuntosAjustes | null {
+  return JSON.stringify(antes) === JSON.stringify(ahora) ? antes : ahora
+}
+
+/**
+ * Recolocar un punto del recorrido desde el mapa (quien organiza): se toca el
+ * recorrido donde está de verdad, se ve dónde cae —km y altura en la marca— y
+ * se confirma. Se engancha al recorrido: un control está EN la carrera.
+ */
+function MoverPunto({ moviendo, onCancelar, onGuardar }: {
+  moviendo: { km: number; nombre: string; destino: { km: number; metros: number } | null; guardando: boolean; error: string | null }
+  onCancelar: () => void
+  onGuardar: () => void
+}) {
+  const d = moviendo.destino
+  const dif = d ? d.km - moviendo.km : 0
+  return (
+    <div className="mb-2 rounded-xl border border-amber-700/60 bg-slate-950/95 p-3 text-sm text-slate-200 shadow-xl backdrop-blur">
+      <p className="font-medium">Mover «{moviendo.nombre}»</p>
+      {d === null ? (
+        <p className="mt-1 text-xs text-slate-400">
+          Toca en el recorrido dónde está de verdad. Ahora está en el km {moviendo.km.toFixed(2)}.
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-400">
+          Al km <b className="text-slate-100">{d.km.toFixed(2)}</b>{' '}
+          ({dif >= 0 ? '+' : '−'}{Math.abs(dif) >= 1 ? `${Math.abs(dif).toFixed(2)} km` : `${Math.round(Math.abs(dif) * 1000)} m`} sobre donde estaba)
+          {d.metros > 150 && <span className="text-amber-300"> · has tocado a {Math.round(d.metros)} m del recorrido: se pone en el punto del recorrido más cercano</span>}
+          . Se llevan con él sus avisos de paso pendientes y los pasos anotados a mano ahí.
+        </p>
+      )}
+      {moviendo.error && <p className="mt-1 text-xs text-red-400">{moviendo.error}</p>}
+      <div className="mt-2.5 flex justify-end gap-2">
+        <button onClick={onCancelar} className="rounded-md px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Cancelar</button>
+        <button
+          onClick={onGuardar}
+          disabled={!d || moviendo.guardando}
+          className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-slate-950 disabled:opacity-40"
+        >
+          {moviendo.guardando ? 'Guardando…' : 'Ponerlo aquí'}
+        </button>
+      </div>
+    </div>
+  )
+}
+

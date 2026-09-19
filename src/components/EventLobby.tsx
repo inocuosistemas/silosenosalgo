@@ -1,26 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { TIPOS_PUNTO, TIPO_PUNTO, aplicaAjustes, sugiereTipo, tipoDe, paradaDe, type TipoPunto } from '../lib/avituallamientos'
-import type { GpxNamedWaypoint } from '../lib/gpx'
+import { TIPOS_PUNTO, TIPO_PUNTO, sugiereTipo, tipoDe, type TipoPunto } from '../lib/avituallamientos'
+import { puntosDelEvento, rutaDelEvento, sitioEnKm } from '../lib/puntosEvento'
+import { referenciaDe, PRECISO_M, type Referencia } from '../lib/igualaCon'
+import type { SharePayloadV1 } from '../lib/sharePayload'
 import type { PuntosAjustes } from '../../shared/wireTypes'
 import { createPortal } from 'react-dom'
-import { X, UserPlus, Shield, Download, Share2, MessageSquare, PenLine, Check } from 'lucide-react'
+import { X, UserPlus, Shield, Download, Share2, MessageSquare, PenLine, Check, MapPin, Droplet, Utensils, UtensilsCrossed, Backpack, Flag, Timer, type LucideIcon } from 'lucide-react'
 import { comparteEnlace, type ComoSeFueEnlace } from '../lib/compartirEnlace'
 import { useAuth } from '../lib/AuthContext'
 import { foldEmoji } from '../../shared/emoji'
-import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, EVENT_NAME_MAX, type EventDetailResponse, type EventMember } from '../../shared/wireTypes'
+import { EVENT_PRESENCE_MS, EVENT_NOTES_MAX, EVENT_NAME_MAX, type EventDetailResponse, type EventMember, type EventStats } from '../../shared/wireTypes'
 import {
   getEvent, setEventColor, leaveEvent, deleteEvent, regenerateEventInvite,
   setEventPhoto, eventPhotoUrl, eventJoinLink, eventsErrorMessage, EventsError,
   EVENT_PHOTO_ASPECT, attachBeacon, setEventPublic, eventPublicLink, setBib, setEventLinks,
   setEventEmoji, setEventColorsLocked, setEventNotes, setEventName, setEventStart, setEventEnd, setEventLimit, setEventTotalKm,
   ultimoCierre,
-  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual, anadeSinBaliza, guardaAjustePunto,
-  expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo,
+  setEventBetsEnabled, setEventActivity, endEvent, recomputeEventStats, guardaEvento, joinEvent, getEventPlan, marcaRetirado, marcaManual, anadeSinBaliza, cambiaPunto,
+  expulsaDelEvento, setEventOrganizer, getEventBets, setBocadillo, getEventLive, marcaOficial,
 } from '../lib/eventsTransport'
 import { getProfile, saveProfile } from '../lib/authClient'
 import { isHttpUrl, BOCADILLO_MAX } from '../../shared/validate'
 import { ANDROID_APK_URL } from '../../shared/config'
-import { durationLabel } from '../../shared/bets'
+import { durationLabel, pendientesDeOficial } from '../../shared/bets'
 import { PhotoCropper } from './PhotoCropper'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { CargandoMarca } from './CargandoMarca'
@@ -86,12 +88,26 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
   /** El editor de los puntos del recorrido (qué es cada uno, cuánto se para). */
   const [puntosAbierto, setPuntosAbierto] = useState(false)
   /** Los puntos tal como vienen en la ruta: para el editor y sus sugerencias. */
-  const [puntosRuta, setPuntosRuta] = useState<GpxNamedWaypoint[] | null>(null)
-  const [totalRuta, setTotalRuta] = useState<number | null>(null)
+  const [baseRuta, setBaseRuta] = useState<SharePayloadV1 | null>(null)
+  const pideRutaPuntos = useCallback(() => setPuntosAbierto(true), [])
   /** De quién se está mirando el dorsal en grande (su userId), o null. */
   const [dorsal, setDorsal] = useState<string | null>(null)
   /** La carrera para imprimir en el dorsal: perfil, pasos y cortes. */
-  const [carrera, setCarrera] = useState<DorsalCarrera | null>(null)
+  const carrera = useMemo<DorsalCarrera | null>(() => {
+    const ev = data?.event
+    if (!baseRuta || !ev) return null
+    // Con los puntos del EVENTO: los añadidos y movidos por quien organiza
+    // salen en el dorsal y en el panel manual igual que en el mapa.
+    const base = rutaDelEvento(baseRuta, ev.puntosAjustes)
+    return carreraDeBase(base, {
+      nombre: ev.name,
+      salida: ev.startsAt,
+      // El cierre publicado manda; si el evento no lo tiene, el último
+      // corte del recorrido, que es de donde sale.
+      cierre: ev.endsAt ?? ultimoCierre(base),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseRuta, data?.event.name, data?.event.startsAt, data?.event.endsAt, JSON.stringify(data?.event.puntosAjustes ?? null)])
   /** Lo que la porra le da a cada uno ("29h 00m – 33h 00m"), por nombre. */
   const [porras, setPorras] = useState<Map<string, string>>(new Map())
   /** Se está armando el GPX del recorrido para bajarlo. */
@@ -198,20 +214,12 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     // controles donde poner las horas.)
     if ((dorsal === null && ajustando === null && manualDe === null && !puntosAbierto) || !ev) return
     let vivo = true
-    if ((carrera === null || puntosRuta === null) && ev.planShareId) {
+    if (baseRuta === null && ev.planShareId) {
       void (async () => {
         try {
           const base = await getEventPlan(ev.planShareId!)
           if (!vivo) return
-          setPuntosRuta(base.track.namedWaypoints ?? [])
-          setTotalRuta(base.track.totalDistanceKm ?? null)
-          setCarrera(carreraDeBase(base, {
-            nombre: ev.name,
-            salida: ev.startsAt,
-            // El cierre publicado manda; si el evento no lo tiene, el último
-            // corte del recorrido, que es de donde sale.
-            cierre: ev.endsAt ?? ultimoCierre(base),
-          }))
+          setBaseRuta(base)
         } catch { /* sin recorrido el dorsal sale sin perfil, y sigue valiendo */ }
       })()
     }
@@ -241,7 +249,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
       })()
     }
     return () => { vivo = false }
-  }, [dorsal, ajustando, manualDe, puntosAbierto, puntosRuta, data, carrera, id])
+  }, [dorsal, ajustando, manualDe, puntosAbierto, baseRuta, data, id])
 
   const refresh = useCallback(async () => {
     try {
@@ -589,7 +597,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
    * Modo manual: cuando la baliza de alguien no sirve, quien organiza anota
    * sus pasos por los controles desde el cronometraje oficial.
    */
-  async function cambiaManual(username: string, cambio: { modo: boolean } | { km: number; at: number | null }) {
+  async function cambiaManual(username: string, cambio: { modo: boolean } | { km: number; at: number | null; con?: string }) {
     setBusy(true); setError(null)
     try {
       await marcaManual(id, username, cambio)
@@ -599,11 +607,44 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
     } finally { setBusy(false) }
   }
 
-  /** Cambia en el evento qué es un punto y cuánto se para (null = lo de la ruta). */
-  async function guardaPunto(km: number, aid: TipoPunto | null, pausa: number | null) {
+  /** Cambia un punto del recorrido en el evento: qué es, cuánto se para, dónde está; o lo añade o quita. */
+  async function cambiaElPunto(cambio: Parameters<typeof cambiaPunto>[1]) {
     setBusy(true); setError(null)
     try {
-      await guardaAjustePunto(id, km, aid, pausa)
+      await cambiaPunto(id, cambio)
+      await refresh()
+    } catch (e) {
+      setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * "Va con…" para quien va en modo manual: los que llevan baliza (y no van en
+   * manual ni se han retirado), y cómo sacar la referencia de uno de ellos.
+   */
+  function igualarPara(m: EventMember): Igualar {
+    const con = (data?.members ?? [])
+      .filter((o) => o.userId !== m.userId && o.sessionId !== null && o.manualPasos == null && o.retiredAt === null)
+      .map((o) => ({ nombre: o.username, emoji: o.emoji }))
+    return {
+      con,
+      calcula: async (nombre) => {
+        if (!baseRuta) return 'Aún no se ha cargado el recorrido.'
+        const live = await getEventLive(id)
+        const r = live.runners.find((x) => x.username === nombre)
+        if (!r) return `${nombre} no está en la carrera.`
+        const pista = rutaDelEvento(baseRuta, data?.event.puntosAjustes).track
+        const desde = (m.manualPasos ?? []).reduce((mx, [k]) => Math.max(mx, k), 0)
+        return referenciaDe(r, pista, desde)
+      },
+    }
+  }
+
+  /** La hora de meta oficial de alguien (null la quita). */
+  async function guardaOficial(username: string, at: number | null) {
+    setBusy(true); setError(null)
+    try {
+      await marcaOficial(id, username, at)
       await refresh()
     } catch (e) {
       setError(eventsErrorMessage(e instanceof EventsError ? e.code : 'network'))
@@ -1093,6 +1134,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
               onManual={(cambio) => void cambiaManual(m.username, cambio)}
               salidaMs={event.startsAt}
               totalKm={carrera?.km ?? null}
+              igualar={event.canOrganize === true && m.manualPasos != null ? igualarPara(m) : undefined}
             />
           ))}
         </ul>
@@ -1104,22 +1146,6 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           <AltaSinBaliza busy={busy} onAlta={(nombre, dorsal) => void altaSinBaliza(nombre, dorsal)} />
         )}
       </section>
-
-      {/* Los puntos del recorrido, para quien organiza: qué es cada uno
-          (avituallamiento, bolsa de vida…) y cuánto se para, sin volver a
-          publicar la ruta. Lo que se cambia aquí manda sobre la ruta y lo usan
-          el mapa y las previsiones. */}
-      {event.canOrganize === true && event.planShareId && (
-        <EditorPuntos
-          abierto={puntosAbierto}
-          onAbrir={() => setPuntosAbierto((v) => !v)}
-          puntos={puntosRuta}
-          totalKm={totalRuta}
-          ajustes={event.puntosAjustes ?? null}
-          busy={busy}
-          onGuardar={(km, aid, pausa) => void guardaPunto(km, aid, pausa)}
-        />
-      )}
 
       {/* Invitar, PEGADO a la lista de quién hay: es la respuesta a la pregunta
           que se hace mirándola —falta fulano— y estaba al final de la pantalla,
@@ -1455,6 +1481,26 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
         </Plegable>
       )}
 
+      {/* Los PUNTOS DEL RECORRIDO: qué es cada uno (avituallamiento, bolsa de
+          vida…) y cuánto se para, sin volver a publicar la ruta. Lo cambiado
+          aquí manda sobre la ruta y lo usan el mapa y las previsiones. */}
+      {event.canOrganize === true && event.planShareId && (
+        <Plegable
+          orga
+          title="Puntos del recorrido"
+          icon={<MapPin size={13} />}
+          summary={resumenPuntos(event.puntosAjustes ?? null)}
+        >
+          <EditorPuntos
+            onNecesitaRuta={pideRutaPuntos}
+            ruta={baseRuta?.track ?? null}
+            ajustes={event.puntosAjustes ?? null}
+            busy={busy}
+            onCambio={(c) => void cambiaElPunto(c)}
+          />
+        </Plegable>
+      )}
+
       {event.canOrganize && (
         <Plegable orga title="Nombre de la carrera" summary={event.name}>
           <NombreEditor
@@ -1569,6 +1615,28 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
       {/* Terminar la carrera. Va con los ajustes del evento y no escondido en un
           menú: es la acción que cierra la historia —congela los resultados y
           deja de admitir gente— y hasta ahora sencillamente no existía. */}
+      {/* Los TIEMPOS OFICIALES de meta: los del cronometraje de la
+          organización, al segundo. Mandan sobre la baliza y el paso manual, y
+          son lo que deshace una llegada pegada que el GPS no sabe ordenar. Se
+          abre sola cuando hay alguno así esperando. */}
+      {event.canOrganize && (
+        <Plegable
+          orga
+          title="Tiempos oficiales de meta"
+          icon={<Timer size={13} />}
+          summary={resumenOficiales(data.members, event.stats ?? null)}
+          defaultOpen={pendientesDe(event.stats ?? null).size > 0}
+        >
+          <TiemposOficiales
+            miembros={data.members}
+            stats={event.stats ?? null}
+            salidaMs={event.startsAt}
+            busy={busy}
+            onGuardar={(u, at) => void guardaOficial(u, at)}
+          />
+        </Plegable>
+      )}
+
       {event.canOrganize && (
         <Plegable
           orga
@@ -1681,7 +1749,7 @@ export default function EventLobby({ id, seccion = 'parrilla', nav = null, onIr 
           summary={`${event.stats.finishers} de ${event.stats.runners}`}
         >
           <RecordDeKm stats={event.stats} />
-          <ListaResultados stats={event.stats} />
+          <ListaResultados stats={event.stats} salidaMs={event.startsAt} />
         </Plegable>
       )}
 
@@ -2007,7 +2075,7 @@ function MemberRow({
   canEditMark, editing, onToggleMark, takenEmojis, takenColors, busy, onPickEmoji, onPickColor,
   canExpel, confirmingExpel, onAskExpel, onExpel, canName, onOrganizer,
   canRetire, onRetire, ajustando, onAjustar, puntos, onPunto,
-  canManual, manualAbierto, onToggleManual, onManual, salidaMs, totalKm,
+  canManual, manualAbierto, onToggleManual, onManual, salidaMs, totalKm, igualar,
 }: {
   m: EventMember
   now: number
@@ -2053,7 +2121,9 @@ function MemberRow({
   canManual: boolean
   manualAbierto: boolean
   onToggleManual: () => void
-  onManual: (cambio: { modo: boolean } | { km: number; at: number | null }) => void
+  onManual: (cambio: { modo: boolean } | { km: number; at: number | null; con?: string }) => void
+  /** "Va con…": igualar sus pasos con alguien que lleva baliza. */
+  igualar?: Igualar
   /** La salida, para convertir "07:21" en una hora del día de la carrera. */
   salidaMs: number | null
   totalKm: number | null
@@ -2258,7 +2328,7 @@ function MemberRow({
     )}
     {manualAbierto && (
       <PanelManual
-        m={m} busy={busy} puntos={puntos} salidaMs={salidaMs} totalKm={totalKm} onManual={onManual}
+        m={m} busy={busy} puntos={puntos} salidaMs={salidaMs} totalKm={totalKm} onManual={onManual} igualar={igualar}
       />
     )}
     {confirmingExpel && (
@@ -2402,13 +2472,14 @@ function fmtDate(ms: number): string {
  * control por fila con su hora; la meta al final aunque el recorrido no la
  * tenga como punto.
  */
-function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
+function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual, igualar }: {
   m: EventMember
   busy: boolean
   puntos: { nombre: string; km: number }[]
   salidaMs: number | null
   totalKm: number | null
-  onManual: (cambio: { modo: boolean } | { km: number; at: number | null }) => void
+  onManual: (cambio: { modo: boolean } | { km: number; at: number | null; con?: string }) => void
+  igualar?: Igualar
 }) {
   const pasos = m.manualPasos ?? null
   const filas = [...puntos]
@@ -2416,8 +2487,10 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
   // Los pasos anotados en un km que no es un punto del recorrido: el
   // cronometraje de la organización tiene más controles que los cortes del
   // GPX. Salen en la lista, en su sitio por km, para corregirlos o borrarlos.
-  for (const [km] of pasos ?? []) {
-    if (!filas.some((p) => Math.abs(p.km - km) < 0.05)) filas.push({ nombre: 'Control', km })
+  for (const [km, , con] of pasos ?? []) {
+    // Lo igualado con otro lo dice ("con Soriano"); lo demás es un control
+    // del cronometraje que el GPX no trae.
+    if (!filas.some((p) => Math.abs(p.km - km) < 0.05)) filas.push({ nombre: con ?? 'Control', km })
   }
   filas.sort((a, b) => a.km - b.km)
   const [horas, setHoras] = useState<Record<string, string>>({})
@@ -2536,6 +2609,9 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
               </div>
             )
           })()}
+          {igualar && igualar.con.length > 0 && (
+            <VaCon m={m} igualar={igualar} busy={busy} hora={hora} onAnotar={(km, at, con) => onManual({ km, at, con })} />
+          )}
           <button
             onClick={() => onManual({ modo: false })}
             disabled={busy}
@@ -2545,6 +2621,182 @@ function PanelManual({ m, busy, puntos, salidaMs, totalKm, onManual }: {
           </button>
         </>
       )}
+    </div>
+  )
+}
+
+/** Los que llegaron pegados sin hora oficial (ver `pendientesDeOficial`). */
+function pendientesDe(stats: EventStats | null): Set<string> {
+  if (!stats) return new Set()
+  return pendientesDeOficial(stats.corredores.map((c) => ({
+    username: c.username, tracked: c.tracked, finished: c.finished, finishedAt: c.finishedAt,
+    settled: true, margenMs: c.margenMs, oficial: c.oficial ?? false,
+  })))
+}
+
+function resumenOficiales(miembros: EventMember[], stats: EventStats | null): string {
+  const pendientes = pendientesDe(stats).size
+  if (pendientes > 0) return `${pendientes} por revisar`
+  const puestos = miembros.filter((m) => m.oficialAt != null).length
+  return puestos > 0 ? `${puestos} puesto${puestos > 1 ? 's' : ''}` : 'ninguno'
+}
+
+/**
+ * Los tiempos de meta de la ORGANIZACIÓN, al segundo. Al lado de cada uno, la
+ * hora que tenemos ahora (de la baliza o del paso manual) y si está en
+ * revisión: llegó pegado a otro y el GPS no sabe quién entró antes.
+ */
+function TiemposOficiales({ miembros, stats, salidaMs, busy, onGuardar }: {
+  miembros: EventMember[]
+  stats: EventStats | null
+  salidaMs: number | null
+  busy: boolean
+  onGuardar: (username: string, at: number | null) => void
+}) {
+  const [horas, setHoras] = useState<Record<string, string>>({})
+  const revisar = pendientesDe(stats)
+  const hms = (ms: number) => new Date(ms).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  /** "19:17:04" → epoch ms del día de la carrera; si cae antes de la salida, del día siguiente. */
+  const aEpoch = (t: string): number | null => {
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(t.trim())
+    if (!m) return null
+    const d = new Date(salidaMs ?? Date.now())
+    d.setHours(Number(m[1]), Number(m[2]), Number(m[3] ?? 0), 0)
+    let at = d.getTime()
+    if (salidaMs != null && at < salidaMs) at += 24 * 3600_000
+    return at
+  }
+  const filas = miembros.slice().sort((a, b) => {
+    const ca = stats?.corredores.find((c) => c.username === a.username)
+    const cb = stats?.corredores.find((c) => c.username === b.username)
+    return (ca?.finishedAt ?? Infinity) - (cb?.finishedAt ?? Infinity) || a.username.localeCompare(b.username)
+  })
+  return (
+    <div>
+      <p className="text-[11px] leading-snug text-slate-500">
+        La hora de llegada del cronometraje de la organización, al segundo. Manda sobre la baliza y los pasos
+        anotados, y rehace resultados y porra. Cuando dos entran pegados, el GPS no sabe quién llegó antes: hasta
+        que pongas sus tiempos, la porra los deja pendientes de revisión.
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {filas.map((m) => {
+          const c = stats?.corredores.find((x) => x.username === m.username) ?? null
+          const valor = horas[m.username] ?? (m.oficialAt != null ? hms(m.oficialAt) : '')
+          const at = aEpoch(valor)
+          const cambiado = at != null && at !== m.oficialAt
+          return (
+            <li key={m.userId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span className="min-w-0 flex-1">
+                <span className="text-slate-200">{m.emoji ? `${m.emoji} ` : ''}{m.username}</span>
+                <span className="block text-[10px] text-slate-500">
+                  {m.oficialAt != null
+                    ? <span className="text-emerald-400">oficial</span>
+                    : c?.finished && c.finishedAt != null
+                      ? <>ahora {hms(c.finishedAt)}{c.margenMs ? ` ±${Math.round(c.margenMs / 1000)} s` : ''}{c.manual ? ' · paso manual' : ' · GPS'}</>
+                      : 'sin llegada'}
+                  {revisar.has(m.username) && <span className="text-amber-300"> · pegado a otro: por revisar</span>}
+                </span>
+              </span>
+              <input
+                type="time" step={1}
+                value={valor}
+                onChange={(e) => setHoras((h) => ({ ...h, [m.username]: e.target.value }))}
+                className="w-[7.2rem] rounded border border-slate-700 bg-slate-900 px-1 py-0.5 tabular-nums text-slate-200"
+                aria-label={`Hora oficial de meta de ${m.username}`}
+              />
+              <button
+                onClick={() => { if (at != null) { onGuardar(m.username, at); setHoras((h) => { const n = { ...h }; delete n[m.username]; return n }) } }}
+                disabled={busy || !cambiado}
+                aria-label={`Guardar la hora oficial de ${m.username}`}
+                className="shrink-0 text-emerald-400 disabled:opacity-20"
+              >
+                <Check size={14} />
+              </button>
+              <button
+                onClick={() => { onGuardar(m.username, null); setHoras((h) => { const n = { ...h }; delete n[m.username]; return n }) }}
+                disabled={busy || m.oficialAt == null}
+                aria-label={`Quitar la hora oficial de ${m.username}`}
+                className="shrink-0 text-slate-500 hover:text-rose-400 disabled:opacity-20"
+              >
+                <X size={13} />
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+/** Con quién se puede igualar a quien va en manual, y cómo se saca la referencia. */
+interface Igualar {
+  con: { nombre: string; emoji: string | null }[]
+  calcula: (nombre: string) => Promise<Referencia | string>
+}
+
+/**
+ * "Va con…": quien va en manual y corre junto a alguien con baliza. Se elige
+ * a ese alguien, se ve el km y la hora de su último fijo preciso, y se anota
+ * como paso. Se enseña antes de anotar: si se han separado, se nota en la
+ * hora, y quien organiza decide.
+ */
+function VaCon({ m, igualar, busy, hora, onAnotar }: {
+  m: EventMember
+  igualar: Igualar
+  busy: boolean
+  hora: (ms: number) => string
+  onAnotar: (km: number, at: number, con: string) => void
+}) {
+  const [con, setCon] = useState('')
+  const [ref, setRef] = useState<Referencia | string | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const pide = async (nombre: string) => {
+    setCon(nombre); setRef(null)
+    if (!nombre) return
+    setCargando(true)
+    try { setRef(await igualar.calcula(nombre)) } catch { setRef('No se ha podido leer su posición. Prueba otra vez.') } finally { setCargando(false) }
+  }
+  const hace = typeof ref === 'object' && ref ? Math.round((Date.now() - ref.at) / 60_000) : 0
+  const yaAnotado = typeof ref === 'object' && ref ? (m.manualPasos ?? []).some(([k]) => Math.abs(k - ref.km) < 0.05) : false
+  return (
+    <div className="mt-2 border-t border-slate-800 pt-2 text-[11px]">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-slate-400">Va con</span>
+        <select
+          value={con}
+          onChange={(e) => void pide(e.target.value)}
+          className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-slate-200"
+          aria-label="Con quién va"
+        >
+          <option value="">elige a quién (con baliza)…</option>
+          {igualar.con.map((c) => <option key={c.nombre} value={c.nombre}>{c.emoji ? `${c.emoji} ` : ''}{c.nombre}</option>)}
+        </select>
+        {con && (
+          <button onClick={() => void pide(con)} disabled={cargando} className="shrink-0 text-sky-400 underline disabled:opacity-40">
+            releer
+          </button>
+        )}
+      </div>
+      {cargando && <p className="mt-1 text-slate-500">Leyendo su posición…</p>}
+      {typeof ref === 'string' && <p className="mt-1 text-amber-300">{ref}</p>}
+      {ref && typeof ref === 'object' && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <p className="min-w-0 flex-1 text-slate-300">
+            km <b className="tabular-nums text-slate-100">{ref.km.toFixed(2)}</b> a las <b className="tabular-nums text-slate-100">{hora(ref.at)}</b>
+            <span className="text-slate-500"> · GPS ±{Math.round(ref.precision)} m{hace >= 2 ? ` · hace ${hace} min` : ''}</span>
+          </p>
+          <button
+            onClick={() => { onAnotar(ref.km, ref.at, `con ${con}`); setRef(null); setCon('') }}
+            disabled={busy || yaAnotado}
+            className="shrink-0 rounded-md bg-sky-700 px-2 py-1 font-semibold text-white disabled:opacity-40"
+          >
+            {yaAnotado ? 'Ya anotado' : 'Anotar paso'}
+          </button>
+        </div>
+      )}
+      <p className="mt-1 text-[10px] text-slate-500">
+        Su km y su hora del último fijo con error de {PRECISO_M} m o menos. Solo si van juntos de verdad.
+      </p>
     </div>
   )
 }
@@ -2609,100 +2861,269 @@ function AltaSinBaliza({ busy, onAlta }: { busy: boolean; onAlta: (nombre: strin
   )
 }
 
+const ICONO_TIPO: Record<TipoPunto, LucideIcon> = {
+  control: Timer, liquido: Droplet, solido: Utensils, completo: UtensilsCrossed, bolsa: Backpack, meta: Flag,
+}
+const CHIP_TIPO: Record<TipoPunto, string> = {
+  control: 'Control', liquido: 'Líquido', solido: 'Comida', completo: 'Completo', bolsa: 'Bolsa de vida', meta: 'Meta',
+}
+
+/** "2 añadidos · 1 cambiado", para la sección cerrada. */
+function resumenPuntos(ajustes: PuntosAjustes | null): string {
+  const todos = Object.values(ajustes ?? {})
+  const nuevos = todos.filter((a) => a.nuevo).length
+  const cambiados = todos.length - nuevos
+  const partes = [
+    nuevos ? `${nuevos} añadido${nuevos > 1 ? 's' : ''}` : '',
+    cambiados ? `${cambiados} cambiado${cambiados > 1 ? 's' : ''}` : '',
+  ].filter(Boolean)
+  return partes.length ? partes.join(' · ') : 'según la ruta'
+}
+
+type CambioPunto = Parameters<typeof cambiaPunto>[1]
+
+/** "12,4" o "12.4" → 12.4; lo que no es un km, null. */
+function leeKm(t: string): number | null {
+  const v = Number(t.trim().replace(',', '.'))
+  return t.trim() !== '' && Number.isFinite(v) && v >= 0 ? v : null
+}
+
 /**
- * El editor de los puntos del recorrido en el evento: qué es cada uno y cuánto
- * se para. Lo que dice la ruta (o lo que se sugiere por su texto) sale como
- * punto de partida; lo cambiado se marca y se puede devolver a la ruta.
+ * El editor de los puntos del recorrido en el evento: qué es cada uno, cuánto
+ * se para y DÓNDE está, y añadir los que la ruta no trae (un control
+ * intermedio que la organización pone el mismo día).
+ *
+ * Cada punto en su línea, con el nombre entero, y el tipo en botones con su
+ * icono, los mismos del mapa: se ven todos a la vez y un toque lo guarda. (Un
+ * desplegable nativo no admite iconos y parecía un campo de texto.)
+ *
+ * El km se corrige aquí escribiéndolo, o en el mapa del evento tocando el
+ * sitio. Con el km se enseña la altura de ese sitio: es lo que dice si ha
+ * caído en el collado o a media bajada.
  */
-function EditorPuntos({ abierto, onAbrir, puntos, totalKm, ajustes, busy, onGuardar }: {
-  abierto: boolean
-  onAbrir: () => void
-  puntos: GpxNamedWaypoint[] | null
-  totalKm: number | null
+function EditorPuntos({ onNecesitaRuta, ruta, ajustes, busy, onCambio }: {
+  /** Se abre el editor: hay que bajar la ruta para tener sus puntos. */
+  onNecesitaRuta: () => void
+  ruta: SharePayloadV1['track'] | null
   ajustes: PuntosAjustes | null
   busy: boolean
-  onGuardar: (km: number, aid: TipoPunto | null, pausa: number | null) => void
+  onCambio: (c: CambioPunto) => void
 }) {
-  const [borrador, setBorrador] = useState<Record<string, { aid: TipoPunto | ''; pausa: string }>>({})
-  const conAjustes = puntos ? aplicaAjustes(puntos, ajustes) : []
+  useEffect(() => { onNecesitaRuta() }, [onNecesitaRuta])
+  /** Lo que se está escribiendo en cada punto (pausa y km), por su clave. */
+  const [borrador, setBorrador] = useState<Record<string, { pausa?: string; km?: string }>>({})
+  const [nuevo, setNuevo] = useState<{ nombre: string; km: string; aid: TipoPunto } | null>(null)
+  if (ruta === null) return <p className="text-xs text-slate-500">Cargando el recorrido…</p>
+  const totalKm = ruta.totalDistanceKm
+  const { puntos } = puntosDelEvento(ruta, ajustes)
+  const altura = (km: number | null) => {
+    if (km === null || km > totalKm + 0.5) return null
+    const s = sitioEnKm(ruta, km)
+    return s ? `${Math.round(s.ele)} m` : null
+  }
+  const olvida = (clave: string) => setBorrador((d) => { const n = { ...d }; delete n[clave]; return n })
   return (
-    <section className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60">
-      <button onClick={onAbrir} className="flex w-full items-center justify-between px-3.5 py-2.5 text-left">
-        <span className="text-[11px] uppercase tracking-wider text-slate-500">Puntos del recorrido · avituallamientos</span>
-        <span className="text-xs text-slate-500">{abierto ? '▲' : '▼'}</span>
-      </button>
-      {abierto && (
-        <div className="border-t border-slate-800 px-3.5 pb-3 pt-2">
-          <p className="text-[11px] leading-snug text-slate-500">
-            Qué es cada punto y cuánto se para uno ahí. Lo que cambies aquí manda sobre la ruta, sin volver a publicarla,
-            y lo usan el mapa y las previsiones.
-          </p>
-          {puntos === null ? (
-            <p className="mt-2 text-xs text-slate-500">Cargando el recorrido…</p>
-          ) : puntos.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-500">Esta ruta no tiene puntos.</p>
-          ) : (
-            <ul className="mt-2 space-y-1.5">
-              {conAjustes.slice().sort((a, b) => a.distanceKm - b.distanceKm).map((w) => {
-                const clave = w.distanceKm.toFixed(2)
-                const ajuste = ajustes?.[clave] ?? null
-                const original = puntos.find((p) => p.distanceKm.toFixed(2) === clave)
-                const tipo = tipoDe(w, totalKm)
-                const sugerido = original ? sugiereTipo(original, totalKm != null && totalKm - original.distanceKm < 0.2) : tipo
-                const b = borrador[clave] ?? { aid: ajuste?.aid ?? '', pausa: ajuste?.pausa != null ? String(ajuste.pausa) : '' }
-                const cambiado = (b.aid || '') !== (ajuste?.aid ?? '') || b.pausa !== (ajuste?.pausa != null ? String(ajuste.pausa) : '')
-                const pausa = b.pausa.trim() === '' ? null : Number(b.pausa)
-                const pausaOk = pausa === null || (Number.isFinite(pausa) && pausa >= 0 && pausa <= 600)
-                return (
-                  <li key={clave} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                    <span className="min-w-0 flex-1 truncate text-slate-200">
-                      {w.name} <span className="text-slate-500">km {w.distanceKm.toFixed(1)}</span>
-                      {ajuste && <span className="ml-1 rounded bg-sky-950/70 px-1 text-[10px] text-sky-300">cambiado</span>}
-                    </span>
-                    <select
-                      value={b.aid}
-                      onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, aid: e.target.value as TipoPunto | '' } }))}
-                      className="rounded border border-slate-700 bg-slate-950 px-1 py-1 text-slate-200"
-                      aria-label={`Qué es ${w.name}`}
-                    >
-                      <option value="">Según la ruta · {TIPO_PUNTO[original?.aid ?? sugerido].corta}</option>
-                      {TIPOS_PUNTO.map((t) => <option key={t} value={t}>{TIPO_PUNTO[t].etiqueta}</option>)}
-                    </select>
-                    <input
-                      type="number" min={0} max={600} step={1}
-                      value={b.pausa}
-                      onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, pausa: e.target.value } }))}
-                      placeholder={`${TIPO_PUNTO[b.aid || tipo].paradaMin} min`}
-                      className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-right tabular-nums text-slate-200"
-                      aria-label={`Parada en ${w.name}, minutos`}
-                    />
+    <div>
+      <p className="text-[11px] leading-snug text-slate-500">
+        Qué es cada punto, cuánto se para uno ahí y dónde está. Lo que cambies aquí manda sobre la ruta, sin volver a
+        publicarla, y lo usan el mapa, los cortes, los avisos y las previsiones. El sitio también se corrige en el mapa
+        del evento, tocando el punto.
+      </p>
+      {puntos.length === 0 && <p className="mt-2 text-xs text-slate-500">Esta ruta no tiene puntos.</p>}
+      <ul className="mt-1 divide-y divide-slate-800/80">
+        {puntos.map((w) => {
+          const clave = w.clave
+          const ajuste = ajustes?.[clave] ?? null
+          const kmRuta = w.nuevo ? null : (w.kmRuta ?? w.distanceKm)
+          const original = kmRuta === null ? null : ruta.namedWaypoints.find((p) => p.distanceKm.toFixed(2) === clave) ?? null
+          const tipo = tipoDe(w, totalKm)
+          const deRuta = original
+            ? (original.aid ?? sugiereTipo(original, totalKm - original.distanceKm < 0.2))
+            : 'control'
+          const b = borrador[clave] ?? {}
+          const pausaGuardada = ajuste?.pausa != null ? String(ajuste.pausa) : ''
+          const textoPausa = b.pausa ?? pausaGuardada
+          const pausa = textoPausa.trim() === '' ? null : Number(textoPausa)
+          const pausaOk = pausa === null || (Number.isFinite(pausa) && pausa >= 0 && pausa <= 600)
+          const kmGuardado = w.distanceKm.toFixed(2)
+          const textoKm = b.km ?? kmGuardado
+          const km = leeKm(textoKm)
+          const kmOk = km !== null && km <= totalKm + 0.5
+          const cambiado = textoPausa !== pausaGuardada || (km !== null && km.toFixed(2) !== kmGuardado)
+          const guarda = (extra: { aid?: TipoPunto | null } = {}) => {
+            const aid = 'aid' in extra ? extra.aid! : (ajuste?.aid ?? null)
+            const p = cambiado && pausaOk ? pausa : (ajuste?.pausa ?? null)
+            const pos = cambiado && kmOk ? km! : w.distanceKm
+            if (w.nuevo) onCambio({ clave, aid: aid ?? 'control', pausa: p, pos })
+            else onCambio({ km: kmRuta!, aid, pausa: p, pos: Math.abs(pos - kmRuta!) < 0.005 ? null : pos })
+            olvida(clave)
+          }
+          return (
+            <li key={clave} className="py-2.5">
+              <div className="flex items-baseline gap-2 text-sm">
+                <span className="min-w-0 flex-1 break-words font-medium text-slate-100">
+                  {w.name || 'Sin nombre'}
+                  {w.nuevo && <span className="ml-1.5 rounded bg-amber-950/70 px-1 align-middle text-[10px] font-normal text-amber-300">añadido</span>}
+                </span>
+                <span className="shrink-0 tabular-nums text-xs text-slate-400">km {w.distanceKm.toFixed(1)}</span>
+              </div>
+              {w.kmRuta != null && (
+                <p className="text-[10px] text-sky-300/80">Movido: la ruta lo ponía en el km {w.kmRuta.toFixed(1)}</p>
+              )}
+              <div className="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={`Qué es ${w.name}`}>
+                {TIPOS_PUNTO.map((t) => {
+                  const Icono = ICONO_TIPO[t]
+                  const elegido = t === tipo
+                  return (
                     <button
-                      onClick={() => { onGuardar(w.distanceKm, b.aid || null, pausa); setBorrador((d) => { const n = { ...d }; delete n[clave]; return n }) }}
-                      disabled={busy || !cambiado || !pausaOk}
-                      className="rounded-md bg-sky-700 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-30"
+                      key={t}
+                      role="radio"
+                      aria-checked={elegido}
+                      disabled={busy}
+                      onClick={() => {
+                        if (elegido) return
+                        // El de la ruta, elegido a mano, es volver a la ruta.
+                        guarda({ aid: !w.nuevo && t === deRuta ? null : t })
+                      }}
+                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                        elegido
+                          ? 'border-sky-500 bg-sky-600/25 text-sky-100'
+                          : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                      }`}
                     >
-                      Guardar
+                      <Icono size={13} aria-hidden />
+                      {CHIP_TIPO[t]}
                     </button>
-                    {ajuste && (
-                      <button
-                        onClick={() => { onGuardar(w.distanceKm, null, null); setBorrador((d) => { const n = { ...d }; delete n[clave]; return n }) }}
-                        disabled={busy}
-                        title="Volver a lo que dice la ruta"
-                        className="text-[11px] text-slate-500 underline hover:text-sky-300 disabled:opacity-30"
-                      >
-                        ruta
-                      </button>
-                    )}
-                    <span className="basis-full pl-0.5 text-[10px] text-slate-500">
-                      Ahora: {TIPO_PUNTO[tipo].corta}{paradaDe(w, totalKm) > 0 ? ` · parada ${paradaDe(w, totalKm)} min` : ''}
-                    </span>
-                  </li>
+                  )
+                })}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-400">
+                <label className="flex items-center gap-1.5">
+                  Km
+                  <input
+                    type="text" inputMode="decimal"
+                    value={textoKm}
+                    onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, km: e.target.value } }))}
+                    className={`w-16 rounded border bg-slate-950 px-1.5 py-1 text-right tabular-nums text-slate-200 ${kmOk ? 'border-slate-700' : 'border-red-700'}`}
+                  />
+                  <span className="text-[10px] text-slate-500">{altura(km)}</span>
+                </label>
+                <label className="flex items-center gap-1.5">
+                  Parada
+                  <input
+                    type="number" inputMode="numeric" min={0} max={600} step={1}
+                    value={textoPausa}
+                    onChange={(e) => setBorrador((d) => ({ ...d, [clave]: { ...b, pausa: e.target.value } }))}
+                    placeholder={String(w.pauseMin ?? (tipo === 'bolsa' ? TIPO_PUNTO.bolsa.paradaMin : 0))}
+                    className="w-12 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-right tabular-nums text-slate-200"
+                  />
+                  min
+                </label>
+                {cambiado && (
+                  <button
+                    onClick={() => guarda()}
+                    disabled={busy || !pausaOk || !kmOk}
+                    className="rounded-md bg-sky-700 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-30"
+                  >
+                    Guardar
+                  </button>
+                )}
+                {cambiado && (
+                  <button onClick={() => olvida(clave)} className="text-[11px] text-slate-500 underline">deshacer</button>
+                )}
+                {!cambiado && w.nuevo && (
+                  <button
+                    onClick={() => onCambio({ clave, borrar: true })}
+                    disabled={busy}
+                    className="ml-auto text-[11px] text-red-400/80 underline hover:text-red-300 disabled:opacity-30"
+                  >
+                    quitar
+                  </button>
+                )}
+                {!cambiado && !w.nuevo && ajuste && (
+                  <button
+                    onClick={() => { onCambio({ km: kmRuta!, aid: null, pausa: null, pos: null }); olvida(clave) }}
+                    disabled={busy}
+                    className="ml-auto text-[11px] text-slate-500 underline hover:text-sky-300 disabled:opacity-30"
+                  >
+                    volver a la ruta
+                  </button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* Añadir un punto: el control intermedio que la organización pone y la
+          ruta no trae. Por defecto es solo control: sin parada, no cambia las
+          previsiones, pero se ve en el mapa, se puede pedir aviso de paso y
+          anotar su hora en modo manual. */}
+      {nuevo === null ? (
+        <button
+          onClick={() => setNuevo({ nombre: '', km: '', aid: 'control' })}
+          className="mt-2 w-full rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-300 hover:bg-slate-900"
+        >
+          + Añadir un punto
+        </button>
+      ) : (() => {
+        const km = leeKm(nuevo.km)
+        const ok = nuevo.nombre.trim() !== '' && km !== null && km <= totalKm + 0.5
+        return (
+          <div className="mt-2 rounded-lg border border-slate-700 bg-slate-900/60 p-2.5">
+            <input
+              autoFocus
+              value={nuevo.nombre}
+              onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
+              maxLength={60}
+              placeholder="Nombre (p. ej. Control Coll de Pal)"
+              className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
+            />
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+              <label className="flex items-center gap-1.5">
+                Km
+                <input
+                  type="text" inputMode="decimal"
+                  value={nuevo.km}
+                  onChange={(e) => setNuevo({ ...nuevo, km: e.target.value })}
+                  placeholder="12,4"
+                  className="w-16 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-right tabular-nums text-slate-200"
+                />
+              </label>
+              <span className="text-[11px] text-slate-500">
+                {km === null ? `de 0 a ${totalKm.toFixed(1)}` : km > totalKm + 0.5 ? 'más allá de la meta' : `a ${altura(km)}`}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {TIPOS_PUNTO.filter((t) => t !== 'meta').map((t) => {
+                const Icono = ICONO_TIPO[t]
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setNuevo({ ...nuevo, aid: t })}
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                      nuevo.aid === t ? 'border-sky-500 bg-sky-600/25 text-sky-100' : 'border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    <Icono size={13} aria-hidden />
+                    {CHIP_TIPO[t]}
+                  </button>
                 )
               })}
-            </ul>
-          )}
-        </div>
-      )}
-    </section>
+            </div>
+            <div className="mt-2.5 flex justify-end gap-2">
+              <button onClick={() => setNuevo(null)} className="px-2 text-xs text-slate-400">Cancelar</button>
+              <button
+                onClick={() => { onCambio({ nombre: nuevo.nombre.trim(), pos: km!, aid: nuevo.aid }); setNuevo(null) }}
+                disabled={busy || !ok}
+                className="rounded-md bg-sky-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                Añadir
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+    </div>
   )
 }

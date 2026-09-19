@@ -36,6 +36,9 @@ export interface FilaDeMeta {
   kmAbandono?: number | null
   /** En modo manual: su kilómetro más rápido no se puede medir. */
   manual?: boolean
+  /** Cuánto puede fallar su hora de meta (ms), y si es la oficial. */
+  margenMs?: number | null
+  oficial?: boolean
 }
 
 export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
@@ -50,5 +53,7 @@ export function resultadosDeCarrera(filas: FilaDeMeta[]): RunnerOutcome[] {
     settled: f.acabo || f.retirado,
     kmAbandono: f.acabo ? null : (f.kmAbandono ?? null),
     manual: f.manual ?? false,
+    margenMs: f.margenMs ?? null,
+    oficial: f.oficial ?? false,
   }))
 }

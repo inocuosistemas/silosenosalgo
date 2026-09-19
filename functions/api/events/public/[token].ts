@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
 import { leeAjustes } from '../../../lib/puntos'
+import { latidoEnEvento } from '../../../lib/presence'
 import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
@@ -23,7 +24,7 @@ import type {
  * por ellos.
  */
 
-export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
   const token = String(params.token)
   if (!TOKEN_RE.test(token)) return json({ error: 'bad_id' }, 400)
 
@@ -143,6 +144,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     endedAt,
     stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     runners,
+    mirando: await mirando(env, request, ev.id, endedAt),
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
+}
+
+/** Cuánta gente mira el mapa ahora (con la carrera en marcha), o undefined si falla: es un extra. */
+async function mirando(env: Env, request: Request, eventId: string, endedAt: number | null): Promise<number | undefined> {
+  if (endedAt !== null) return undefined
+  try { return await latidoEnEvento(env, eventId, new URL(request.url).searchParams.get('v')) } catch { return undefined }
 }

@@ -3,7 +3,7 @@
  * de `fetch` que nunca lanza excepciones de red crudas y traduce el código del
  * servidor a un mensaje en español.
  */
-import type { EventFoto, EventFotosResponse, AvisoDePaso } from '../../shared/wireTypes'
+import type { EventFoto, EventFotosResponse, AvisoDePaso, PuntosAjustes } from '../../shared/wireTypes'
 import { gzipBytes, gunzipToString } from './shareTransport'
 import type { SharePayloadV1 } from './sharePayload'
 import { simplificaTrazado } from './eventPlan'
@@ -69,15 +69,17 @@ export async function joinEvent(code: string): Promise<JoinEventResponse> {
 }
 
 /** Dónde está cada participante ahora mismo (el pulso del mapa del evento). */
-export async function getEventLive(id: string): Promise<EventLiveResponse> {
-  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/live`, { credentials: 'same-origin', cache: 'no-store' })
+export async function getEventLive(id: string, viewer?: string): Promise<EventLiveResponse> {
+  const v = viewer ? `?v=${encodeURIComponent(viewer)}` : ''
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/live${v}`, { credentials: 'same-origin', cache: 'no-store' })
   if (!res.ok) throw errFrom(res)
   return (await res.json()) as EventLiveResponse
 }
 
 /** Lo mismo, pero por el enlace público: sin sesión y con datos recortados. */
-export async function getEventPublic(token: string): Promise<EventPublicResponse> {
-  const res = await fetchSafe(`/api/events/public/${encodeURIComponent(token)}`, { cache: 'no-store' })
+export async function getEventPublic(token: string, viewer?: string): Promise<EventPublicResponse> {
+  const v = viewer ? `?v=${encodeURIComponent(viewer)}` : ''
+  const res = await fetchSafe(`/api/events/public/${encodeURIComponent(token)}${v}`, { cache: 'no-store' })
   if (!res.ok) throw errFrom(res)
   return (await res.json()) as EventPublicResponse
 }
@@ -237,12 +239,22 @@ export async function anadeSinBaliza(id: string, nombre: string, dorsal: string)
  * `{ km, at }` anota su paso por ese km (`at: null` lo borra).
  */
 export async function marcaManual(
-  id: string, username: string, cambio: { modo: boolean } | { km: number; at: number | null },
+  id: string, username: string, cambio: { modo: boolean } | { km: number; at: number | null; con?: string },
 ): Promise<void> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/manual`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, ...cambio }),
+  })
+  if (!(res.ok || res.status === 204)) throw errFrom(res)
+}
+
+/** La hora de meta OFICIAL de un participante (epoch ms, al segundo), o null para quitarla. */
+export async function marcaOficial(id: string, username: string, at: number | null): Promise<void> {
+  const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/oficial`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, at }),
   })
   if (!(res.ok || res.status === 204)) throw errFrom(res)
 }
@@ -714,11 +726,20 @@ export async function borraAviso(id: string): Promise<void> {
 }
 
 /** Cambiar en el evento qué es un punto y cuánto se para (`null` = lo de la ruta). */
-export async function guardaAjustePunto(id: string, km: number, aid: string | null, pausa: number | null): Promise<void> {
+/**
+ * Cambia un punto del recorrido en el evento. Uno de la ruta va por su `km`
+ * EN LA RUTA; uno añadido, por su `clave` (sin clave y con `nombre`, se
+ * añade). `pos` es dónde está de verdad; `borrar` quita uno añadido.
+ */
+export async function cambiaPunto(id: string, cambio: {
+  km?: number; clave?: string; nombre?: string; aid?: string | null; pausa?: number | null; pos?: number | null; borrar?: boolean
+}): Promise<PuntosAjustes | null> {
   const res = await fetchSafe(`/api/events/${encodeURIComponent(id)}/puntos`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ km, aid, pausa }),
+    body: JSON.stringify(cambio),
   })
   if (!res.ok) throw errFrom(res)
+  const d = await res.json() as { puntosAjustes?: PuntosAjustes | null }
+  return d.puntosAjustes && Object.keys(d.puntosAjustes).length ? d.puntosAjustes : null
 }

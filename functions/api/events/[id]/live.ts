@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
 import { leeAjustes } from '../../../lib/puntos'
+import { latidoEnEvento } from '../../../lib/presence'
 import { json } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
@@ -71,8 +72,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   // que puede no correr: seguir la carrera que ha montado es media razón de
   // haberla montado.
   const member = await env.DB.prepare(
-    'SELECT 1 AS ok FROM event_members WHERE event_id = ? AND user_id = ?',
-  ).bind(id, user.id).first<{ ok: number }>()
+    'SELECT 1 AS ok, organizer FROM event_members WHERE event_id = ? AND user_id = ?',
+  ).bind(id, user.id).first<{ ok: number; organizer: number | null }>()
   if (!member && ev.createdBy !== user.id) return json({ error: 'not_found' }, 404)
 
   // Se sale de la PARRILLA y no de las sesiones: quien está apuntado sale
@@ -163,6 +164,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
   const res: EventLiveResponse = {
     planShareId: ev.planShareId,
     puntosAjustes: leeAjustes(ev.puntosAjustes),
+    // Sin consulta de más (esto se sondea a menudo): sale de la fila de arriba.
+    puedeOrganizar: user.isAdmin || ev.createdBy === user.id || member?.organizer === 1,
     startsAt: ev.startsAt,
     betsEnabled: ev.betsEnabled === 1,
     name: ev.name,
@@ -177,6 +180,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     endedAt,
     stats: endedAt !== null ? await leeStats(env, id, ev.stats) : null,
     runners,
+    mirando: await mirando(env, request, id, endedAt),
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
+}
+
+/** Cuánta gente mira el mapa ahora (con la carrera en marcha), o undefined si falla: es un extra. */
+async function mirando(env: Env, request: Request, eventId: string, endedAt: number | null): Promise<number | undefined> {
+  if (endedAt !== null) return undefined
+  try { return await latidoEnEvento(env, eventId, new URL(request.url).searchParams.get('v')) } catch { return undefined }
 }

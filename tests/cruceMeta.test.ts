@@ -90,3 +90,17 @@ describe('el cruce de meta en una traza', () => {
     expect(cruceEnTraza([], 37.7)).toBe(null)
   })
 })
+
+describe('la meta según la calidad de la señal', () => {
+  it('con buen GPS, a 900 m de meta no ha llegado', () => {
+    expect(toleranciaMeta(57.7, 5)).toBe(0.1)
+    expect(toleranciaMeta(57.7, 5)).toBeLessThan(0.9)
+  })
+  it('con GPS malo el margen crece, pero nunca pasa del de siempre', () => {
+    expect(toleranciaMeta(57.7, 100)).toBeCloseTo(0.28, 3)
+    expect(toleranciaMeta(10, 500)).toBe(0.25)
+  })
+  it('sin precisión conocida, el de siempre', () => {
+    expect(toleranciaMeta(57.7)).toBeCloseTo(0.8655, 3)
+  })
+})

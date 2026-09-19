@@ -3,7 +3,7 @@ import { guardaEvento } from './archivo'
 import type { Env } from './db'
 import { crucaMeta } from '../../shared/cruceMeta'
 import { scoreBets, type BetScore, type RunnerOutcome } from '../../shared/bets'
-import type { TrailPoint, EventStats, EventRunnerStats, EventBet } from '../../shared/wireTypes'
+import type { TrailPoint, EventStats, EventRunnerStats, EventBet, PasoManual } from '../../shared/wireTypes'
 
 /**
  * lib/eventStats.ts — los resultados de una carrera, congelados al cerrarla.
@@ -112,12 +112,26 @@ function metros(a: TrailPoint, b: TrailPoint): number {
  * Sobre el avance no puede pasar: un salto lateral de treinta metros no mueve
  * el kilómetro del recorrido, que es lo que de verdad se ha progresado.
  */
-function kmMasRapidoEnRuta(serie: [number, number, number][], minMinPorKm: number): { minutos: number; desdeKm: number } | null {
+/**
+ * A cuántos metros del trazado deja de valer una lectura PARA CRONOMETRAR un
+ * kilómetro. Para saber por dónde va alguien se aceptan hasta 400 m (ver
+ * `FUERA_DE_RUTA_M`), pero a esa distancia el punto del recorrido más cercano
+ * puede estar kilómetros por delante: en Matxicots 26 Soriano bajó a Espot por
+ * un camino a 450 m del GPX, una lectura a 346 m cayó en el km 39,05 cuando iba
+ * por el 38, y salió un kilómetro a 2:38. Para medir un km, las dos puntas
+ * tienen que estar encima del recorrido.
+ */
+const CRONO_EN_RUTA_M = 60
+
+function kmMasRapidoEnRuta(
+  serie: [number, number, number][], minMinPorKm: number, lejos: number[] = [],
+): { minutos: number; desdeKm: number } | null {
   if (serie.length < 2) return null
+  const encima = (k: number) => (lejos[k] ?? 0) <= CRONO_EN_RUTA_M
   let mejor: { minutos: number; desdeKm: number } | null = null
   for (let j = 1; j < serie.length; j++) {
     const objetivo = serie[j][1] - 1
-    if (objetivo < 0) continue
+    if (objetivo < 0 || !encima(j)) continue
     // Hacia ATRÁS desde j hasta el último momento en que iba un kilómetro por
     // detrás. Hacia atrás y no con un puntero que avanza porque la serie NO es
     // monótona: quien llega a la salida andando por el último tramo del
@@ -127,7 +141,7 @@ function kmMasRapidoEnRuta(serie: [number, number, number][], minMinPorKm: numbe
     for (let k = j - 1; k >= 0; k--) {
       if (serie[k][1] <= objetivo) { i = k; break }
     }
-    if (i < 0) continue
+    if (i < 0 || !encima(i) || !encima(i + 1)) continue
     const tramo = serie[i + 1][1] - serie[i][1]
     if (tramo <= 0) continue
     const t = (objetivo - serie[i][1]) / tramo
@@ -296,6 +310,8 @@ interface Avance {
    * para cronometrar el cruce (ver `crucaMeta`).
    */
   serie: [number, number, number][]
+  /** A cuántos metros del trazado cayó cada lectura de `serie` (mismo índice). */
+  lejos: number[]
 }
 
 /**
@@ -429,6 +445,7 @@ function avanceSobreRuta(
   let desdeMs: number | null = null
   let dentro = 0
   const serie: [number, number, number][] = []
+  const lejos: number[] = []
   let anterior: TrailPoint | null = null
   /** El último punto ACEPTADO: de él sale la velocidad con la que se juzga. */
   let ultimoMs = 0
@@ -509,12 +526,13 @@ function avanceSobreRuta(
     dentro++
     if (desdeMs === null) desdeMs = p.t
     serie.push([p.t, previo, anterior ? metros(anterior, p) : 0])
+    lejos.push(dMin)
     anterior = p
     if (previo > max) { max = previo; enMs = p.t }
   }
   // Sin ningún punto sobre el recorrido no se sabe nada: fue por otro sitio, o
   // el trazado guardado no es el de esta carrera.
-  return dentro > 0 ? { km: max, enMs, desdeMs: desdeMs ?? pts[0].t, serie } : null
+  return dentro > 0 ? { km: max, enMs, desdeMs: desdeMs ?? pts[0].t, serie, lejos } : null
 }
 
 interface FilaSesion {
@@ -541,17 +559,20 @@ interface FilaSesion {
   /** Modo manual: sus pasos por los controles anotados por quien organiza,
    *  `[[km, epoch ms], ...]` en JSON. Null = manda la baliza. */
   manualPasos?: string | null
+  /** La hora de meta OFICIAL (cronometraje de la organización), si se puso. */
+  oficialAt?: number | null
 }
 
 /** Los pasos manuales de un corredor, ordenados por km. Null si no está en
  *  modo manual (o no se entienden). */
-export function leePasosManuales(crudo: string | null | undefined): [number, number][] | null {
+export function leePasosManuales(crudo: string | null | undefined): PasoManual[] | null {
   if (crudo == null) return null
   try {
     const v = JSON.parse(crudo) as unknown
     if (!Array.isArray(v)) return null
     return v
-      .filter((e): e is [number, number] => Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number')
+      .filter((e): e is PasoManual => Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number')
+      .map((e): PasoManual => (typeof e[2] === 'string' && e[2] ? [e[0], e[1], e[2]] : [e[0], e[1]]))
       .sort((a, b) => a[0] - b[0])
   } catch { return null }
 }
@@ -608,7 +629,10 @@ export function calculaEstadisticas(
         mejorKmMin: null, mejorKmDesde: null,
         finished: enMeta !== null,
         finishedAt: enMeta ? enMeta[1] : null,
-        margenMs: null,
+        // La hora de un paso anotado va en minutos: "19:17" es cualquier
+        // segundo de ese minuto. Sin ese margen, quien va en manual ganaba
+        // todos los empates por llegar siempre "al segundo cero".
+        margenMs: enMeta ? 60_000 : null,
         puesto: null,
         tracked: true,
         manual: true,
@@ -723,7 +747,7 @@ export function calculaEstadisticas(
     let nPts = pts.length
     while (nPts > 1 && !finDeCarrera(pts[nPts - 1].t)) nPts--
     // Sobre el avance si lo hay; si no, sobre la traza, que es lo que queda.
-    const mejor = (avance ? kmMasRapidoEnRuta(serieCarrera, lim.minMinPorKm) : null)
+    const mejor = (avance ? kmMasRapidoEnRuta(serieCarrera, lim.minMinPorKm, avance.lejos) : null)
       ?? kmMasRapido(pts.slice(0, nPts), acumulado.slice(0, nPts))
     // Llegar es haber CRUZADO la línea, no haber estado cerca del final alguna
     // vez. La diferencia importa en un circuito: quien llega andando a la
@@ -757,6 +781,27 @@ export function calculaEstadisticas(
       // cerrada a la hora del último que estaba vivo.
       abandonoAt: seRetiro ? (parada?.ms ?? avance?.enMs ?? null) : null,
     })
+  }
+
+  // LA HORA OFICIAL manda sobre todo: la de la organización, al segundo. Con
+  // ella llegó, a esa hora y sin margen —la alfombra no duda—, y el tiempo es
+  // desde la salida oficial.
+  const oficiales = new Map(filas.filter((f) => f.oficialAt != null).map((f) => [f.username, f.oficialAt!]))
+  for (const c of corredores) {
+    const at = oficiales.get(c.username)
+    if (at == null) continue
+    c.finished = true
+    c.finishedAt = at
+    c.margenMs = 0
+    c.oficial = true
+    c.abandono = false
+    c.abandonoAt = null
+    if (totalKm != null) c.km = Math.round(totalKm * 100) / 100
+    if (startsAt != null) {
+      const min = Math.max(0, (at - startsAt) / 60_000)
+      c.minutos = Math.round(min)
+      c.ritmoMinKm = c.km != null && c.km > 0.5 ? Math.round((min / c.km) * 100) / 100 : c.ritmoMinKm
+    }
   }
 
   // Orden de llegada: primero los que acabaron por hora de meta, luego el resto
@@ -824,7 +869,7 @@ export async function sesionesDelEvento(env: Env, eventId: string): Promise<Fila
     `SELECT u.username AS username, m.bib AS bib, m.emoji AS emoji, m.color AS color,
             m.retired_at AS retiredAt, m.retired_km AS retiredKm,
             t.status AS status, t.started_at AS startedAt, t.updated_at AS updatedAt,
-            t.track_km AS trackKm, t.trail AS trail, m.manual_pasos AS manualPasos
+            t.track_km AS trackKm, t.trail AS trail, m.manual_pasos AS manualPasos, m.oficial_meta_at AS oficialAt
        FROM event_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN tracking_sessions t
@@ -1011,6 +1056,8 @@ async function congelaPorra(
     // abandono, y sale del mismo cálculo que la clasificación.
     kmAbandono: c.abandono ? c.km : null,
     manual: c.manual ?? false,
+    margenMs: c.margenMs,
+    oficial: c.oficial ?? false,
   }))
   return scoreBets(apuestas, outcomes, ev.startsAt, ev.limitMin, {
     totalKm: stats.totalKm,

@@ -67,6 +67,8 @@ interface Props {
   onElegir: (clave: string) => void
   onResaltar: (clave: string | null) => void
   onTocarMapa: () => void
+  /** Dónde se ha tocado el mapa (para recolocar un punto). */
+  onTocarSitio?: (lat: number, lon: number) => void
   onZoom: (z: number) => void
   onFallo: (motivo: string) => void
 }
@@ -187,10 +189,13 @@ export default function MapaEventoFluido(p: Props) {
       map.addLayer(linea('hecho', 'hecho', { paint: { 'line-color': '#1e293b', 'line-width': 4 } }))
       map.addLayer({
         id: 'pois', type: 'circle', source: 'pois',
+        // El control sin avituallamiento, BLANCO con borde violeta: violeta
+        // relleno se perdía encima de la ruta por hacer, que es violeta.
         paint: {
-          'circle-radius': ['case', ['get', 'corte'], 5, 4],
-          'circle-color': ['case', ['get', 'corte'], '#f59e0b', '#6d28d9'],
-          'circle-stroke-color': '#f8fafc', 'circle-stroke-width': 1.5,
+          'circle-radius': ['case', ['get', 'corte'], 5.5, 5.5],
+          'circle-color': ['case', ['get', 'corte'], '#f59e0b', '#f8fafc'],
+          'circle-stroke-color': ['case', ['get', 'corte'], '#f8fafc', '#5b21b6'],
+          'circle-stroke-width': ['case', ['get', 'corte'], 1.5, 2.5],
         },
       })
       // La proyección: migas de pan gordas y sueltas, del color del corredor.
@@ -234,6 +239,7 @@ export default function MapaEventoFluido(p: Props) {
         const km = Number(f.properties?.km)
         const texto = String(f.properties?.texto ?? '')
         // Con la tarjeta de avisos, el cartel sobra: ella ya dice todo.
+        if (avisos.current.onTocarSitio) return
         if (Number.isFinite(km) && avisos.current.onElegirPunto) {
           avisos.current.onElegirPunto({ km, nombre: String(f.properties?.nombre ?? ''), texto })
           return
@@ -255,6 +261,7 @@ export default function MapaEventoFluido(p: Props) {
       const destino = e.originalEvent.target as Element | null
       if (destino?.closest?.('.maplibregl-marker')) return
       avisos.current.onTocarMapa()
+      avisos.current.onTocarSitio?.(e.lngLat.lat, e.lngLat.lng)
     })
 
     return () => { map.remove(); mapaRef.current = null; setListo(false) }

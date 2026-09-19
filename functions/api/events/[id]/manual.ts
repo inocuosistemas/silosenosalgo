@@ -22,6 +22,7 @@ import { disparaAvisos } from '../../../lib/avisos'
  *   `{ username, km, at }`       — anotar (o corregir) su paso por el km `km`
  *                                   a la hora `at` (epoch ms). Lo pone en manual.
  *   `{ username, km, at: null }` — borrar el paso de ese km.
+ *   `{ ..., con }`               — de dónde sale, si no es un control: "con Soriano".
  *
  * Solo quien organiza: es un dato oficial de la carrera, no de cada uno.
  */
@@ -36,7 +37,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
   if (!user) return json({ error: 'unauthorized' }, 401)
   if (!(await puedeOrganizar(env, id, user))) return json({ error: 'forbidden' }, 403)
 
-  const body = (await readJson<{ username?: unknown; modo?: unknown; km?: unknown; at?: unknown }>(request)) || {}
+  const body = (await readJson<{ username?: unknown; modo?: unknown; km?: unknown; at?: unknown; con?: unknown }>(request)) || {}
   if (typeof body.username !== 'string' || !body.username.trim()) return json({ error: 'invalid_request' }, 400)
 
   const ev = await env.DB.prepare(
@@ -74,7 +75,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
       // Ni antes de la salida ni en el futuro: es un paso que ya ha ocurrido.
       if (ev.startsAt !== null && at < ev.startsAt) return json({ error: 'invalid_request' }, 400)
       if (at > Date.now() + 5 * 60_000) return json({ error: 'invalid_request' }, 400)
-      pasos.push([km, at])
+      const con = typeof body.con === 'string' ? body.con.trim().slice(0, 40) : ''
+      pasos.push(con ? [km, at, con] : [km, at])
       avisar = { desde: desdeAviso, km, at }
     }
     pasos.sort((a, b) => a[0] - b[0])

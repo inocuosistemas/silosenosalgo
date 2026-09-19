@@ -42,7 +42,9 @@ import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from 
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { estimaBateria } from '../lib/bateria'
 import { ajustaRitmo, perfilDeEsfuerzo, prediceLlegada } from '../lib/ritmoTerreno'
-import { aplicaAjustes, paradasPrevistas } from '../lib/avituallamientos'
+import { paradasPrevistas, tipoDe } from '../lib/avituallamientos'
+import { rutaDelEvento } from '../lib/puntosEvento'
+import type { PuntosAjustes } from '../../shared/wireTypes'
 import { eventColorHex } from '../../shared/eventColors'
 import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
@@ -522,8 +524,10 @@ function buildSegmentProfile(
 
 
 /** Mini elevation profile of a segment with a live position marker. */
-function SegmentProfile({ profile, posKm, alto, pasoM, marca }: {
+function SegmentProfile({ profile, posKm, alto, pasoM, marca, hitos = [] }: {
   profile: SegProfile | null
+  /** Los controles de solo tiempo que caen dentro del tramo: dónde están. */
+  hitos?: { nombre: string; km: number }[]
   posKm: number | null
   /** Alto en píxeles. El de la lista es una miniatura para una ojeada; el del
    *  tramo ampliado se estira, que ahí sobra pantalla y lo que se ha venido a
@@ -587,6 +591,28 @@ function SegmentProfile({ profile, posKm, alto, pasoM, marca }: {
         <path d={profile.line} fill="none" stroke="#38bdf8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
       </svg>
       </div>
+      {/* Los controles de dentro del tramo: una raya violeta de la curva al
+          suelo y el cronómetro sobre la curva (el nombre, solo en grande). */}
+      {hitos.map((h) => {
+        const pct = ((h.km - profile.fromKm) / profile.span) * 100
+        if (pct <= 0 || pct >= 100) return null
+        const yc = reserva + (alturaEnPerfil(profile, h.km) / 100) * (altoPx - reserva)
+        return (
+          <div key={h.km} className="pointer-events-none">
+            <div className="absolute w-px -translate-x-1/2 bg-violet-400/70" style={{ left: `${pct}%`, top: yc, bottom: 0 }} />
+            <span className="absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white bg-violet-700"
+                  style={{ left: `${pct}%`, top: yc, width: altoPx >= 90 ? 16 : 10, height: altoPx >= 90 ? 16 : 10 }}>
+              {altoPx >= 90 && <Timer size={10} className="text-white" />}
+            </span>
+            {altoPx >= 90 && (
+              <span className="absolute -translate-x-1/2 whitespace-nowrap rounded bg-slate-900/80 px-1 text-[9px] text-violet-200"
+                    style={{ left: `clamp(24px, ${pct}%, calc(100% - 24px))`, top: Math.max(0, yc - 24) }}>
+                {h.nombre}
+              </span>
+            )}
+          </div>
+        )
+      })}
       {leftPct != null && yCurvaPx != null && (
         conChapa ? (
           <>
@@ -843,7 +869,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [state, setState] = useState<TrackStateResponse | null>(guide?.state ?? null)
   const [error, setError] = useState<'not_found' | 'network' | null>(null)
   const [, force] = useState(0)
-  const [plan, setPlan] = useState<RevivedShare | null>(guide?.plan ?? null)
+  const [planRuta, setPlan] = useState<RevivedShare | null>(guide?.plan ?? null)
+  /**
+   * La ruta con los puntos del EVENTO (añadidos, movidos, cambiados por quien
+   * organiza, y los cortes con ellos): los tramos, el mapa y las previsiones
+   * de la baliza tienen que ser los mismos que en el mapa del evento.
+   */
+  // Por su contenido: cada sondeo trae un objeto nuevo, y rehacer la ruta
+  // (y todo lo que cuelga de ella) cada pocos segundos sin que cambie nada es
+  // trabajo tirado.
+  const ajustesTexto = state?.puntosAjustes ? JSON.stringify(state.puntosAjustes) : ''
+  const plan = useMemo(
+    () => (planRuta ? rutaDelEvento(planRuta, ajustesTexto ? JSON.parse(ajustesTexto) as PuntosAjustes : null) : null),
+    [planRuta, ajustesTexto],
+  )
   // Si la ruta lleva previsión o es solo el recorrido (un GPX cargado desde la
   // baliza). Sin previsión se sigue dibujando la ruta, midiendo el km y
   // avisando del fuera de ruta; lo que se apaga es todo lo que COMPARA con unos
@@ -1248,7 +1287,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const cruceMeta = useMemo(() => {
     if (!plan || !trailSnaps) return null
     const lecturas = trailSnaps.map((s2, i) => ({
-      km: s2.km, t: trail[i].t, lat: trail[i].lat, lon: trail[i].lon,
+      km: s2.km, t: trail[i].t, lat: trail[i].lat, lon: trail[i].lon, a: trail[i].a,
     }))
     const c = cruceEnTraza(lecturas, plan.track.totalDistanceKm, esCircuito(plan.track.points))
     if (!c) return null
@@ -1410,8 +1449,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   /** Las paradas largas y deliberadas del recorrido (ver `paradasPrevistas`),
    *  con lo que haya cambiado quien organiza en el evento. */
   const paradasBaliza = useMemo(
-    () => (plan ? paradasPrevistas(aplicaAjustes(plan.track.namedWaypoints, state?.puntosAjustes), plan.track.totalDistanceKm) : []),
-    [plan, state?.puntosAjustes],
+    () => (plan ? paradasPrevistas(plan.track.namedWaypoints, plan.track.totalDistanceKm) : []),
+    [plan],
   )
   const ritmoTerreno = useMemo(
     () => (perfilEsfuerzo && state?.startedAt != null && formSamples.length > 0
@@ -1588,7 +1627,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const planRows = useMemo(() => {
     if (!plan) return null
     const epoch = new Date(0)
-    const sorted = plan.track.namedWaypoints.slice().sort((a, b) => a.distanceKm - b.distanceKm)
+    const todos = plan.track.namedWaypoints.slice().sort((a, b) => a.distanceKm - b.distanceKm)
+    /**
+     * Un control que es SOLO toma de tiempo —sin avituallamiento ni corte— no
+     * abre tramo: partiría una subida en dos sin que ahí pase nada para quien
+     * sigue la carrera. Va DENTRO de su tramo, marcado en su perfil.
+     */
+    const soloControl = (w: (typeof todos)[number]) =>
+      tipoDe(w, plan.track.totalDistanceKm) === 'control'
+      && !w.cutoffWallClock
+      && !plan.cutoffWallClocks.has(cutoffWptKey(w.lat, w.lon))
+    const sorted = todos.filter((w) => !soloControl(w))
+    const controles = todos.filter(soloControl)
     /**
      * La regla, común a todos los tramos de ESTA carrera.
      *
@@ -1609,7 +1659,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       cumGainM += seg.elevGainM
       const profile = buildSegmentProfile(plan.track, prevKm, w.distanceKm, 0, regla.escalaM)
       const eta0 = estimateArrivalTimeAtKm(plan.track, w.distanceKm, epoch, plan.paceConfig, undefined, pauses)
-      return { w, seg, cumGainM, profile, regla, plannedElapsedMs: conPrevision && eta0 ? eta0.getTime() : null }
+      const hitos = controles
+        .filter((c) => c.distanceKm > prevKm && c.distanceKm < w.distanceKm)
+        .map((c) => ({ nombre: c.name, km: c.distanceKm }))
+      return { w, seg, cumGainM, profile, regla, hitos, plannedElapsedMs: conPrevision && eta0 ? eta0.getTime() : null }
     })
   }, [plan, conPrevision, pauses])
 
@@ -2057,6 +2110,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     ? buildSpeedHeat(formSamples, heatSpanKm, Math.max(12, Math.min(160, Math.round(heatSpanKm / 0.25))))
     : []
   const heatRange = heatBins.length ? heatScale(heatBins) : null
+  /**
+   * Hasta dónde se pinta el calor: hasta el corredor, al metro. Las casillas
+   * son de ~250 m y la última se pintaba entera, por delante de donde va.
+   * (En un circuito no: ahí las casillas son de la vuelta y acumulan pasadas.)
+   */
+  const heatHastaKm = lapInfo ? Infinity : (progressKm ?? Infinity)
+  const heatTramo = (b: { fromKm: number; toKm: number }): [number, number] | null => {
+    const hasta = Math.min(b.toKm, heatHastaKm)
+    return hasta > b.fromKm ? [b.fromKm, hasta] : null
+  }
   // Solo los colores que de verdad aparecen en el mapa, de rapido a lento.
   const heatLegendItems = heatRange
     ? heatLegend(heatBins, heatRange).filter((b) => b.speedKmh != null)
@@ -2853,7 +2916,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         : null
       // Y el margen al corte, el que TUVO al pasar, no uno proyectado.
       const margenFinal = real && cutoff ? (cutoff.getTime() - real.pasoMs) / 60_000 : marginMin
-      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, regla: r.regla, plannedETA, cutoff, projectedETA, marginMin: margenFinal, passed, band, reqPace, wx, real }
+      return { w: r.w, seg: r.seg, queda, cumGainM: r.cumGainM, profile: r.profile, regla: r.regla, hitos: r.hitos, plannedETA, cutoff, projectedETA, marginMin: margenFinal, passed, band, reqPace, wx, real }
     })
     const nextIdx = cards.findIndex((c) => !c.passed)
 
@@ -2944,7 +3007,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           alto={grande ? ampliado.perfil : undefined}
           pasoM={c.regla?.pasoM}
           marca={grande ? marcaCorredor : undefined}
+          hitos={c.hitos}
         />
+        {c.hitos.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+            {c.hitos.map((h) => {
+              const desde = h.km - (c.profile?.fromKm ?? 0)
+              const falta = c.w.distanceKm - h.km
+              return (
+                <span key={h.km}>
+                  <Timer size={11} className="inline-block -mt-0.5 align-middle text-violet-300" /> {h.nombre}
+                  <span className="text-slate-500"> · km {h.km.toFixed(1)} · a {desde.toFixed(1)} km del inicio, {falta.toFixed(1)} antes de {c.w.name}</span>
+                </span>
+              )
+            })}
+          </div>
+        )}
         {c.wx && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-400">
             <span><Thermometer size={12} className="inline-block -mt-0.5 align-middle" /> {Math.round(c.wx.temp)}°</span>
@@ -3159,8 +3237,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             plan={planLatLng}
             calor={heatRange && plan
               ? heatBins.flatMap((b) => {
-                  if (b.speedKmh == null) return []
-                  const pts = pathBetweenKm(plan.track, b.fromKm, b.toKm)
+                  const tramo = heatTramo(b)
+                  if (b.speedKmh == null || !tramo) return []
+                  const pts = pathBetweenKm(plan.track, tramo[0], tramo[1])
                   return pts.length < 2 ? [] : [{ positions: pts, color: heatColor(b.speedKmh, heatRange) }]
                 })
               : null}
@@ -3226,8 +3305,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           <Polyline positions={planLatLng} pathOptions={{ color: '#020617', weight: 10, opacity: 0.55 }} />
         )}
         {heatRange && plan && heatBins.map((b, i) => {
-          if (b.speedKmh == null) return null
-          const pts = pathBetweenKm(plan.track, b.fromKm, b.toKm)
+          const tramo = heatTramo(b)
+          if (b.speedKmh == null || !tramo) return null
+          const pts = pathBetweenKm(plan.track, tramo[0], tramo[1])
           if (pts.length < 2) return null
           return <Polyline key={`heat-${i}`} positions={pts} pathOptions={{ color: heatColor(b.speedKmh, heatRange), weight: 6, opacity: 0.9 }} />
         })}

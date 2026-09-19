@@ -38,7 +38,9 @@ function hayEmpate(stats: EventStats): boolean {
  * Separado de la lista porque cada pantalla lo coloca donde le cabe.
  */
 export function RecordDeKm({ stats }: { stats: EventStats }) {
-  if (!stats.fastestKm) return null
+  // Con alguien en modo manual no es el récord DE LA CARRERA: a quien va sin
+  // baliza no se le puede medir, y a lo mejor lo hizo él.
+  if (!stats.fastestKm || stats.corredores.some((c) => c.manual)) return null
   return (
     <p className="mb-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-2.5 py-1.5 text-[11px] text-amber-100">
       ⚡ Kilómetro más rápido de la carrera: <b>{fmtRitmo(stats.fastestKm.minutos)}</b> —{' '}
@@ -74,8 +76,10 @@ export function ultimoControl(
   return ultimo
 }
 
-export function ListaResultados({ stats, controles = [] }: {
+export function ListaResultados({ stats, controles = [], salidaMs = null }: {
   stats: EventStats
+  /** La salida oficial: con ella, el tiempo oficial se enseña al segundo. */
+  salidaMs?: number | null
   /** Los controles de la carrera, para poder decir por cuál consta cada uno.
    *  Vacío si el evento no tiene recorrido con puntos de paso. */
   controles?: { nombre: string; km: number }[]
@@ -107,11 +111,19 @@ export function ListaResultados({ stats, controles = [] }: {
               {c.finished
                 ? (
                   <span className="shrink-0 text-right">
-                    <span className="text-sm font-bold tabular-nums text-emerald-300">{fmtDuracion(c.minutos)}</span>
+                    <span className="text-sm font-bold tabular-nums text-emerald-300">
+                      {/* El oficial va al segundo: dos "13h 17m" no dicen quién entró antes. */}
+                      {c.oficial && c.finishedAt != null && salidaMs != null
+                        ? conSegundos(c.finishedAt - salidaMs)
+                        : fmtDuracion(c.minutos)}
+                    </span>
                     {/* El margen, pegado al tiempo: un tiempo sin él invita a
                         comparar segundos que no existen. Por debajo de cinco
                         segundos no se enseña, que es ruido de maquetación. */}
-                    {c.margenMs != null && c.margenMs >= 5000 && (
+                    {c.oficial && (
+                      <span className="ml-1 rounded bg-emerald-950/70 px-1 text-[9px] font-normal text-emerald-300" title="Tiempo oficial de la organización">oficial</span>
+                    )}
+                    {!c.oficial && c.margenMs != null && c.margenMs >= 5000 && (
                       <span className="ml-1 text-[10px] tabular-nums text-slate-500">±{Math.round(c.margenMs / 1000)}s</span>
                     )}
                   </span>
@@ -150,4 +162,11 @@ export function ListaResultados({ stats, controles = [] }: {
       </ul>
     </>
   )
+}
+
+/** "13h 17m 04s": el tiempo oficial, que va al segundo. */
+export function conSegundos(ms: number): string {
+  const t = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sg = t % 60
+  return `${h > 0 ? `${h}h ` : ''}${String(m).padStart(h > 0 ? 2 : 1, '0')}m ${String(sg).padStart(2, '0')}s`
 }

@@ -6,7 +6,7 @@ import type { ComoSeFue } from '../lib/compartirImagen'
 import { useVistaPreviaCompartir } from './VistaPreviaCompartir'
 import type { EventBetsResponse } from '../../shared/wireTypes'
 import {
-  scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO,
+  scoreBets, betMedal, puestosDePorra, durationLabel, margenDeTiempo, ORACULO, REVISION,
   type RunnerOutcome, type Proyeccion, type BetScore,
 } from '../../shared/bets'
 import { MarkBadge } from './MarkPicker'
@@ -587,6 +587,15 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
           pena mirar el móvil durante las cinco horas. */}
       {/* Sin sesión la porra llega sin nombres (ver `EventBet.author`): un
           podio de un solo "jugador" anónimo no dice nada. */}
+      {/* Llegada PEGADA sin tiempos oficiales: lo que depende del orden de
+          esos corredores no se da por bueno hasta que la organización ponga
+          sus tiempos. Mejor "pendiente" que un ganador que puede ser mentira. */}
+      {ranking.some((s) => s.bets.some((b) => b.note === REVISION)) && (
+        <p className="mb-3 rounded-xl border border-amber-700/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+          <b>Pendiente de revisión.</b> La llegada ha sido muy ajustada y el GPS no puede decir quién entró antes:
+          los puestos y el ganador esperan a los tiempos oficiales de la organización.
+        </p>
+      )}
       {vanGanando.length > 0 && vanGanando.some((x) => x.author) && (() => {
         // Hecha para CAPTURARSE: es lo que se manda al grupo mientras se
         // corre. Por eso lleva el nombre de la carrera y la hora —una captura
@@ -782,7 +791,7 @@ export function EventBets({ eventId, eventName, photoUrl, runners, outcomes, sta
                     // Cómo va ESTE pronóstico según la proyección, para los que
                     // todavía están por decidir: un punto gris repetido veinte
                     // veces no cuenta nada, y "va acertando" sí.
-                    const yendo = b.state === 'pending'
+                    const yendo = b.state === 'pending' && b.note !== REVISION
                       ? provisional?.get(s.author)?.bets.find((x) => x.kind === b.kind && x.target === b.target)
                       : undefined
                     return (
@@ -941,7 +950,9 @@ function ResultadoPorra({ ranking, puestos, yo, eventName, photoUrl, runners, ou
           marca: startsAt !== null && ganador.finishedAt !== null
             ? durationLabel(ganador.finishedAt - startsAt) : 'en meta',
         },
-        record: recordKm && {
+        // Con alguien en modo manual no hay km más rápido DE LA CARRERA: a
+        // quien va sin baliza no se le puede medir.
+        record: !recordKm || outcomes.some((o) => o.manual) || runners.some((r) => r.manual) ? null : {
           nombre: recordKm.username,
           ritmo: fmtRitmo(recordKm.minutos),
           desdeKm: recordKm.desdeKm,

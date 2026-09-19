@@ -140,6 +140,38 @@ export interface RunnerOutcome {
    * mide. Por eso lo que se apostó a él en esa categoría queda NULO.
    */
   manual?: boolean
+  /** Cuánto puede fallar su hora de meta, a cada lado (ms): el hueco entre
+   *  lecturas del GPS, o el minuto de un paso anotado a mano. */
+  margenMs?: number | null
+  /** Su hora de meta es la oficial de la organización (sin margen). */
+  oficial?: boolean
+}
+
+/**
+ * Quiénes llegaron tan PEGADOS a otro que no se sabe quién entró antes, y aún
+ * no tienen hora oficial.
+ *
+ * Cada llegada es un intervalo —hora ± su margen— y si dos se tocan, el orden
+ * entre ellos no lo sabe el GPS: lo sabe la alfombra de la organización. Hasta
+ * que ponga sus tiempos, lo que depende de ese orden (puestos y ganador) queda
+ * pendiente de revisión en vez de dar un resultado que puede ser mentira.
+ */
+export function pendientesDeOficial(outcomes: RunnerOutcome[]): Set<string> {
+  const llegados = outcomes.filter((o) => o.finished && o.finishedAt !== null)
+  const fuera = new Set<string>()
+  for (let i = 0; i < llegados.length; i++) {
+    for (let j = i + 1; j < llegados.length; j++) {
+      const a = llegados[i], b = llegados[j]
+      if (a.oficial && b.oficial) continue
+      const ma = a.oficial ? 0 : (a.margenMs ?? 0)
+      const mb = b.oficial ? 0 : (b.margenMs ?? 0)
+      if (Math.abs(a.finishedAt! - b.finishedAt!) <= ma + mb) {
+        if (!a.oficial) fuera.add(a.username)
+        if (!b.oficial) fuera.add(b.username)
+      }
+    }
+  }
+  return fuera
 }
 
 /**
@@ -180,6 +212,9 @@ export interface BetScore {
   lastAt: number
   bets: ScoredBet[]
 }
+
+/** La nota de lo que espera a los tiempos oficiales (ver `pendientesDeOficial`). */
+export const REVISION = 'pendiente de tiempos oficiales de la organización'
 
 /** Minutos de diferencia entre dos instantes, redondeados. */
 function minutesApart(a: number, b: number): number {
@@ -248,7 +283,9 @@ export function scoreBets(
   // no cuenta para esto — si no, un dorsal que no se presenta dejaría la porra
   // sin resolver para siempre.
   const ordenFirme = outcomes.filter((o) => o.tracked).every((o) => o.settled)
-  const winnerFirme = winner !== null && ordenFirme
+  // Los que entraron pegados sin hora oficial: su orden está por revisar.
+  const enRevision = pendientesDeOficial(outcomes)
+  const winnerFirme = winner !== null && ordenFirme && !enRevision.has(winner)
 
   // La escala de la carrera: su límite, y si no lo tiene, la mediana de lo que
   // pronostica la gente —que sabe de sobra si esto dura seis horas o dos días—.
@@ -272,7 +309,7 @@ export function scoreBets(
     const s = dame(b.author)
     // La hora del más reciente de sus pronósticos: es la que ordena la lista.
     if (b.createdAt > s.lastAt) s.lastAt = b.createdAt
-    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme,
+    const scored = scoreOne(b, porNombre, winner, winnerFirme, puestoReal, ordenFirme, enRevision,
       startsAt ?? null, margen, margenDeKm(carrera?.totalKm ?? null),
       carrera?.recordKm ?? null, ordenFirme)
     s.bets.push(scored)
@@ -315,6 +352,7 @@ function scoreOne(
   winnerFirme: boolean,
   puestoReal: Map<string, number>,
   ordenFirme: boolean,
+  enRevision: Set<string>,
   startsAt: number | null,
   margen: { tolerancia: number; clavada: number },
   margenKm: { tolerancia: number; clavada: number },
@@ -325,6 +363,7 @@ function scoreOne(
     const dicho = Number(b.value)
     const said = `${dicho}º`
     if (!ordenFirme) return { kind: b.kind, target: b.target, said, points: 0, state: 'pending' }
+    if (enRevision.has(b.target)) return { kind: b.kind, target: b.target, said, points: 0, state: 'pending', note: REVISION }
     const real = puestoReal.get(b.target)
     if (!real) return { kind: b.kind, target: b.target, said, points: 0, state: 'ko', note: 'no llegó a meta' }
     const err = Math.abs(real - dicho)
@@ -345,6 +384,7 @@ function scoreOne(
 
   if (b.kind === 'winner') {
     const said = b.value
+    if (winner !== null && ordenFirme && enRevision.has(winner)) return { kind: b.kind, target: '', said, points: 0, state: 'pending', note: REVISION }
     if (!winnerFirme) return { kind: b.kind, target: '', said, points: 0, state: 'pending' }
     return said === winner
       ? { kind: b.kind, target: '', said, points: PTS_WINNER, state: 'ok', note: 'el primero' }

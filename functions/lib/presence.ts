@@ -37,3 +37,26 @@ export async function countViewers(env: Env, sessionId: string): Promise<number>
   ).bind(sessionId, Date.now() - WINDOW_MS).first<{ n: number }>()
   return row?.n ?? 0
 }
+
+/**
+ * Lo mismo para el MAPA DE UN EVENTO (tabla `event_viewers`): cuánta gente lo
+ * está mirando. El mapa sondea cada 10 s; el latido solo se escribe si el
+ * anterior tiene más de 25 s, que para una ventana de un minuto sobra y
+ * deja las escrituras en una de cada tres sondeos.
+ *
+ * Devuelve cuántos hay mirando (quien pregunta incluido).
+ */
+export async function latidoEnEvento(env: Env, eventId: string, viewerId: string | null): Promise<number> {
+  const ahora = Date.now()
+  if (viewerId && VIEWER_RE.test(viewerId)) {
+    await env.DB.prepare(
+      `INSERT INTO event_viewers (event_id, viewer_id, last_seen) VALUES (?, ?, ?)
+         ON CONFLICT(event_id, viewer_id) DO UPDATE SET last_seen = excluded.last_seen
+         WHERE event_viewers.last_seen < excluded.last_seen - 25000`,
+    ).bind(eventId, viewerId, ahora).run()
+  }
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM event_viewers WHERE event_id = ? AND last_seen > ?',
+  ).bind(eventId, ahora - WINDOW_MS).first<{ n: number }>()
+  return row?.n ?? 0
+}

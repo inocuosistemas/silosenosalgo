@@ -41,8 +41,17 @@ import { haversineKm } from './timing'
  * aquí se contesta "¿ha llegado el mío?" y negarle la meta a quien se quedó a
  * doscientos metros porque su GPS dejó de mandar es peor error que el contrario.
  */
-export function toleranciaMeta(totalKm: number): number {
-  return Math.min(1, Math.max(0.25, totalKm * 0.015))
+export function toleranciaMeta(totalKm: number, precisionM?: number | null): number {
+  const generosa = Math.min(1, Math.max(0.25, totalKm * 0.015))
+  if (precisionM == null || !Number.isFinite(precisionM)) return generosa
+  // CON LA PRECISIÓN de la lectura que más lejos llegó, el margen es lo que
+  // ese GPS puede fallar, no un tanto por ciento de la carrera: 80 m por la
+  // línea de meta que no cae en el último punto del GPX, más dos veces su
+  // error, con 100 m de suelo. Con ±5 m, 100 m. El 1,5% daba 870 m en una de 58
+  // km, y Soriano, a 900 m de meta y parado esperando a Valen en Surp, salía
+  // "llegó a meta". Quien de verdad se quedó sin señal cerca del final sigue
+  // cubierto: parar la baliza cerca de meta cuenta aparte (ver el visor).
+  return Math.min(generosa, Math.max(0.1, 0.08 + (2 * precisionM) / 1000))
 }
 
 /** Una lectura ya proyectada sobre el recorrido. */
@@ -51,6 +60,8 @@ export interface LecturaEnRuta {
   km: number
   lat: number
   lon: number
+  /** Error del GPS de esa lectura (m), si se sabe. */
+  a?: number | null
 }
 
 /**
@@ -75,7 +86,15 @@ export function cruceEnTraza(
     p.km,
     i > 0 ? haversineKm(lecturas[i - 1], p) * 1000 : 0,
   ])
-  const cruce = crucaMeta(serie, totalKm, toleranciaMeta(totalKm), circuito)
+  // La precisión de la lectura que más lejos llegó (en un circuito, después
+  // de haber pasado por la primera mitad): es la que decide si se llegó.
+  let hecho = !circuito
+  let tope: LecturaEnRuta | null = null
+  for (const p of lecturas) {
+    if (circuito && p.km <= totalKm * 0.5) { hecho = true; continue }
+    if (hecho && (!tope || p.km > tope.km)) tope = p
+  }
+  const cruce = crucaMeta(serie, totalKm, toleranciaMeta(totalKm, tope?.a), circuito)
   return cruce ? { t: cruce.ms, margenMs: cruce.margenMs } : null
 }
 

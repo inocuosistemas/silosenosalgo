@@ -492,7 +492,9 @@ export interface EventMember {
   retiredKm: number | null
   /** Modo manual: sus pasos anotados por quien organiza, `[km, epoch ms]`.
    *  Null = manda su baliza. */
-  manualPasos?: [number, number][] | null
+  manualPasos?: PasoManual[] | null
+  /** Su hora de meta oficial (cronometraje de la organización), si se puso. */
+  oficialAt?: number | null
 }
 
 export interface EventInfo {
@@ -618,7 +620,7 @@ export interface EventPublicRunner {
   retiradoKm?: number | null
   /** MODO MANUAL: sus pasos por los controles, `[km, epoch ms]`, anotados por
    *  quien organiza porque su baliza no sirve. Null = manda la baliza. */
-  manualPasos?: [number, number][] | null
+  manualPasos?: PasoManual[] | null
   /**
    * Hasta cuándo está EN PAUSA a propósito (epoch ms), o null.
    *
@@ -664,6 +666,9 @@ export interface EventPublicResponse {
   /** Los resultados congelados al cerrarla. */
   stats: EventStats | null
   runners: EventPublicRunner[]
+  /** Cuánta gente está mirando el mapa ahora mismo (último minuto), quien
+   *  pregunta incluido. Solo con la carrera en marcha. */
+  mirando?: number
 }
 
 /**
@@ -798,6 +803,8 @@ export interface EventRunnerStats {
    * resultado. Null en quien no llegó.
    */
   puesto: number | null
+  /** Su hora de meta es la OFICIAL, puesta por la organización. */
+  oficial?: boolean
   /** Llegó a mandar alguna posición. */
   tracked: boolean
   /** Corrió (o acabó) en MODO MANUAL: sus datos salen de los pasos anotados,
@@ -961,6 +968,8 @@ export interface EventLiveResponse {
   /** Lo que quien organiza ha cambiado de los puntos del recorrido (qué es
    *  cada uno, cuánto se para). Manda sobre la ruta. */
   puntosAjustes?: PuntosAjustes | null
+  /** Si quien mira organiza: puede recolocar los puntos desde el mapa. */
+  puedeOrganizar?: boolean
   /** La base común, para pintar el recorrido una sola vez. */
   planShareId: string | null
   /** Salida oficial (epoch ms) o null — la cuenta atrás del mapa. */
@@ -980,6 +989,9 @@ export interface EventLiveResponse {
   /** Los resultados congelados al cerrarla. Solo en una carrera terminada. */
   stats: EventStats | null
   runners: EventLiveRunner[]
+  /** Cuánta gente está mirando el mapa ahora mismo (último minuto), quien
+   *  pregunta incluido. Solo con la carrera en marcha. */
+  mirando?: number
 }
 
 /** Cuántos puntos del final de la traza viajan por participante. */
@@ -1071,6 +1083,12 @@ export interface AvisoDePaso {
   disparadoAt: number | null
 }
 
+/**
+ * Un paso anotado a mano: `[km, epoch ms]`, y a veces de dónde sale cuando no
+ * es un control —"con Soriano": igualado con quien lleva baliza al lado—.
+ */
+export type PasoManual = [number, number, string?]
+
 /** Qué es un punto del recorrido. Ver `src/lib/avituallamientos.ts`. */
 export type TipoPunto = 'control' | 'liquido' | 'solido' | 'completo' | 'bolsa' | 'meta'
 
@@ -1079,7 +1097,21 @@ export interface AjustePunto {
   aid?: TipoPunto
   /** Parada prevista (min). */
   pausa?: number
+  /**
+   * Dónde está de verdad (km sobre el recorrido), si no es donde lo pone la
+   * ruta —el km de la organización no siempre cae en su sitio—, o dónde va
+   * uno añadido.
+   */
+  km?: number
+  /** Un punto que no está en la ruta: lo ha añadido quien organiza. */
+  nuevo?: boolean
+  /** Su nombre (solo los añadidos). */
+  nombre?: string
 }
 
-/** Por km del punto (2 decimales): ver `puntos_ajustes` en `events`. */
+/**
+ * Los de la ruta, por su km EN LA RUTA con 2 decimales (aunque se muevan, la
+ * clave no cambia: es su identidad); los añadidos, por "n" + un id.
+ * Ver `puntos_ajustes` en `events`.
+ */
 export type PuntosAjustes = Record<string, AjustePunto>
