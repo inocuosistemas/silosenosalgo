@@ -3521,6 +3521,9 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
           // justo lo que se quiere leer, y borrarla al soltar dejaría sin ver
           // el dato. Se quita tocando el mapa.
         >
+          {/* Todo el dibujo, con aire ARRIBA: la cumbre más alta caía justo en
+              el borde, y quien estuviera en ella salía con su aro cortado. */}
+          <div className="absolute inset-x-0 bottom-0 top-3">
           <svg viewBox={`0 0 ${PROF_W} ${PROF_H}`} preserveAspectRatio="none" className="block h-full w-full">
             <defs>
               <linearGradient id="profFill" x1="0" y1="0" x2="0" y2="1">
@@ -3591,6 +3594,7 @@ function EventProfile({ profile, rows, pois, selected, onSelect, open, onToggle,
               />
             )
           })}
+          </div>
           <span className="pointer-events-none absolute bottom-0.5 left-2 text-[10px] tabular-nums text-slate-500">0</span>
           <span className="pointer-events-none absolute bottom-0.5 right-2 text-[10px] tabular-nums text-slate-500">
             {totalKm.toFixed(1)} km
