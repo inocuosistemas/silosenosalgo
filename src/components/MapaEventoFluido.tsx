@@ -167,6 +167,7 @@ export default function MapaEventoFluido(p: Props) {
     map.on('moveend', () => setVista((v) => v + 1))
     map.on('zoomend', () => avisos.current.onZoom(map.getZoom()))
 
+    let cartelPoi: Popup | null = null
     map.on('load', () => {
       const linea = (id: string, fuente: string, extra: Record<string, unknown>) => ({
         id, type: 'line' as const, source: fuente,
@@ -223,7 +224,9 @@ export default function MapaEventoFluido(p: Props) {
       map.on('click', 'pois', (e) => {
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
-        new Popup({ offset: 8, closeButton: false, className: 'poi-popup' })
+        // Uno solo a la vez: tocar otro punto (o el mapa) cierra el anterior.
+        cartelPoi?.remove()
+        cartelPoi = new Popup({ offset: 8, closeButton: false, className: 'poi-popup', maxWidth: 'none' })
           .setLngLat(f.geometry.coordinates as [number, number])
           .setText(String(f.properties?.texto ?? ''))
           .addTo(map)

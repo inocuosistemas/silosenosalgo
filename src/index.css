@@ -265,3 +265,21 @@
 .is-scrolling::-webkit-scrollbar-thumb:hover {
   background: #475569;                     /* slate-600, al agarrarla */
 }
+
+/* El nombre de un punto del recorrido en el mapa fluido del evento, al
+   tocarlo: como las `poi-tip` del clásico —pastilla oscura, texto claro—. Sin
+   esto salía el bocadillo blanco de MapLibre con el texto claro de la página
+   encima, y no se leía nada. */
+.poi-popup .maplibregl-popup-content {
+  background: rgba(2, 6, 23, 0.9);
+  color: #f8fafc;
+  font: 600 11px/1.3 system-ui, -apple-system, sans-serif;
+  padding: 4px 8px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+.poi-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: rgba(2, 6, 23, 0.9); }
+.poi-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: rgba(2, 6, 23, 0.9); }
+.poi-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(2, 6, 23, 0.9); }
+.poi-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(2, 6, 23, 0.9); }
