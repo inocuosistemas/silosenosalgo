@@ -1,4 +1,5 @@
 import type { SharePayloadV1 } from './sharePayload'
+import { prediceLlegada, type PerfilEsfuerzo, type RitmoAjustado } from './ritmoTerreno'
 import { estimateArrivalTimeAtKm, type PaceConfig } from './timing'
 import type { GpxTrack } from './gpx'
 import { cutoffWptKey, inferCutoffDatesFromWaypoints, type CutoffWallClock } from './cutoffInference'
@@ -113,10 +114,17 @@ export function marginToNextCutoffConPerfil(
   now: number,
   track: GpxTrack,
   paceConfig: PaceConfig,
+  /** Con su ritmo por terreno ajustado (ver `lib/ritmoTerreno`): manda sobre
+   *  el plan, que en "ritmo fijo" no sabe de cuestas. */
+  terreno?: { perfil: PerfilEsfuerzo; ritmo: RitmoAjustado } | null,
 ): CutoffMargin | null {
   const next = nextCutoff(cutoffs, km)
   if (!next) return null
   if (now - desde < MINIMO_MS || km < 0.3) return null
+  if (terreno) {
+    const eta = prediceLlegada(terreno.perfil, terreno.ritmo, km, now, next.km, desde)
+    if (eta != null) return { cutoff: next, minutes: Math.round((next.at - eta) / 60_000) }
+  }
   const salida = new Date(desde)
   const previstoAqui = estimateArrivalTimeAtKm(track, km, salida, paceConfig)
   const previstoCorte = estimateArrivalTimeAtKm(track, next.km, salida, paceConfig)

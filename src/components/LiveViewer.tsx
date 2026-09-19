@@ -40,6 +40,7 @@ import { buildPlannedCurve, kmAtPlannedMin, pointAtKm } from '../lib/ghostPacer'
 import { buildSpeedHeat, heatScale, heatColor, heatLegend, pathBetweenKm } from '../lib/speedHeat'
 import { sanitizeTrail } from '../lib/trailSmoothing'
 import { estimaBateria } from '../lib/bateria'
+import { ajustaRitmo, perfilDeEsfuerzo, prediceLlegada } from '../lib/ritmoTerreno'
 import { eventColorHex } from '../../shared/eventColors'
 import type { BrowserGuide } from '../lib/guidePackage'
 import { Confeti } from './Confeti'
@@ -1394,6 +1395,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     }
     return out
   }, [trail, trailSnaps, state?.startedAt])
+  /**
+   * Su ritmo por TERRENO (ver `lib/ritmoTerreno`): el esfuerzo del recorrido
+   * que queda, a su ritmo en subida y en el resto, con fatiga. Es lo que usan
+   * las previsiones —meta, cortes, fichas— en cuanto hay datos para ajustarlo;
+   * antes, las del plan. Probado contra una carrera real: 6 min de error medio
+   * frente a 41 del plan × factor.
+   */
+  const perfilEsfuerzo = useMemo(() => (plan ? perfilDeEsfuerzo(plan.track) : null), [plan])
+  const ritmoTerreno = useMemo(
+    () => (perfilEsfuerzo && state?.startedAt != null && formSamples.length > 0
+      ? ajustaRitmo(perfilEsfuerzo, formSamples, state.startedAt)
+      : null),
+    [perfilEsfuerzo, formSamples, state?.startedAt],
+  )
+
   // Detected form (overall + subida/bajada/llano + fatiga). Observational only —
   // shown in both views; the runner confirms it to move the forecast.
   const detected = useMemo(
@@ -1835,6 +1851,14 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     if (!plan || progressKm == null) return null
     const movingRemain = expectedMinutesForSegment(plan.track, progressKm, targetKm, plan.paceConfig)
     const pauseRemain = pauses.filter((p) => p.km > progressKm! && p.km <= targetKm).reduce((s, p) => s + p.minutes, 0)
+    // Con su ritmo por terreno ajustado, manda él: sabe de las cuestas que
+    // quedan, cosa que el plan no siempre (en "ritmo fijo", nunca). El
+    // escenario con otro factor ("¿y si confirmo este ritmo?") sigue siendo
+    // sobre el plan.
+    if (ritmoTerreno && perfilEsfuerzo && f === factor) {
+      const t = prediceLlegada(perfilEsfuerzo, ritmoTerreno, progressKm, refNow, targetKm, sessionStart.getTime())
+      if (t != null) return new Date(t + pauseRemain * 60_000)
+    }
     return new Date(refNow + (movingRemain * f + pauseRemain) * 60_000)
   }
 

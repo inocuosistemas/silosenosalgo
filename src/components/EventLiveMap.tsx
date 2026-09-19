@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMa
 import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, guardaMotorMapa, type MotorMapa } from '../lib/motorMapa'
+import { ajustaRitmo, perfilDeEsfuerzo } from '../lib/ritmoTerreno'
 import { MiniBocadillo, usePensamiento } from './Bocadillo'
 import { SentidoRecorrido } from './SentidoRecorrido'
 import { CargandoMarca } from './CargandoMarca'
@@ -654,6 +655,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
    * no en línea recta: en una subida el fantasma avanza poco y en una bajada
    * mucho, como haría él.
    */
+  /** El esfuerzo del recorrido, para el margen al corte por terreno (ver
+   *  `lib/ritmoTerreno`): el mismo cálculo que la baliza, mismos números. */
+  const perfilEsfuerzo = useMemo(() => (pista ? perfilDeEsfuerzo(pista) : null), [pista])
+
   const curvaPlan = useMemo(
     // Con `pista` y no con `plan.track`: es el mismo recorrido con las horas ya
     // convertidas a fechas, que es lo que quiere el modelo de ritmos.
@@ -834,7 +839,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       // no pueden dar números distintos. Sin plan con ritmos, la cuenta plana.
       const margin = km !== null && cutoffs.length > 0 && r.status === 'active' && referencia !== null
         ? (pista && plan?.paceConfig
-          ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig)
+          ? marginToNextCutoffConPerfil(cutoffs, km, referencia, r.updatedAt ?? now, pista, plan.paceConfig, (() => {
+              const ritmo = perfilEsfuerzo ? ajustaRitmo(perfilEsfuerzo, historial.current.get(key) ?? [], referencia) : null
+              return ritmo && perfilEsfuerzo ? { perfil: perfilEsfuerzo, ritmo } : null
+            })())
           : marginToNextCutoff(cutoffs, km, referencia, r.updatedAt ?? now))
         : null
       /**
@@ -1046,7 +1054,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       if (congelado?.at != null) tail = tail.filter((p) => p.t <= congelado.at!)
       return { r, km, kmValido, congelado, margin, stale, lost, idle, armed, desviadoM, key, tail, acabo, metaEn, paradoMs: modoManual ? 0 : paradoMs, retirado, abandono, fantasma, callado, cadencia, enPausa, manual, modoManual }
     }).sort((a, b) => (b.kmValido ?? -1) - (a.kmValido ?? -1))
-  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito])
+  }, [runners, route, cutoffs, now, actividad, metaOficial, abandonoOficial, startMs, plan, pista, circuito, perfilEsfuerzo])
 
   /**
    * La parrilla de la cuenta atrás, BARAJADA hasta que se sale.
