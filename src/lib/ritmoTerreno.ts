@@ -13,13 +13,17 @@
  *
  * 1. El ESFUERZO de cada tramo, con la función de Tobler para ir por monte:
  *    se va más rápido en una bajada suave (−5 %) y cuesta el doble subir un
- *    15 %. No depende del plan: sale del perfil del recorrido.
- * 2. SU ritmo por unidad de esfuerzo, ajustado con lo que lleva hecho, por
- *    separado en subida y en el resto: hay quien sube como un tractor y baja
- *    con miedo, y al revés. Con pocos datos se queda cerca de su media.
- * 3. La FATIGA: el tiempo crece algo más deprisa que el esfuerzo, como en la
- *    fórmula de Riegel. Con exponente 1,1 (en ultras de montaña se ven entre
- *    1,06 y 1,15), sin él la previsión salía optimista siempre.
+ *    15 %. No depende del plan: sale del perfil del recorrido. Es lo que da
+ *    las pistas de dificultad de lo que queda.
+ * 2. El RITMO QUE LLEVA por unidad de esfuerzo: el de su última hora, o el de
+ *    su último tramo entre dos pasos anotados. No la media de toda la
+ *    carrera: en la parte alta de Matxicots 26 —técnica, a 2.800 m y con
+ *    cinco horas en las piernas— el mismo esfuerzo costaba el doble que al
+ *    principio (5,7 → 11,6 min), y con la media el aro de Valen corría por
+ *    delante de él. Una primera versión separaba subida y resto con toda la
+ *    carrera, y aprendía "el resto" de los primeros kilómetros corribles.
+ * 3. La DERIVA: ese ritmo sigue empeorando con el esfuerzo que queda (1 % por
+ *    unidad). Sin ella la previsión salía optimista siempre.
  */
 
 /** Resolución del perfil de esfuerzo, en km. */
@@ -28,14 +32,15 @@ const PASO_KM = 0.05
 const VENTANA = 2
 /** A partir de qué pendiente cuenta como subida (fracción). */
 const SUBIDA = 0.03
-/** El exponente de la fatiga. Ver la cabecera. */
-export const ALFA_FATIGA = 1.1
-/** Cuánto pesa su media al ajustar: "km de esfuerzo" virtuales a ese ritmo. */
-const ANCLA = 2
-/** Lo mínimo para ajustar: kilómetros hechos y tramos medidos. */
+/** Cuánto empeora su ritmo por unidad de esfuerzo que queda. Ver la cabecera. */
+export const DERIVA = 0.01
+/** Su ritmo "de ahora": el de este rato hacia atrás. */
+const VENTANA_MIN = 60
+/** Y como poco este esfuerzo, para que un par de lecturas no decidan solas:
+ *  si la última hora no llega (o solo hay pasos anotados), se tira más atrás. */
+const ESFUERZO_MIN = 1
+/** Lo mínimo para ajustar: kilómetros hechos. */
 const MIN_KM = 3
-const MIN_TRAMOS = 3
-const TRAMO_KM = 0.5
 
 /** Tobler: tiempo relativo a llano según la pendiente (fracción). */
 export function costeRelativo(pendiente: number): number {
@@ -88,67 +93,56 @@ function acumulado(serie: Float64Array, km: number): number {
 }
 
 export interface RitmoAjustado {
-  /** Minutos por km de esfuerzo en subida y en el resto. */
+  /** Minutos por km de esfuerzo en subida y en el resto (hoy, el mismo: el
+   *  que lleva). Se mantienen separados por si un ajuste futuro los distingue. */
   sube: number
   resto: number
 }
 
 /**
- * Su ritmo por unidad de esfuerzo, con lo que lleva hecho: mínimos cuadrados
- * ponderados (lo reciente pesa más) con un ancla hacia su media para que un
- * par de tramos raros no lo descoloquen. Null sin datos suficientes.
+ * El ritmo que lleva, por unidad de esfuerzo: el de su última hora (o su
+ * último tramo entre dos pasos). Null sin datos suficientes.
  *
  * @param muestras `{km, t}` sobre el recorrido, en orden, desde la salida.
  */
 export function ajustaRitmo(perfil: PerfilEsfuerzo, muestras: { km: number; t: number }[], salidaMs: number): RitmoAjustado | null {
-  const tramos: { up: number; ot: number; min: number }[] = []
-  let a = { km: 0, t: salidaMs }
-  for (const s of muestras) {
-    if (s.t <= a.t) continue
-    if (s.km - a.km < TRAMO_KM) continue
-    tramos.push({
-      up: acumulado(perfil.sube, s.km) - acumulado(perfil.sube, a.km),
-      ot: acumulado(perfil.resto, s.km) - acumulado(perfil.resto, a.km),
-      min: (s.t - a.t) / 60_000,
-    })
-    a = s
+  const validas = muestras.filter((s) => s.t > salidaMs)
+  if (validas.length === 0) return null
+  const ultima = validas[validas.length - 1]
+  if (ultima.km < MIN_KM) return null
+  const esfuerzo = (km: number) => acumulado(perfil.sube, km) + acumulado(perfil.resto, km)
+  const eUltima = esfuerzo(ultima.km)
+  // Hacia atrás: la última hora, y si no llega al esfuerzo mínimo, más atrás.
+  let desde: { km: number; t: number } = { km: 0, t: salidaMs }
+  for (let i = validas.length - 2; i >= -1; i--) {
+    const s = i >= 0 ? validas[i] : { km: 0, t: salidaMs }
+    desde = s
+    const dentroDeLaHora = ultima.t - s.t <= VENTANA_MIN * 60_000
+    if (!dentroDeLaHora && eUltima - esfuerzo(s.km) >= ESFUERZO_MIN) break
   }
-  if (a.km < MIN_KM || tramos.length < MIN_TRAMOS) return null
-  const sumMin = tramos.reduce((x, s) => x + s.min, 0)
-  const sumE = tramos.reduce((x, s) => x + s.up + s.ot, 0)
-  if (!(sumE > 0)) return null
-  const media = sumMin / sumE
-  let suu = ANCLA, soo = ANCLA, suo = 0, sut = ANCLA * media, sot = ANCLA * media
-  tramos.forEach((s, i) => {
-    const w = 0.4 + 0.6 * (i / Math.max(1, tramos.length - 1))
-    suu += w * s.up * s.up; soo += w * s.ot * s.ot; suo += w * s.up * s.ot
-    sut += w * s.up * s.min; sot += w * s.ot * s.min
-  })
-  const det = suu * soo - suo * suo
-  if (!(det > 0)) return { sube: media, resto: media }
-  const sube = (sut * soo - sot * suo) / det
-  const resto = (sot * suu - sut * suo) / det
-  // Un ajuste que da ritmos negativos o absurdos no se cree: su media.
-  if (!(sube > 0) || !(resto > 0) || sube > media * 4 || resto > media * 4) return { sube: media, resto: media }
-  return { sube, resto }
+  const dE = eUltima - esfuerzo(desde.km)
+  const dMin = (ultima.t - desde.t) / 60_000
+  if (!(dE > 0) || !(dMin > 0)) return null
+  const ritmo = dMin / dE
+  return { sube: ritmo, resto: ritmo }
 }
 
 /**
- * Cuándo llegará al km `hastaKm`, sabiendo que estaba en `desdeKm` a `desdeMs`.
- *
- * Con fatiga: el tiempo desde la salida crece como el esfuerzo (con SU ritmo en
- * cada terreno) elevado a `ALFA_FATIGA`, anclado en el punto conocido.
+ * Cuándo llegará al km `hastaKm`, sabiendo que estaba en `desdeKm` a `desdeMs`:
+ * el esfuerzo que queda hasta allí, al ritmo que lleva, con la deriva.
  */
 export function prediceLlegada(
   perfil: PerfilEsfuerzo, ritmo: RitmoAjustado,
-  desdeKm: number, desdeMs: number, hastaKm: number, salidaMs: number,
+  desdeKm: number, desdeMs: number, hastaKm: number, _salidaMs: number,
 ): number | null {
-  const ee = (km: number) => ritmo.sube * acumulado(perfil.sube, km) + ritmo.resto * acumulado(perfil.resto, km)
-  const eDesde = ee(desdeKm)
-  const tDesde = (desdeMs - salidaMs) / 60_000
-  if (!(eDesde > 0) || !(tDesde > 0)) return null
   if (hastaKm <= desdeKm) return desdeMs
-  return salidaMs + tDesde * Math.pow(ee(Math.min(hastaKm, perfil.totalKm)) / eDesde, ALFA_FATIGA) * 60_000
+  const hasta = Math.min(hastaKm, perfil.totalKm)
+  const up = acumulado(perfil.sube, hasta) - acumulado(perfil.sube, desdeKm)
+  const ot = acumulado(perfil.resto, hasta) - acumulado(perfil.resto, desdeKm)
+  const dE = up + ot
+  if (!(dE >= 0)) return null
+  const minutos = (ritmo.sube * up + ritmo.resto * ot) * (1 + (DERIVA * dE) / 2)
+  return desdeMs + minutos * 60_000
 }
 
 /**
