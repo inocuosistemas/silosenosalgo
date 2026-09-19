@@ -2509,7 +2509,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         className="flex items-center gap-1 text-xs"
       >
         <span className={onPlan ? 'text-slate-300' : slower ? 'text-amber-400' : 'text-emerald-400'}>
-          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${Math.abs(pct)}% más ${slower ? 'lento' : 'rápido'} de lo previsto`}
+          {/* Corto: va en la MISMA línea que "43 min por delante del plan",
+              que ya dice contra qué se compara. */}
+          {onPlan ? '⏱️ a ritmo previsto' : `${slower ? '📉' : '📈'} ${Math.abs(pct)}% más ${slower ? 'lento' : 'rápido'}`}
         </span>
         {suggestFactor && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true" />}
       </button>
@@ -3035,10 +3037,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <Stat label="Altitud" value={fix.altitude != null ? `${Math.round(fix.altitude)} m` : '—'} />
               </div>
               {(deltaMin != null || formChip) && (
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 whitespace-nowrap">
+                  {/* Una sola línea: cuánto le saca al plan y a qué ritmo
+                      respecto a él. En dos, la tarjeta plegada crecía un
+                      renglón para decir casi lo mismo. */}
                   {deltaMin != null && (
-                    <span className={`text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>vs plan: {deltaLabel(deltaMin)}</span>
+                    <span className={`text-xs ${deltaMin <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {deltaLabel(deltaMin)}{Math.abs(Math.round(deltaMin)) === 0 ? '' : ' del plan'}
+                    </span>
                   )}
+                  {deltaMin != null && formChip && <span className="text-xs text-slate-500" aria-hidden="true">·</span>}
                   {formChip}
                   {/* Aviso de ánimos sin leer, en la franja compacta: es lo
                       primero que se ve al entrar, sin desplegar nada. Al abrir
