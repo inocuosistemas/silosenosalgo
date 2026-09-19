@@ -1018,6 +1018,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     return () => window.removeEventListener('keydown', tecla)
   }, [tramoZoom])
   const tocoTramo = useRef<{ x: number; y: number } | null>(null)
+  /** Si el tramo ampliado se abrió desde el recuadro del corte en el MAPA: al
+   *  cerrarlo se vuelve al mapa, que es donde se estaba. */
+  const volverAlMapa = useRef(false)
+  const abreTramoDelCorte = (fila: number) => {
+    if (viewMode === 'map') volverAlMapa.current = true
+    setViewMode('cards')
+    setTramoZoom(fila)
+  }
+  useEffect(() => {
+    if (tramoZoom === null && volverAlMapa.current) {
+      volverAlMapa.current = false
+      setViewMode('map')
+    }
+  }, [tramoZoom])
   const lastUpdatedAtRef = useRef<number | null>(null)
   const intervalsRef = useRef<number[]>([])
   const staleMsRef = useRef(STALE_DEFAULT_MS)
@@ -1752,9 +1766,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   }
 
   // Next cut-off ahead — the headline "are you OK?" info.
-  let nextCutoff: { name: string; km: number; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number } | null = null
+  let nextCutoff: { name: string; km: number; cutoff: Date; marginMin: number; reqPace: number | null; remDist: number; fila: number } | null = null
   if (plan && planRows && progressKm != null && !offRoute && deltaMin != null) {
-    for (const r of planRows) {
+    for (const [fila, r] of planRows.entries()) {
       if (r.w.distanceKm <= progressKm + 0.05) continue
       const cutoff = cutoffDates.get(cutoffWptKey(r.w.lat, r.w.lon))
       if (!cutoff) continue
@@ -1770,6 +1784,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         marginMin: (cutoff.getTime() - projectedETA.getTime()) / 60_000,
         reqPace: availMin <= 0 ? Infinity : remDist > 0.05 ? availMin / remDist : null,
         remDist,
+        fila,
       }
       break
     }
@@ -2210,8 +2225,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
    * que aprieta por una posición de hace veinte minutos es asustar a la familia
    * por un móvil sin cobertura.
    */
+  // Tocarlo lleva a la ficha de ESE tramo, ampliada, como al tocarla en su
+  // pestaña: "¿cómo es lo que me queda hasta el corte?" es la pregunta que
+  // sigue a "¿llego?". Es un <button> de verdad y no un div: en el Safari del
+  // iPhone un div no recibe el toque (ver las fichas).
   const cutoffHero = nextCutoff && (
-    <div className={`rounded-xl border p-3 text-center ${
+    <button
+      type="button"
+      onClick={() => abreTramoDelCorte(nextCutoff!.fila)}
+      aria-label={`Ver el tramo hasta ${nextCutoff.name}`}
+      className={`block w-full rounded-xl border p-3 text-center active:brightness-110 ${
       sinCobertura ? 'border-slate-600 bg-slate-800/60 text-slate-300' : heroTone(nextCutoff.marginMin)
     }`}>
       {sinCobertura && fr && (
@@ -2235,7 +2258,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               {nextCutoff.reqPace != null && <> · necesitas {nextCutoff.reqPace === Infinity ? 'imposible' : paceLabel(nextCutoff.reqPace)}</>}
             </>}
       </p>
-    </div>
+    </button>
   )
 
   const countdownHero = preStart && (
