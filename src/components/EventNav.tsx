@@ -71,7 +71,11 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
               e.preventDefault()
               onIr(p.vista)
             }}
-            className={`flex shrink-0 grow items-center justify-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
+            className={`flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
+              // Estiradas solo si caben todas: si no caben, la de al lado
+              // tiene que quedar a medias en el borde, que es la pista.
+              bordes.der || bordes.izq ? '' : 'grow'
+            } ${
               actual === p.vista ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
             }`}
           >
@@ -80,16 +84,19 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
           </a>
         ))}
       </nav>
-      {/* Los difuminados, por encima y sin estorbar al dedo. */}
+      {/* Los difuminados, por encima y sin estorbar al dedo. Estrechos y a
+          medio gas: lo que tiene que verse es la pestaña siguiente ASOMANDO
+          —eso es lo que dice "hay más"—, y un velo ancho y opaco la tapaba
+          entera, que es justo lo contrario. */}
       <div
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 left-0 w-8 rounded-l-xl bg-gradient-to-r from-slate-900 to-transparent transition-opacity ${
+        className={`pointer-events-none absolute inset-y-0 left-0 w-5 rounded-l-xl bg-gradient-to-r from-slate-900 via-slate-900/50 to-transparent transition-opacity ${
           bordes.izq ? 'opacity-100' : 'opacity-0'
         }`}
       />
       <div
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 right-0 w-8 rounded-r-xl bg-gradient-to-l from-slate-900 to-transparent transition-opacity ${
+        className={`pointer-events-none absolute inset-y-0 right-0 w-5 rounded-r-xl bg-gradient-to-l from-slate-900 via-slate-900/50 to-transparent transition-opacity ${
           bordes.der ? 'opacity-100' : 'opacity-0'
         }`}
       />
