@@ -62,7 +62,9 @@ struct ProveedorContadores: AppIntentTimelineProvider {
         let fecha = contador.fechaVigente(desde: ahora)
         if fecha <= ahora { return ahora.addingTimeInterval(3600) }
         let faltan = fecha.timeIntervalSince(ahora)
-        if faltan <= 24 * 3600 { return fecha.addingTimeInterval(1) }
+        if faltan <= 24 * 3600 && !(contador.estilo == .completo && contador.conHora) {
+            return fecha.addingTimeInterval(1)
+        }
         // Con los segundos corriendo, la tanda siguiente toca cuando el número
         // de días baja: ni antes (no cambiaría nada) ni después (se quedaría un
         // día de más en pantalla).
@@ -97,7 +99,7 @@ struct ContadorWidget: Widget {
         .contentMarginsDisabled()
         .configurationDisplayName("Cuenta atrás")
         .description("Lo que falta para tu carrera, o para lo que tú quieras.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 

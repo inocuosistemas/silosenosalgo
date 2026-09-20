@@ -4,10 +4,11 @@ import UIKit
 /**
  La foto de fondo de un contador, con su velo.
 
- El velo es un degradado y no un gris parejo: arriba, donde van el nombre y la
- fecha, basta un poco; abajo, donde va el NÚMERO, hace falta mucho, porque es
- lo que se lee de un vistazo y una foto clara se lo come. Oscurecer toda la
- foto por igual hasta que el número se lea la dejaría irreconocible.
+ El velo es una FUNDIDA hacia abajo, como la de la tarjeta de «Mis carreras»:
+ arriba la foto se ve casi tal cual —el nombre se sostiene con su sombra— y
+ abajo, donde va el NÚMERO, se apaga casi del todo, porque es lo que se lee de
+ un vistazo y una foto clara se lo come. Oscurecerla entera por igual hasta que
+ el número se lea la dejaría irreconocible.
  */
 public struct FondoDeFoto: View {
     public let imagen: UIImage
@@ -21,9 +22,10 @@ public struct FondoDeFoto: View {
                 .scaledToFill()
             LinearGradient(
                 stops: [
-                    .init(color: .black.opacity(0.45), location: 0),
-                    .init(color: .black.opacity(0.55), location: 0.35),
-                    .init(color: .black.opacity(0.82), location: 1),
+                    .init(color: .black.opacity(0.18), location: 0),
+                    .init(color: .black.opacity(0.35), location: 0.38),
+                    .init(color: .black.opacity(0.88), location: 0.78),
+                    .init(color: .black.opacity(0.94), location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom
             )
