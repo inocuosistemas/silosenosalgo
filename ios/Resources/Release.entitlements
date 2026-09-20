@@ -12,5 +12,11 @@
 <dict>
 	<key>aps-environment</key>
 	<string>production</string>
+	<!-- El cajón compartido con el widget de la cuenta atrás: la app escribe
+	     los contadores ahí y el widget los lee. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.themakercrowd.silosenosalgo</string>
+	</array>
 </dict>
 </plist>

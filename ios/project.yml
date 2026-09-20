@@ -8,9 +8,13 @@ options:
   # Ver ../docs/firma-y-publicacion.md
   bundleIdPrefix: com.themakercrowd
   deploymentTarget:
-    # 16.4: the embedded viewer gunzips the plan overlay with DecompressionStream,
-    # which WKWebView only ships from iOS 16.4+.
-    iOS: "16.4"
+    # 17.0: el widget de la cuenta atrás se configura con AppIntents (mantener
+    # pulsado ▸ elegir la carrera), que es de iOS 17. Antes el mínimo era 16.4
+    # por el visor incrustado (DecompressionStream en WKWebView).
+    #
+    # Lo que deja fuera: iPhone 8, 8 Plus y X, que no pasan de iOS 16. Del XR y
+    # del XS en adelante, todos.
+    iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -32,9 +36,14 @@ targets:
   SiLoSeNoSalgoTracker:
     type: application
     platform: iOS
-    deploymentTarget: "16.4"
+    deploymentTarget: "17.0"
     sources:
+      # `Sources` entero MENOS lo del widget: ese código va en su objetivo, y
+      # `Sources/Compartido` va en los dos (el contador lo escribe la app y lo
+      # lee el widget).
       - path: Sources
+        excludes:
+          - "Widget/**"
       # Built web viewer (from repo-root `dist/`, copied by scripts/copy-webdist.sh).
       # A folder reference preserves the /assets/ layout the SPA loads by absolute path.
       - path: WebDist
@@ -46,6 +55,9 @@ targets:
       - path: Resources/PrivacyInfo.xcprivacy
     dependencies:
       - package: ZIPFoundation
+      # El widget viaja DENTRO de la app: es una extensión, no otra app.
+      - target: SiLoSeNoSalgoWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo
@@ -91,10 +103,39 @@ targets:
           # La que se reparte sí, con `aps-environment: production`: los tokens
           # de TestFlight son de producción.
           CODE_SIGN_ENTITLEMENTS: Resources/Release.entitlements
+  # El widget de la cuenta atrás. Otro objetivo porque es otro proceso: el
+  # sistema lo despierta cuando le toca pintar, sin abrir la app.
+  SiLoSeNoSalgoWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/Widget
+      - path: Sources/Compartido
+      - path: Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.contador
+        PRODUCT_NAME: SiLoSeNoSalgoWidget
+        INFOPLIST_FILE: Resources/Widget-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME: ""
+        CODE_SIGN_ENTITLEMENTS: Resources/Widget.entitlements
+      configs:
+        Debug:
+          # Igual que la app: la copia de desarrollo lleva otro identificador
+          # para no pisar la de TestFlight. Sin grupo compartido —el perfil
+          # comodín no lo admite—, así que por cable el widget sale vacío; se
+          # prueba con TestFlight.
+          PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug.contador
+          CODE_SIGN_ENTITLEMENTS: ""
+
   SiLoSeNoSalgoTrackerTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "16.4"
+    deploymentTarget: "17.0"
     sources:
       - path: Tests
     dependencies:

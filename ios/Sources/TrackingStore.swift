@@ -587,6 +587,9 @@ final class TrackingStore: ObservableObject {
             // trae el id del evento, y sin esto una salida pasaba a leerse
             // "Sin nombre" en cuanto el organizador cerraba la carrera.
             for ev in result { eventNames[ev.id] = ev.name }
+            // Y lo que el widget necesita, al cajón compartido: su cuenta
+            // atrás sale de aquí (ver `ContadoresDeCarreras`).
+            ContadoresDeCarreras.sincroniza(result)
             autoSelectTodaysEvent()
         }
     }
