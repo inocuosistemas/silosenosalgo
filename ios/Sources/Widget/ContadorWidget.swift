@@ -43,8 +43,16 @@ struct ProveedorContadores: AppIntentTimelineProvider {
         let ahora = Date()
         let contador = elegido(configuration)
         let vigentes = AlmacenContadores.vigentes(ahora)
-        let entrada = EntradaContador(date: ahora, contador: contador, cuantos: vigentes.count)
-        return Timeline(entries: [entrada], policy: .after(cuandoVolver(contador, ahora)))
+        // Una tanda de varias entradas, no una sola: los segundos los lleva el
+        // reloj del sistema, pero si algún día dejara de correr —o en los
+        // estilos que no lo llevan— el número seguiría avanzando solo, una
+        // entrada cada dos minutos. No cuesta nada: se pintan de una vez y el
+        // sistema las va enseñando sin despertar a nadie.
+        let entradas = (0..<30).compactMap { i -> EntradaContador? in
+            let cuando = ahora.addingTimeInterval(Double(i) * 120)
+            return EntradaContador(date: cuando, contador: contador, cuantos: vigentes.count)
+        }
+        return Timeline(entries: entradas, policy: .after(cuandoVolver(contador, ahora)))
     }
 
     /// El contador que toca: el elegido en el widget o, si no se eligió

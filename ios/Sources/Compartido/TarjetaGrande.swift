@@ -14,11 +14,18 @@ public struct TarjetaGrande: View {
     public let contador: Contador
     public let ahora: Date
     public let foto: UIImage?
+    /// Lo que mide el widget grande. Se pasa en vez de mirarlo con un
+    /// `GeometryReader`: ahí dentro el reloj del sistema deja de correr.
+    public let tamano: CGSize
 
-    public init(contador: Contador, ahora: Date = Date(), foto: UIImage? = nil) {
+    public init(
+        contador: Contador, ahora: Date = Date(), foto: UIImage? = nil,
+        tamano: CGSize = CGSize(width: 338, height: 354)
+    ) {
         self.contador = contador
         self.ahora = ahora
         self.foto = foto
+        self.tamano = tamano
     }
 
     private var fondo: Color { Color(red: 0.06, green: 0.09, blue: 0.16) }
@@ -28,15 +35,14 @@ public struct TarjetaGrande: View {
         let color = Color(hexContador: c.color)
         let fecha = c.fechaVigente(desde: ahora)
         let pasada = fecha <= ahora
-        GeometryReader { g in
-            let altoCartel = g.size.height * 0.56
-            VStack(spacing: 0) {
+        let altoCartel = tamano.height * 0.56
+        return VStack(spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
                     if let foto {
                         Image(uiImage: foto)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: g.size.width, height: altoCartel)
+                            .frame(width: tamano.width, height: altoCartel)
                             .clipped()
                     } else {
                         // Sin cartel, su color y su marca: que no se quede en un hueco.
@@ -79,7 +85,7 @@ public struct TarjetaGrande: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
                 }
-                .frame(width: g.size.width, height: altoCartel)
+                .frame(width: tamano.width, height: altoCartel)
 
                 VStack(spacing: 6) {
                     Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
@@ -90,8 +96,8 @@ public struct TarjetaGrande: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         }
+        .frame(width: tamano.width, height: tamano.height)
     }
 
     @ViewBuilder
@@ -118,6 +124,7 @@ public struct TarjetaGrande: View {
             NumeroCuentaAtras(
                 dias: dias, corte: corte, prefijoHoras: c.prefijoHoras(desde: ahora),
                 color: color, cuerpo: 60, etiqueta: 11, colorEtiqueta: .white.opacity(0.55),
+                ancho: tamano.width - 32,
                 degradado: c.color2.map { (c.color, $0) }
             )
         } else {

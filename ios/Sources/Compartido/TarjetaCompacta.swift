@@ -31,12 +31,17 @@ public struct TarjetaCompacta: View {
     public let foto: UIImage?
     /// El alto de la baldosa, para dar tamaño al número.
     public let compacta: Bool
+    /// Lo que mide la baldosa, para dar tamaño al número (ver `TarjetaGrande`:
+    /// nada de `GeometryReader` donde pueda haber un reloj del sistema).
+    public let tamano: CGSize
 
     public init(
         nombre: String, dias: Int, horas: Int, pasada: Bool, fecha: Date, conHora: Bool,
         color: String, color2: String?, emoji: String?, conAro: Bool,
-        foto: UIImage? = nil, compacta: Bool = true
+        foto: UIImage? = nil, compacta: Bool = true,
+        tamano: CGSize = CGSize(width: 158, height: 158)
     ) {
+        self.tamano = tamano
         self.nombre = nombre
         self.dias = dias
         self.horas = horas
@@ -51,11 +56,10 @@ public struct TarjetaCompacta: View {
         self.compacta = compacta
     }
 
+
     public var body: some View {
-        GeometryReader { g in
-            let alto = g.size.height
-            let cuerpo = min(alto * 0.46, g.size.width * 0.5)
-            ZStack(alignment: .topLeading) {
+        let cuerpo = min(tamano.height * 0.46, tamano.width * 0.5)
+        return ZStack(alignment: .topLeading) {
                 fondo
                 VStack(alignment: .leading, spacing: 0) {
                     Text(nombre.isEmpty ? "Sin nombre" : nombre)
@@ -92,7 +96,6 @@ public struct TarjetaCompacta: View {
                 }
                 .shadow(color: .black.opacity(foto == nil ? 0 : 0.7), radius: 3, x: 0, y: 1)
                 .padding(compacta ? 13 : 16)
-            }
         }
     }
 

@@ -11,7 +11,7 @@ struct VistaContador: View {
 
     var body: some View {
         if let c = entrada.contador, tamano == .systemLarge {
-            TarjetaGrande(contador: c, ahora: entrada.date, foto: c.foto.flatMap(imagen))
+            TarjetaGrande(contador: c, ahora: entrada.date, foto: c.foto.flatMap(imagen), tamano: TamanoWidget.grande)
                 .containerBackground(for: .widget) { Color(red: 0.06, green: 0.09, blue: 0.16) }
         } else if let c = entrada.contador, c.estilo == .compacto {
             // La baldosa de color: el color del contador es el FONDO, no la
@@ -23,7 +23,8 @@ struct VistaContador: View {
                 fecha: c.fechaVigente(desde: entrada.date), conHora: c.conHora,
                 color: c.color, color2: c.color2, emoji: c.emoji, conAro: c.origen == .carrera,
                 foto: tamano == .systemMedium ? c.foto.flatMap(imagen) : nil,
-                compacta: tamano == .systemSmall
+                compacta: tamano == .systemSmall,
+                tamano: tamano == .systemSmall ? TamanoWidget.pequeno : TamanoWidget.mediano
             )
             .containerBackground(for: .widget) { Color.black }
         } else if let c = entrada.contador {
@@ -130,6 +131,9 @@ struct VistaContador: View {
                     cuerpo: tamano == .systemSmall ? 38 : 68,
                     etiqueta: tamano == .systemSmall ? 9 : (tamano == .systemLarge ? 11 : 10),
                     colorEtiqueta: .secondary,
+                    // El ancho, dado y no medido (ver `NumeroCuentaAtras`).
+                    ancho: (tamano == .systemSmall ? TamanoWidget.pequeno.width : TamanoWidget.mediano.width)
+                        - (tamano == .systemSmall ? 26 : 32),
                     sobreFoto: conFoto(c),
                     degradado: c.color2.map { (c.color, $0) }
                 )

@@ -214,7 +214,7 @@ struct VistaPreviaWidget: View {
     private var pieza: some View {
         switch formato {
         case .grande:
-            TarjetaGrande(contador: contador, foto: foto)
+            TarjetaGrande(contador: contador, foto: foto, tamano: formato.tamano)
                 .background(Color(red: 0.06, green: 0.09, blue: 0.16))
         case .pequeno, .mediano:
             if contador.estilo == .compacto {
@@ -267,7 +267,8 @@ struct TarjetaContador: View {
                     color: contador.color, color2: contador.color2, emoji: contador.emoji,
                     conAro: contador.origen == .carrera,
                     foto: compacta ? nil : contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) },
-                    compacta: compacta
+                    compacta: compacta,
+                    tamano: compacta ? TamanoWidget.pequeno : TamanoWidget.mediano
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -329,6 +330,7 @@ struct TarjetaContador: View {
                     NumeroCuentaAtras(
                         dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(desde: ahora),
                         color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6),
+                        ancho: (compacta ? TamanoWidget.pequeno.width : TamanoWidget.mediano.width) - (compacta ? 26 : 32),
                         sobreFoto: contador.foto != nil,
                         degradado: contador.color2.map { (contador.color, $0) }
                     )
