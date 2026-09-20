@@ -8,6 +8,8 @@ struct TrackingView: View {
     @State private var webEvento: EnlaceWeb?
     /// Si el bloque de carreras terminadas está desplegado.
     @State private var terminadasAbiertas = false
+    /// La pantalla de las cuentas atrás (el widget), abierta.
+    @State private var verContadores = false
     /// La carrera por la que se pregunta al pulsar "Compartir" sin ninguna elegida.
     @State private var carreraAPreguntar: EventSummary?
 
@@ -709,12 +711,9 @@ struct TrackingView: View {
                         // entra por aquí porque es de las carreras de lo que
                         // habla, y el widget se pone desde la pantalla de
                         // inicio, no desde la app.
-                        NavigationLink {
-                            ContadoresView()
-                        } label: {
-                            Label("Cuenta atrás y widget", systemImage: "timer")
-                        }
-                        .listRowBackground(Theme.slate900)
+                        // La cuenta atrás de la pantalla de inicio, con la
+                        // misma tarjeta que «Terminadas» (ver `FilaContadores`).
+                        FilaContadores(abierta: $verContadores)
                     } header: {
                         cabecera("Mis carreras", "flag.checkered")
                     } footer: {
@@ -2072,5 +2071,48 @@ private struct ConfirmacionesDeBaliza: ViewModifier {
             } message: { ev in
                 Text("Su salida oficial (\(TrackingView.whenLabel(ev.startsAt))) pasa a ser la de esta baliza, y apareces en su mapa. Cambia el ritmo y los cortes de lo que ya llevas grabado.")
             }
+    }
+}
+
+/**
+ La entrada a «Cuenta atrás y widget», en «Mis carreras».
+
+ Con la misma tarjeta que «Terminadas», que es su vecina: como fila corriente
+ de la lista salía más ancha, con otras esquinas y sin borde, y parecía de otra
+ pantalla. Por eso es un botón y no un `NavigationLink`, que pone su propia
+ flecha y su forma. (Y va en su propia vista porque el cuerpo de la pantalla ya
+ está en el límite de lo que el compilador de Swift sabe comprobar de una vez.)
+ */
+private struct FilaContadores: View {
+    @Binding var abierta: Bool
+
+    var body: some View {
+        Button { abierta = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "timer")
+                    .foregroundStyle(Theme.slate400)
+                Text("Cuenta atrás y widget")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.slate100)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.slate400)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Theme.slate900)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Theme.slate800, lineWidth: 1)
+        )
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .navigationDestination(isPresented: $abierta) { ContadoresView() }
     }
 }

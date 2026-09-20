@@ -63,7 +63,12 @@ struct VistaContador: View {
                     .shadow(color: .black.opacity(conFoto(c) ? 0.85 : 0), radius: 3, x: 0, y: 1)
                     Spacer(minLength: 4)
                     if let emoji = c.emoji {
-                        Text(emoji).font(.system(size: tamano == .systemMedium ? 24 : 20))
+                        // En una carrera, su marca: el emoji con el aro de su color.
+                        if c.origen == .carrera {
+                            MarcaContador(emoji: emoji, color: color, tam: tamano == .systemMedium ? 34 : 28)
+                        } else {
+                            Text(emoji).font(.system(size: tamano == .systemMedium ? 24 : 20))
+                        }
                     }
                 }
                 Spacer(minLength: 2)
@@ -173,9 +178,15 @@ struct VistaContador: View {
                         // Sin cartel, su color y su marca: que no se quede en un hueco.
                         LinearGradient(colors: [color.opacity(0.55), color.opacity(0.12)], startPoint: .top, endPoint: .bottom)
                         if let emoji = c.emoji {
-                            Text(emoji).font(.system(size: 64))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.bottom, 26)
+                            Group {
+                                if c.origen == .carrera {
+                                    MarcaContador(emoji: emoji, color: color, tam: 92)
+                                } else {
+                                    Text(emoji).font(.system(size: 64))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.bottom, 26)
                         }
                     }
                     // La fundida: el cartel se apaga hacia abajo hasta ser el fondo.
@@ -189,7 +200,11 @@ struct VistaContador: View {
                     )
                     HStack(alignment: .center, spacing: 8) {
                         if let emoji = c.emoji, c.foto.flatMap(imagen) != nil {
-                            Text(emoji).font(.system(size: 26))
+                            if c.origen == .carrera {
+                                MarcaContador(emoji: emoji, color: color, tam: 38)
+                            } else {
+                                Text(emoji).font(.system(size: 26))
+                            }
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             Text(c.nombre)

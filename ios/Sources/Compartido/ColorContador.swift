@@ -19,6 +19,9 @@ public enum ColoresContador {
 
     /// Los que se ofrecen al crear un contador propio, en el orden en que se enseñan.
     public static let paleta: [String] = [
+        // El blanco, el primero: es el de la tarjeta de «Mis carreras», y sobre
+        // un cartel es lo que mejor se lee.
+        "#f8fafc",
         "#8b5cf6", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e",
         "#22d3ee", "#a3e635", "#fb923c", "#e879f9", "#f472b6",
     ]

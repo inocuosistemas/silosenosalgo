@@ -110,15 +110,19 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Lo que hay que escribir DELANTE del reloj del sistema para que lleve
-    /// siempre dos cifras de horas: "7:48:38" tiene que leerse "07:48:38", y
-    /// con menos de una hora el reloj deja de escribir las horas ("48:38") y
-    /// hay que ponerle el "00:".
+    /// siempre dos cifras de horas: "7:48:38" tiene que leerse "07:48:38"; con
+    /// menos de una hora deja de escribir las horas ("48:38") y hay que ponerle
+    /// el "00:"; y con menos de diez minutos, además, el cero del minuto.
     ///
     /// Dentro de una misma tanda las horas solo BAJAN, así que mirarlas una vez
     /// vale para toda la tanda; los cambios de prefijo (a las diez horas y a la
     /// una) piden tanda nueva (ver `ContadorWidget`).
     public func prefijoHoras(desde ahora: Date = Date()) -> String {
         let faltan = diasYCorte(desde: ahora).corte.timeIntervalSince(ahora)
+        // Por debajo de diez minutos el reloj escribe "9:59", con el minuto de
+        // una cifra: también hay que completarlo, o las columnas se descuadran
+        // justo al final, que es cuando más se mira.
+        if faltan < 600 { return "00:0" }
         if faltan < 3600 { return "00:" }
         if faltan < 10 * 3600 { return "0" }
         return ""

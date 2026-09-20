@@ -104,9 +104,13 @@ struct EditorContador: View {
                                 Button { contador.color = hex } label: {
                                     Circle()
                                         .fill(Color(hexContador: hex))
-                                        .frame(width: 30, height: 30)
+                                        .frame(width: 28, height: 28)
+                                        // El elegido, con un aro POR FUERA y un
+                                        // hueco en medio: pegado al borde no se
+                                        // veía en el blanco, que es blanco.
+                                        .padding(4)
                                         .overlay(
-                                            Circle().stroke(.white, lineWidth: contador.color == hex ? 2.5 : 0)
+                                            Circle().stroke(.white, lineWidth: contador.color == hex ? 2 : 0)
                                         )
                                 }
                                 .buttonStyle(.plain)

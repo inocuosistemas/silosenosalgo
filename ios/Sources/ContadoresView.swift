@@ -101,11 +101,15 @@ private struct FilaContador: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle().fill(Color(hexContador: contador.color).opacity(0.25))
-                Text(contador.emoji ?? "⏱").font(.system(size: 17))
+            if contador.origen == .carrera, let emoji = contador.emoji {
+                MarcaContador(emoji: emoji, color: Color(hexContador: contador.color), tam: 34)
+            } else {
+                ZStack {
+                    Circle().fill(Color(hexContador: contador.color).opacity(0.25))
+                    Text(contador.emoji ?? "⏱").font(.system(size: 17))
+                }
+                .frame(width: 34, height: 34)
             }
-            .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text(contador.nombre.isEmpty ? "Sin nombre" : contador.nombre)
                     .foregroundStyle(Theme.slate100)
@@ -132,11 +136,23 @@ struct TarjetaContador: View {
     let contador: Contador
 
     var body: some View {
+        // Se vuelve a calcular cada poco: los segundos los lleva el reloj del
+        // sistema, pero los días, el cero de las horas y el paso a "desde la
+        // salida" son cuentas nuestras, y con la pantalla abierta se quedaban
+        // en lo que valían al entrar.
+        TimelineView(.periodic(from: .now, by: 15)) { reloj in
+            tarjeta(ahora: reloj.date)
+        }
+    }
+
+    private func tarjeta(ahora: Date) -> some View {
         let color = Color(hexContador: contador.color)
-        let fecha = contador.fechaVigente()
-        let faltan = max(0, fecha.timeIntervalSinceNow)
+        let fecha = contador.fechaVigente(desde: ahora)
+        let pasada = fecha <= ahora
+        let faltan = max(0, fecha.timeIntervalSince(ahora))
         let dias = Int(faltan / 86_400)
         let horas = Int((faltan - Double(dias) * 86_400) / 3600)
+        let conFoto = contador.foto != nil
         return ZStack(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .top) {
@@ -148,15 +164,38 @@ struct TarjetaContador: View {
                             : .dateTime.day().month(.abbreviated).year())
                             .font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
                     }
+                    .shadow(color: .black.opacity(conFoto ? 0.85 : 0), radius: 3, x: 0, y: 1)
                     Spacer()
-                    if let emoji = contador.emoji { Text(emoji).font(.system(size: 24)) }
+                    if let emoji = contador.emoji {
+                        if contador.origen == .carrera {
+                            MarcaContador(emoji: emoji, color: color, tam: 34)
+                        } else {
+                            Text(emoji).font(.system(size: 24))
+                        }
+                    }
                 }
                 Spacer(minLength: 6)
                 // La misma cuenta que el widget, para que elegir sea ver.
-                if contador.estilo == .completo && contador.conHora && faltan > 24 * 3600 {
-                    let corte = contador.diasYCorte().corte
+                if pasada {
+                    // Ya ha llegado: o cuenta hacia arriba, o se va del widget.
+                    if contador.alPasar == .contarArriba {
+                        Text("desde la salida")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+                        Text(fecha, style: .timer)
+                            .font(.system(size: 40, weight: .bold)).monospacedDigit()
+                            .foregroundStyle(color)
+                            .lineLimit(1).minimumScaleFactor(0.5)
+                            .shadow(color: .black.opacity(conFoto ? 0.8 : 0), radius: 5)
+                    } else {
+                        Text("Ya ha pasado: el widget deja de enseñarla")
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
+                            .shadow(color: .black.opacity(conFoto ? 0.8 : 0), radius: 3)
+                    }
+                } else if contador.estilo == .completo && contador.conHora {
+                    // También en el último día: 00:hh:mm:ss, no "0 días 0 h".
+                    let corte = contador.diasYCorte(desde: ahora).corte
                     NumeroCuentaAtras(
-                        dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(),
+                        dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(desde: ahora),
                         color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6),
                         sobreFoto: contador.foto != nil
                     )
@@ -167,6 +206,7 @@ struct TarjetaContador: View {
                         if contador.conHora { Text("\(horas) h").font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
                     }
                     .lineLimit(1).minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(conFoto ? 0.8 : 0), radius: 5)
                 }
             }
             .padding(14)
