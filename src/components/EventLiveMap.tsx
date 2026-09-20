@@ -2138,10 +2138,10 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           terreno: es un ajuste, no una acción de todos los días. */}
       {view === 'mapa' && (
         <div
-          className="absolute right-3 z-[1050]"
+          className="absolute right-2 z-[1050]"
           // Lo más abajo que puede sin tocar la tira de participantes: es un
           // ajuste que se busca una vez, y ahí estorba menos al mapa.
-          style={{ bottom: (profile && profileOpen ? 132 : 44) + (withFix.length > 0 ? 18 : 0) }}
+          style={{ bottom: (profile && profileOpen ? 132 : 44) + (withFix.length > 0 ? 24 : 0) }}
         >
           {opcionesAbiertas && (
             <>
@@ -2221,9 +2221,11 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
             onClick={() => setOpcionesAbiertas((v) => !v)}
             aria-label="Opciones del mapa"
             title="Opciones del mapa"
-            className="grid h-10 w-10 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-base backdrop-blur active:scale-95"
+            // La misma pastilla que ⤢ y 3D: los tres mandos del mapa son el
+            // mismo tipo de cosa, y uno redondo y más gordo parecía otra cosa.
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-slate-300 backdrop-blur transition-colors hover:text-sky-400 active:scale-95"
           >
-            <Settings size={14} />
+            <Settings size={15} />
           </button>
         </div>
       )}
