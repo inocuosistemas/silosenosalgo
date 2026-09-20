@@ -40,12 +40,12 @@ public struct NumeroCuentaAtras: View {
         self.colorEtiqueta = colorEtiqueta
     }
 
-    /// La fuente de las cifras: redonda, gruesa y con cifras de ancho fijo,
-    /// que es lo que hace que cada par ocupe siempre lo mismo.
+    /// La fuente de las cifras: la del sistema tal cual (sin redondear) y en
+    /// seminegra, con cifras de ancho fijo — que es lo que hace que cada par
+    /// ocupe siempre lo mismo y las etiquetas caigan en su sitio. Redonda y
+    /// gruesa, que fue lo primero, quedaba tosca al lado de la referencia.
     static func fuente(_ tam: CGFloat) -> UIFont {
-        let base = UIFont.monospacedDigitSystemFont(ofSize: tam, weight: .heavy)
-        let desc = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
-        return UIFont(descriptor: desc, size: tam)
+        UIFont.monospacedDigitSystemFont(ofSize: tam, weight: .semibold)
     }
 
     private static func ancho(_ texto: String, _ f: UIFont) -> CGFloat {
