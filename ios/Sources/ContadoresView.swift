@@ -19,7 +19,10 @@ struct ContadoresView: View {
         List {
             Section {
                 if let primero = contadores.first {
+                    // El alto lo pone quien la coloca: dentro del carrusel la
+                    // tarjeta se estira al hueco del formato que toque.
                     TarjetaContador(contador: primero)
+                        .frame(height: 140)
                         .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
                         .listRowBackground(Color.clear)
                 }
@@ -131,42 +134,117 @@ private struct FilaContador: View {
     }
 }
 
-/// Las DOS maneras de verlo, una al lado de la otra, para elegir mirándolas:
-/// la baldosa de color con los días en grande y el marcador con los segundos
-/// corriendo. La elegida lleva su aro.
-struct ElectorDeEstilo: View {
-    @Binding var contador: Contador
+/// Los TRES formatos del widget, uno cada vez y pasando el dedo: el pequeño,
+/// el mediano y el grande, tal como van a quedar en la pantalla de inicio.
+///
+/// Uno debajo de otro no cabía —o salían de juguete— y lado a lado obligaba a
+/// encogerlos hasta no distinguir el número. Pasando el dedo, cada uno se
+/// enseña a un tamaño que se parece al de verdad, y los puntitos dicen que hay
+/// más. El primero que se enseña es el mediano, que es el que casi todo el
+/// mundo pone.
+struct CarruselDeFormatos: View {
+    let contador: Contador
+    @State private var pagina = 1
 
     var body: some View {
-        HStack(spacing: 10) {
-            opcion(.compacto)
-            opcion(.completo)
+        VStack(spacing: 6) {
+            TabView(selection: $pagina) {
+                ForEach(Array([VistaPreviaWidget.Formato.pequeno, .mediano, .grande].enumerated()), id: \.offset) { i, f in
+                    VistaPreviaWidget(contador: contador, formato: f)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .tag(i)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 186)
+            // Los puntitos, puestos a mano: los del TabView se pintan blancos
+            // sobre blanco en unos sitios y no se ven.
+            HStack(spacing: 6) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(i == pagina ? Theme.slate100 : Theme.slate400.opacity(0.4))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            Text(["Widget pequeño", "Widget mediano", "Widget grande"][pagina])
+                .font(.caption2)
+                .foregroundStyle(Theme.slate400)
         }
     }
 
-    private func opcion(_ estilo: EstiloContador) -> some View {
-        var muestra = contador
-        muestra.estilo = estilo
-        return VStack(spacing: 6) {
-            TarjetaContador(contador: muestra)
-                .frame(height: 118)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(.white, lineWidth: contador.estilo == estilo ? 2 : 0)
-                )
-            Text(estilo == .compacto ? "Días" : "Con segundos")
-                .font(.caption2)
-                .foregroundStyle(contador.estilo == estilo ? Theme.slate100 : Theme.slate400)
+}
+
+/// Un contador pintado como lo pinta el widget en cada formato.
+///
+/// Se dibuja al TAMAÑO DE VERDAD del widget y luego se encoge entero, en vez
+/// de dibujarlo pequeño: así las proporciones son las que van a salir en la
+/// pantalla de inicio —el número ocupa lo que va a ocupar— y no una versión
+/// con las letras gigantes. (La vista del widget vive en su objetivo y aquí no
+/// se puede usar, así que arma las mismas piezas.)
+struct VistaPreviaWidget: View {
+    enum Formato {
+        case pequeno, mediano, grande
+
+        /// Lo que mide de verdad en un iPhone corriente.
+        var tamano: CGSize {
+            switch self {
+            case .pequeno: return CGSize(width: 158, height: 158)
+            case .mediano: return CGSize(width: 338, height: 158)
+            case .grande: return CGSize(width: 338, height: 354)
+            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { contador.estilo = estilo }
+    }
+
+    let contador: Contador
+    let formato: Formato
+    /// El hueco donde tiene que caber.
+    var hueco = CGSize(width: 320, height: 176)
+
+    var body: some View {
+        let tam = formato.tamano
+        let escala = min(hueco.width / tam.width, hueco.height / tam.height)
+        pieza
+            .frame(width: tam.width, height: tam.height)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .scaleEffect(escala)
+            .frame(width: tam.width * escala, height: tam.height * escala)
+    }
+
+    @ViewBuilder
+    private var pieza: some View {
+        switch formato {
+        case .grande:
+            TarjetaGrande(contador: contador, foto: foto)
+                .background(Color(red: 0.06, green: 0.09, blue: 0.16))
+        case .pequeno, .mediano:
+            if contador.estilo == .compacto {
+                let f = contador.fechaVigente()
+                let cuenta = TarjetaCompacta.cuenta(hasta: f, desde: Date())
+                TarjetaCompacta(
+                    nombre: contador.nombre, dias: cuenta.dias, horas: cuenta.horas, pasada: cuenta.pasada,
+                    fecha: f, conHora: contador.conHora,
+                    color: contador.color, color2: contador.color2, emoji: contador.emoji,
+                    conAro: contador.origen == .carrera,
+                    foto: formato == .mediano ? foto : nil,
+                    compacta: formato == .pequeno
+                )
+            } else {
+                TarjetaContador(contador: contador, compacta: formato == .pequeno)
+                    .background(Color.black)
+            }
+        }
+    }
+
+    private var foto: UIImage? {
+        contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) }
     }
 }
 
 /// La tarjeta, igual que en el widget: es lo que se está eligiendo.
 struct TarjetaContador: View {
     let contador: Contador
+    /// A tamaño de widget pequeño: sin foto y con el número más apretado.
+    var compacta: Bool = false
 
     var body: some View {
         // Se vuelve a calcular cada poco: los segundos los lleva el reloj del
@@ -188,11 +266,10 @@ struct TarjetaContador: View {
                     fecha: f, conHora: contador.conHora,
                     color: contador.color, color2: contador.color2, emoji: contador.emoji,
                     conAro: contador.origen == .carrera,
-                    foto: contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) },
-                    compacta: false
+                    foto: compacta ? nil : contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) },
+                    compacta: compacta
                 )
-                .frame(maxWidth: .infinity)
-                .frame(height: 140)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else {
                 completa(ahora: ahora)
@@ -267,8 +344,7 @@ struct TarjetaContador: View {
             }
             .padding(14)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 140)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // La foto, DETRÁS y recortada a la tarjeta: puesta como una capa más,
         // crecía a su tamaño y tapaba el nombre y el número.
         .background {

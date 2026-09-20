@@ -108,8 +108,8 @@ struct EditorContador: View {
         NavigationStack {
             List {
                 Section {
-                    // Las dos maneras de verlo: se elige tocando la que gusta.
-                    ElectorDeEstilo(contador: $contador)
+                    // Los tres formatos, pasando el dedo (ver `CarruselDeFormatos`).
+                    CarruselDeFormatos(contador: contador)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowBackground(Color.clear)
                 }
@@ -182,6 +182,11 @@ struct EditorContador: View {
                         Button("Un solo color") { contador.color2 = nil }
                             .font(.footnote)
                     }
+                    Picker("Número", selection: $contador.estilo) {
+                        Text("Días").tag(EstiloContador.compacto)
+                        Text("Con segundos").tag(EstiloContador.completo)
+                    }
+                    .pickerStyle(.segmented)
                     HStack {
                         Text("Icono")
                         Spacer()
