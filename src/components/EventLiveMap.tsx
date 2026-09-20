@@ -2108,7 +2108,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
           title="Ver en 3D: girar e inclinar el mapa"
           aria-label="Ver en 3D"
           className="absolute right-2 z-[1000] grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm font-bold text-slate-300 backdrop-blur transition-colors hover:text-sky-400"
-          style={{ top: nav ? altoCabecera + 50 : 'calc(env(safe-area-inset-top, 0px) + 162px)' }}
+          // Un dedo de aire entre los dos: pegados parecían un solo mando de
+          // dos pisos, y se pulsaba el de arriba queriendo el de abajo.
+          style={{ top: nav ? altoCabecera + 56 : 'calc(env(safe-area-inset-top, 0px) + 168px)' }}
         >
           3D
         </button>
@@ -2137,7 +2139,9 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
       {view === 'mapa' && (
         <div
           className="absolute right-3 z-[1050]"
-          style={{ bottom: (profile && profileOpen ? 132 : 44) + (withFix.length > 0 ? 44 : 0) }}
+          // Lo más abajo que puede sin tocar la tira de participantes: es un
+          // ajuste que se busca una vez, y ahí estorba menos al mapa.
+          style={{ bottom: (profile && profileOpen ? 132 : 44) + (withFix.length > 0 ? 18 : 0) }}
         >
           {opcionesAbiertas && (
             <>
