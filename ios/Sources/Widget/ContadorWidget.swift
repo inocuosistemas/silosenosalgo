@@ -67,7 +67,11 @@ struct ProveedorContadores: AppIntentTimelineProvider {
         // de días baja: ni antes (no cambiaría nada) ni después (se quedaría un
         // día de más en pantalla).
         if contador.estilo == .completo && contador.conHora {
-            return contador.diasYCorte(desde: ahora).corte.addingTimeInterval(1)
+            let corte = contador.diasYCorte(desde: ahora).corte
+            // Al cruzar las diez horas hay que repintar: es cuando el reloj del
+            // sistema pasa de "10:.." a "9:.." y le toca el cero delante.
+            let diezHoras = corte.addingTimeInterval(-10 * 3600)
+            return diezHoras > ahora ? diezHoras : corte.addingTimeInterval(1)
         }
         return min(fecha.addingTimeInterval(-24 * 3600), ahora.addingTimeInterval(3600))
     }

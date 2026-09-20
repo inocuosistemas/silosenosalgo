@@ -158,20 +158,22 @@ struct TarjetaContador: View {
                 // La misma cuenta que el widget, para que elegir sea ver.
                 if contador.estilo == .completo && contador.conHora && faltan > 24 * 3600 {
                     let corte = contador.diasYCorte().corte
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(dias)").font(.system(size: 38, weight: .heavy, design: .rounded)).foregroundStyle(color)
-                        Text(":").font(.system(size: 28, weight: .heavy, design: .rounded)).foregroundStyle(color.opacity(0.7))
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        Text(String(format: "%02d", dias))
+                        Text(":")
+                        if contador.ceroDelante() { Text("0") }
                         Text(corte, style: .timer)
-                            .font(.system(size: 32, weight: .heavy, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(color)
                     }
-                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(color)
+                    .lineLimit(1).minimumScaleFactor(0.4)
                     HStack(spacing: 0) {
-                        Text("días").frame(maxWidth: .infinity, alignment: .leading)
-                        Text("hrs · min · seg").frame(maxWidth: .infinity, alignment: .trailing)
+                        ForEach(["Días", "Hrs", "Min", "Seg"], id: \.self) { t in
+                            Text(t).frame(maxWidth: .infinity)
+                        }
                     }
-                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(dias)").font(.system(size: 42, weight: .heavy, design: .rounded)).foregroundStyle(color)
