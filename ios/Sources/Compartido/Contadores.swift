@@ -58,6 +58,8 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     /// Se repite cada año (el cumpleaños, la carrera de siempre).
     public var anual: Bool
     public var alPasar: AlPasar
+    /// Avisar en el móvil cuando llegue (notificación local; ver `AvisosDeContadores`).
+    public var aviso: Bool
     /// El evento del que salió, para los de carrera.
     public var eventoId: String?
     public var estilo: EstiloContador
@@ -80,6 +82,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         foto: String? = nil,
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
+        aviso: Bool = false,
         estilo: EstiloContador = .completo,
         usaCartel: Bool = false,
         eventoId: String? = nil,
@@ -96,6 +99,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.foto = foto
         self.anual = anual
         self.alPasar = alPasar
+        self.aviso = aviso
         self.estilo = estilo
         self.usaCartel = usaCartel
         self.eventoId = eventoId
@@ -168,6 +172,7 @@ public extension Contador {
             foto: try c.decodeIfPresent(String.self, forKey: .foto),
             anual: try c.decode(Bool.self, forKey: .anual),
             alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
+            aviso: try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false,
             estilo: try c.decodeIfPresent(EstiloContador.self, forKey: .estilo) ?? .completo,
             usaCartel: try c.decodeIfPresent(Bool.self, forKey: .usaCartel) ?? false,
             eventoId: try c.decodeIfPresent(String.self, forKey: .eventoId),

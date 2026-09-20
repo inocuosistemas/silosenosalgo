@@ -10,7 +10,10 @@ struct VistaContador: View {
     @Environment(\.widgetFamily) private var tamano
 
     var body: some View {
-        if let c = entrada.contador, c.estilo == .compacto, tamano != .systemLarge {
+        if let c = entrada.contador, tamano == .systemLarge {
+            TarjetaGrande(contador: c, ahora: entrada.date, foto: c.foto.flatMap(imagen))
+                .containerBackground(for: .widget) { Color(red: 0.06, green: 0.09, blue: 0.16) }
+        } else if let c = entrada.contador, c.estilo == .compacto {
             // La baldosa de color: el color del contador es el FONDO, no la
             // tinta (ver `TarjetaCompacta`), así que no lleva el fondo de
             // siempre ni el velo de la foto.
@@ -23,9 +26,6 @@ struct VistaContador: View {
                 compacta: tamano == .systemSmall
             )
             .containerBackground(for: .widget) { Color.black }
-        } else if let c = entrada.contador, tamano == .systemLarge {
-            vistaGrande(c)
-                .containerBackground(for: .widget) { Color(red: 0.06, green: 0.09, blue: 0.16) }
         } else if let c = entrada.contador {
             contenido(c)
                 // La foto va de FONDO DEL WIDGET, no como una capa más: una
@@ -168,97 +168,6 @@ struct VistaContador: View {
     /// foto va arriba y el número sobre liso).
     private func conFoto(_ c: Contador) -> Bool {
         tamano == .systemMedium && c.foto.flatMap(imagen) != nil
-    }
-
-    /// El widget GRANDE: el cartel arriba, a sangre y fundiéndose con el fondo;
-    /// encima de esa fundida, su marca, el nombre y la fecha; y debajo, sobre
-    /// liso, "SALIDA EN" y la cuenta atrás a todo el ancho.
-    private func vistaGrande(_ c: Contador) -> some View {
-        let color = Color(hexContador: c.color)
-        let fondo = Color(red: 0.06, green: 0.09, blue: 0.16)
-        let fecha = c.fechaVigente(desde: entrada.date)
-        let pasada = fecha <= entrada.date
-        return GeometryReader { g in
-            let altoCartel = g.size.height * 0.56
-            VStack(spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    if let foto = c.foto, let img = imagen(foto) {
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: g.size.width, height: altoCartel)
-                            .clipped()
-                    } else {
-                        // Sin cartel, su color y su marca: que no se quede en un hueco.
-                        LinearGradient(colors: [color.opacity(0.55), color.opacity(0.12)], startPoint: .top, endPoint: .bottom)
-                        if let emoji = c.emoji {
-                            Group {
-                                if c.origen == .carrera {
-                                    MarcaContador(emoji: emoji, color: color, tam: 92)
-                                } else {
-                                    Text(emoji).font(.system(size: 64))
-                                }
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.bottom, 26)
-                        }
-                    }
-                    // La fundida: el cartel se apaga hacia abajo hasta ser el fondo.
-                    LinearGradient(
-                        stops: [
-                            .init(color: fondo.opacity(0), location: 0.3),
-                            .init(color: fondo.opacity(0.75), location: 0.72),
-                            .init(color: fondo, location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    HStack(alignment: .center, spacing: 8) {
-                        if let emoji = c.emoji, c.foto.flatMap(imagen) != nil {
-                            if c.origen == .carrera {
-                                MarcaContador(emoji: emoji, color: color, tam: 38)
-                            } else {
-                                Text(emoji).font(.system(size: 26))
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(c.nombre)
-                                .font(.system(size: 19, weight: .bold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Text(fecha, format: c.conHora
-                                ? .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
-                                : .dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.75))
-                        }
-                    }
-                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                }
-                .frame(width: g.size.width, height: altoCartel)
-
-                VStack(spacing: 6) {
-                    Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(2)
-                        .foregroundStyle(.white.opacity(0.55))
-                    if pasada {
-                        Text(fecha, style: .timer)
-                            .font(.system(size: 52, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(color)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                            .multilineTextAlignment(.center)
-                    } else {
-                        cuentaAtras(c, hasta: fecha, color: color)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
     }
 
     private func fechaCorta(_ c: Contador) -> Date.FormatStyle {

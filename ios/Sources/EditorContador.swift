@@ -20,6 +20,9 @@ struct EditorContador: View {
 
     /// La paleta: las de la casa y las que uno se ha guardado.
     @State private var muestras: [MuestraColor] = ColoresContador.muestras()
+    /// El permiso de notificaciones, denegado: hay que decirlo o el interruptor
+    /// se apaga solo sin explicación.
+    @State private var sinPermiso = false
 
     private func relleno(_ m: MuestraColor) -> LinearGradient {
         LinearGradient(
@@ -215,6 +218,33 @@ struct EditorContador: View {
                     Text("CÓMO SE VE").font(.caption).foregroundStyle(Theme.slate400)
                 } footer: {
                     Text("Toca un extremo de la barra para elegir su color: con dos distintos, el número va en degradado, y al guardar la combinación se queda en la paleta. La foto sale de fondo en el widget mediano.")
+                        .font(.caption).foregroundStyle(Theme.slate400)
+                }
+                .listRowBackground(Theme.slate900)
+
+                Section {
+                    Toggle("Avisarme cuando llegue", isOn: Binding(
+                        get: { contador.aviso },
+                        set: { quiere in
+                            contador.aviso = quiere
+                            // El permiso se pide AQUÍ, al encenderlo, y no al
+                            // abrir la app: así se entiende para qué es.
+                            if quiere {
+                                Task {
+                                    let vale = await AvisosDeContadores.pidePermiso()
+                                    await MainActor.run { contador.aviso = vale; sinPermiso = !vale }
+                                }
+                            }
+                        }
+                    ))
+                    if sinPermiso {
+                        Text("Las notificaciones están desactivadas para la app. Se activan en Ajustes ▸ SiLoSeNoSalgo ▸ Notificaciones.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                } header: {
+                    Text("AVISO").font(.caption).foregroundStyle(Theme.slate400)
+                } footer: {
+                    Text("Una notificación en este iPhone a la hora exacta. No hace falta tener la app abierta ni cobertura.")
                         .font(.caption).foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)

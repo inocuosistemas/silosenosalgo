@@ -1,0 +1,139 @@
+import SwiftUI
+import UIKit
+
+/**
+ El contador GRANDE: el cartel arriba a sangre, fundiéndose con el fondo, y
+ debajo la cuenta atrás a todo el ancho. Es el montaje de la tarjeta de «Mis
+ carreras» de la app, que es donde nació.
+
+ Vive en `Compartido` —y no dentro del widget— por dos razones: la app lo
+ enseña como vista previa, y así se puede pintar en una prueba. Lo que vive
+ solo en el widget no se puede mirar sin instalarlo en un iPhone.
+ */
+public struct TarjetaGrande: View {
+    public let contador: Contador
+    public let ahora: Date
+    public let foto: UIImage?
+
+    public init(contador: Contador, ahora: Date = Date(), foto: UIImage? = nil) {
+        self.contador = contador
+        self.ahora = ahora
+        self.foto = foto
+    }
+
+    private var fondo: Color { Color(red: 0.06, green: 0.09, blue: 0.16) }
+
+    public var body: some View {
+        let c = contador
+        let color = Color(hexContador: c.color)
+        let fecha = c.fechaVigente(desde: ahora)
+        let pasada = fecha <= ahora
+        GeometryReader { g in
+            let altoCartel = g.size.height * 0.56
+            VStack(spacing: 0) {
+                ZStack(alignment: .bottomLeading) {
+                    if let foto {
+                        Image(uiImage: foto)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: g.size.width, height: altoCartel)
+                            .clipped()
+                    } else {
+                        // Sin cartel, su color y su marca: que no se quede en un hueco.
+                        LinearGradient(
+                            colors: [color.opacity(0.55), color.opacity(0.12)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        if let emoji = c.emoji {
+                            marca(emoji, color, 92)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .padding(.bottom, 26)
+                        }
+                    }
+                    // La fundida: el cartel se apaga hacia abajo hasta ser el fondo.
+                    LinearGradient(
+                        stops: [
+                            .init(color: fondo.opacity(0), location: 0.3),
+                            .init(color: fondo.opacity(0.75), location: 0.72),
+                            .init(color: fondo, location: 1),
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    HStack(alignment: .center, spacing: 8) {
+                        if let emoji = c.emoji, foto != nil {
+                            marca(emoji, color, 38)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(c.nombre)
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Text(fecha, format: c.conHora
+                                ? .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
+                                : .dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+                .frame(width: g.size.width, height: altoCartel)
+
+                VStack(spacing: 6) {
+                    Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(2)
+                        .foregroundStyle(.white.opacity(0.55))
+                    numero(c, fecha: fecha, pasada: pasada, color: color)
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func marca(_ emoji: String, _ color: Color, _ tam: CGFloat) -> some View {
+        if contador.origen == .carrera {
+            MarcaContador(emoji: emoji, color: color, tam: tam)
+        } else {
+            Text(emoji).font(.system(size: tam * 0.7))
+        }
+    }
+
+    @ViewBuilder
+    private func numero(_ c: Contador, fecha: Date, pasada: Bool, color: Color) -> some View {
+        if pasada {
+            Text(fecha, style: .timer)
+                .font(.system(size: 52, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .multilineTextAlignment(.center)
+        } else if c.estilo == .completo && c.conHora {
+            let (dias, corte) = c.diasYCorte(desde: ahora)
+            NumeroCuentaAtras(
+                dias: dias, corte: corte, prefijoHoras: c.prefijoHoras(desde: ahora),
+                color: color, cuerpo: 60, etiqueta: 11, colorEtiqueta: .white.opacity(0.55),
+                degradado: c.color2.map { (c.color, $0) }
+            )
+        } else {
+            // El compacto, aquí, son los días en grande y ya está: la baldosa de
+            // color no pega debajo de un cartel.
+            let cuenta = TarjetaCompacta.cuenta(hasta: fecha, desde: ahora)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(cuenta.dias)")
+                    .font(.system(size: 62, weight: .heavy))
+                    .foregroundStyle(color)
+                Text(cuenta.dias == 1 ? "día" : "días")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+        }
+    }
+}

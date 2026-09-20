@@ -52,6 +52,7 @@ enum ContadoresDeCarreras {
                 // El día de la carrera el contador no desaparece: pasa a contar
                 // el tiempo que llevas corriendo, que es lo que se quiere ver.
                 alPasar: previo?.alPasar ?? .contarArriba,
+                aviso: previo?.aviso ?? false,
                 estilo: previo?.estilo ?? .completo,
                 usaCartel: conCartel,
                 eventoId: ev.id,
@@ -62,6 +63,7 @@ enum ContadoresDeCarreras {
         let propios = antes.filter { $0.origen == .propio }
         AlmacenContadores.guarda(deCarrera + propios)
         RefrescoDeWidgets.pide()
+        AvisosDeContadores.reprograma()
 
         // Los carteles que falten en el cajón compartido (el primero, o uno que
         // la organización ha cambiado) se copian ahora, sin hacer esperar a
@@ -88,6 +90,7 @@ enum ContadoresDeCarreras {
         let deCarrera = AlmacenContadores.lee().contadores.filter { $0.origen == .carrera }
         AlmacenContadores.guarda(deCarrera + propios)
         RefrescoDeWidgets.pide()
+        AvisosDeContadores.reprograma()
     }
 
     /// Cambia el aspecto de un contador de carrera (color, emoji, cartel).
@@ -99,6 +102,7 @@ enum ContadoresDeCarreras {
         todos[i] = c
         AlmacenContadores.guarda(todos)
         RefrescoDeWidgets.pide()
+        AvisosDeContadores.reprograma()
     }
 }
 
