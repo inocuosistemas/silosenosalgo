@@ -138,9 +138,6 @@ struct TarjetaContador: View {
         let dias = Int(faltan / 86_400)
         let horas = Int((faltan - Double(dias) * 86_400) / 3600)
         return ZStack(alignment: .topLeading) {
-            if let foto = contador.foto, let img = UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(foto).path) {
-                Image(uiImage: img).resizable().scaledToFill().overlay(Color.black.opacity(0.55))
-            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {
@@ -173,8 +170,18 @@ struct TarjetaContador: View {
             }
             .padding(14)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 140)
-        .background(Theme.slate900)
+        // La foto, DETRÁS y recortada a la tarjeta: puesta como una capa más,
+        // crecía a su tamaño y tapaba el nombre y el número.
+        .background {
+            if let foto = contador.foto,
+               let img = UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(foto).path) {
+                Image(uiImage: img).resizable().scaledToFill().overlay(Color.black.opacity(0.6))
+            } else {
+                Theme.slate900
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /**
  Los contadores de MIS CARRERAS, para el widget.
@@ -30,6 +31,11 @@ enum ContadoresDeCarreras {
             guard !ev.isOver, let inicio = ev.startsAt else { return nil }
             let fecha = Date(timeIntervalSince1970: inicio / 1000)
             let previo = porEvento[ev.id]
+            // El cartel de fondo, de entrada, si la carrera lo tiene: es lo que
+            // hace que el widget se reconozca de un vistazo. Quien haya elegido
+            // otra cosa (su foto, o ninguna) se queda con lo suyo.
+            let conCartel = previo?.usaCartel ?? (ev.hasPhoto == true)
+            let cartel = conCartel ? CartelesDeContadores.nombre(de: ev) : nil
             return Contador(
                 id: previo?.id ?? "carrera-\(ev.id)",
                 origen: .carrera,
@@ -38,11 +44,15 @@ enum ContadoresDeCarreras {
                 conHora: true,
                 color: previo?.aspectoPropio == true ? previo!.color : ColoresContador.hex(deSlug: ev.myColor),
                 emoji: previo?.aspectoPropio == true ? previo!.emoji : ev.myEmoji,
-                foto: previo?.foto,
+                // Con cartel, su fichero (si ya está copiado; si no, se copia
+                // ahora mismo, más abajo, y se vuelve a guardar).
+                foto: conCartel ? (cartel.flatMap { CartelesDeContadores.existe($0) ? $0 : nil }) : previo?.foto,
                 anual: false,
                 // El día de la carrera el contador no desaparece: pasa a contar
                 // el tiempo que llevas corriendo, que es lo que se quiere ver.
                 alPasar: previo?.alPasar ?? .contarArriba,
+                estilo: previo?.estilo ?? .completo,
+                usaCartel: conCartel,
                 eventoId: ev.id,
                 aspectoPropio: previo?.aspectoPropio ?? false
             )
@@ -51,6 +61,25 @@ enum ContadoresDeCarreras {
         let propios = antes.filter { $0.origen == .propio }
         AlmacenContadores.guarda(deCarrera + propios)
         RefrescoDeWidgets.pide()
+
+        // Los carteles que falten en el cajón compartido (el primero, o uno que
+        // la organización ha cambiado) se copian ahora, sin hacer esperar a
+        // nadie, y el contador se guarda otra vez con su foto.
+        let pendientes = eventos.filter { ev in
+            deCarrera.contains { $0.eventoId == ev.id && $0.usaCartel && $0.foto == nil }
+        }
+        guard !pendientes.isEmpty else { return }
+        Task {
+            for ev in pendientes { _ = await CartelesDeContadores.copia(ev) }
+            var todos = AlmacenContadores.lee().contadores
+            for i in todos.indices where todos[i].usaCartel {
+                guard let ev = pendientes.first(where: { $0.id == todos[i].eventoId }) else { continue }
+                let nombre = CartelesDeContadores.nombre(de: ev)
+                if CartelesDeContadores.existe(nombre) { todos[i].foto = nombre }
+            }
+            AlmacenContadores.guarda(todos)
+            RefrescoDeWidgets.pide()
+        }
     }
 
     /// Guarda los contadores propios (los de carrera se dejan como están).
@@ -69,5 +98,48 @@ enum ContadoresDeCarreras {
         todos[i] = c
         AlmacenContadores.guarda(todos)
         RefrescoDeWidgets.pide()
+    }
+}
+
+/**
+ El cartel de una carrera, copiado al cajón compartido para el widget.
+
+ El cartel ya lo guarda la app (`FotosDeCarrera`), pero en SU carpeta, que el
+ widget no puede leer, y a tamaño completo, que al widget le sobra: tiene muy
+ poca memoria y una imagen grande lo tumba. Aquí va reducido, con la versión en
+ el nombre para que un cartel nuevo sustituya al viejo.
+ */
+enum CartelesDeContadores {
+    static func nombre(de ev: EventSummary) -> String {
+        "cartel-\(ev.id)-\(Int64(ev.photoAt ?? 0)).jpg"
+    }
+
+    static func existe(_ nombre: String) -> Bool {
+        FileManager.default.fileExists(atPath: AlmacenContadores.fotos.appendingPathComponent(nombre).path)
+    }
+
+    /// Baja (o lee de la caché) el cartel, lo reduce y lo deja en el cajón
+    /// compartido. Devuelve el nombre del fichero, o nil si la carrera no tiene.
+    @discardableResult
+    static func copia(_ ev: EventSummary) async -> String? {
+        guard let img = await FotosDeCarrera.carga(ev) else { return nil }
+        let lado: CGFloat = 800
+        let escala = min(1, lado / max(img.size.width, img.size.height))
+        let tamano = CGSize(width: img.size.width * escala, height: img.size.height * escala)
+        let formato = UIGraphicsImageRendererFormat.default()
+        formato.scale = 1
+        let pequena = UIGraphicsImageRenderer(size: tamano, format: formato).image { _ in
+            img.draw(in: CGRect(origin: .zero, size: tamano))
+        }
+        guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return nil }
+        let destino = nombre(de: ev)
+        // Fuera los carteles anteriores de esta carrera.
+        let carpeta = AlmacenContadores.fotos
+        let viejos = (try? FileManager.default.contentsOfDirectory(at: carpeta, includingPropertiesForKeys: nil)) ?? []
+        for v in viejos where v.lastPathComponent.hasPrefix("cartel-\(ev.id)-") && v.lastPathComponent != destino {
+            try? FileManager.default.removeItem(at: v)
+        }
+        try? jpeg.write(to: carpeta.appendingPathComponent(destino), options: .atomic)
+        return destino
     }
 }

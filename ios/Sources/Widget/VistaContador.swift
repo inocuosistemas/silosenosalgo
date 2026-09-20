@@ -10,6 +10,11 @@ struct VistaContador: View {
     var body: some View {
         if let c = entrada.contador {
             contenido(c)
+                // La foto va de FONDO DEL WIDGET, no como una capa más: una
+                // imagen a "rellenar" metida entre el contenido crece a su
+                // tamaño y lo tapa o lo empuja todo. Como fondo, el contenido
+                // se coloca igual que sin foto y la imagen se recorta sola.
+                .containerBackground(for: .widget) { fondo(c) }
         } else {
             VStack(spacing: 4) {
                 Text("Sin carreras")
@@ -20,6 +25,21 @@ struct VistaContador: View {
                     .multilineTextAlignment(.center)
             }
             .padding(8)
+            .containerBackground(for: .widget) { Color.black }
+        }
+    }
+
+    @ViewBuilder
+    private func fondo(_ c: Contador) -> some View {
+        if tamano == .systemMedium, let foto = c.foto, let img = imagen(foto) {
+            // Oscurecida: es fondo, no protagonista. Lo que se tiene que leer
+            // de un vistazo es el número.
+            Image(uiImage: img)
+                .resizable()
+                .scaledToFill()
+                .overlay(Color.black.opacity(0.6))
+        } else {
+            Color.black
         }
     }
 
@@ -28,14 +48,6 @@ struct VistaContador: View {
         let fecha = c.fechaVigente(desde: entrada.date)
         let pasada = fecha <= entrada.date
         return ZStack(alignment: .topLeading) {
-            if tamano == .systemMedium, let foto = c.foto, let img = imagen(foto) {
-                // El cartel, oscurecido: es fondo, no protagonista. Lo que se
-                // tiene que leer de un vistazo es el número.
-                Image(uiImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .overlay(Color.black.opacity(0.55))
-            }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {

@@ -18,6 +18,57 @@ struct EditorContador: View {
 
     private var esDeCarrera: Bool { contador.origen == .carrera }
 
+    /// De dónde sale el fondo de un contador de carrera.
+    private enum Fondo: Hashable { case cartel, propia, ninguno }
+    /// Si se ha pedido "una foto mía" y aún no se ha elegido: sin esto, elegirla
+    /// en el desplegable volvía sola a "sin foto" porque todavía no hay fichero.
+    @State private var quierePropia = false
+
+    /// La carrera de este contador, para su cartel.
+    private var evento: EventSummary? {
+        guard let id = contador.eventoId else { return nil }
+        return TrackingStore.shared.events.first { $0.id == id }
+    }
+    private var tieneCartel: Bool { evento?.hasPhoto == true }
+
+    private var fondo: Binding<Fondo> {
+        Binding(
+            get: {
+                if contador.usaCartel { return .cartel }
+                return (contador.foto != nil || quierePropia) ? .propia : .ninguno
+            },
+            set: { nuevo in
+                switch nuevo {
+                case .cartel:
+                    quierePropia = false
+                    quitaFotoPropia()
+                    contador.usaCartel = true
+                    if let ev = evento {
+                        let nombre = CartelesDeContadores.nombre(de: ev)
+                        if CartelesDeContadores.existe(nombre) { contador.foto = nombre }
+                        else { Task { if let n = await CartelesDeContadores.copia(ev) { await MainActor.run { contador.foto = n } } } }
+                    }
+                case .propia:
+                    contador.usaCartel = false
+                    if contador.foto?.hasPrefix("cartel-") == true { contador.foto = nil }
+                    quierePropia = true
+                case .ninguno:
+                    quierePropia = false
+                    contador.usaCartel = false
+                    quitaFotoPropia()
+                    contador.foto = nil
+                }
+            }
+        )
+    }
+
+    /// Borra la foto propia del disco (el cartel no: es de la carrera y se reutiliza).
+    private func quitaFotoPropia() {
+        guard let foto = contador.foto, !foto.hasPrefix("cartel-") else { return }
+        try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(foto))
+        contador.foto = nil
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -80,11 +131,26 @@ struct EditorContador: View {
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
-                    PhotosPicker(selection: $foto, matching: .images) {
-                        Label(contador.foto == nil ? "Poner una foto de fondo" : "Cambiar la foto", systemImage: "photo")
-                    }
-                    if contador.foto != nil {
-                        Button(role: .destructive) { quitaFoto() } label: { Text("Quitar la foto") }
+                    if esDeCarrera && tieneCartel {
+                        // En una carrera el fondo se ELIGE entre tres: su
+                        // cartel (que ya está bajado), una foto de uno, o nada.
+                        Picker("Fondo", selection: fondo) {
+                            Text("El cartel de la carrera").tag(Fondo.cartel)
+                            Text("Una foto mía").tag(Fondo.propia)
+                            Text("Sin foto").tag(Fondo.ninguno)
+                        }
+                        if !contador.usaCartel && fondo.wrappedValue == .propia {
+                            PhotosPicker(selection: $foto, matching: .images) {
+                                Label(contador.foto == nil ? "Elegir la foto" : "Cambiar la foto", systemImage: "photo")
+                            }
+                        }
+                    } else {
+                        PhotosPicker(selection: $foto, matching: .images) {
+                            Label(contador.foto == nil ? "Poner una foto de fondo" : "Cambiar la foto", systemImage: "photo")
+                        }
+                        if contador.foto != nil {
+                            Button(role: .destructive) { quitaFoto() } label: { Text("Quitar la foto") }
+                        }
                     }
                 } header: {
                     Text("CÓMO SE VE").font(.caption).foregroundStyle(Theme.slate400)
@@ -134,12 +200,17 @@ struct EditorContador: View {
         let lado: CGFloat = 800
         let escala = min(1, lado / max(img.size.width, img.size.height))
         let tamano = CGSize(width: img.size.width * escala, height: img.size.height * escala)
-        let render = UIGraphicsImageRenderer(size: tamano)
+        // A escala 1: el formato por defecto multiplica por la densidad de la
+        // pantalla, y los 800 puntos salían 2400 píxeles — justo lo que se
+        // quería evitarle al widget.
+        let formato = UIGraphicsImageRendererFormat.default()
+        formato.scale = 1
+        let render = UIGraphicsImageRenderer(size: tamano, format: formato)
         let pequena = render.image { _ in img.draw(in: CGRect(origin: .zero, size: tamano)) }
         guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return }
         let nombre = "\(contador.id).jpg"
         try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
-        await MainActor.run { contador.foto = nombre }
+        await MainActor.run { contador.usaCartel = false; contador.foto = nombre }
     }
 
     private func quitaFoto() {

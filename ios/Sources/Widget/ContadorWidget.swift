@@ -87,8 +87,8 @@ struct ContadorWidget: Widget {
             intent: ElegirContadorIntent.self,
             provider: ProveedorContadores()
         ) { entrada in
+            // El fondo lo pone la propia vista: depende del contador (su foto).
             VistaContador(entrada: entrada)
-                .containerBackground(for: .widget) { Color.black }
         }
         .configurationDisplayName("Cuenta atrás")
         .description("Lo que falta para tu carrera, o para lo que tú quieras.")

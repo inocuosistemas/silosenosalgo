@@ -58,6 +58,9 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     /// El evento del que salió, para los de carrera.
     public var eventoId: String?
     public var estilo: EstiloContador
+    /// De fondo va el CARTEL de la carrera (solo los de carrera). La app lo
+    /// copia al cajón compartido, reducido, y lo renueva si el cartel cambia.
+    public var usaCartel: Bool
     /// Si alguien ha tocado su aspecto: entonces la sincronización con el
     /// servidor respeta el color y el emoji elegidos.
     public var aspectoPropio: Bool
@@ -74,6 +77,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
         estilo: EstiloContador = .completo,
+        usaCartel: Bool = false,
         eventoId: String? = nil,
         aspectoPropio: Bool = false
     ) {
@@ -88,6 +92,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.anual = anual
         self.alPasar = alPasar
         self.estilo = estilo
+        self.usaCartel = usaCartel
         self.eventoId = eventoId
         self.aspectoPropio = aspectoPropio
     }
@@ -154,6 +159,7 @@ public extension Contador {
             anual: try c.decode(Bool.self, forKey: .anual),
             alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
             estilo: try c.decodeIfPresent(EstiloContador.self, forKey: .estilo) ?? .completo,
+            usaCartel: try c.decodeIfPresent(Bool.self, forKey: .usaCartel) ?? false,
             eventoId: try c.decodeIfPresent(String.self, forKey: .eventoId),
             aspectoPropio: try c.decode(Bool.self, forKey: .aspectoPropio)
         )
