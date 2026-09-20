@@ -65,7 +65,7 @@ struct VistaContador: View {
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                 } else {
-                    cuentaAtras(hasta: fecha, color: color, conHora: c.conHora)
+                    cuentaAtras(c, hasta: fecha, color: color)
                 }
             }
             .padding(tamano == .systemMedium ? 14 : 11)
@@ -75,10 +75,39 @@ struct VistaContador: View {
     /// El número grande: el reloj del sistema en el último día, y los días y
     /// las horas escritos antes (ver `ContadorWidget`).
     @ViewBuilder
-    private func cuentaAtras(hasta fecha: Date, color: Color, conHora: Bool) -> some View {
+    private func cuentaAtras(_ c: Contador, hasta fecha: Date, color: Color) -> some View {
         let faltan = fecha.timeIntervalSince(entrada.date)
+        let conHora = c.conHora
         VStack(alignment: .leading, spacing: 1) {
-            if faltan <= 24 * 3600 && conHora {
+            if c.estilo == .completo && conHora && faltan > 24 * 3600 {
+                // DÍAS : HH:MM:SS, con los segundos corriendo. El truco está en
+                // el corte (ver `diasYCorte`): el reloj del sistema cuenta
+                // hasta la MISMA hora de la carrera del día que falta, así que
+                // lo que enseña es justo las horas, minutos y segundos del día
+                // a medias. Los días son texto, y bajan solos porque la tanda
+                // siguiente se pide en ese corte.
+                let (dias, corte) = c.diasYCorte(desde: entrada.date)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("\(dias)")
+                        .font(.system(size: tamano == .systemMedium ? 40 : 30, weight: .heavy, design: .rounded))
+                        .foregroundStyle(color)
+                    Text(":")
+                        .font(.system(size: tamano == .systemMedium ? 30 : 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(color.opacity(0.7))
+                    Text(corte, style: .timer)
+                        .font(.system(size: tamano == .systemMedium ? 34 : 24, weight: .heavy, design: .rounded))
+                        .foregroundStyle(color)
+                        .monospacedDigit()
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                HStack(spacing: 0) {
+                    Text("días").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("hrs · min · seg").frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+            } else if faltan <= 24 * 3600 && conHora {
                 Text(fecha, style: .timer)
                     .font(.system(size: tamano == .systemMedium ? 44 : 32, weight: .heavy, design: .rounded))
                     .foregroundStyle(color)

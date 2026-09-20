@@ -155,12 +155,31 @@ struct TarjetaContador: View {
                     if let emoji = contador.emoji { Text(emoji).font(.system(size: 24)) }
                 }
                 Spacer(minLength: 6)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("\(dias)").font(.system(size: 42, weight: .heavy, design: .rounded)).foregroundStyle(color)
-                    Text(dias == 1 ? "día" : "días").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
-                    if contador.conHora { Text("\(horas) h").font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
+                // La misma cuenta que el widget, para que elegir sea ver.
+                if contador.estilo == .completo && contador.conHora && faltan > 24 * 3600 {
+                    let corte = contador.diasYCorte().corte
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(dias)").font(.system(size: 38, weight: .heavy, design: .rounded)).foregroundStyle(color)
+                        Text(":").font(.system(size: 28, weight: .heavy, design: .rounded)).foregroundStyle(color.opacity(0.7))
+                        Text(corte, style: .timer)
+                            .font(.system(size: 32, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(color)
+                    }
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    HStack(spacing: 0) {
+                        Text("días").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("hrs · min · seg").frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(dias)").font(.system(size: 42, weight: .heavy, design: .rounded)).foregroundStyle(color)
+                        Text(dias == 1 ? "día" : "días").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+                        if contador.conHora { Text("\(horas) h").font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
+                    }
+                    .lineLimit(1).minimumScaleFactor(0.6)
                 }
-                .lineLimit(1).minimumScaleFactor(0.6)
             }
             .padding(14)
         }

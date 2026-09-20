@@ -74,6 +74,12 @@ struct EditorContador: View {
                         .frame(width: 60)
                         .font(.system(size: 22))
                     }
+                    Picker("Número", selection: $contador.estilo) {
+                        Text("Días, horas, minutos y segundos").tag(EstiloContador.completo)
+                        Text("Días y horas").tag(EstiloContador.compacto)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                     PhotosPicker(selection: $foto, matching: .images) {
                         Label(contador.foto == nil ? "Poner una foto de fondo" : "Cambiar la foto", systemImage: "photo")
                     }
@@ -83,7 +89,7 @@ struct EditorContador: View {
                 } header: {
                     Text("CÓMO SE VE").font(.caption).foregroundStyle(Theme.slate400)
                 } footer: {
-                    Text("La foto sale de fondo en el widget mediano.")
+                    Text("Con los segundos, el widget los cuenta solo. La foto sale de fondo en el widget mediano.")
                         .font(.caption).foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)

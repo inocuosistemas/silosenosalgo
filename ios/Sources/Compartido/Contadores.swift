@@ -28,6 +28,14 @@ public enum AlPasar: String, Codable, CaseIterable, Sendable {
     case contarArriba
 }
 
+/// Cómo se enseña el número.
+public enum EstiloContador: String, Codable, CaseIterable, Sendable {
+    /// "12 días 8 h": lo que se lee de un vistazo desde la otra punta de la mesa.
+    case compacto
+    /// "12 : 02:37:25", con los segundos corriendo (ver `VistaContador`).
+    case completo
+}
+
 public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public enum Origen: String, Codable, Sendable { case carrera, propio }
 
@@ -49,6 +57,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public var alPasar: AlPasar
     /// El evento del que salió, para los de carrera.
     public var eventoId: String?
+    public var estilo: EstiloContador
     /// Si alguien ha tocado su aspecto: entonces la sincronización con el
     /// servidor respeta el color y el emoji elegidos.
     public var aspectoPropio: Bool
@@ -64,6 +73,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         foto: String? = nil,
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
+        estilo: EstiloContador = .completo,
         eventoId: String? = nil,
         aspectoPropio: Bool = false
     ) {
@@ -77,8 +87,21 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.foto = foto
         self.anual = anual
         self.alPasar = alPasar
+        self.estilo = estilo
         self.eventoId = eventoId
         self.aspectoPropio = aspectoPropio
+    }
+
+    /// Los días enteros que faltan, y el momento en que ese número baja: la
+    /// misma hora de la carrera, un día antes. Es lo que permite enseñar los
+    /// segundos corriendo sin pintar el widget cada segundo —el reloj del
+    /// sistema cuenta hasta ahí solo— y cambiar el número de días cuando toca.
+    public func diasYCorte(desde ahora: Date = Date()) -> (dias: Int, corte: Date) {
+        let fecha = fechaVigente(desde: ahora)
+        let faltan = fecha.timeIntervalSince(ahora)
+        guard faltan > 0 else { return (0, fecha) }
+        let dias = Int(faltan / 86_400)
+        return (dias, fecha.addingTimeInterval(-Double(dias) * 86_400))
     }
 
     /// La fecha que cuenta AHORA: la suya, o la del año que viene si es anual y
@@ -97,6 +120,28 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     /// Si todavía tiene algo que enseñar: no ha pasado, o cuenta hacia arriba.
     public func vigente(_ ahora: Date = Date()) -> Bool {
         alPasar == .contarArriba || fechaVigente(desde: ahora) > ahora
+    }
+}
+
+public extension Contador {
+    /// Los guardados antes de que existiera el estilo entran como `completo`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id),
+            origen: try c.decode(Origen.self, forKey: .origen),
+            nombre: try c.decode(String.self, forKey: .nombre),
+            fecha: try c.decode(Date.self, forKey: .fecha),
+            conHora: try c.decode(Bool.self, forKey: .conHora),
+            color: try c.decode(String.self, forKey: .color),
+            emoji: try c.decodeIfPresent(String.self, forKey: .emoji),
+            foto: try c.decodeIfPresent(String.self, forKey: .foto),
+            anual: try c.decode(Bool.self, forKey: .anual),
+            alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
+            estilo: try c.decodeIfPresent(EstiloContador.self, forKey: .estilo) ?? .completo,
+            eventoId: try c.decodeIfPresent(String.self, forKey: .eventoId),
+            aspectoPropio: try c.decode(Bool.self, forKey: .aspectoPropio)
+        )
     }
 }
 
