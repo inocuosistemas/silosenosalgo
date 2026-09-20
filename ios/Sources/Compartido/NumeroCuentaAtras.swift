@@ -69,16 +69,35 @@ public struct NumeroCuentaAtras: View {
             let centros = (0..<4).map { i in x0 + CGFloat(i) * (par + colon) + par / 2 }
             let altoCifras = f.lineHeight
             VStack(spacing: 0) {
+                // Cada pieza, con su ancho MEDIDO y no el que ella pida. En un
+                // widget el reloj del sistema reserva mucho más ancho del que
+                // pinta (el del texto más largo que podría llegar a enseñar) y
+                // se dibuja pegado a la izquierda de ese hueco: dejándole
+                // elegir, la fila salía más ancha que la tarjeta y el número
+                // entero se iba a la izquierda, fuera de sus etiquetas. En la
+                // app no pasa, así que ahí se veía bien y en el widget no.
+                let anchoPrefijo = prefijoHoras.isEmpty ? 0 : Self.ancho(prefijoHoras, f)
+                let anchoReloj = 3 * par + 2 * colon - anchoPrefijo
                 HStack(spacing: 0) {
                     Text(String(format: "%02d", dias))
+                        .frame(width: par, alignment: .center)
                     Text(":")
-                    Text(prefijoHoras)
+                        .frame(width: colon, alignment: .center)
+                    if !prefijoHoras.isEmpty {
+                        Text(prefijoHoras)
+                            .frame(width: anchoPrefijo, alignment: .leading)
+                    }
                     Text(corte, style: .timer)
+                        .multilineTextAlignment(.leading)
+                        // Un pelo de holgura a la derecha: si el reloj midiera
+                        // medio punto más que la cuenta, se cortaría con "…".
+                        .frame(width: anchoReloj + 4, alignment: .leading)
                 }
                 .font(Font(f))
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .fixedSize()
+                .frame(width: total + 4, height: altoCifras, alignment: .leading)
+                .offset(x: 2)
                 .frame(width: w, height: altoCifras)
                 ZStack {
                     ForEach(Array(["Días", "Hrs", "Min", "Seg"].enumerated()), id: \.offset) { i, t in
