@@ -89,10 +89,22 @@ echo "▸ 2/4 copiando el visor a la app…"
 #          include the Push Notifications capability.
 #
 # Y ese comodín es parte del problema: un App ID comodín NO admite push, así que
-# hace falta que Xcode cree el perfil explícito del bundle id. Con la clave
-# puesta lo hace solo.
+# hace falta que Xcode cree el perfil explícito del bundle id.
+#
+# OJO, y esto costó una tarde: la clave de la API sirve para SUBIR, pero no para
+# que Xcode cree perfiles. Pasándosela al archivado, además, PISA la cuenta que
+# haya en Xcode ▸ Settings ▸ Accounts y el archivado se cae con:
+#
+#   error: Authentication failed: Make sure a bearer token was provided...
+#   error: Provisioning profile "iOS Team Provisioning Profile: *" doesn't
+#          include the App Groups capability.
+#
+# (Salió al añadir el widget, que es un App ID nuevo y necesitaba perfil nuevo.)
+# Así que el ARCHIVADO va con la cuenta de Xcode y la clave se reserva para el
+# paso de subir. Si algún día no hubiera cuenta, se le puede devolver la clave
+# al archivado con SUBIDA_FIRMA_CON_CLAVE=1.
 autent=()
-if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+if [ "${SUBIDA_FIRMA_CON_CLAVE:-0}" = "1" ] && [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
   claveASC="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8}"
   if [ -f "$claveASC" ]; then
     autent=(-authenticationKeyPath "$claveASC" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
