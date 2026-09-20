@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { enlaceDeVista, type PestanaEvento, type VistaEvento } from '../lib/vistaEvento'
 
 /**
@@ -9,9 +10,10 @@ import { enlaceDeVista, type PestanaEvento, type VistaEvento } from '../lib/vist
  * toque normal cambia de sección sin recargar la página.
  *
  * En un móvil no caben todas, y una barra cortada al ras parece completa: la
- * última pestaña entera invita a quedarse ahí. Por eso el lado por el que
- * sigue habiendo secciones se DIFUMINA —el contenido se apaga contra el borde—
- * y el difuminado desaparece al llegar al final.
+ * última pestaña entera invita a quedarse ahí. Así que el lado por el que
+ * quedan secciones lleva una FLECHA, con su difuminado detrás, y pulsarla
+ * desplaza la barra. Un difuminado solo no bastaba: caía justo en el hueco
+ * entre dos pestañas —fondo sobre fondo— y no se veía nada.
  */
 export function EventNav({ eventId, pestanas, actual, onIr }: {
   eventId: string
@@ -53,6 +55,13 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
     return () => ro.disconnect()
   }, [mira])
 
+  /** Desplaza la barra la mitad de lo que se ve, en el sentido que se pida. */
+  const desplaza = (signo: 1 | -1) => {
+    const caja = fila.current
+    if (!caja) return
+    caja.scrollBy({ left: signo * Math.max(120, caja.clientWidth * 0.6), behavior: 'smooth' })
+  }
+
   return (
     <div className="relative">
       <nav
@@ -84,22 +93,33 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
           </a>
         ))}
       </nav>
-      {/* Los difuminados, por encima y sin estorbar al dedo. Estrechos y a
-          medio gas: lo que tiene que verse es la pestaña siguiente ASOMANDO
-          —eso es lo que dice "hay más"—, y un velo ancho y opaco la tapaba
-          entera, que es justo lo contrario. */}
-      <div
-        aria-hidden
-        className={`pointer-events-none absolute inset-y-0 left-0 w-5 rounded-l-xl bg-gradient-to-r from-slate-900 via-slate-900/50 to-transparent transition-opacity ${
-          bordes.izq ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
-      <div
-        aria-hidden
-        className={`pointer-events-none absolute inset-y-0 right-0 w-5 rounded-r-xl bg-gradient-to-l from-slate-900 via-slate-900/50 to-transparent transition-opacity ${
-          bordes.der ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
+      {/* Las flechas: solo del lado por el que queda barra. */}
+      {bordes.izq && <Flecha lado="izq" onIr={() => desplaza(-1)} />}
+      {bordes.der && <Flecha lado="der" onIr={() => desplaza(1)} />}
     </div>
+  )
+}
+
+/**
+ * La flecha de un borde: dice que la barra sigue y lleva a la siguiente
+ * tanda. Con su velo detrás para que las pestañas no se le peguen —van
+ * pasando por debajo— y con área de dedo aunque el dibujo sea pequeño.
+ */
+function Flecha({ lado, onIr }: { lado: 'izq' | 'der'; onIr: () => void }) {
+  const der = lado === 'der'
+  return (
+    <button
+      type="button"
+      onClick={onIr}
+      aria-label={der ? 'Ver más secciones' : 'Volver a las anteriores'}
+      className={`absolute inset-y-0 grid w-9 place-items-center ${der ? 'right-0 justify-items-end rounded-r-xl pr-0.5' : 'left-0 justify-items-start rounded-l-xl pl-0.5'}`}
+      style={{
+        background: `linear-gradient(to ${der ? 'left' : 'right'}, rgb(15 23 42) 45%, rgb(15 23 42 / 0.85) 70%, transparent)`,
+      }}
+    >
+      <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-800 text-slate-300 shadow ring-1 ring-slate-600">
+        {der ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+      </span>
+    </button>
   )
 }
