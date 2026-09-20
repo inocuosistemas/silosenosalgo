@@ -26,11 +26,15 @@ public struct NumeroCuentaAtras: View {
     public let cuerpo: CGFloat
     public let etiqueta: CGFloat
     public let colorEtiqueta: Color
+    /// Va encima de una foto: las cifras llevan halo oscuro y las etiquetas van
+    /// en blanco, para leerse sobre cualquier cosa.
+    public let sobreFoto: Bool
 
     public init(
         dias: Int, corte: Date, prefijoHoras: String, color: Color,
-        cuerpo: CGFloat, etiqueta: CGFloat, colorEtiqueta: Color
+        cuerpo: CGFloat, etiqueta: CGFloat, colorEtiqueta: Color, sobreFoto: Bool = false
     ) {
+        self.sobreFoto = sobreFoto
         self.dias = dias
         self.corte = corte
         self.prefijoHoras = prefijoHoras
@@ -41,11 +45,11 @@ public struct NumeroCuentaAtras: View {
     }
 
     /// La fuente de las cifras: la del sistema tal cual (sin redondear) y en
-    /// seminegra, con cifras de ancho fijo — que es lo que hace que cada par
+    /// negrita, con cifras de ancho fijo — que es lo que hace que cada par
     /// ocupe siempre lo mismo y las etiquetas caigan en su sitio. Redonda y
     /// gruesa, que fue lo primero, quedaba tosca al lado de la referencia.
     static func fuente(_ tam: CGFloat) -> UIFont {
-        UIFont.monospacedDigitSystemFont(ofSize: tam, weight: .semibold)
+        UIFont.monospacedDigitSystemFont(ofSize: tam, weight: .bold)
     }
 
     private static func ancho(_ texto: String, _ f: UIFont) -> CGFloat {
@@ -98,12 +102,19 @@ public struct NumeroCuentaAtras: View {
                 .lineLimit(1)
                 .frame(width: total + 4, height: altoCifras, alignment: .leading)
                 .offset(x: 2)
+                // Sobre una foto, dos sombras: una pegada que hace de filo y
+                // otra ancha que hace de halo. Un color sobre una foto
+                // cualquiera no se lee sin algo oscuro alrededor, por mucho
+                // que se oscurezca la foto: siempre hay una zona clara.
+                .shadow(color: .black.opacity(sobreFoto ? 0.9 : 0), radius: 1, x: 0, y: 1)
+                .shadow(color: .black.opacity(sobreFoto ? 0.7 : 0), radius: 6, x: 0, y: 0)
                 .frame(width: w, height: altoCifras)
                 ZStack {
                     ForEach(Array(["Días", "Hrs", "Min", "Seg"].enumerated()), id: \.offset) { i, t in
                         Text(t)
                             .font(.system(size: etiqueta, weight: .semibold))
-                            .foregroundStyle(colorEtiqueta)
+                            .foregroundStyle(sobreFoto ? Color.white.opacity(0.9) : colorEtiqueta)
+                            .shadow(color: .black.opacity(sobreFoto ? 0.9 : 0), radius: 2, x: 0, y: 1)
                             .position(x: centros[i], y: etiqueta * 0.7)
                     }
                 }

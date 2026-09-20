@@ -32,12 +32,7 @@ struct VistaContador: View {
     @ViewBuilder
     private func fondo(_ c: Contador) -> some View {
         if tamano == .systemMedium, let foto = c.foto, let img = imagen(foto) {
-            // Oscurecida: es fondo, no protagonista. Lo que se tiene que leer
-            // de un vistazo es el número.
-            Image(uiImage: img)
-                .resizable()
-                .scaledToFill()
-                .overlay(Color.black.opacity(0.6))
+            FondoDeFoto(imagen: img)
         } else {
             Color.black
         }
@@ -104,7 +99,8 @@ struct VistaContador: View {
                     color: color,
                     cuerpo: tamano == .systemMedium ? 56 : 34,
                     etiqueta: tamano == .systemMedium ? 10 : 9,
-                    colorEtiqueta: .secondary
+                    colorEtiqueta: .secondary,
+                    sobreFoto: tamano == .systemMedium && c.foto.flatMap(imagen) != nil
                 )
             } else if faltan <= 24 * 3600 && conHora {
                 Text(fecha, style: .timer)

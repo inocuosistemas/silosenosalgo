@@ -157,7 +157,8 @@ struct TarjetaContador: View {
                     let corte = contador.diasYCorte().corte
                     NumeroCuentaAtras(
                         dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(),
-                        color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6)
+                        color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6),
+                        sobreFoto: contador.foto != nil
                     )
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -177,7 +178,7 @@ struct TarjetaContador: View {
         .background {
             if let foto = contador.foto,
                let img = UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(foto).path) {
-                Image(uiImage: img).resizable().scaledToFill().overlay(Color.black.opacity(0.6))
+                FondoDeFoto(imagen: img)
             } else {
                 Theme.slate900
             }
