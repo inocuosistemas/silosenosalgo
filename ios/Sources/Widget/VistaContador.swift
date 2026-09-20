@@ -24,7 +24,7 @@ struct VistaContador: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-            .padding(8)
+            .padding(16)
             .containerBackground(for: .widget) { Color.black }
         }
     }
@@ -75,7 +75,10 @@ struct VistaContador: View {
                     cuentaAtras(c, hasta: fecha, color: color)
                 }
             }
-            .padding(tamano == .systemMedium ? 14 : 11)
+            // Con los márgenes del sistema quitados (ver `ContadorWidget`),
+            // este es TODO el margen: el de la tarjeta de referencia.
+            .padding(.horizontal, tamano == .systemMedium ? 16 : 13)
+            .padding(.vertical, tamano == .systemMedium ? 14 : 12)
         }
     }
 
@@ -97,7 +100,8 @@ struct VistaContador: View {
                 NumeroCuentaAtras(
                     dias: dias, corte: corte, prefijoHoras: c.prefijoHoras(desde: entrada.date),
                     color: color,
-                    cuerpo: tamano == .systemMedium ? 56 : 34,
+                    // El tope; la vista lo baja hasta que el número llene el ancho.
+                    cuerpo: tamano == .systemMedium ? 68 : 38,
                     etiqueta: tamano == .systemMedium ? 10 : 9,
                     colorEtiqueta: .secondary,
                     sobreFoto: tamano == .systemMedium && c.foto.flatMap(imagen) != nil

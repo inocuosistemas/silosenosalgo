@@ -90,6 +90,11 @@ struct ContadorWidget: Widget {
             // El fondo lo pone la propia vista: depende del contador (su foto).
             VistaContador(entrada: entrada)
         }
+        // Sin los márgenes que pone el sistema: sumados a los nuestros dejaban
+        // la tarjeta con el doble de aire que la de referencia, y el número,
+        // que es lo que se mira, más pequeño de lo que cabía. El margen lo pone
+        // la vista, uno solo y ajustado.
+        .contentMarginsDisabled()
         .configurationDisplayName("Cuenta atrás")
         .description("Lo que falta para tu carrera, o para lo que tú quieras.")
         .supportedFamilies([.systemSmall, .systemMedium])
