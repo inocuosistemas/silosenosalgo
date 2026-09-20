@@ -705,8 +705,6 @@ struct TrackingView: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
-                    } header: {
-                        cabecera("Mis carreras", "flag.checkered")
                         // La cuenta atrás de la pantalla de inicio: se
                         // entra por aquí porque es de las carreras de lo que
                         // habla, y el widget se pone desde la pantalla de
@@ -717,6 +715,8 @@ struct TrackingView: View {
                             Label("Cuenta atrás y widget", systemImage: "timer")
                         }
                         .listRowBackground(Theme.slate900)
+                    } header: {
+                        cabecera("Mis carreras", "flag.checkered")
                     } footer: {
                         Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu ruta. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
                             .font(.caption).foregroundStyle(Theme.slate400)
