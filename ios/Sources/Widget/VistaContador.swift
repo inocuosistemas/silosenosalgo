@@ -87,28 +87,13 @@ struct VistaContador: View {
                 // a medias. Los días son texto, y bajan solos porque la tanda
                 // siguiente se pide en ese corte.
                 let (dias, corte) = c.diasYCorte(desde: entrada.date)
-                let cuerpo: CGFloat = tamano == .systemMedium ? 40 : 27
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text(String(format: "%02d", dias))
-                    Text(":")
-                    // El cero de las horas lo ponemos nosotros: el reloj del
-                    // sistema escribe "7:48:38" y aquí se quiere "07:48:38".
-                    if c.ceroDelante(desde: entrada.date) { Text("0") }
-                    Text(corte, style: .timer)
-                }
-                .font(.system(size: cuerpo, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
-                // Una etiqueta por columna, repartidas, como en un marcador.
-                HStack(spacing: 0) {
-                    ForEach(["Días", "Hrs", "Min", "Seg"], id: \.self) { t in
-                        Text(t).frame(maxWidth: .infinity)
-                    }
-                }
-                .font(.system(size: tamano == .systemMedium ? 10 : 9, weight: .semibold))
-                .foregroundStyle(.secondary)
+                NumeroCuentaAtras(
+                    dias: dias, corte: corte, prefijoHoras: c.prefijoHoras(desde: entrada.date),
+                    color: color,
+                    cuerpo: tamano == .systemMedium ? 56 : 34,
+                    etiqueta: tamano == .systemMedium ? 10 : 9,
+                    colorEtiqueta: .secondary
+                )
             } else if faltan <= 24 * 3600 && conHora {
                 Text(fecha, style: .timer)
                     .font(.system(size: tamano == .systemMedium ? 44 : 32, weight: .heavy, design: .rounded))

@@ -104,15 +104,19 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         return (dias, fecha.addingTimeInterval(-Double(dias) * 86_400))
     }
 
-    /// Si al reloj del sistema hay que ponerle un cero delante: enseña "7:48:38"
-    /// y el formato de la referencia es "07:48:38".
+    /// Lo que hay que escribir DELANTE del reloj del sistema para que lleve
+    /// siempre dos cifras de horas: "7:48:38" tiene que leerse "07:48:38", y
+    /// con menos de una hora el reloj deja de escribir las horas ("48:38") y
+    /// hay que ponerle el "00:".
     ///
     /// Dentro de una misma tanda las horas solo BAJAN, así que mirarlas una vez
-    /// vale para toda la tanda: si ahora quedan menos de diez horas hasta el
-    /// corte, va a seguir siendo así hasta que el número de días baje. Y si
-    /// quedan más, se pide tanda nueva justo al cruzar las diez.
-    func ceroDelante(desde ahora: Date = Date()) -> Bool {
-        diasYCorte(desde: ahora).corte.timeIntervalSince(ahora) < 10 * 3600
+    /// vale para toda la tanda; los cambios de prefijo (a las diez horas y a la
+    /// una) piden tanda nueva (ver `ContadorWidget`).
+    public func prefijoHoras(desde ahora: Date = Date()) -> String {
+        let faltan = diasYCorte(desde: ahora).corte.timeIntervalSince(ahora)
+        if faltan < 3600 { return "00:" }
+        if faltan < 10 * 3600 { return "0" }
+        return ""
     }
 
     /// La fecha que cuenta AHORA: la suya, o la del año que viene si es anual y

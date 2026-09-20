@@ -1,0 +1,96 @@
+import SwiftUI
+import UIKit
+
+/**
+ El número de la cuenta atrás: `12:07:37:11`, con cada par encima de su
+ etiqueta (Días · Hrs · Min · Seg), como en un marcador.
+
+ Lo que obliga a medir: las horas, los minutos y los segundos los pinta el
+ RELOJ DEL SISTEMA (`Text(style: .timer)`), que es una sola pieza de texto y no
+ se puede partir en tres columnas. Así que se hace al revés: se mide lo que
+ ocupan dos cifras y un dos puntos con la fuente de verdad, se elige el tamaño
+ que llena el ancho, y las etiquetas se ponen justo debajo del centro de cada
+ par. Centrar a ojo dejaba los números fuera de sus etiquetas.
+
+ La misma vista la usan el widget y la tarjeta de la app, para que lo que se
+ elige sea lo que se ve.
+ */
+public struct NumeroCuentaAtras: View {
+    public let dias: Int
+    /// Hasta cuándo cuenta el reloj del sistema: la misma hora, el día que falta.
+    public let corte: Date
+    /// Lo que va delante del reloj para que las horas lleven dos cifras.
+    public let prefijoHoras: String
+    public let color: Color
+    /// El tamaño MÁXIMO de las cifras: se baja hasta que el número quepa.
+    public let cuerpo: CGFloat
+    public let etiqueta: CGFloat
+    public let colorEtiqueta: Color
+
+    public init(
+        dias: Int, corte: Date, prefijoHoras: String, color: Color,
+        cuerpo: CGFloat, etiqueta: CGFloat, colorEtiqueta: Color
+    ) {
+        self.dias = dias
+        self.corte = corte
+        self.prefijoHoras = prefijoHoras
+        self.color = color
+        self.cuerpo = cuerpo
+        self.etiqueta = etiqueta
+        self.colorEtiqueta = colorEtiqueta
+    }
+
+    /// La fuente de las cifras: redonda, gruesa y con cifras de ancho fijo,
+    /// que es lo que hace que cada par ocupe siempre lo mismo.
+    static func fuente(_ tam: CGFloat) -> UIFont {
+        let base = UIFont.monospacedDigitSystemFont(ofSize: tam, weight: .heavy)
+        let desc = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
+        return UIFont(descriptor: desc, size: tam)
+    }
+
+    private static func ancho(_ texto: String, _ f: UIFont) -> CGFloat {
+        (texto as NSString).size(withAttributes: [.font: f]).width
+    }
+
+    public var body: some View {
+        GeometryReader { g in
+            let w = g.size.width
+            // Medido a tamaño base y escalado: las anchuras crecen con el cuerpo.
+            let base = Self.fuente(cuerpo)
+            let par0 = Self.ancho("00", base)
+            let colon0 = Self.ancho(":", base)
+            let total0 = 4 * par0 + 3 * colon0
+            let tam = min(cuerpo, cuerpo * (w / total0))
+            let f = Self.fuente(tam)
+            let par = Self.ancho("00", f)
+            let colon = Self.ancho(":", f)
+            let total = 4 * par + 3 * colon
+            let x0 = (w - total) / 2
+            let centros = (0..<4).map { i in x0 + CGFloat(i) * (par + colon) + par / 2 }
+            let altoCifras = f.lineHeight
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Text(String(format: "%02d", dias))
+                    Text(":")
+                    Text(prefijoHoras)
+                    Text(corte, style: .timer)
+                }
+                .font(Font(f))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: w, height: altoCifras)
+                ZStack {
+                    ForEach(Array(["Días", "Hrs", "Min", "Seg"].enumerated()), id: \.offset) { i, t in
+                        Text(t)
+                            .font(.system(size: etiqueta, weight: .semibold))
+                            .foregroundStyle(colorEtiqueta)
+                            .position(x: centros[i], y: etiqueta * 0.7)
+                    }
+                }
+                .frame(width: w, height: etiqueta * 1.4)
+            }
+        }
+        .frame(height: cuerpo * 1.2 + etiqueta * 1.4)
+    }
+}
