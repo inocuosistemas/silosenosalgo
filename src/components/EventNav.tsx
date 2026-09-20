@@ -63,12 +63,13 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
   }
 
   return (
-    <div className="relative">
+    <div className="flex items-stretch">
+      {bordes.izq && <Flecha lado="izq" onIr={() => desplaza(-1)} />}
       <nav
         ref={fila}
         aria-label="Secciones del evento"
         onScroll={mira}
-        className="flex items-stretch gap-1 overflow-x-auto p-1 scrollbar-fantasma"
+        className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto p-1 scrollbar-fantasma"
       >
         {pestanas.map((p) => (
           <a
@@ -93,8 +94,6 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
           </a>
         ))}
       </nav>
-      {/* Las flechas: solo del lado por el que queda barra. */}
-      {bordes.izq && <Flecha lado="izq" onIr={() => desplaza(-1)} />}
       {bordes.der && <Flecha lado="der" onIr={() => desplaza(1)} />}
     </div>
   )
@@ -102,8 +101,9 @@ export function EventNav({ eventId, pestanas, actual, onIr }: {
 
 /**
  * La flecha de un borde: dice que la barra sigue y lleva a la siguiente
- * tanda. Con su velo detrás para que las pestañas no se le peguen —van
- * pasando por debajo— y con área de dedo aunque el dibujo sea pequeño.
+ * tanda. En su propia columna, al lado de la barra y no encima: flotando
+ * sobre la última pestaña parecía todo amontonado en el borde. La raya la
+ * separa de las pestañas, como en una barra de herramientas.
  */
 function Flecha({ lado, onIr }: { lado: 'izq' | 'der'; onIr: () => void }) {
   const der = lado === 'der'
@@ -112,14 +112,11 @@ function Flecha({ lado, onIr }: { lado: 'izq' | 'der'; onIr: () => void }) {
       type="button"
       onClick={onIr}
       aria-label={der ? 'Ver más secciones' : 'Volver a las anteriores'}
-      className={`absolute inset-y-0 grid w-9 place-items-center ${der ? 'right-0 justify-items-end rounded-r-xl pr-0.5' : 'left-0 justify-items-start rounded-l-xl pl-0.5'}`}
-      style={{
-        background: `linear-gradient(to ${der ? 'left' : 'right'}, rgb(15 23 42) 45%, rgb(15 23 42 / 0.85) 70%, transparent)`,
-      }}
+      className={`grid w-8 shrink-0 place-items-center text-slate-400 transition-colors hover:text-slate-200 ${
+        der ? 'rounded-r-xl border-l border-slate-800' : 'rounded-l-xl border-r border-slate-800'
+      }`}
     >
-      <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-800 text-slate-300 shadow ring-1 ring-slate-600">
-        {der ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-      </span>
+      {der ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
     </button>
   )
 }
