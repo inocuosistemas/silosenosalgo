@@ -131,6 +131,39 @@ private struct FilaContador: View {
     }
 }
 
+/// Las DOS maneras de verlo, una al lado de la otra, para elegir mirándolas:
+/// la baldosa de color con los días en grande y el marcador con los segundos
+/// corriendo. La elegida lleva su aro.
+struct ElectorDeEstilo: View {
+    @Binding var contador: Contador
+
+    var body: some View {
+        HStack(spacing: 10) {
+            opcion(.compacto)
+            opcion(.completo)
+        }
+    }
+
+    private func opcion(_ estilo: EstiloContador) -> some View {
+        var muestra = contador
+        muestra.estilo = estilo
+        return VStack(spacing: 6) {
+            TarjetaContador(contador: muestra)
+                .frame(height: 118)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(.white, lineWidth: contador.estilo == estilo ? 2 : 0)
+                )
+            Text(estilo == .compacto ? "Días" : "Con segundos")
+                .font(.caption2)
+                .foregroundStyle(contador.estilo == estilo ? Theme.slate100 : Theme.slate400)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { contador.estilo = estilo }
+    }
+}
+
 /// La tarjeta, igual que en el widget: es lo que se está eligiendo.
 struct TarjetaContador: View {
     let contador: Contador
@@ -146,6 +179,28 @@ struct TarjetaContador: View {
     }
 
     private func tarjeta(ahora: Date) -> some View {
+        Group {
+            if contador.estilo == .compacto {
+                let f = contador.fechaVigente(desde: ahora)
+                let cuenta = TarjetaCompacta.cuenta(hasta: f, desde: ahora)
+                TarjetaCompacta(
+                    nombre: contador.nombre, dias: cuenta.dias, horas: cuenta.horas, pasada: cuenta.pasada,
+                    fecha: f, conHora: contador.conHora,
+                    color: contador.color, color2: contador.color2, emoji: contador.emoji,
+                    conAro: contador.origen == .carrera,
+                    foto: contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) },
+                    compacta: false
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                completa(ahora: ahora)
+            }
+        }
+    }
+
+    private func completa(ahora: Date) -> some View {
         let color = Color(hexContador: contador.color)
         let fecha = contador.fechaVigente(desde: ahora)
         let pasada = fecha <= ahora
@@ -197,7 +252,8 @@ struct TarjetaContador: View {
                     NumeroCuentaAtras(
                         dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(desde: ahora),
                         color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6),
-                        sobreFoto: contador.foto != nil
+                        sobreFoto: contador.foto != nil,
+                        degradado: contador.color2.map { (contador.color, $0) }
                     )
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {

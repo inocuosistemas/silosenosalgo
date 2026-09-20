@@ -49,6 +49,9 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public var conHora: Bool
     /// Color en hexadecimal (`#7c3aed`), el de su marca en el evento si lo hay.
     public var color: String
+    /// El segundo color, si el número va en DEGRADADO (de `color` a este, de
+    /// izquierda a derecha). Nil = un solo color.
+    public var color2: String?
     public var emoji: String?
     /// El fichero de la foto dentro del contenedor compartido, si tiene.
     public var foto: String?
@@ -72,6 +75,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         fecha: Date,
         conHora: Bool = true,
         color: String = "#7c3aed",
+        color2: String? = nil,
         emoji: String? = nil,
         foto: String? = nil,
         anual: Bool = false,
@@ -87,6 +91,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.fecha = fecha
         self.conHora = conHora
         self.color = color
+        self.color2 = color2
         self.emoji = emoji
         self.foto = foto
         self.anual = anual
@@ -158,6 +163,7 @@ public extension Contador {
             fecha: try c.decode(Date.self, forKey: .fecha),
             conHora: try c.decode(Bool.self, forKey: .conHora),
             color: try c.decode(String.self, forKey: .color),
+            color2: try c.decodeIfPresent(String.self, forKey: .color2),
             emoji: try c.decodeIfPresent(String.self, forKey: .emoji),
             foto: try c.decodeIfPresent(String.self, forKey: .foto),
             anual: try c.decode(Bool.self, forKey: .anual),

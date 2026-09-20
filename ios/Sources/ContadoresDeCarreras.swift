@@ -43,6 +43,7 @@ enum ContadoresDeCarreras {
                 fecha: fecha,
                 conHora: true,
                 color: previo?.aspectoPropio == true ? previo!.color : ColoresContador.hex(deSlug: ev.myColor),
+                color2: previo?.aspectoPropio == true ? previo!.color2 : nil,
                 emoji: previo?.aspectoPropio == true ? previo!.emoji : ev.myEmoji,
                 // Con cartel, su fichero (si ya está copiado; si no, se copia
                 // ahora mismo, más abajo, y se vuelve a guardar).

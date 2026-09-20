@@ -10,7 +10,20 @@ struct VistaContador: View {
     @Environment(\.widgetFamily) private var tamano
 
     var body: some View {
-        if let c = entrada.contador, tamano == .systemLarge {
+        if let c = entrada.contador, c.estilo == .compacto, tamano != .systemLarge {
+            // La baldosa de color: el color del contador es el FONDO, no la
+            // tinta (ver `TarjetaCompacta`), así que no lleva el fondo de
+            // siempre ni el velo de la foto.
+            let cuenta = TarjetaCompacta.cuenta(hasta: c.fechaVigente(desde: entrada.date), desde: entrada.date)
+            TarjetaCompacta(
+                nombre: c.nombre, dias: cuenta.dias, horas: cuenta.horas, pasada: cuenta.pasada,
+                fecha: c.fechaVigente(desde: entrada.date), conHora: c.conHora,
+                color: c.color, color2: c.color2, emoji: c.emoji, conAro: c.origen == .carrera,
+                foto: tamano == .systemMedium ? c.foto.flatMap(imagen) : nil,
+                compacta: tamano == .systemSmall
+            )
+            .containerBackground(for: .widget) { Color.black }
+        } else if let c = entrada.contador, tamano == .systemLarge {
             vistaGrande(c)
                 .containerBackground(for: .widget) { Color(red: 0.06, green: 0.09, blue: 0.16) }
         } else if let c = entrada.contador {
@@ -117,7 +130,8 @@ struct VistaContador: View {
                     cuerpo: tamano == .systemSmall ? 38 : 68,
                     etiqueta: tamano == .systemSmall ? 9 : (tamano == .systemLarge ? 11 : 10),
                     colorEtiqueta: .secondary,
-                    sobreFoto: conFoto(c)
+                    sobreFoto: conFoto(c),
+                    degradado: c.color2.map { (c.color, $0) }
                 )
             } else if faltan <= 24 * 3600 && conHora {
                 Text(fecha, style: .timer)

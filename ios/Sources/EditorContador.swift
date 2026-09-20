@@ -18,6 +18,38 @@ struct EditorContador: View {
 
     private var esDeCarrera: Bool { contador.origen == .carrera }
 
+    /// La paleta: las de la casa y las que uno se ha guardado.
+    @State private var muestras: [MuestraColor] = ColoresContador.muestras()
+
+    private func relleno(_ m: MuestraColor) -> LinearGradient {
+        LinearGradient(
+            colors: [Color(hexContador: m.a), Color(hexContador: m.b ?? m.a)],
+            startPoint: .leading, endPoint: .trailing
+        )
+    }
+
+    private func elegida(_ m: MuestraColor) -> Bool {
+        contador.color.lowercased() == m.a.lowercased() && contador.color2?.lowercased() == m.b?.lowercased()
+    }
+
+    private var colorA: Binding<Color> {
+        Binding(
+            get: { Color(hexContador: contador.color) },
+            set: { contador.color = ColoresContador.hex(de: $0) }
+        )
+    }
+
+    private var colorB: Binding<Color> {
+        Binding(
+            get: { Color(hexContador: contador.color2 ?? contador.color) },
+            set: { nuevo in
+                let hex = ColoresContador.hex(de: nuevo)
+                // El mismo en las dos puntas no es un degradado.
+                contador.color2 = hex.lowercased() == contador.color.lowercased() ? nil : hex
+            }
+        )
+    }
+
     /// De dónde sale el fondo de un contador de carrera.
     private enum Fondo: Hashable { case cartel, propia, ninguno }
     /// Si se ha pedido "una foto mía" y aún no se ha elegido: sin esto, elegirla
@@ -73,7 +105,8 @@ struct EditorContador: View {
         NavigationStack {
             List {
                 Section {
-                    TarjetaContador(contador: contador)
+                    // Las dos maneras de verlo: se elige tocando la que gusta.
+                    ElectorDeEstilo(contador: $contador)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowBackground(Color.clear)
                 }
@@ -97,26 +130,54 @@ struct EditorContador: View {
 
                 Section {
                     // El color, en una fila: se elige mirando la tarjeta de
-                    // arriba, no leyendo un nombre.
+                    // arriba, no leyendo un nombre. Detrás de los de la casa,
+                    // las combinaciones que uno se ha ido guardando.
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(ColoresContador.paleta, id: \.self) { hex in
-                                Button { contador.color = hex } label: {
+                        HStack(spacing: 6) {
+                            ForEach(muestras, id: \.self) { m in
+                                Button {
+                                    contador.color = m.a
+                                    contador.color2 = m.b
+                                } label: {
                                     Circle()
-                                        .fill(Color(hexContador: hex))
+                                        .fill(relleno(m))
                                         .frame(width: 28, height: 28)
                                         // El elegido, con un aro POR FUERA y un
                                         // hueco en medio: pegado al borde no se
                                         // veía en el blanco, que es blanco.
                                         .padding(4)
-                                        .overlay(
-                                            Circle().stroke(.white, lineWidth: contador.color == hex ? 2 : 0)
-                                        )
+                                        .overlay(Circle().stroke(.white, lineWidth: elegida(m) ? 2 : 0))
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    if ColoresContador.guardadas().contains(m) {
+                                        Button(role: .destructive) {
+                                            ColoresContador.olvida(m)
+                                            muestras = ColoresContador.muestras()
+                                        } label: { Label("Quitar esta muestra", systemImage: "trash") }
+                                    }
+                                }
                             }
                         }
                         .padding(.vertical, 4)
+                    }
+                    // El degradado: un color en cada punta. Iguales, un solo
+                    // color; distintos, el número se funde de uno a otro.
+                    HStack(spacing: 10) {
+                        ColorPicker("Color de inicio", selection: colorA, supportsOpacity: false)
+                            .labelsHidden()
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [Color(hexContador: contador.color), Color(hexContador: contador.color2 ?? contador.color)],
+                                startPoint: .leading, endPoint: .trailing
+                            ))
+                            .frame(height: 30)
+                        ColorPicker("Color de fin", selection: colorB, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    if contador.color2 != nil {
+                        Button("Un solo color") { contador.color2 = nil }
+                            .font(.footnote)
                     }
                     HStack {
                         Text("Icono")
@@ -129,12 +190,6 @@ struct EditorContador: View {
                         .frame(width: 60)
                         .font(.system(size: 22))
                     }
-                    Picker("Número", selection: $contador.estilo) {
-                        Text("Días, horas, minutos y segundos").tag(EstiloContador.completo)
-                        Text("Días y horas").tag(EstiloContador.compacto)
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
                     if esDeCarrera && tieneCartel {
                         // En una carrera el fondo se ELIGE entre tres: su
                         // cartel (que ya está bajado), una foto de uno, o nada.
@@ -159,7 +214,7 @@ struct EditorContador: View {
                 } header: {
                     Text("CÓMO SE VE").font(.caption).foregroundStyle(Theme.slate400)
                 } footer: {
-                    Text("Con los segundos, el widget los cuenta solo. La foto sale de fondo en el widget mediano.")
+                    Text("Toca un extremo de la barra para elegir su color: con dos distintos, el número va en degradado, y al guardar la combinación se queda en la paleta. La foto sale de fondo en el widget mediano.")
                         .font(.caption).foregroundStyle(Theme.slate400)
                 }
                 .listRowBackground(Theme.slate900)
@@ -185,7 +240,12 @@ struct EditorContador: View {
                     Button("Cancelar") { alTerminar(nil); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") { alTerminar(contador); dismiss() }
+                    Button("Guardar") {
+                        // Lo que se ha montado a mano se queda en la paleta,
+                        // para la próxima cuenta atrás.
+                        ColoresContador.recuerda(MuestraColor(a: contador.color, b: contador.color2))
+                        alTerminar(contador); dismiss()
+                    }
                         .disabled(!esDeCarrera && contador.nombre.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }

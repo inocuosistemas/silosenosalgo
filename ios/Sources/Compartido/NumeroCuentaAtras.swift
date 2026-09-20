@@ -29,12 +29,16 @@ public struct NumeroCuentaAtras: View {
     /// Va encima de una foto: las cifras llevan halo oscuro y las etiquetas van
     /// en blanco, para leerse sobre cualquier cosa.
     public let sobreFoto: Bool
+    /// Los dos colores del degradado, en hexadecimal; nil = un solo color.
+    public let degradado: (String, String)?
 
     public init(
         dias: Int, corte: Date, prefijoHoras: String, color: Color,
-        cuerpo: CGFloat, etiqueta: CGFloat, colorEtiqueta: Color, sobreFoto: Bool = false
+        cuerpo: CGFloat, etiqueta: CGFloat, colorEtiqueta: Color, sobreFoto: Bool = false,
+        degradado: (String, String)? = nil
     ) {
         self.sobreFoto = sobreFoto
+        self.degradado = degradado
         self.dias = dias
         self.corte = corte
         self.prefijoHoras = prefijoHoras
@@ -82,16 +86,29 @@ public struct NumeroCuentaAtras: View {
                 // app no pasa, así que ahí se veía bien y en el widget no.
                 let anchoPrefijo = prefijoHoras.isEmpty ? 0 : Self.ancho(prefijoHoras, f)
                 let anchoReloj = 3 * par + 2 * colon - anchoPrefijo
+                // A cada pieza, su trozo del degradado (ver `ColoresContador.mezcla`).
+                let tramo = { (desde: CGFloat, hasta: CGFloat) -> AnyShapeStyle in
+                    guard let d = degradado else { return AnyShapeStyle(color) }
+                    return AnyShapeStyle(LinearGradient(
+                        colors: [ColoresContador.mezcla(d.0, d.1, desde / total), ColoresContador.mezcla(d.0, d.1, hasta / total)],
+                        startPoint: .leading, endPoint: .trailing
+                    ))
+                }
+                let xReloj = par + colon + anchoPrefijo
                 HStack(spacing: 0) {
                     Text(String(format: "%02d", dias))
                         .frame(width: par, alignment: .center)
+                        .foregroundStyle(tramo(0, par))
                     Text(":")
                         .frame(width: colon, alignment: .center)
+                        .foregroundStyle(tramo(par, par + colon))
                     if !prefijoHoras.isEmpty {
                         Text(prefijoHoras)
                             .frame(width: anchoPrefijo, alignment: .leading)
+                            .foregroundStyle(tramo(par + colon, xReloj))
                     }
                     Text(corte, style: .timer)
+                        .foregroundStyle(tramo(xReloj, total))
                         .multilineTextAlignment(.leading)
                         // Un pelo de holgura a la derecha: si el reloj midiera
                         // medio punto más que la cuenta, se cortaría con "…".
