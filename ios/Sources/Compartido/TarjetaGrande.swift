@@ -16,6 +16,12 @@ public struct TarjetaGrande: View {
     public let foto: UIImage?
     /// Lo que mide el widget grande. Se pasa en vez de mirarlo con un
     /// `GeometryReader`: ahí dentro el reloj del sistema deja de correr.
+    ///
+    /// Es una REFERENCIA, no un corsé: da el alto del cartel y el ancho del
+    /// número, pero la tarjeta se estira a lo que haya. Clavándole este tamaño,
+    /// en un móvil más ancho que el de referencia la tarjeta salía metida hacia
+    /// dentro, con su margen oscuro alrededor y sus esquinas en pico, en vez de
+    /// llegar al borde y redondearse con el widget.
     public let tamano: CGSize
 
     public init(
@@ -42,7 +48,8 @@ public struct TarjetaGrande: View {
                         Image(uiImage: foto)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: tamano.width, height: altoCartel)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: altoCartel)
                             .clipped()
                     } else {
                         // Sin cartel, su color y su marca: que no se quede en un hueco.
@@ -85,7 +92,9 @@ public struct TarjetaGrande: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
                 }
-                .frame(width: tamano.width, height: altoCartel)
+                .frame(maxWidth: .infinity)
+                .frame(height: altoCartel)
+                .clipped()
 
                 VStack(spacing: 6) {
                     Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
@@ -97,7 +106,7 @@ public struct TarjetaGrande: View {
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: tamano.width, height: tamano.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
