@@ -41,66 +41,41 @@ public struct TarjetaGrande: View {
         let color = Color(hexContador: c.color)
         let fecha = c.fechaVigente(desde: ahora)
         let pasada = fecha <= ahora
+        // Hasta dónde llega el TÍTULO: la banda de siempre.
         let altoCartel = tamano.height * 0.56
-        return VStack(spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    if let foto {
-                        // La foto va DENTRO de un hueco del tamaño de la banda,
-                        // no al revés. `scaledToFill` la hace más ancha que la
-                        // tarjeta y `clipped` solo recorta lo que se PINTA, no
-                        // lo que mide: dejándola mandar, toda la banda medía lo
-                        // que la foto y el título se iba fuera por la izquierda.
-                        Color.clear
-                            .frame(maxWidth: .infinity)
-                            .frame(height: altoCartel)
-                            .overlay { Image(uiImage: foto).resizable().scaledToFill() }
-                            .clipped()
-                    } else {
-                        // Sin cartel, su color y su marca: que no se quede en un hueco.
-                        LinearGradient(
-                            colors: [color.opacity(0.55), color.opacity(0.12)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        if let emoji = c.emoji {
-                            marca(emoji, color, 92)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.bottom, 26)
-                        }
+        // Y hasta dónde llega la FOTO, que es más abajo: sigue por detrás del
+        // rótulo y se apaga del todo justo encima de los números. Cortándola
+        // donde acaba el título, la tarjeta se partía en dos mitades —foto
+        // arriba, gris liso abajo— y se veía la costura.
+        let altoFoto = tamano.height * 0.68
+        return ZStack(alignment: .top) {
+            // La foto, de fondo y a lo alto, con su fundida encima.
+            fondoDeCartel(color: color, alto: altoFoto)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+            VStack(spacing: 0) {
+                // El título, abajo del todo de su banda.
+                HStack(alignment: .center, spacing: 8) {
+                    if let emoji = c.emoji, foto != nil {
+                        marca(emoji, color, 38)
                     }
-                    // La fundida: el cartel se apaga hacia abajo hasta ser el fondo.
-                    LinearGradient(
-                        stops: [
-                            .init(color: fondo.opacity(0), location: 0.3),
-                            .init(color: fondo.opacity(0.75), location: 0.72),
-                            .init(color: fondo, location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    HStack(alignment: .center, spacing: 8) {
-                        if let emoji = c.emoji, foto != nil {
-                            marca(emoji, color, 38)
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(c.nombre)
-                                .font(.system(size: 19, weight: .bold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Text(fecha, format: c.conHora
-                                ? .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
-                                : .dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.75))
-                        }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(c.nombre)
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(fecha, format: c.conHora
+                            ? .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
+                            : .dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.75))
                     }
-                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                    // Pegado a la izquierda pase lo que pase.
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: altoCartel)
-                .clipped()
+                .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: altoCartel, alignment: .bottom)
 
                 VStack(spacing: 6) {
                     Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
@@ -111,8 +86,59 @@ public struct TarjetaGrande: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+    }
+
+    /// La foto (o el color, si no hay) y la fundida que la apaga hacia abajo.
+    ///
+    /// Las paradas van en fracción de la CARTA, no de la foto, y se convierten
+    /// aquí: lo que importa es dónde queda cada cosa en la tarjeta —el título
+    /// sobre algo que ya está oscuro, y el sólido justo antes del número—, no a
+    /// qué altura de la banda cae.
+    @ViewBuilder
+    private func fondoDeCartel(color: Color, alto: CGFloat) -> some View {
+        let enLaFoto = { (deLaCarta: CGFloat) in min(1, deLaCarta * tamano.height / alto) }
+        ZStack {
+            if let foto {
+                // La foto va DENTRO de un hueco del tamaño de la banda, no al
+                // revés. `scaledToFill` la hace más ancha que la tarjeta y
+                // `clipped` solo recorta lo que se PINTA, no lo que mide:
+                // dejándola mandar, toda la banda medía lo que la foto.
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: alto)
+                    .overlay { Image(uiImage: foto).resizable().scaledToFill() }
+                    .clipped()
+            } else {
+                // Sin cartel, su color y su marca: que no se quede en un hueco.
+                LinearGradient(
+                    colors: [color.opacity(0.55), color.opacity(0.12)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                if let emoji = contador.emoji {
+                    marca(emoji, color, 92)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.bottom, tamano.height * 0.18)
+                }
+            }
+            // La fundida: limpia arriba, ya oscura donde va el título, y sólida
+            // del todo justo encima del número.
+            LinearGradient(
+                stops: [
+                    .init(color: fondo.opacity(0), location: enLaFoto(0.30)),
+                    .init(color: fondo.opacity(0.62), location: enLaFoto(0.53)),
+                    .init(color: fondo, location: enLaFoto(0.66)),
+                    .init(color: fondo, location: 1),
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: alto)
+        .clipped()
     }
 
     @ViewBuilder
