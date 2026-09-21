@@ -134,11 +134,16 @@ struct RecortadorDeFoto: View {
     /// La foto recortada a lo que se ve en el marco.
     private func recorta() -> UIImage {
         let marco = self.marco == .zero ? CGSize(width: 320, height: 320 / proporcion) : self.marco
+        return Self.recorta(imagen, marco: marco, escala: escala, movida: movida)
+    }
+
+    /// La foto recortada al trozo que se ve por el marco.
+    static func recorta(_ imagen: UIImage, marco: CGSize, escala: CGFloat, movida: CGSize) -> UIImage {
         // Derecha con la orientación: una foto de la cámara viene girada y
         // recortar sobre sus píxeles a lo bruto saca otro trozo.
         let derecha = derechaArriba(imagen)
-        let rect = Self.trozoVisible(foto: derecha.size, marco: marco, escala: escala, movida: movida)
-        guard let cg = derecha.cgImage?.cropping(to: rect.integral) else { return derecha }
+        let rect = trozoVisible(foto: derecha.size, marco: marco, escala: escala, movida: movida)
+        guard !rect.isEmpty, let cg = derecha.cgImage?.cropping(to: rect.integral) else { return derecha }
         return UIImage(cgImage: cg)
     }
 
@@ -163,7 +168,7 @@ struct RecortadorDeFoto: View {
         return rect.intersection(CGRect(origin: .zero, size: foto))
     }
 
-    private func derechaArriba(_ img: UIImage) -> UIImage {
+    private static func derechaArriba(_ img: UIImage) -> UIImage {
         guard img.imageOrientation != .up else { return img }
         let formato = UIGraphicsImageRendererFormat.default()
         formato.scale = 1

@@ -30,11 +30,15 @@ struct ContadoresView: View {
                         .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
                         .listRowBackground(Color.clear)
                 }
-                Text("Mantén pulsado el widget en la pantalla de inicio para elegir cuál de estas cuentas atrás enseña. Puedes poner varios, cada uno con la suya.")
-                    .font(.caption).foregroundStyle(Theme.slate400)
-                    .listRowBackground(Theme.slate900)
             } header: {
                 Text("EN LA PANTALLA DE INICIO").font(.caption).foregroundStyle(Theme.slate400)
+            } footer: {
+                // De pie de sección y no de fila con su propia caja: como fila
+                // llevaba el fondo y las esquinas de la lista, que no casaban
+                // con la tarjeta de arriba —que va suelta, sin fondo—, y se veía
+                // un recuadro pegado por debajo.
+                Text("Mantén pulsado el widget en la pantalla de inicio para elegir cuál de estas cuentas atrás enseña. Puedes poner varios, cada uno con la suya.")
+                    .font(.caption).foregroundStyle(Theme.slate400)
             }
 
             if !deCarrera.isEmpty {

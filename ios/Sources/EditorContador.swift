@@ -337,12 +337,20 @@ struct EditorContador: View {
     private func guarda(_ img: UIImage) {
         let pequena = reducida(img, lado: 900)
         guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return }
-        let nombre = "\(contador.id).jpg"
+        // Un fichero NUEVO en cada encuadre, y fuera el de antes. Guardándolo
+        // siempre con el mismo nombre, quien ya tuviera esa imagen leída seguía
+        // enseñando la de antes —el widget es otro proceso y no se entera de
+        // que el fichero ha cambiado—, y parecía que el encuadre no se guardaba.
+        let viejo = contador.foto
+        let sello = Int(Date().timeIntervalSince1970)
+        let nombre = "\(contador.id)-\(sello).jpg"
         try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
+        if let viejo, viejo != nombre, !viejo.hasPrefix("cartel-") {
+            try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(viejo))
+        }
         contador.usaCartel = false
         contador.foto = nombre
-        // El nombre no cambia, así que hay que decirle a la vista que la relea.
-        contador.fotoVersion = Date().timeIntervalSince1970
+        contador.fotoVersion = Double(sello)
     }
 
     private func reducida(_ img: UIImage, lado: CGFloat) -> UIImage {
