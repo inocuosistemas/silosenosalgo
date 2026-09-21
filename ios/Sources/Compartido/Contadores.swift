@@ -55,6 +55,10 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public var emoji: String?
     /// El fichero de la foto dentro del contenedor compartido, si tiene.
     public var foto: String?
+    /// Cuándo se guardó la foto. El fichero se llama siempre igual, así que
+    /// sin esto un encuadre nuevo no se notaba: las vistas seguían con la
+    /// imagen que ya tenían leída.
+    public var fotoVersion: Double = 0
     /// Se repite cada año (el cumpleaños, la carrera de siempre).
     public var anual: Bool
     public var alPasar: AlPasar
@@ -80,6 +84,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         color2: String? = nil,
         emoji: String? = nil,
         foto: String? = nil,
+        fotoVersion: Double = 0,
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
         aviso: Bool = false,
@@ -97,6 +102,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.color2 = color2
         self.emoji = emoji
         self.foto = foto
+        self.fotoVersion = fotoVersion
         self.anual = anual
         self.alPasar = alPasar
         self.aviso = aviso
@@ -170,6 +176,7 @@ public extension Contador {
             color2: try c.decodeIfPresent(String.self, forKey: .color2),
             emoji: try c.decodeIfPresent(String.self, forKey: .emoji),
             foto: try c.decodeIfPresent(String.self, forKey: .foto),
+            fotoVersion: try c.decodeIfPresent(Double.self, forKey: .fotoVersion) ?? 0,
             anual: try c.decode(Bool.self, forKey: .anual),
             alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
             aviso: try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false,

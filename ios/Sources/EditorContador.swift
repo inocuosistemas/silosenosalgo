@@ -23,6 +23,8 @@ struct EditorContador: View {
     /// El permiso de notificaciones, denegado: hay que decirlo o el interruptor
     /// se apaga solo sin explicación.
     @State private var sinPermiso = false
+    /// La foto recién elegida (o la guardada), esperando encuadre.
+    @State private var aEncuadrar: UIImage?
 
     private func relleno(_ m: MuestraColor) -> LinearGradient {
         LinearGradient(
@@ -210,11 +212,13 @@ struct EditorContador: View {
                             PhotosPicker(selection: $foto, matching: .images) {
                                 Label(contador.foto == nil ? "Elegir la foto" : "Cambiar la foto", systemImage: "photo")
                             }
+                            botonEncuadre
                         }
                     } else {
                         PhotosPicker(selection: $foto, matching: .images) {
                             Label(contador.foto == nil ? "Poner una foto de fondo" : "Cambiar la foto", systemImage: "photo")
                         }
+                        botonEncuadre
                         if contador.foto != nil {
                             Button(role: .destructive) { quitaFoto() } label: { Text("Quitar la foto") }
                         }
@@ -286,13 +290,76 @@ struct EditorContador: View {
             }
             .onChange(of: foto) { _, nueva in
                 guard let nueva else { return }
-                Task { await guardaFoto(nueva) }
+                Task { await preparaFoto(nueva) }
+            }
+            // Encuadrar: el widget rellena un hueco muy apaisado, así que hay
+            // que poder decir QUÉ trozo de la foto sale (ver `RecortadorDeFoto`).
+            .sheet(item: Binding(
+                get: { aEncuadrar.map { FotoParaEncuadrar(imagen: $0) } },
+                set: { if $0 == nil { aEncuadrar = nil } }
+            )) { envoltorio in
+                RecortadorDeFoto(imagen: envoltorio.imagen) { recortada in
+                    guarda(recortada)
+                }
             }
         }
     }
 
-    /// La foto, reducida y guardada en el cajón compartido: el widget tiene muy
-    /// poca memoria y una foto de móvil entera lo tumba.
+    @ViewBuilder
+    private var botonEncuadre: some View {
+        if original != nil {
+            Button { aEncuadrar = original } label: {
+                Label("Ajustar el encuadre", systemImage: "crop")
+            }
+        }
+    }
+
+    /// La foto tal como se eligió, guardada aparte para poder volver a
+    /// encuadrarla sin tener que buscarla otra vez en el carrete.
+    private var original: UIImage? {
+        UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal).path)
+    }
+
+    private var nombreOriginal: String { "\(contador.id)-original.jpg" }
+
+    /// Recién elegida del carrete: se guarda el original y se abre el encuadre.
+    private func preparaFoto(_ item: PhotosPickerItem) async {
+        guard let datos = try? await item.loadTransferable(type: Data.self),
+              let img = UIImage(data: datos) else { return }
+        let grande = reducida(img, lado: 1600)
+        if let jpeg = grande.jpegData(compressionQuality: 0.85) {
+            try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal), options: .atomic)
+        }
+        await MainActor.run { aEncuadrar = grande }
+    }
+
+    /// Ya encuadrada: al cajón compartido, reducida.
+    private func guarda(_ img: UIImage) {
+        let pequena = reducida(img, lado: 900)
+        guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return }
+        let nombre = "\(contador.id).jpg"
+        try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
+        contador.usaCartel = false
+        contador.foto = nombre
+        // El nombre no cambia, así que hay que decirle a la vista que la relea.
+        contador.fotoVersion = Date().timeIntervalSince1970
+    }
+
+    private func reducida(_ img: UIImage, lado: CGFloat) -> UIImage {
+        let escala = min(1, lado / max(img.size.width, img.size.height))
+        guard escala < 1 else { return img }
+        let tamano = CGSize(width: img.size.width * escala, height: img.size.height * escala)
+        // A escala 1: el formato por defecto multiplica por la densidad de la
+        // pantalla, y los puntos salían el triple de píxeles — justo lo que se
+        // quería evitarle al widget.
+        let formato = UIGraphicsImageRendererFormat.default()
+        formato.scale = 1
+        return UIGraphicsImageRenderer(size: tamano, format: formato).image { _ in
+            img.draw(in: CGRect(origin: .zero, size: tamano))
+        }
+    }
+
+    /// (Sin uso desde que hay encuadre; se queda el camino viejo por si acaso.)
     private func guardaFoto(_ item: PhotosPickerItem) async {
         guard let datos = try? await item.loadTransferable(type: Data.self),
               let img = UIImage(data: datos) else { return }
@@ -316,6 +383,13 @@ struct EditorContador: View {
         if let foto = contador.foto {
             try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(foto))
         }
+        try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal))
         contador.foto = nil
     }
+}
+
+/// Para poder abrir la hoja de encuadre con `sheet(item:)`.
+private struct FotoParaEncuadrar: Identifiable {
+    let id = UUID()
+    let imagen: UIImage
 }
