@@ -41,13 +41,15 @@ public struct TarjetaGrande: View {
         let color = Color(hexContador: c.color)
         let fecha = c.fechaVigente(desde: ahora)
         let pasada = fecha <= ahora
-        // Hasta dónde llega el TÍTULO: la banda de siempre.
-        let altoCartel = tamano.height * 0.56
+        // Hasta dónde baja el TÍTULO. Va más abajo de lo que parecería: ahí la
+        // fundida ya ha apagado el cartel, y un título sobre un cartel claro
+        // —de los que son casi blancos— no se lee por mucha sombra que lleve.
+        let altoCartel = tamano.height * 0.62
         // Y hasta dónde llega la FOTO, que es más abajo: sigue por detrás del
         // rótulo y se apaga del todo justo encima de los números. Cortándola
         // donde acaba el título, la tarjeta se partía en dos mitades —foto
         // arriba, gris liso abajo— y se veía la costura.
-        let altoFoto = tamano.height * 0.68
+        let altoFoto = tamano.height * 0.72
         return ZStack(alignment: .top) {
             // La foto, de fondo y a lo alto, con su fundida encima.
             fondoDeCartel(color: color, alto: altoFoto)
@@ -128,9 +130,10 @@ public struct TarjetaGrande: View {
             // del todo justo encima del número.
             LinearGradient(
                 stops: [
-                    .init(color: fondo.opacity(0), location: enLaFoto(0.30)),
-                    .init(color: fondo.opacity(0.62), location: enLaFoto(0.53)),
-                    .init(color: fondo, location: enLaFoto(0.66)),
+                    .init(color: fondo.opacity(0), location: enLaFoto(0.24)),
+                    .init(color: fondo.opacity(0.45), location: enLaFoto(0.42)),
+                    .init(color: fondo.opacity(0.88), location: enLaFoto(0.57)),
+                    .init(color: fondo, location: enLaFoto(0.69)),
                     .init(color: fondo, location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom
