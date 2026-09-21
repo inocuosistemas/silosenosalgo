@@ -89,6 +89,10 @@ targets:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug
           APP_DISPLAY_NAME: SiLoSeNoSalgo dev
+          # El cajón compartido, también aquí: sin él el widget de esta copia
+          # sale vacío y no se puede probar sin pasar por TestFlight. Lo crea
+          # el firmado automático con la cuenta de Xcode puesta.
+          CODE_SIGN_ENTITLEMENTS: Resources/Debug.entitlements
           # Aquí NO va el permiso de push, a propósito: esta copia usa el bundle
           # id `.debug`, que no está dado de alta en el portal y se firma con el
           # perfil COMODÍN, y un App ID comodín no admite push. Poniéndoselo, la
@@ -125,12 +129,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Resources/Widget.entitlements
       configs:
         Debug:
-          # Igual que la app: la copia de desarrollo lleva otro identificador
-          # para no pisar la de TestFlight. Sin grupo compartido —el perfil
-          # comodín no lo admite—, así que por cable el widget sale vacío; se
-          # prueba con TestFlight.
+          # Igual que la app: otro identificador para no pisar la de TestFlight,
+          # y el mismo cajón compartido, que es de lo que vive el widget.
           PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug.contador
-          CODE_SIGN_ENTITLEMENTS: ""
+          CODE_SIGN_ENTITLEMENTS: Resources/Debug.entitlements
 
   SiLoSeNoSalgoTrackerTests:
     type: bundle.unit-test

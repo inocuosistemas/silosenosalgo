@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Permisos de la copia de DESARROLLO (la que se instala por cable o wifi).
+
+  Solo el cajón compartido con el widget: sin él, el widget de la copia de
+  desarrollo sale vacío —es otro proceso y no puede leer los datos de la app— y
+  no había forma de probarlo sin pasar por TestFlight.
+
+  Push NO: esta copia usa el bundle id `.debug` y no está dada de alta con esa
+  capacidad. Los avisos push se prueban con la de TestFlight.
+
+  Ojo: usa el MISMO grupo que la copia de reparto, así que las dos ven los
+  mismos contadores. Es a propósito: lo que se prepara en una se ve en la otra.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.themakercrowd.silosenosalgo</string>
+	</array>
+</dict>
+</plist>

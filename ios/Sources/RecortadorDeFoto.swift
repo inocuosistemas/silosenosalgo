@@ -31,7 +31,7 @@ struct RecortadorDeFoto: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 14) {
-                Text("Mueve y acerca la foto para elegir qué sale en el widget.")
+                Text("Mueve y acerca la foto. Lo de ARRIBA se ve tal cual; lo de abajo se va apagando bajo el número, y cuánto depende del tamaño del widget.")
                     .font(.caption)
                     .foregroundStyle(Theme.slate400)
                     .multilineTextAlignment(.center)
@@ -75,6 +75,19 @@ struct RecortadorDeFoto: View {
                     .offset(movida)
                     .frame(width: w, height: h)
                     .clipped()
+                // El MISMO velo que pone el widget encima de la foto (ver
+                // `FondoDeFoto`): así se encuadra viendo lo que se va a ver, y
+                // no una foto limpia que luego sale medio apagada.
+                FondoDeFoto.velo
+                    .allowsHitTesting(false)
+                VStack {
+                    Spacer()
+                    Text("aquí va el número")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .padding(.bottom, 8)
+                }
+                .allowsHitTesting(false)
             }
             .frame(width: w, height: h)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))

@@ -20,15 +20,23 @@ public struct FondoDeFoto: View {
             Image(uiImage: imagen)
                 .resizable()
                 .scaledToFill()
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0.18), location: 0),
-                    .init(color: .black.opacity(0.35), location: 0.38),
-                    .init(color: .black.opacity(0.88), location: 0.78),
-                    .init(color: .black.opacity(0.94), location: 1),
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
+            Self.velo
         }
+    }
+}
+
+public extension FondoDeFoto {
+    /// El velo, suelto: lo usa también la pantalla de encuadre, para enseñar
+    /// ahí mismo qué parte de la foto se va a apagar.
+    static var velo: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.18), location: 0),
+                .init(color: .black.opacity(0.35), location: 0.38),
+                .init(color: .black.opacity(0.88), location: 0.78),
+                .init(color: .black.opacity(0.94), location: 1),
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
     }
 }
