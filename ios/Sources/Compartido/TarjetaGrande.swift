@@ -45,11 +45,15 @@ public struct TarjetaGrande: View {
         return VStack(spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
                     if let foto {
-                        Image(uiImage: foto)
-                            .resizable()
-                            .scaledToFill()
+                        // La foto va DENTRO de un hueco del tamaño de la banda,
+                        // no al revés. `scaledToFill` la hace más ancha que la
+                        // tarjeta y `clipped` solo recorta lo que se PINTA, no
+                        // lo que mide: dejándola mandar, toda la banda medía lo
+                        // que la foto y el título se iba fuera por la izquierda.
+                        Color.clear
                             .frame(maxWidth: .infinity)
                             .frame(height: altoCartel)
+                            .overlay { Image(uiImage: foto).resizable().scaledToFill() }
                             .clipped()
                     } else {
                         // Sin cartel, su color y su marca: que no se quede en un hueco.
@@ -91,6 +95,8 @@ public struct TarjetaGrande: View {
                     .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
+                    // Pegado a la izquierda pase lo que pase.
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: altoCartel)
