@@ -120,6 +120,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.contador
+        # El nombre con el que sale en la galería de widgets. Va por variable
+        # por lo mismo que el de la app: con las dos copias instaladas, la
+        # galería enseñaba dos «SiLoSeNoSalgo» idénticos y no había forma de
+        # saber cuál se estaba añadiendo.
+        WIDGET_DISPLAY_NAME: SiLoSeNoSalgo
         PRODUCT_NAME: SiLoSeNoSalgoWidget
         INFOPLIST_FILE: Resources/Widget-Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -132,6 +137,7 @@ targets:
           # Igual que la app: otro identificador para no pisar la de TestFlight,
           # y el mismo cajón compartido, que es de lo que vive el widget.
           PRODUCT_BUNDLE_IDENTIFIER: com.themakercrowd.silosenosalgo.debug.contador
+          WIDGET_DISPLAY_NAME: SiLoSeNoSalgo dev
           CODE_SIGN_ENTITLEMENTS: Resources/Debug.entitlements
 
   SiLoSeNoSalgoTrackerTests:
