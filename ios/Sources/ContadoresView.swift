@@ -18,7 +18,11 @@ struct ContadoresView: View {
     var body: some View {
         List {
             Section {
-                if let primero = contadores.first {
+                // El que enseña el widget: el más cercano de los que siguen
+                // vivos. Con `contadores.first` salía el primero de la lista, y
+                // uno ya pasado y puesto a esconderse iba delante —la vista
+                // previa enseñaba justo lo que el widget no enseña—.
+                if let primero = contadores.first(where: { $0.vigente() }) ?? contadores.first {
                     // El alto lo pone quien la coloca: dentro del carrusel la
                     // tarjeta se estira al hueco del formato que toque.
                     TarjetaContador(contador: primero)
@@ -93,8 +97,16 @@ struct ContadoresView: View {
     private var propios: [Contador] { contadores.filter { $0.origen == .propio } }
 
     private func recarga() {
-        contadores = AlmacenContadores.lee().contadores
-            .sorted { $0.fechaVigente() < $1.fechaVigente() }
+        let ahora = Date()
+        // Los que siguen vivos primero, el más cercano arriba; los ya pasados
+        // al final, el último en pasar primero.
+        contadores = AlmacenContadores.lee().contadores.sorted { a, b in
+            let va = a.vigente(ahora), vb = b.vigente(ahora)
+            if va != vb { return va }
+            return va
+                ? a.fechaVigente(desde: ahora) < b.fechaVigente(desde: ahora)
+                : a.fechaVigente(desde: ahora) > b.fechaVigente(desde: ahora)
+        }
     }
 }
 
