@@ -24,7 +24,12 @@ struct EditorContador: View {
     /// se apaga solo sin explicación.
     @State private var sinPermiso = false
     /// La foto recién elegida (o la guardada), esperando encuadre.
-    @State private var aEncuadrar: UIImage?
+    ///
+    /// Guardada YA envuelta con su identidad. Antes se envolvía al vuelo en el
+    /// `sheet(item:)`, y eso le daba un `UUID` nuevo en cada repintado: SwiftUI
+    /// creía que era otra hoja, la tiraba y la volvía a abrir de cero, con lo
+    /// que el encuadre que acababas de hacer se perdía por el camino.
+    @State private var aEncuadrar: FotoParaEncuadrar?
 
     private func relleno(_ m: MuestraColor) -> LinearGradient {
         LinearGradient(
@@ -294,10 +299,7 @@ struct EditorContador: View {
             }
             // Encuadrar: el widget rellena un hueco muy apaisado, así que hay
             // que poder decir QUÉ trozo de la foto sale (ver `RecortadorDeFoto`).
-            .sheet(item: Binding(
-                get: { aEncuadrar.map { FotoParaEncuadrar(imagen: $0) } },
-                set: { if $0 == nil { aEncuadrar = nil } }
-            )) { envoltorio in
+            .sheet(item: $aEncuadrar) { envoltorio in
                 RecortadorDeFoto(imagen: envoltorio.imagen) { recortada in
                     guarda(recortada)
                 }
@@ -308,7 +310,7 @@ struct EditorContador: View {
     @ViewBuilder
     private var botonEncuadre: some View {
         if original != nil {
-            Button { aEncuadrar = original } label: {
+            Button { aEncuadrar = original.map { FotoParaEncuadrar(imagen: $0) } } label: {
                 Label("Ajustar el encuadre", systemImage: "crop")
             }
         }
@@ -316,55 +318,27 @@ struct EditorContador: View {
 
     /// La foto tal como se eligió, guardada aparte para poder volver a
     /// encuadrarla sin tener que buscarla otra vez en el carrete.
-    private var original: UIImage? {
-        UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal).path)
-    }
-
-    private var nombreOriginal: String { "\(contador.id)-original.jpg" }
+    private var original: UIImage? { FotosDeContador.original(contador.id) }
 
     /// Recién elegida del carrete: se guarda el original y se abre el encuadre.
     private func preparaFoto(_ item: PhotosPickerItem) async {
         guard let datos = try? await item.loadTransferable(type: Data.self),
               let img = UIImage(data: datos) else { return }
         let grande = reducida(img, lado: 1600)
-        if let jpeg = grande.jpegData(compressionQuality: 0.85) {
-            try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal), options: .atomic)
-        }
-        await MainActor.run { aEncuadrar = grande }
+        FotosDeContador.guardaOriginal(grande, id: contador.id)
+        await MainActor.run { aEncuadrar = FotoParaEncuadrar(imagen: grande) }
     }
 
-    /// Ya encuadrada: al cajón compartido, reducida.
+    /// Ya encuadrada: al cajón compartido (ver `FotosDeContador`).
     private func guarda(_ img: UIImage) {
-        let pequena = reducida(img, lado: 900)
-        guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return }
-        // Un fichero NUEVO en cada encuadre, y fuera el de antes. Guardándolo
-        // siempre con el mismo nombre, quien ya tuviera esa imagen leída seguía
-        // enseñando la de antes —el widget es otro proceso y no se entera de
-        // que el fichero ha cambiado—, y parecía que el encuadre no se guardaba.
-        let viejo = contador.foto
-        let sello = Int(Date().timeIntervalSince1970)
-        let nombre = "\(contador.id)-\(sello).jpg"
-        try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
-        if let viejo, viejo != nombre, !viejo.hasPrefix("cartel-") {
-            try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(viejo))
-        }
+        guard let nombre = FotosDeContador.guardaEncuadre(img, para: contador) else { return }
         contador.usaCartel = false
         contador.foto = nombre
-        contador.fotoVersion = Double(sello)
+        contador.fotoVersion = Date().timeIntervalSince1970
     }
 
     private func reducida(_ img: UIImage, lado: CGFloat) -> UIImage {
-        let escala = min(1, lado / max(img.size.width, img.size.height))
-        guard escala < 1 else { return img }
-        let tamano = CGSize(width: img.size.width * escala, height: img.size.height * escala)
-        // A escala 1: el formato por defecto multiplica por la densidad de la
-        // pantalla, y los puntos salían el triple de píxeles — justo lo que se
-        // quería evitarle al widget.
-        let formato = UIGraphicsImageRendererFormat.default()
-        formato.scale = 1
-        return UIGraphicsImageRenderer(size: tamano, format: formato).image { _ in
-            img.draw(in: CGRect(origin: .zero, size: tamano))
-        }
+        FotosDeContador.reducida(img, lado: lado)
     }
 
     /// (Sin uso desde que hay encuadre; se queda el camino viejo por si acaso.)
@@ -388,10 +362,7 @@ struct EditorContador: View {
     }
 
     private func quitaFoto() {
-        if let foto = contador.foto {
-            try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(foto))
-        }
-        try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(nombreOriginal))
+        FotosDeContador.borra(contador)
         contador.foto = nil
     }
 }
