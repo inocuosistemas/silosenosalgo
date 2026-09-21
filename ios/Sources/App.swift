@@ -10,6 +10,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
 
     var body: some Scene {
         WindowGroup {
+            // Arranque de prueba del encuadre (ver `PruebaDeEncuadre`): solo
+            // con el argumento de arranque, que pone quien lanza el proceso.
+            if PruebaDeEncuadre.pedida {
+                PantallaDePruebaDeEncuadre()
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+            } else {
             ContentView()
                 .environmentObject(auth)
                 .tint(Theme.sky500)
@@ -37,6 +44,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 } message: {
                     Text(guideLibrary.importError ?? "")
                 }
+            }
         }
     }
 }

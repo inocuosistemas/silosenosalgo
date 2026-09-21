@@ -109,6 +109,7 @@ struct EditorContador: View {
         guard let foto = contador.foto, !foto.hasPrefix("cartel-") else { return }
         try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(foto))
         contador.foto = nil
+        contador.encuadre = nil
     }
 
     var body: some View {
@@ -300,8 +301,8 @@ struct EditorContador: View {
             // Encuadrar: el widget rellena un hueco muy apaisado, así que hay
             // que poder decir QUÉ trozo de la foto sale (ver `RecortadorDeFoto`).
             .sheet(item: $aEncuadrar) { envoltorio in
-                RecortadorDeFoto(imagen: envoltorio.imagen) { recortada in
-                    guarda(recortada)
+                RecortadorDeFoto(imagen: envoltorio.imagen, encuadre: envoltorio.encuadre) { recortada, hecho in
+                    guarda(recortada, hecho)
                 }
             }
         }
@@ -310,7 +311,9 @@ struct EditorContador: View {
     @ViewBuilder
     private var botonEncuadre: some View {
         if original != nil {
-            Button { aEncuadrar = original.map { FotoParaEncuadrar(imagen: $0) } } label: {
+            // Con el encuadre de la última vez: se vuelve aquí a RETOCAR, no a
+        // empezar de cero.
+        Button { aEncuadrar = original.map { FotoParaEncuadrar(imagen: $0, encuadre: contador.encuadre) } } label: {
                 Label("Ajustar el encuadre", systemImage: "crop")
             }
         }
@@ -326,15 +329,20 @@ struct EditorContador: View {
               let img = UIImage(data: datos) else { return }
         let grande = reducida(img, lado: 1600)
         FotosDeContador.guardaOriginal(grande, id: contador.id)
-        await MainActor.run { aEncuadrar = FotoParaEncuadrar(imagen: grande) }
+        // Foto nueva: el encuadre de la anterior no significa nada.
+        await MainActor.run {
+            contador.encuadre = nil
+            aEncuadrar = FotoParaEncuadrar(imagen: grande)
+        }
     }
 
     /// Ya encuadrada: al cajón compartido (ver `FotosDeContador`).
-    private func guarda(_ img: UIImage) {
+    private func guarda(_ img: UIImage, _ hecho: EncuadreFoto) {
         guard let nombre = FotosDeContador.guardaEncuadre(img, para: contador) else { return }
         contador.usaCartel = false
         contador.foto = nombre
         contador.fotoVersion = Date().timeIntervalSince1970
+        contador.encuadre = hecho
     }
 
     private func reducida(_ img: UIImage, lado: CGFloat) -> UIImage {
@@ -342,28 +350,10 @@ struct EditorContador: View {
     }
 
     /// (Sin uso desde que hay encuadre; se queda el camino viejo por si acaso.)
-    private func guardaFoto(_ item: PhotosPickerItem) async {
-        guard let datos = try? await item.loadTransferable(type: Data.self),
-              let img = UIImage(data: datos) else { return }
-        let lado: CGFloat = 800
-        let escala = min(1, lado / max(img.size.width, img.size.height))
-        let tamano = CGSize(width: img.size.width * escala, height: img.size.height * escala)
-        // A escala 1: el formato por defecto multiplica por la densidad de la
-        // pantalla, y los 800 puntos salían 2400 píxeles — justo lo que se
-        // quería evitarle al widget.
-        let formato = UIGraphicsImageRendererFormat.default()
-        formato.scale = 1
-        let render = UIGraphicsImageRenderer(size: tamano, format: formato)
-        let pequena = render.image { _ in img.draw(in: CGRect(origin: .zero, size: tamano)) }
-        guard let jpeg = pequena.jpegData(compressionQuality: 0.8) else { return }
-        let nombre = "\(contador.id).jpg"
-        try? jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
-        await MainActor.run { contador.usaCartel = false; contador.foto = nombre }
-    }
-
     private func quitaFoto() {
         FotosDeContador.borra(contador)
         contador.foto = nil
+        contador.encuadre = nil
     }
 }
 
@@ -371,4 +361,6 @@ struct EditorContador: View {
 private struct FotoParaEncuadrar: Identifiable {
     let id = UUID()
     let imagen: UIImage
+    /// Cómo se dejó la última vez, si ya se había encuadrado.
+    var encuadre: EncuadreFoto?
 }

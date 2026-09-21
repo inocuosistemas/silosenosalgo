@@ -36,6 +36,31 @@ public enum EstiloContador: String, Codable, CaseIterable, Sendable {
     case completo
 }
 
+/**
+ Cómo quedó encuadrada la foto: cuánto se acercó y cuánto se movió.
+
+ Se guarda APARTE de la foto recortada, que es lo que enseña el widget. Con
+ solo el recorte, volver a «Ajustar el encuadre» abría el original otra vez en
+ el centro y al 100 %: el trabajo anterior seguía en el fichero, pero la
+ pantalla no lo enseñaba y parecía que no se hubiera guardado nada.
+
+ El desplazamiento va en FRACCIÓN del marco y no en puntos de pantalla: el
+ marco mide lo que mida el móvil donde se encuadre, y en puntos el encuadre
+ saldría descolocado en otro.
+ */
+public struct EncuadreFoto: Codable, Hashable, Sendable {
+    /// 1 = la foto justo llenando el marco; hasta 4.
+    public var escala: Double
+    public var x: Double
+    public var y: Double
+
+    public init(escala: Double = 1, x: Double = 0, y: Double = 0) {
+        self.escala = escala
+        self.x = x
+        self.y = y
+    }
+}
+
 public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public enum Origen: String, Codable, Sendable { case carrera, propio }
 
@@ -59,6 +84,9 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     /// sin esto un encuadre nuevo no se notaba: las vistas seguían con la
     /// imagen que ya tenían leída.
     public var fotoVersion: Double = 0
+    /// Cómo se dejó encuadrada la foto, para poder retocarla sin empezar de
+    /// cero (ver `EncuadreFoto`).
+    public var encuadre: EncuadreFoto?
     /// Se repite cada año (el cumpleaños, la carrera de siempre).
     public var anual: Bool
     public var alPasar: AlPasar
@@ -85,6 +113,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         emoji: String? = nil,
         foto: String? = nil,
         fotoVersion: Double = 0,
+        encuadre: EncuadreFoto? = nil,
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
         aviso: Bool = false,
@@ -103,6 +132,7 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.emoji = emoji
         self.foto = foto
         self.fotoVersion = fotoVersion
+        self.encuadre = encuadre
         self.anual = anual
         self.alPasar = alPasar
         self.aviso = aviso
@@ -177,6 +207,7 @@ public extension Contador {
             emoji: try c.decodeIfPresent(String.self, forKey: .emoji),
             foto: try c.decodeIfPresent(String.self, forKey: .foto),
             fotoVersion: try c.decodeIfPresent(Double.self, forKey: .fotoVersion) ?? 0,
+            encuadre: try c.decodeIfPresent(EncuadreFoto.self, forKey: .encuadre),
             anual: try c.decode(Bool.self, forKey: .anual),
             alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
             aviso: try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false,

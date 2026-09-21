@@ -2,6 +2,88 @@ import SwiftUI
 import UIKit
 
 /**
+ Cuánto se ha acercado y movido la foto dentro del marco.
+
+ Es un OBJETO, y no el estado de la vista, y eso es lo que arregla el fallo.
+
+ El botón «Usar» vive en la barra de navegación. Con el ajuste en `@State`, lo
+ que ese botón leía al pulsarlo eran los valores DEL PRINCIPIO —sin mover y sin
+ acercar—, así que el paneo y el zoom se veían en pantalla mientras se hacían y
+ al pulsar «Usar» se guardaba la foto entera. No es una sospecha: la prueba
+ `EncuadreConDedoTests` arrastra y acerca con un dedo de verdad y mira el
+ recorte que queda; con el código de antes salía de 900 píxeles de ancho (la
+ foto sin tocar) y con este, de 381 (acercada al triple). Guardado en un
+ objeto, el botón tiene una referencia y lee lo que hay AHORA.
+
+ La posición va en FRACCIÓN del marco y no en puntos de pantalla: es lo que se
+ guarda (ver `EncuadreFoto`), el marco mide distinto en cada móvil, y así lo
+ que se pinta y lo que se guarda salen de la misma cuenta.
+ */
+@MainActor
+final class AjusteDeEncuadre: ObservableObject {
+    /// El tamaño de la foto, para saber cuánto se puede mover sin destapar el fondo.
+    let foto: CGSize
+    @Published var escala: CGFloat
+    @Published var rel: CGSize
+    /// Desde dónde cuenta el gesto que está en curso.
+    var escalaAlEmpezar: CGFloat
+    var relAlEmpezar: CGSize
+    /// Lo que mide el marco en pantalla; se sabe al pintarlo.
+    var marco: CGSize = .zero
+
+    init(foto: CGSize, encuadre: EncuadreFoto? = nil) {
+        self.foto = foto
+        let e = encuadre ?? EncuadreFoto()
+        let z = min(4, max(1, CGFloat(e.escala)))
+        escala = z
+        escalaAlEmpezar = z
+        let m = CGSize(width: CGFloat(e.x), height: CGFloat(e.y))
+        rel = m
+        relAlEmpezar = m
+    }
+
+    /// Deja la posición dentro de lo que el marco admite y la da por buena:
+    /// desde ahí arranca el siguiente arrastre.
+    func asienta(_ marco: CGSize) {
+        self.marco = marco
+        rel = dentroDeLimites(rel, marco)
+        relAlEmpezar = rel
+        escalaAlEmpezar = escala
+    }
+
+    /// La posición en puntos de pantalla, ya recortada a lo que cabe.
+    func enPuntos(_ marco: CGSize) -> CGSize {
+        let r = dentroDeLimites(rel, marco)
+        return CGSize(width: r.width * marco.width, height: r.height * marco.height)
+    }
+
+    /// Que no se vea el fondo por ningún lado: la foto siempre tapa el marco.
+    /// En fracción, igual que se guarda.
+    func dentroDeLimites(_ rel: CGSize, _ marco: CGSize) -> CGSize {
+        guard marco.width > 0, marco.height > 0, foto.width > 0, foto.height > 0 else { return rel }
+        let s = max(marco.width / foto.width, marco.height / foto.height) * escala
+        let sobraX = max(0, (foto.width * s - marco.width) / 2) / marco.width
+        let sobraY = max(0, (foto.height * s - marco.height) / 2) / marco.height
+        return CGSize(
+            width: min(sobraX, max(-sobraX, rel.width)),
+            height: min(sobraY, max(-sobraY, rel.height))
+        )
+    }
+
+    /// El marco de referencia cuando todavía no se ha pintado nada.
+    static func marcoPorDefecto(_ proporcion: CGFloat) -> CGSize {
+        CGSize(width: 320, height: 320 / proporcion)
+    }
+
+    /// Cómo queda el encuadre, tal cual se guarda (ver `EncuadreFoto`).
+    func comoQueda(_ proporcion: CGFloat) -> EncuadreFoto {
+        let m = marco == .zero ? Self.marcoPorDefecto(proporcion) : marco
+        let r = dentroDeLimites(rel, m)
+        return EncuadreFoto(escala: Double(escala), x: Double(r.width), y: Double(r.height))
+    }
+}
+
+/**
  Encuadrar la foto de un contador: mover y acercar dentro del marco que el
  widget va a enseñar.
 
@@ -15,15 +97,28 @@ import UIKit
  */
 struct RecortadorDeFoto: View {
     let imagen: UIImage
-    let alGuardar: (UIImage) -> Void
+    /// Devuelve el recorte Y cómo se ha hecho: lo primero es lo que se enseña,
+    /// lo segundo es lo que permite volver aquí y seguir donde se dejó.
+    let alGuardar: (UIImage, EncuadreFoto) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var escala: CGFloat = 1
-    @State private var escalaAlEmpezar: CGFloat = 1
-    @State private var movida: CGSize = .zero
-    @State private var movidaAlEmpezar: CGSize = .zero
-    /// Lo que mide el marco en pantalla; se sabe al pintarlo.
-    @State private var marco: CGSize = .zero
+    @StateObject private var ajuste: AjusteDeEncuadre
+
+    init(imagen: UIImage, encuadre: EncuadreFoto? = nil,
+         alGuardar: @escaping (UIImage, EncuadreFoto) -> Void) {
+        self.imagen = imagen
+        self.alGuardar = alGuardar
+        _ajuste = StateObject(wrappedValue: AjusteDeEncuadre(foto: imagen.size, encuadre: encuadre))
+    }
+
+    /// Con un ajuste ya hecho — para poder moverlo desde una prueba sin tener
+    /// que simular dedos.
+    init(imagen: UIImage, ajuste: AjusteDeEncuadre,
+         alGuardar: @escaping (UIImage, EncuadreFoto) -> Void) {
+        self.imagen = imagen
+        self.alGuardar = alGuardar
+        _ajuste = StateObject(wrappedValue: ajuste)
+    }
 
     /// Lo apaisado que es el hueco del widget mediano.
     private let proporcion: CGFloat = TamanoWidget.mediano.width / TamanoWidget.mediano.height
@@ -40,7 +135,7 @@ struct RecortadorDeFoto: View {
                 ventana
                     .padding(.horizontal, 16)
 
-                Slider(value: $escala, in: 1...4)
+                Slider(value: $ajuste.escala, in: 1...4)
                     .padding(.horizontal, 24)
                     .tint(Theme.sky500)
 
@@ -56,22 +151,31 @@ struct RecortadorDeFoto: View {
                     Button("Cancelar") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Usar") { alGuardar(recorta()); dismiss() }
+                    Button("Usar") { guarda(); dismiss() }
                 }
             }
         }
+    }
+
+    /// Lo que hace el botón «Usar». Aparte, para poder comprobarlo sin dedos.
+    func guarda() {
+        alGuardar(recorta(), ajuste.comoQueda(proporcion))
     }
 
     private var ventana: some View {
         GeometryReader { g in
             let w = g.size.width
             let h = w / proporcion
+            let marcoAhora = CGSize(width: w, height: h)
+            // De fracción a puntos, y ya recortada a lo que el marco admite:
+            // lo que se pinta sale de la misma cuenta que lo que se guarda.
+            let movida = ajuste.enPuntos(marcoAhora)
             ZStack {
                 Image(uiImage: imagen)
                     .resizable()
                     .scaledToFill()
                     .frame(width: w, height: h)
-                    .scaleEffect(escala)
+                    .scaleEffect(ajuste.escala)
                     .offset(movida)
                     .frame(width: w, height: h)
                     .clipped()
@@ -99,55 +203,33 @@ struct RecortadorDeFoto: View {
             .gesture(
                 DragGesture()
                     .onChanged { v in
-                        movida = CGSize(
-                            width: movidaAlEmpezar.width + v.translation.width,
-                            height: movidaAlEmpezar.height + v.translation.height
+                        guard w > 0, h > 0 else { return }
+                        ajuste.rel = CGSize(
+                            width: ajuste.relAlEmpezar.width + v.translation.width / w,
+                            height: ajuste.relAlEmpezar.height + v.translation.height / h
                         )
                     }
-                    .onEnded { _ in
-                        movida = dentroDeLimites(movida, CGSize(width: w, height: h))
-                        movidaAlEmpezar = movida
-                    }
+                    .onEnded { _ in ajuste.asienta(marcoAhora) }
             )
             .simultaneousGesture(
                 MagnificationGesture()
-                    .onChanged { escala = min(4, max(1, escalaAlEmpezar * $0)) }
-                    .onEnded { _ in
-                        escalaAlEmpezar = escala
-                        movida = dentroDeLimites(movida, CGSize(width: w, height: h))
-                        movidaAlEmpezar = movida
-                    }
+                    .onChanged { ajuste.escala = min(4, max(1, ajuste.escalaAlEmpezar * $0)) }
+                    .onEnded { _ in ajuste.asienta(marcoAhora) }
             )
-            .onAppear { marco = CGSize(width: w, height: h) }
-            .onChange(of: escala) { _, _ in
-                movida = dentroDeLimites(movida, CGSize(width: w, height: h))
-                movidaAlEmpezar = movida
+            .onAppear { ajuste.marco = marcoAhora }
+            .onChange(of: ajuste.escala) { _, _ in
+                ajuste.marco = marcoAhora
+                ajuste.rel = ajuste.dentroDeLimites(ajuste.rel, marcoAhora)
+                ajuste.relAlEmpezar = ajuste.rel
             }
         }
         .aspectRatio(proporcion, contentMode: .fit)
     }
 
-    /// Que no se vea el fondo por ningún lado: la foto siempre tapa el marco.
-    private func dentroDeLimites(_ m: CGSize, _ marco: CGSize) -> CGSize {
-        let (an, al) = tamanoPintado(marco)
-        let sobraX = max(0, (an - marco.width) / 2)
-        let sobraY = max(0, (al - marco.height) / 2)
-        return CGSize(
-            width: min(sobraX, max(-sobraX, m.width)),
-            height: min(sobraY, max(-sobraY, m.height))
-        )
-    }
-
-    /// Lo que ocupa la foto en pantalla con el acercamiento de ahora.
-    private func tamanoPintado(_ marco: CGSize) -> (CGFloat, CGFloat) {
-        let s = max(marco.width / imagen.size.width, marco.height / imagen.size.height) * escala
-        return (imagen.size.width * s, imagen.size.height * s)
-    }
-
     /// La foto recortada a lo que se ve en el marco.
     private func recorta() -> UIImage {
-        let marco = self.marco == .zero ? CGSize(width: 320, height: 320 / proporcion) : self.marco
-        return Self.recorta(imagen, marco: marco, escala: escala, movida: movida)
+        let marco = ajuste.marco == .zero ? AjusteDeEncuadre.marcoPorDefecto(proporcion) : ajuste.marco
+        return Self.recorta(imagen, marco: marco, escala: ajuste.escala, movida: ajuste.enPuntos(marco))
     }
 
     /// La foto recortada al trozo que se ve por el marco.

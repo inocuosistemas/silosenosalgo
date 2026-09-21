@@ -628,6 +628,26 @@ struct TrackingView: View {
                 // verdades. "Parrilla" abre su pantalla web, que es donde vive.
                 // Lo que NO hace es empezar a emitir: eso sigue siendo el botón
                 // de arriba, con el nombre y la ruta ya decididos.
+                // Sin ninguna carrera, la cuenta atrás va por su cuenta.
+                //
+                // Vive dentro de «Mis carreras» porque casi siempre de eso
+                // habla, pero estaba DENTRO de la condición que enseña esa
+                // sección: quien no se ha inscrito a nada no la veía, y las
+                // cuentas atrás propias —un viaje, un cumpleaños— no tienen
+                // nada que ver con estar inscrito. Se puede crear siempre; lo
+                // que aparece solo con carrera es el contador de la carrera.
+                if store.events.isEmpty && store.pastEvents.isEmpty {
+                    Section {
+                        FilaContadores(abierta: $verContadores)
+                    } header: {
+                        cabecera("Cuenta atrás", "timer")
+                    } footer: {
+                        Text("Pon en la pantalla de inicio la cuenta atrás de lo que quieras. Cuando te inscribas a una carrera, la suya aparecerá sola.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
                 if !store.events.isEmpty || !store.pastEvents.isEmpty {
                     Section {
                         // Una tarjeta por carrera, como en la web: el cartel manda.

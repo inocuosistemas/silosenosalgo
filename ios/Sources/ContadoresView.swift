@@ -306,23 +306,34 @@ struct TarjetaContador: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {
+                        // Con TOPE de líneas y encogiendo: sin él, un nombre
+                        // largo en la tarjeta pequeña se iba a tres líneas, se
+                        // comía la fecha y acababa debajo del número. Y del
+                        // tamaño que le toca a cada formato, que es el que usa
+                        // el widget: aquí se ponía siempre el del mediano.
                         Text(contador.nombre.isEmpty ? "Sin nombre" : contador.nombre)
-                            .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                            .font(.system(size: compacta ? 14 : 16, weight: .bold)).foregroundStyle(.white)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
                         Text(fecha, format: contador.conHora
                             ? .dateTime.day().month(.abbreviated).hour().minute()
                             : .dateTime.day().month(.abbreviated).year())
-                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+                            .font(.system(size: compacta ? 10 : 11)).foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
                     }
                     .shadow(color: .black.opacity(conFoto ? 0.85 : 0), radius: 3, x: 0, y: 1)
                     Spacer()
                     if let emoji = contador.emoji {
                         if contador.origen == .carrera {
-                            MarcaContador(emoji: emoji, color: color, tam: 34)
+                            MarcaContador(emoji: emoji, color: color, tam: compacta ? 28 : 34)
                         } else {
-                            Text(emoji).font(.system(size: 24))
+                            Text(emoji).font(.system(size: compacta ? 20 : 24))
                         }
                     }
                 }
+                // El nombre y la fecha se quedan con su sitio; lo que cede es
+                // el número, que ya sabe encogerse.
+                .layoutPriority(1)
                 Spacer(minLength: 6)
                 // La misma cuenta que el widget, para que elegir sea ver.
                 if pasada {
@@ -345,7 +356,8 @@ struct TarjetaContador: View {
                     let corte = contador.diasYCorte(desde: ahora).corte
                     NumeroCuentaAtras(
                         dias: dias, corte: corte, prefijoHoras: contador.prefijoHoras(desde: ahora),
-                        color: color, cuerpo: 56, etiqueta: 11, colorEtiqueta: .white.opacity(0.6),
+                        color: color, cuerpo: compacta ? 38 : 56,
+                        etiqueta: compacta ? 9 : 11, colorEtiqueta: .white.opacity(0.6),
                         ancho: (compacta ? TamanoWidget.pequeno.width : TamanoWidget.mediano.width) - (compacta ? 26 : 32),
                         sobreFoto: contador.foto != nil,
                         degradado: contador.color2.map { (contador.color, $0) }
@@ -360,7 +372,8 @@ struct TarjetaContador: View {
                     .shadow(color: .black.opacity(conFoto ? 0.8 : 0), radius: 5)
                 }
             }
-            .padding(14)
+            .padding(.horizontal, compacta ? 13 : 16)
+            .padding(.vertical, compacta ? 12 : 14)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // La foto, DETRÁS y recortada a la tarjeta: puesta como una capa más,

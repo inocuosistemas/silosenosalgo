@@ -68,13 +68,18 @@ struct VistaContador: View {
                         Text(c.nombre)
                             .font(.system(size: tamano == .systemMedium ? 16 : 14, weight: .bold))
                             .lineLimit(2)
+                            // Encogiendo antes que cortarse: en la baldosa
+                            // pequeña un nombre largo se comía la fecha.
+                            .minimumScaleFactor(0.75)
                         Text(fecha, format: fechaCorta(c))
-                            .font(.system(size: 11))
+                            .font(.system(size: tamano == .systemMedium ? 11 : 10))
+                            .lineLimit(1)
                             .foregroundStyle(conFoto(c) ? Color.white.opacity(0.85) : .secondary)
                     }
                     // Arriba la foto va casi sin velo (ver `FondoDeFoto`): el
                     // nombre se sostiene con su propia sombra.
                     .shadow(color: .black.opacity(conFoto(c) ? 0.85 : 0), radius: 3, x: 0, y: 1)
+                    .layoutPriority(1)
                     Spacer(minLength: 4)
                     if let emoji = c.emoji {
                         // En una carrera, su marca: el emoji con el aro de su color.

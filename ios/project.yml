@@ -153,12 +153,30 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SiLoSeNoSalgo.app/SiLoSeNoSalgo"
         BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
+  # Pruebas con DEDOS: arrastrar, pulsar y mirar lo que quedó. Hacen falta
+  # porque lo que se rompía en el encuadre estaba entre el gesto y lo que se
+  # guarda, y eso una prueba normal no lo toca (ver `PruebaDeEncuadre`).
+  SiLoSeNoSalgoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: SiLoSeNoSalgoTracker
+    settings:
+      base:
+        TEST_TARGET_NAME: SiLoSeNoSalgoTracker
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   SiLoSeNoSalgoTracker:
     build:
       targets:
         SiLoSeNoSalgoTracker: all
         SiLoSeNoSalgoTrackerTests: [test]
+        SiLoSeNoSalgoUITests: [test]
     test:
       targets:
         - SiLoSeNoSalgoTrackerTests
+        - SiLoSeNoSalgoUITests
