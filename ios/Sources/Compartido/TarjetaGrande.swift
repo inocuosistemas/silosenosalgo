@@ -80,10 +80,16 @@ public struct TarjetaGrande: View {
                 .frame(height: altoCartel, alignment: .bottom)
 
                 VStack(spacing: 6) {
-                    Text(pasada ? "DESDE LA SALIDA" : (c.origen == .carrera ? "SALIDA EN" : "FALTAN"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(2)
-                        .foregroundStyle(.white.opacity(0.55))
+                    // El rótulo solo cuando hace falta explicar algo. En la
+                    // cuenta atrás no hace falta: debajo del número ya pone
+                    // Días · Hrs · Min · Seg. Contando hacia arriba sí, porque
+                    // un número subiendo no dice por sí solo desde cuándo.
+                    if pasada {
+                        Text("DESDE LA SALIDA")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(2)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
                     numero(c, fecha: fecha, pasada: pasada, color: color)
                 }
                 .padding(.horizontal, 16)
@@ -91,6 +97,7 @@ public struct TarjetaGrande: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(fondo)
         .clipped()
     }
 
@@ -126,14 +133,23 @@ public struct TarjetaGrande: View {
                         .padding(.bottom, tamano.height * 0.18)
                 }
             }
-            // La fundida: limpia arriba, ya oscura donde va el título, y sólida
-            // del todo justo encima del número.
+            // La fundida: limpia arriba, ya oscura donde va el título, y
+            // sólida encima del número.
+            //
+            // Las últimas paradas van muy juntas y casi opacas a propósito. Con
+            // una sola que llegara a opaco, la pendiente se cortaba en seco ahí
+            // y aparecía una raya: el ojo ve el cambio de pendiente aunque los
+            // colores a un lado y otro sean casi el mismo. Acercándose poco a
+            // poco (0,95 · 0,99 · 1) no hay cambio brusco que ver, y a partir de
+            // 0,63 del alto ya es indistinguible del fondo.
             LinearGradient(
                 stops: [
                     .init(color: fondo.opacity(0), location: enLaFoto(0.24)),
-                    .init(color: fondo.opacity(0.45), location: enLaFoto(0.42)),
-                    .init(color: fondo.opacity(0.88), location: enLaFoto(0.57)),
-                    .init(color: fondo, location: enLaFoto(0.69)),
+                    .init(color: fondo.opacity(0.30), location: enLaFoto(0.40)),
+                    .init(color: fondo.opacity(0.62), location: enLaFoto(0.50)),
+                    .init(color: fondo.opacity(0.85), location: enLaFoto(0.58)),
+                    .init(color: fondo.opacity(0.95), location: enLaFoto(0.63)),
+                    .init(color: fondo.opacity(0.99), location: enLaFoto(0.68)),
                     .init(color: fondo, location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom

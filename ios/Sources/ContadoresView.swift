@@ -362,14 +362,17 @@ struct TarjetaContador: View {
                         sobreFoto: contador.foto != nil,
                         degradado: contador.color2.map { (contador.color, $0) }
                     )
-                } else {
+                } else if contador.conHora && dias < 30 {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(dias)").font(.system(size: 42, weight: .heavy, design: .rounded)).foregroundStyle(color)
+                        Text("\(dias)").font(.system(size: compacta ? 36 : 42, weight: .heavy, design: .rounded)).foregroundStyle(color)
                         Text(dias == 1 ? "día" : "días").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
-                        if contador.conHora { Text("\(horas) h").font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7)) }
+                        Text("\(horas) h").font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7))
                     }
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .shadow(color: .black.opacity(conFoto ? 0.8 : 0), radius: 5)
+                } else {
+                    // Solo días: el número a todo lo que da (ver `NumeroDeDias`).
+                    NumeroDeDias(dias: dias, color: color, cuerpo: compacta ? 62 : 78, sobreFoto: conFoto)
                 }
             }
             .padding(.horizontal, compacta ? 13 : 16)

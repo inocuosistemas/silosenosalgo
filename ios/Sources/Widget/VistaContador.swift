@@ -154,21 +154,31 @@ struct VistaContador: View {
             } else {
                 let dias = Int(faltan / 86_400)
                 let horas = Int((faltan - Double(dias) * 86_400) / 3600)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(dias)")
-                        .font(.system(size: tamano == .systemMedium ? 46 : 36, weight: .heavy, design: .rounded))
-                        .foregroundStyle(color)
-                    Text(dias == 1 ? "día" : "días")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    if conHora && dias < 30 {
+                // Cuando lo único que hay que decir son los DÍAS, el número se
+                // come todo el hueco y la palabra se va debajo, pequeña: en una
+                // baldosa que solo enseña un número, ese número es el widget.
+                // Con las horas al lado no cabe, y entonces van los dos en fila.
+                if conHora && dias < 30 {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text("\(dias)")
+                            .font(.system(size: tamano == .systemMedium ? 46 : 36, weight: .heavy, design: .rounded))
+                            .foregroundStyle(color)
+                        Text(dias == 1 ? "día" : "días")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
                         Text("\(horas) h")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.secondary)
                     }
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                } else {
+                    NumeroDeDias(
+                        dias: dias, color: color,
+                        cuerpo: tamano == .systemMedium ? 78 : 62,
+                        sobreFoto: conFoto(c)
+                    )
                 }
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
             }
         }
     }
