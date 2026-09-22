@@ -34,7 +34,27 @@ public struct TarjetaGrande: View {
         self.tamano = tamano
     }
 
-    private var fondo: Color { Color(red: 0.06, green: 0.09, blue: 0.16) }
+    /// El fondo sobre el que cae el número, y hacia el que se funde la foto.
+    public static let fondoOscuro = Color(red: 0.06, green: 0.09, blue: 0.16)
+
+    private var fondo: Color { Self.fondoOscuro }
+
+    /// La fundida de la banda de foto, suelta y en fracción de la BANDA: la usa
+    /// la pantalla de encuadre para enseñar ahí mismo lo que se va a apagar en
+    /// este formato, que no es lo mismo que en los otros dos.
+    public static var veloDeCartel: LinearGradient {
+        let enLaFoto = { (deLaCarta: CGFloat) in min(1, deLaCarta / TamanoWidget.altoDeLaFoto) }
+        return LinearGradient(stops: paradas.map {
+            .init(color: fondoOscuro.opacity($0.1), location: enLaFoto($0.0))
+        }, startPoint: .top, endPoint: .bottom)
+    }
+
+    /// Las paradas de la fundida, en fracción de la CARTA: dónde y con cuánto
+    /// fondo. Las últimas van muy juntas y casi opacas a propósito (ver abajo).
+    private static let paradas: [(CGFloat, Double)] = [
+        (0.28, 0), (0.44, 0.32), (0.54, 0.66), (0.62, 0.88),
+        (0.67, 0.96), (0.71, 0.99), (TamanoWidget.altoDeLaFoto, 1),
+    ]
 
     public var body: some View {
         let c = contador
@@ -49,7 +69,7 @@ public struct TarjetaGrande: View {
         // rótulo y se apaga del todo justo encima de los números. Cortándola
         // donde acaba el título, la tarjeta se partía en dos mitades —foto
         // arriba, gris liso abajo— y se veía la costura.
-        let altoFoto = tamano.height * 0.78
+        let altoFoto = tamano.height * TamanoWidget.altoDeLaFoto
         return ZStack(alignment: .top) {
             // La foto, de fondo y a lo alto, con su fundida encima.
             fondoDeCartel(color: color, alto: altoFoto)
@@ -143,15 +163,9 @@ public struct TarjetaGrande: View {
             // poco (0,95 · 0,99 · 1) no hay cambio brusco que ver, y a partir de
             // 0,63 del alto ya es indistinguible del fondo.
             LinearGradient(
-                stops: [
-                    .init(color: fondo.opacity(0), location: enLaFoto(0.28)),
-                    .init(color: fondo.opacity(0.32), location: enLaFoto(0.44)),
-                    .init(color: fondo.opacity(0.66), location: enLaFoto(0.54)),
-                    .init(color: fondo.opacity(0.88), location: enLaFoto(0.62)),
-                    .init(color: fondo.opacity(0.96), location: enLaFoto(0.67)),
-                    .init(color: fondo.opacity(0.99), location: enLaFoto(0.71)),
-                    .init(color: fondo, location: 1),
-                ],
+                stops: Self.paradas.map {
+                    .init(color: fondo.opacity($0.1), location: enLaFoto($0.0))
+                },
                 startPoint: .top, endPoint: .bottom
             )
         }

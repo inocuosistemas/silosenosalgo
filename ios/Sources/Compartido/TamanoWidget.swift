@@ -13,4 +13,10 @@ public enum TamanoWidget {
     public static let pequeno = CGSize(width: 148, height: 148)
     public static let mediano = CGSize(width: 321, height: 148)
     public static let grande = CGSize(width: 321, height: 324)
+
+    /// Qué parte del alto del GRANDE ocupa la foto: baja por detrás del título
+    /// y se apaga justo encima de los números (ver `TarjetaGrande`). Vive aquí
+    /// porque también decide la forma del marco al encuadrar ese formato, y las
+    /// dos cuentas tienen que salir del mismo número.
+    public static let altoDeLaFoto: CGFloat = 0.78
 }

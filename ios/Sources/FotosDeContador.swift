@@ -43,15 +43,61 @@ enum FotosDeContador {
         return nombre
     }
 
-    /// La foto que le toca enseñar a un contador.
-    static func imagen(de contador: Contador) -> UIImage? {
-        contador.foto.flatMap {
+    /**
+     Guarda un recorte POR FORMATO y devuelve el nombre de cada uno.
+
+     Se recorta aquí, al guardar, y no en el widget al pintar: el widget es un
+     proceso con la memoria muy contada y abrir ahí el original para recortarlo
+     es pedir que lo maten. Son tres ficheros pequeños en vez de uno; el
+     original ya estaba guardado de antes para poder volver a encuadrar.
+
+     Los recortes viejos se borran, incluido el `foto` de siempre si no era un
+     cartel: si no, cada retoque del encuadre iba dejando ficheros en el cajón.
+     */
+    @discardableResult
+    static func guardaEncuadres(
+        _ original: UIImage, _ encuadres: [String: EncuadreFoto], para contador: Contador
+    ) -> [String: String] {
+        let sello = Int(Date().timeIntervalSince1970 * 1000)
+        var nombres: [String: String] = [:]
+        for formato in FormatoFoto.allCases {
+            guard let e = encuadres[formato.rawValue] else { continue }
+            let trozo = RecortadorDeFoto.recorta(original, encuadre: e, formato: formato)
+            guard let jpeg = reducida(trozo, lado: 900).jpegData(compressionQuality: 0.8) else { continue }
+            let nombre = "\(contador.id)-\(formato.rawValue)-\(sello).jpg"
+            do {
+                try jpeg.write(to: AlmacenContadores.fotos.appendingPathComponent(nombre), options: .atomic)
+                nombres[formato.rawValue] = nombre
+            } catch {
+                continue
+            }
+        }
+        guard !nombres.isEmpty else { return [:] }
+        let nuevos = Set(nombres.values)
+        for viejo in recortes(de: contador) where !nuevos.contains(viejo) {
+            try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(viejo))
+        }
+        return nombres
+    }
+
+    /// La foto que le toca enseñar a un contador en un formato.
+    static func imagen(de contador: Contador, _ formato: FormatoFoto = .mediano) -> UIImage? {
+        contador.foto(formato).flatMap {
             UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path)
         }
     }
 
+    /// Los ficheros recortados que un contador tiene ahora mismo, de los tres
+    /// formatos y del `foto` de siempre. Los carteles no: son de la carrera y
+    /// se reutilizan entre contadores.
+    static func recortes(de contador: Contador) -> Set<String> {
+        var t = Set<String>(contador.fotos?.values.map { $0 } ?? [])
+        if let f = contador.foto { t.insert(f) }
+        return t.filter { !$0.hasPrefix("cartel-") }
+    }
+
     static func borra(_ contador: Contador) {
-        if let foto = contador.foto, !foto.hasPrefix("cartel-") {
+        for foto in recortes(de: contador) {
             try? FileManager.default.removeItem(at: AlmacenContadores.fotos.appendingPathComponent(foto))
         }
         try? FileManager.default.removeItem(

@@ -11,7 +11,7 @@ struct VistaContador: View {
 
     var body: some View {
         if let c = entrada.contador, tamano == .systemLarge {
-            TarjetaGrande(contador: c, ahora: entrada.date, foto: c.foto.flatMap(imagen), tamano: TamanoWidget.grande)
+            TarjetaGrande(contador: c, ahora: entrada.date, foto: imagen(c), tamano: TamanoWidget.grande)
                 .containerBackground(for: .widget) { Color(red: 0.06, green: 0.09, blue: 0.16) }
         } else if let c = entrada.contador, c.estilo == .compacto {
             // La baldosa de color: el color del contador es el FONDO, no la
@@ -22,7 +22,7 @@ struct VistaContador: View {
                 nombre: c.nombre, dias: cuenta.dias, horas: cuenta.horas, pasada: cuenta.pasada,
                 fecha: c.fechaVigente(desde: entrada.date), conHora: c.conHora,
                 color: c.color, color2: c.color2, emoji: c.emoji, conAro: c.origen == .carrera,
-                foto: tamano == .systemMedium ? c.foto.flatMap(imagen) : nil,
+                foto: tamano == .systemMedium ? imagen(c) : nil,
                 compacta: tamano == .systemSmall,
                 tamano: tamano == .systemSmall ? TamanoWidget.pequeno : TamanoWidget.mediano
             )
@@ -50,7 +50,7 @@ struct VistaContador: View {
 
     @ViewBuilder
     private func fondo(_ c: Contador) -> some View {
-        if let foto = c.foto, let img = imagen(foto) {
+        if let img = imagen(c) {
             FondoDeFoto(imagen: img)
         } else {
             Color.black
@@ -190,7 +190,7 @@ struct VistaContador: View {
     /// negro mientras la vista previa de la app lo enseñaba con foto: lo que se
     /// elige tiene que ser lo que se ve.
     private func conFoto(_ c: Contador) -> Bool {
-        tamano != .systemLarge && c.foto.flatMap(imagen) != nil
+        tamano != .systemLarge && imagen(c) != nil
     }
 
     private func fechaCorta(_ c: Contador) -> Date.FormatStyle {
@@ -199,7 +199,20 @@ struct VistaContador: View {
             : .dateTime.day().month(.abbreviated).year()
     }
 
-    private func imagen(_ nombre: String) -> UIImage? {
-        UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(nombre).path)
+    /// La foto recortada para ESTE formato (ver `FormatoFoto`): cada tamaño
+    /// tiene la suya, encuadrada aparte, porque los huecos son de formas muy
+    /// distintas y un solo recorte no vale para los tres.
+    private func imagen(_ c: Contador) -> UIImage? {
+        c.foto(formato).flatMap {
+            UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path)
+        }
+    }
+
+    private var formato: FormatoFoto {
+        switch tamano {
+        case .systemSmall: return .pequeno
+        case .systemLarge, .systemExtraLarge: return .grande
+        default: return .mediano
+        }
     }
 }

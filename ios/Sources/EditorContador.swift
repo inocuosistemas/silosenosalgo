@@ -301,8 +301,8 @@ struct EditorContador: View {
             // Encuadrar: el widget rellena un hueco muy apaisado, así que hay
             // que poder decir QUÉ trozo de la foto sale (ver `RecortadorDeFoto`).
             .sheet(item: $aEncuadrar) { envoltorio in
-                RecortadorDeFoto(imagen: envoltorio.imagen, encuadre: envoltorio.encuadre) { recortada, hecho in
-                    guarda(recortada, hecho)
+                RecortadorDeFoto(imagen: envoltorio.imagen, encuadres: envoltorio.encuadres) { hechos in
+                    guarda(envoltorio.imagen, hechos)
                 }
             }
         }
@@ -313,7 +313,7 @@ struct EditorContador: View {
         if original != nil {
             // Con el encuadre de la última vez: se vuelve aquí a RETOCAR, no a
         // empezar de cero.
-        Button { aEncuadrar = original.map { FotoParaEncuadrar(imagen: $0, encuadre: contador.encuadre) } } label: {
+        Button { aEncuadrar = original.map { FotoParaEncuadrar(imagen: $0, encuadres: contador.encuadresDeTodos) } } label: {
                 Label("Ajustar el encuadre", systemImage: "crop")
             }
         }
@@ -332,17 +332,23 @@ struct EditorContador: View {
         // Foto nueva: el encuadre de la anterior no significa nada.
         await MainActor.run {
             contador.encuadre = nil
+            contador.encuadres = nil
             aEncuadrar = FotoParaEncuadrar(imagen: grande)
         }
     }
 
-    /// Ya encuadrada: al cajón compartido (ver `FotosDeContador`).
-    private func guarda(_ img: UIImage, _ hecho: EncuadreFoto) {
-        guard let nombre = FotosDeContador.guardaEncuadre(img, para: contador) else { return }
+    /// Ya encuadrada: un recorte por formato, al cajón compartido (ver
+    /// `FotosDeContador`). `foto` y `encuadre` siguen siendo los del mediano,
+    /// que es lo que lee todo lo que no sabe de formatos.
+    private func guarda(_ original: UIImage, _ hechos: [String: EncuadreFoto]) {
+        let nombres = FotosDeContador.guardaEncuadres(original, hechos, para: contador)
+        guard !nombres.isEmpty else { return }
         contador.usaCartel = false
-        contador.foto = nombre
+        contador.fotos = nombres
+        contador.foto = nombres[FormatoFoto.mediano.rawValue] ?? nombres.values.first
+        contador.encuadres = hechos
+        contador.encuadre = hechos[FormatoFoto.mediano.rawValue]
         contador.fotoVersion = Date().timeIntervalSince1970
-        contador.encuadre = hecho
     }
 
     private func reducida(_ img: UIImage, lado: CGFloat) -> UIImage {
@@ -353,7 +359,9 @@ struct EditorContador: View {
     private func quitaFoto() {
         FotosDeContador.borra(contador)
         contador.foto = nil
+        contador.fotos = nil
         contador.encuadre = nil
+        contador.encuadres = nil
     }
 }
 
@@ -361,6 +369,6 @@ struct EditorContador: View {
 private struct FotoParaEncuadrar: Identifiable {
     let id = UUID()
     let imagen: UIImage
-    /// Cómo se dejó la última vez, si ya se había encuadrado.
-    var encuadre: EncuadreFoto?
+    /// Cómo se dejó cada formato la última vez, si ya se había encuadrado.
+    var encuadres: [String: EncuadreFoto] = [:]
 }

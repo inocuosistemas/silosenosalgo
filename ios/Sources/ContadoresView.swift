@@ -201,6 +201,15 @@ struct VistaPreviaWidget: View {
     enum Formato {
         case pequeno, mediano, grande
 
+        /// Cuál de los tres encuadres de la foto le toca (ver `FormatoFoto`).
+        var foto: FormatoFoto {
+            switch self {
+            case .pequeno: return .pequeno
+            case .mediano: return .mediano
+            case .grande: return .grande
+            }
+        }
+
         /// Lo que mide de verdad en un iPhone corriente.
         var tamano: CGSize {
             switch self {
@@ -245,22 +254,30 @@ struct VistaPreviaWidget: View {
                     compacta: formato == .pequeno
                 )
             } else {
-                TarjetaContador(contador: contador, compacta: formato == .pequeno)
+                TarjetaContador(contador: contador, compacta: formato == .pequeno, formato: formato.foto)
                     .background(Color.black)
             }
         }
     }
 
-    private var foto: UIImage? {
-        contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) }
-    }
+    /// La foto recortada para ESTE formato (ver `FormatoFoto`).
+    private var foto: UIImage? { TarjetaContador.foto(contador, formato.foto) }
 }
 
 /// La tarjeta, igual que en el widget: es lo que se está eligiendo.
 struct TarjetaContador: View {
     let contador: Contador
-    /// A tamaño de widget pequeño: sin foto y con el número más apretado.
+    /// A tamaño de widget pequeño: el número más apretado.
     var compacta: Bool = false
+    /// Cuál de los tres recortes de la foto se enseña (ver `FormatoFoto`).
+    var formato: FormatoFoto = .mediano
+
+    /// La foto ya recortada para un formato.
+    static func foto(_ contador: Contador, _ formato: FormatoFoto) -> UIImage? {
+        contador.foto(formato).flatMap {
+            UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path)
+        }
+    }
 
     var body: some View {
         // Se vuelve a calcular cada poco: los segundos los lleva el reloj del
@@ -282,7 +299,7 @@ struct TarjetaContador: View {
                     fecha: f, conHora: contador.conHora,
                     color: contador.color, color2: contador.color2, emoji: contador.emoji,
                     conAro: contador.origen == .carrera,
-                    foto: compacta ? nil : contador.foto.flatMap { UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent($0).path) },
+                    foto: compacta ? nil : Self.foto(contador, formato),
                     compacta: compacta,
                     tamano: compacta ? TamanoWidget.pequeno : TamanoWidget.mediano
                 )
@@ -301,7 +318,7 @@ struct TarjetaContador: View {
         let faltan = max(0, fecha.timeIntervalSince(ahora))
         let dias = Int(faltan / 86_400)
         let horas = Int((faltan - Double(dias) * 86_400) / 3600)
-        let conFoto = contador.foto != nil
+        let conFoto = contador.foto(formato) != nil
         return ZStack(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .top) {
@@ -359,7 +376,7 @@ struct TarjetaContador: View {
                         color: color, cuerpo: compacta ? 38 : 56,
                         etiqueta: compacta ? 9 : 11, colorEtiqueta: .white.opacity(0.6),
                         ancho: (compacta ? TamanoWidget.pequeno.width : TamanoWidget.mediano.width) - (compacta ? 26 : 32),
-                        sobreFoto: contador.foto != nil,
+                        sobreFoto: conFoto,
                         degradado: contador.color2.map { (contador.color, $0) }
                     )
                 } else if contador.conHora && dias < 30 {
@@ -382,8 +399,7 @@ struct TarjetaContador: View {
         // La foto, DETRÁS y recortada a la tarjeta: puesta como una capa más,
         // crecía a su tamaño y tapaba el nombre y el número.
         .background {
-            if let foto = contador.foto,
-               let img = UIImage(contentsOfFile: AlmacenContadores.fotos.appendingPathComponent(foto).path) {
+            if let img = Self.foto(contador, formato) {
                 FondoDeFoto(imagen: img)
             } else {
                 Theme.slate900

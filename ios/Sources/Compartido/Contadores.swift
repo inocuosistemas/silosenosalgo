@@ -61,6 +61,42 @@ public struct EncuadreFoto: Codable, Hashable, Sendable {
     }
 }
 
+/**
+ Los huecos de foto que hay que encuadrar, que son tres y de formas muy
+ distintas: la baldosa pequeña es CUADRADA, la mediana es más de dos a uno, y
+ la grande enseña la foto en una banda de arriba, a medio camino entre las dos.
+
+ Encuadrando solo para la mediana y estirando ese recorte a las demás, la
+ cuadrada recortaba por los lados lo que se acababa de elegir. Por eso cada
+ formato lleva el suyo.
+
+ El que no se haya tocado se SACA del que sí (ver `AjusteDeEncuadre.derivado`):
+ el mismo punto de la foto y el mismo zoom, con la forma que toque. Así el
+ encuadre de siempre —uno— sigue valiendo para los tres sin pedir nada.
+ */
+public enum FormatoFoto: String, Codable, CaseIterable, Sendable {
+    case pequeno, mediano, grande
+
+    /// Lo apaisado que es el hueco de la FOTO en ese formato: ancho partido
+    /// por alto. En el grande no es la tarjeta entera, sino la banda de foto
+    /// (ver `TarjetaGrande`), que baja hasta justo encima de los números.
+    public var proporcion: CGFloat {
+        switch self {
+        case .pequeno: return TamanoWidget.pequeno.width / TamanoWidget.pequeno.height
+        case .mediano: return TamanoWidget.mediano.width / TamanoWidget.mediano.height
+        case .grande: return TamanoWidget.grande.width / (TamanoWidget.grande.height * TamanoWidget.altoDeLaFoto)
+        }
+    }
+
+    public var nombre: String {
+        switch self {
+        case .pequeno: return "Pequeño"
+        case .mediano: return "Mediano"
+        case .grande: return "Grande"
+        }
+    }
+}
+
 public struct Contador: Codable, Identifiable, Hashable, Sendable {
     public enum Origen: String, Codable, Sendable { case carrera, propio }
 
@@ -85,8 +121,16 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
     /// imagen que ya tenían leída.
     public var fotoVersion: Double = 0
     /// Cómo se dejó encuadrada la foto, para poder retocarla sin empezar de
-    /// cero (ver `EncuadreFoto`).
+    /// cero (ver `EncuadreFoto`). Es el del MEDIANO; se queda por lo que ya
+    /// hay guardado en los móviles de la gente, y por si algo lee el contador
+    /// sin saber de formatos.
     public var encuadre: EncuadreFoto?
+    /// El encuadre de cada formato, por su nombre (ver `FormatoFoto`).
+    public var encuadres: [String: EncuadreFoto]?
+    /// El fichero ya recortado de cada formato, por su nombre. Se recorta al
+    /// guardar y no al pintar: el widget es un proceso con la memoria muy
+    /// contada, y abrir ahí el original para recortarlo es pedir que lo maten.
+    public var fotos: [String: String]?
     /// Se repite cada año (el cumpleaños, la carrera de siempre).
     public var anual: Bool
     public var alPasar: AlPasar
@@ -114,6 +158,8 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         foto: String? = nil,
         fotoVersion: Double = 0,
         encuadre: EncuadreFoto? = nil,
+        encuadres: [String: EncuadreFoto]? = nil,
+        fotos: [String: String]? = nil,
         anual: Bool = false,
         alPasar: AlPasar = .ocultar,
         aviso: Bool = false,
@@ -133,6 +179,8 @@ public struct Contador: Codable, Identifiable, Hashable, Sendable {
         self.foto = foto
         self.fotoVersion = fotoVersion
         self.encuadre = encuadre
+        self.encuadres = encuadres
+        self.fotos = fotos
         self.anual = anual
         self.alPasar = alPasar
         self.aviso = aviso
@@ -208,6 +256,8 @@ public extension Contador {
             foto: try c.decodeIfPresent(String.self, forKey: .foto),
             fotoVersion: try c.decodeIfPresent(Double.self, forKey: .fotoVersion) ?? 0,
             encuadre: try c.decodeIfPresent(EncuadreFoto.self, forKey: .encuadre),
+            encuadres: try c.decodeIfPresent([String: EncuadreFoto].self, forKey: .encuadres),
+            fotos: try c.decodeIfPresent([String: String].self, forKey: .fotos),
             anual: try c.decode(Bool.self, forKey: .anual),
             alPasar: try c.decode(AlPasar.self, forKey: .alPasar),
             aviso: try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false,
@@ -216,6 +266,32 @@ public extension Contador {
             eventoId: try c.decodeIfPresent(String.self, forKey: .eventoId),
             aspectoPropio: try c.decode(Bool.self, forKey: .aspectoPropio)
         )
+    }
+}
+
+public extension Contador {
+    /// El fichero que le toca enseñar a cada formato.
+    ///
+    /// Si no hay recorte propio se cae al de siempre, que es el del mediano:
+    /// es lo que tienen los contadores guardados antes de que hubiera
+    /// formatos, y así siguen viéndose mientras no se vuelva a encuadrar.
+    func foto(_ formato: FormatoFoto) -> String? {
+        fotos?[formato.rawValue] ?? foto
+    }
+
+    /// El encuadre de un formato, si se guardó alguno suyo.
+    func encuadre(_ formato: FormatoFoto) -> EncuadreFoto? {
+        encuadres?[formato.rawValue] ?? (formato == .mediano ? encuadre : nil)
+    }
+
+    /// Todos los encuadres que hay, con el de siempre puesto en el mediano.
+    /// Es de donde arranca la pantalla de encuadre al abrirse.
+    var encuadresDeTodos: [String: EncuadreFoto] {
+        var t = encuadres ?? [:]
+        if t[FormatoFoto.mediano.rawValue] == nil, let e = encuadre {
+            t[FormatoFoto.mediano.rawValue] = e
+        }
+        return t
     }
 }
 
