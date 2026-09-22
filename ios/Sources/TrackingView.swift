@@ -285,6 +285,15 @@ struct TrackingView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 0, trailing: 4))
                         .listRowBackground(Color.clear)
                 }
+                // El permiso de ubicación, ARRIBA y con botón. Estaba al final
+                // de la lista, en texto, y había que ir a buscarlo a Ajustes a
+                // mano; sin «Siempre», con la pantalla apagada no se comparte.
+                if store.authStatus != .authorizedAlways && store.authStatus != .notDetermined {
+                    Section {
+                        AvisoDeUbicacion(estado: store.authStatus) { store.pideUbicacion() }
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
                 Section {
                     // Si hay red o no. Va ARRIBA porque explica media pantalla:
                     // las previsiones, los eventos y los seguimientos viven en
@@ -1147,21 +1156,6 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
                 }
 
-                if store.authStatus == .authorizedWhenInUse {
-                    Section {
-                        Text("Tienes permiso \"Mientras se usa\". Para seguir compartiendo con la pantalla apagada, cambia a \"Siempre\" en Ajustes → SiLoSeNoSalgo → Ubicación.")
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
-                    }
-                    .listRowBackground(Theme.slate900)
-                } else if store.authStatus == .denied || store.authStatus == .restricted {
-                    Section {
-                        Text("El permiso de ubicación está desactivado. Actívalo en Ajustes → SiLoSeNoSalgo → Ubicación.")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                    .listRowBackground(Theme.slate900)
-                }
 
                 // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era
                 // fácil rozarlo con prisa, y es lo que menos se hace. Se sigue

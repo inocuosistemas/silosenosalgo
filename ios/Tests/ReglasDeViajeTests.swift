@@ -108,3 +108,23 @@ final class ReglasDeViajeTests: XCTestCase {
         XCTAssertEqual(BuscadorDeLugares.abreviatura(de: "A Coruña"), "ACO")
     }
 }
+
+/// La configuración del viaje se guarda y se vuelve a leer igual: al salir de
+/// la pantalla y entrar otra vez estaba todo vacío.
+final class BorradorDeViajeTests: XCTestCase {
+    func testLoQueSeConfiguraSeVuelveALeerIgual() throws {
+        let d = try XCTUnwrap(UserDefaults(suiteName: "prueba-borrador-viaje"))
+        defer { d.removePersistentDomain(forName: "prueba-borrador-viaje") }
+        XCTAssertNil(BorradorDeViaje.lee(de: d), "sin nada guardado, nada")
+
+        let b = BorradorDeViaje(
+            titulo: "Viaje a Japón",
+            origen: LugarDeViaje(nombre: "Aeropuerto de Barcelona-El Prat", abreviatura: "BCN", latitud: 41.2886, longitud: 2.0743),
+            destino: LugarDeViaje(nombre: "Tokio", abreviatura: "NRT", latitud: 35.7633, longitud: 140.3829),
+            transporte: .avion,
+            colores: ColoresDeViaje(fondo: "#3b0764", trayecto: "#f472b6", trayecto2: "#f59e0b"),
+            conHora: true, hora: Date(timeIntervalSince1970: 1_800_000_000))
+        b.guarda(en: d)
+        XCTAssertEqual(BorradorDeViaje.lee(de: d), b)
+    }
+}

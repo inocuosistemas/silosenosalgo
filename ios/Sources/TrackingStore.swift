@@ -231,6 +231,12 @@ final class TrackingStore: ObservableObject {
     /// The auth bearer token, set once known (login / relaunch from Keychain).
     private(set) var token: String = ""
     private let location = LocationManager()
+
+    /// Pedir el permiso de ubicación desde la app, sin mandar a nadie a Ajustes
+    /// si se puede evitar (ver `AvisoDeUbicacion`).
+    func pideUbicacion() {
+        location.requestAuthorization()
+    }
     private var lastSendAttempt: Date = .distantPast
     private var pending: [Fix] = []
     private var isFlushing = false

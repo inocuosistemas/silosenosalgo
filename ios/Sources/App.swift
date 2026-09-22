@@ -16,6 +16,14 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 PantallaDePruebaDeEncuadre()
                     .tint(Theme.sky500)
                     .preferredColorScheme(.dark)
+            } else if PruebaDeViaje.pantalla {
+                // Solo la pantalla de configurar, detrás de un enlace: para
+                // probar que lo escrito sigue ahí al salir y volver a entrar.
+                NavigationStack {
+                    List { NavigationLink("Viaje en directo") { PantallaViaje() } }
+                }
+                .tint(Theme.sky500)
+                .preferredColorScheme(.dark)
             } else if PruebaDeViaje.pedida {
                 // Arranque de prueba del viaje en directo: empieza uno fijo
                 // (Madrid → Barcelona) para moverlo con una ruta GPS simulada.
@@ -130,6 +138,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 /// (`xcrun simctl location … start`). Solo responde a un argumento de arranque.
 enum PruebaDeViaje {
     static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeViaje") }
+    /// Solo la pantalla de configurar, sin arrancar ningún viaje.
+    static var pantalla: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDePantallaDeViaje") }
 
     static let atributos = ViajeAtributos(
         titulo: "Prueba de viaje",

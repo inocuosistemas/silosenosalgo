@@ -61,10 +61,20 @@ final class BuscadorDeLugares: NSObject, ObservableObject, MKLocalSearchComplete
 private struct CampoDeLugar: View {
     let etiqueta: String
     @Binding var lugar: LugarDeViaje?
+    /// Abrir el mapa lo hace la pantalla, no el campo (ver `PantallaViaje`).
+    let abreMapa: () -> Void
     @StateObject private var buscador = BuscadorDeLugares()
     @State private var buscando = false
 
     var body: some View {
+        campo
+            // Llega un punto nuevo —del mapa— mientras se buscaba: se deja
+            // de buscar y se enseña el elegido.
+            .onChange(of: lugar) { _, _ in buscando = false }
+    }
+
+    @ViewBuilder
+    private var campo: some View {
         if let l = lugar, !buscando {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -93,14 +103,28 @@ private struct CampoDeLugar: View {
                 .padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.slate800))
             }
-            Button("Cambiar \(etiqueta.lowercased())") {
-                buscador.texto = ""
-                buscando = true
+            HStack {
+                Button("Cambiar \(etiqueta.lowercased())") {
+                    buscador.texto = ""
+                    buscando = true
+                }
+                Spacer()
+                // El punto que da el buscador es el centro del sitio; aquí se
+                // afina: una terminal, una calle, la puerta de casa.
+                Button(action: abreMapa) {
+                    Label("Afinar en el mapa", systemImage: "scope")
+                }
             }
             .font(.footnote)
+            .buttonStyle(.borderless)
         } else {
             TextField("Ciudad, o «Aeropuerto de …»", text: $buscador.texto)
                 .autocorrectionDisabled()
+            Button(action: abreMapa) {
+                Label("Elegir el punto exacto en el mapa", systemImage: "map")
+                    .font(.footnote)
+            }
+            .buttonStyle(.borderless)
             ForEach(buscador.resultados, id: \.self) { r in
                 Button {
                     Task {
@@ -123,6 +147,12 @@ private struct CampoDeLugar: View {
             }
         }
     }
+}
+
+/// Qué extremo se está eligiendo en el mapa.
+private enum ExtremoDelViaje: String, Identifiable {
+    case origen, destino
+    var id: String { rawValue }
 }
 
 /// Una fila de muestras de color y el selector libre, como en las cuentas atrás.
@@ -176,6 +206,11 @@ struct PantallaViaje: View {
     @State private var colores = ColoresDeViaje.porDefecto
     @State private var conHora = false
     @State private var hora = Date().addingTimeInterval(3600)
+    /// Hasta haber leído lo guardado no se guarda nada: si no, el primer
+    /// cambio de estado —la carga misma— podía pisar lo guardado con vacío.
+    @State private var cargado = false
+    /// El extremo que se está eligiendo en el mapa, si se está.
+    @State private var mapaPara: ExtremoDelViaje?
 
     /// Fondos oscuros que casan con la pantalla de bloqueo, y un par de claros.
     private let fondos = ["#0f1729", "#000000", "#1e1b4b", "#052e16", "#450a0a", "#3b0764", "#f8fafc", "#fef3c7"]
@@ -200,7 +235,21 @@ struct PantallaViaje: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(Theme.slate950)
-        .onAppear(perform: cargaLoProgramado)
+        // El mapa cuelga de la LISTA y no del campo: colgado de una fila, se
+        // abría y se cerraba al instante, porque al ponerse a buscar la fila
+        // cambia y SwiftUI la rehace, llevándose lo que colgaba de ella.
+        .sheet(item: $mapaPara) { extremo in
+            SelectorEnMapa(inicial: extremo == .origen ? origen : destino) { l in
+                if extremo == .origen { origen = l } else { destino = l }
+            }
+        }
+        .onAppear(perform: carga)
+        // Lo que se va eligiendo se guarda al momento: la pantalla se cierra en
+        // cuanto se vuelve atrás, y con el estado solo en memoria, al volver a
+        // entrar estaba todo vacío.
+        .onChange(of: borrador) { _, nuevo in
+            if cargado { nuevo.guarda() }
+        }
         .alert("Viaje en directo", isPresented: Binding(
             get: { viaje.error != nil }, set: { if !$0 { viaje.error = nil } }
         )) {
@@ -251,14 +300,14 @@ struct PantallaViaje: View {
         .listRowBackground(Theme.slate900)
 
         Section {
-            CampoDeLugar(etiqueta: "Origen", lugar: $origen)
+            CampoDeLugar(etiqueta: "Origen", lugar: $origen) { mapaPara = .origen }
         } header: {
             Text("ORIGEN").font(.caption).foregroundStyle(Theme.slate400)
         }
         .listRowBackground(Theme.slate900)
 
         Section {
-            CampoDeLugar(etiqueta: "Destino", lugar: $destino)
+            CampoDeLugar(etiqueta: "Destino", lugar: $destino) { mapaPara = .destino }
         } header: {
             Text("DESTINO").font(.caption).foregroundStyle(Theme.slate400)
         } footer: {
@@ -428,15 +477,63 @@ struct PantallaViaje: View {
                               transporte: transporte, colores: colores)
     }
 
-    /// Si hay uno programado, se vuelve a él: para verlo o retocarlo.
-    private func cargaLoProgramado() {
-        guard origen == nil, let p = viaje.programado else { return }
-        titulo = p.atributos.titulo ?? ""
-        origen = p.atributos.origen
-        destino = p.atributos.destino
-        transporte = p.atributos.transporte
-        colores = p.atributos.colores
-        conHora = true
-        hora = p.hora
+    /// Lo que hay en pantalla, para guardarlo.
+    private var borrador: BorradorDeViaje {
+        BorradorDeViaje(titulo: titulo, origen: origen, destino: destino, transporte: transporte,
+                        colores: colores, conHora: conHora, hora: hora)
+    }
+
+    /// Al entrar: lo que se dejó la última vez. Si hay un viaje programado,
+    /// manda ese, que es el que va a salir.
+    private func carga() {
+        guard !cargado else { return }
+        defer { cargado = true }
+        if let p = viaje.programado {
+            titulo = p.atributos.titulo ?? ""
+            origen = p.atributos.origen
+            destino = p.atributos.destino
+            transporte = p.atributos.transporte
+            colores = p.atributos.colores
+            conHora = true
+            hora = p.hora
+        } else if let b = BorradorDeViaje.lee() {
+            titulo = b.titulo
+            origen = b.origen
+            destino = b.destino
+            transporte = b.transporte
+            colores = b.colores
+            conHora = b.conHora
+            // Una hora que ya pasó no se puede elegir: se propone dentro de una.
+            hora = b.hora > Date() ? b.hora : Date().addingTimeInterval(3600)
+        }
+    }
+}
+
+/**
+ Lo último que se configuró en la pantalla del viaje, guardado en el móvil para
+ encontrarlo igual al volver.
+
+ Aparte de la pantalla para poder probar que se guarda y se lee: sin esto, al
+ volver a la pantalla principal y entrar otra vez, todo estaba vacío.
+ */
+struct BorradorDeViaje: Codable, Equatable {
+    var titulo: String
+    var origen: LugarDeViaje?
+    var destino: LugarDeViaje?
+    var transporte: TransporteDeViaje
+    var colores: ColoresDeViaje
+    var conHora: Bool
+    var hora: Date
+
+    static let clave = "viaje.borrador"
+
+    func guarda(en d: UserDefaults = .standard) {
+        guard let datos = try? JSONEncoder().encode(self) else { return }
+        d.set(datos, forKey: Self.clave)
+    }
+
+    static func lee(de d: UserDefaults = .standard) -> BorradorDeViaje? {
+        guard let datos = d.data(forKey: clave) else { return nil }
+        return try? JSONDecoder().decode(BorradorDeViaje.self, from: datos)
     }
 }
