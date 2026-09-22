@@ -1287,6 +1287,17 @@ struct TrackingView: View {
                 await store.loadEvents()
                 await store.loadSessions()
             }
+            // La pantalla de las cuentas atrás, colgada de la LISTA y no de la
+            // fila que la abre.
+            //
+            // Estaba en la fila, y la fila va y viene: al terminar de cargar las
+            // carreras cambia de sección —de «Cuenta atrás» a «Mis carreras»—, y
+            // al irse la fila se iba con ella el destino de navegación, así que
+            // la pantalla recién abierta se cerraba sola y volvías a la
+            // principal. Se notaba sobre todo recién instalada la app, que es
+            // cuando todavía no hay carreras cargadas. La lista, en cambio, está
+            // siempre.
+            .navigationDestination(isPresented: $verContadores) { ContadoresView() }
             .refreshable {
                 // Pull down to pick up changes made elsewhere (e.g. a route just
                 // created on the web, o un evento al que te acaban de invitar)
@@ -2133,6 +2144,5 @@ private struct FilaContadores: View {
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .navigationDestination(isPresented: $abierta) { ContadoresView() }
     }
 }
