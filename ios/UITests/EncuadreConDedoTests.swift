@@ -77,6 +77,27 @@ final class EncuadreConDedoTests: XCTestCase {
         let ancho = valor("ancho", texto)
         XCTAssertGreaterThan(ancho, 0, "no hay foto guardada — \(texto)")
         XCTAssertLessThan(ancho, 800, "el recorte salió sin acercar: el encuadre no se guardó — \(texto)")
+
+        // Y los tres formatos, cada uno con la forma de SU hueco. Con un solo
+        // recorte estirado a los tres, los tres medirían lo mismo.
+        let peq = medida("pequeno", texto), med = medida("mediano", texto), gra = medida("grande", texto)
+        XCTAssertEqual(peq.ancho / peq.alto, 1, accuracy: 0.05,
+                       "el del widget pequeño tiene que salir cuadrado — \(texto)")
+        XCTAssertEqual(med.ancho / med.alto, 321.0 / 148, accuracy: 0.1,
+                       "el del mediano, apaisado — \(texto)")
+        XCTAssertTrue(peq.ancho / peq.alto < gra.ancho / gra.alto
+                      && gra.ancho / gra.alto < med.ancho / med.alto,
+                      "el grande va entre los otros dos de apaisado — \(texto)")
+    }
+
+    /// «pequeno=380x176» → las dos medidas.
+    private func medida(_ clave: String, _ texto: String) -> (ancho: Double, alto: Double) {
+        guard let r = texto.range(of: "\(clave)=") else { return (.nan, .nan) }
+        let trozo = texto[r.upperBound...].prefix { "0123456789x".contains($0) }.split(separator: "x")
+        guard trozo.count == 2, let a = Double(trozo[0]), let b = Double(trozo[1]), b > 0 else {
+            return (.nan, .nan)
+        }
+        return (a, b)
     }
 
     private func valor(_ clave: String, _ texto: String) -> Double {

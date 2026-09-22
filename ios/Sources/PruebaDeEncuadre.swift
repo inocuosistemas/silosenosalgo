@@ -90,7 +90,14 @@ struct PantallaDePruebaDeEncuadre: View {
                 // contra la versión de antes, que no guardaba ajuste ninguno.
                 let img = FotosDeContador.imagen(de: g)
                 let an = Int(img?.size.width ?? 0), al = Int(img?.size.height ?? 0)
-                Text("GUARDADO ancho=\(an) alto=\(al) foto=\(g.foto ?? "-")")
+                // Y el de cada formato, que son tres recortes distintos (ver
+                // `FormatoFoto`): la prueba comprueba que el cuadrado sale
+                // cuadrado y el apaisado apaisado, no un solo recorte estirado.
+                let porFormato = FormatoFoto.allCases.map { f -> String in
+                    let i = FotosDeContador.imagen(de: g, f)
+                    return "\(f.rawValue)=\(Int(i?.size.width ?? 0))x\(Int(i?.size.height ?? 0))"
+                }.joined(separator: " ")
+                Text("GUARDADO ancho=\(an) alto=\(al) \(porFormato) foto=\(g.foto ?? "-")")
                     .font(.caption2.monospaced())
                     .padding(6)
                     .background(.black)
