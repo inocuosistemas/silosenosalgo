@@ -1,12 +1,12 @@
 import SwiftUI
 
 /**
- PROPUESTA: el trayecto de un vuelo como un ARCO en vez de una barra, que cuenta
- el despegue y el aterrizaje sin palabras. El avión va girando con la curva: el
+ El trayecto de un vuelo como un ARCO en vez de una barra, que cuenta el
+ despegue y el aterrizaje sin palabras. El avión va girando con la curva: el
  morro hacia arriba al salir, recto en lo alto y hacia abajo al llegar.
 
- Todavía no lo usa la Actividad: está para verlo en la lámina y decidir
- (`docs/propuestas/viaje-en-directo/arco`).
+ Se eligió el semicírculo entre las dos formas propuestas
+ (`docs/propuestas/viaje-en-directo/arco`); ver `TarjetaDelViaje`.
 
  El arco es media ELIPSE apoyada en su base: del mismo ancho que alto es un
  semicírculo, y más ancho que alto, un arco tendido.
@@ -109,7 +109,7 @@ public struct ArcoDeViaje: View {
 }
 
 /**
- PROPUESTA: la tarjeta de un vuelo con el arco. Dos formas, porque la tarjeta
+ La tarjeta de un vuelo con el arco. Dos formas, porque la tarjeta
  no puede pasar de 160 puntos de alto y un semicírculo de verdad a todo lo ancho
  mediría más que eso:
 
@@ -204,6 +204,28 @@ public struct TarjetaViajeArco: View {
             .frame(maxWidth: .infinity, maxHeight: 92)
             ExtremoDeViaje(lugar: datos.destino, alineado: .trailing, apagado: pintura.apagado, tamano: 26)
                 .fixedSize().layoutPriority(1)
+        }
+    }
+}
+
+/**
+ La tarjeta que va en la pantalla de bloqueo, según cómo se viaja: en avión, el
+ SEMICÍRCULO (el que se eligió de la propuesta del arco); lo demás no despega y
+ va con la barra recta.
+
+ Una sola vista para las dos que la usan —la Actividad y la vista previa de la
+ app—, para que lo que se ve al configurar sea lo que sale.
+ */
+public struct TarjetaDelViaje: View {
+    public let datos: DatosDeViaje
+
+    public init(datos: DatosDeViaje) { self.datos = datos }
+
+    public var body: some View {
+        if datos.transporte == .avion {
+            TarjetaViajeArco(datos: datos, forma: .semicirculo)
+        } else {
+            TarjetaViaje(datos: datos)
         }
     }
 }

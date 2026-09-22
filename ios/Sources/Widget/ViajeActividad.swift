@@ -16,7 +16,7 @@ import WidgetKit
 struct ViajeActividad: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ViajeAtributos.self) { contexto in
-            TarjetaViaje(datos: datos(contexto))
+            TarjetaDelViaje(datos: datos(contexto))
                 .activityBackgroundTint(Color(hexContador: contexto.attributes.colores.fondo))
                 // El color de los botones del sistema que salen encima (el de
                 // cerrarla), a juego con el texto.

@@ -231,7 +231,7 @@ struct PantallaViaje: View {
     @ViewBuilder
     private var vistaPrevia: some View {
         if let d = datosDeMuestra {
-            TarjetaViaje(datos: d)
+            TarjetaDelViaje(datos: d)
                 .background(Color(hexContador: d.colores.fondo))
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
