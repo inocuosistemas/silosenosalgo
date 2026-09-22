@@ -101,19 +101,8 @@ public struct NumeroCuentaAtras: View {
                         .frame(width: anchoPrefijo, alignment: .leading)
                         .foregroundStyle(tramo(par + colon, par + colon + anchoPrefijo, total))
                 }
-                // El RELOJ DEL SISTEMA, con la fuente del sistema y nada más
-                // encima. Lo que lo dejaba PARADO era la `UIFont` convertida
-                // con `Font(_:)`, no el color: `testConDegradadoEncima` lo
-                // comprueba. Por eso aquí sí puede llevar su tramo de degradado
-                // —y tiene que llevarlo: es tres cuartas partes del número, y
-                // con un color liso el degradado se veía como dos bloques de
-                // color pegados en vez de como una transición.
-                Text(corte, style: .timer)
-                    .font(.system(size: tam, weight: .bold).monospacedDigit())
-                    .foregroundStyle(tramo(par + colon + anchoPrefijo, total, total))
-                    // Un pelo de holgura a la derecha: si el reloj midiera
-                    // medio punto más que la cuenta, se cortaría con "…".
-                    .frame(width: anchoReloj + 4, alignment: .leading)
+                reloj(tam: tam, par: par, colon: colon,
+                      anchoPrefijo: anchoPrefijo, anchoReloj: anchoReloj, total: total)
             }
             .font(Font(f))
             .foregroundStyle(color)
@@ -137,6 +126,64 @@ public struct NumeroCuentaAtras: View {
                 }
             }
             .frame(width: w, height: etiqueta * 1.4)
+        }
+    }
+
+    /**
+     El RELOJ DEL SISTEMA: las horas, los minutos y los segundos.
+
+     Lo pinta el sistema solo, cada segundo, y a cambio hay que dejarlo casi en
+     paz: con una `UIFont` convertida con `Font(_:)` se queda parado, y con un
+     degradado por encima —probado en el móvil— también. Solo admite COLOR LISO.
+
+     El problema es que es UNA pieza y ocupa tres cuartas partes del número, así
+     que pintándolo de un solo color el degradado se veía como dos bloques de
+     color pegados: los días de un tono y todo lo demás de otro.
+
+     La salida es partirlo en columnas: el mismo reloj pintado tres veces, cada
+     copia recortada a su par de cifras y con su propio color liso, el del
+     degradado en ese punto. Cada copia sigue siendo un reloj del sistema sin
+     nada encima —así que sigue corriendo—, y como dentro de dos cifras el
+     degradado apenas cambia, juntas se leen como una transición.
+
+     Sin degradado no hay nada que repartir y va de una pieza, como siempre.
+     */
+    @ViewBuilder
+    private func reloj(
+        tam: CGFloat, par: CGFloat, colon: CGFloat,
+        anchoPrefijo: CGFloat, anchoReloj: CGFloat, total: CGFloat
+    ) -> some View {
+        let fuente = Font.system(size: tam, weight: .bold).monospacedDigit()
+        if let d = degradado {
+            // Dónde acaba cada columna dentro del hueco entero de hh:mm:ss. Lo
+            // que ya escribe el prefijo se descuenta: con "00:" delante, el
+            // reloj empieza directamente por los minutos.
+            let finales: [CGFloat] = [par + colon, 2 * par + 2 * colon, 3 * par + 2 * colon]
+            let iniciales: [CGFloat] = [0, finales[0], finales[1]]
+            HStack(spacing: 0) {
+                ForEach(0..<3, id: \.self) { k in
+                    let ini = max(0, iniciales[k] - anchoPrefijo)
+                    let fin = max(0, finales[k] - anchoPrefijo)
+                    if fin > ini {
+                        // Un pelo de holgura en la última, por si el reloj mide
+                        // medio punto más que la cuenta y se corta con "…".
+                        let anchoTrozo = fin - ini + (k == 2 ? 4 : 0)
+                        let centro = par + colon + anchoPrefijo + (ini + fin) / 2
+                        Text(corte, style: .timer)
+                            .font(fuente)
+                            .foregroundColor(ColoresContador.mezcla(d.0, d.1, centro / total))
+                            .frame(width: anchoReloj + 4, alignment: .leading)
+                            .offset(x: -ini)
+                            .frame(width: anchoTrozo, alignment: .leading)
+                            .clipped()
+                    }
+                }
+            }
+        } else {
+            Text(corte, style: .timer)
+                .font(fuente)
+                .foregroundColor(color)
+                .frame(width: anchoReloj + 4, alignment: .leading)
         }
     }
 
