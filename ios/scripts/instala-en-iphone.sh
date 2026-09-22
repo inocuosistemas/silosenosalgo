@@ -61,7 +61,10 @@ fi
 echo "▸ iPhone: $udid"
 
 echo "▸ 1/5 compilando la web…"
-( cd "$raiz" && npm run build >/dev/null ) 2>/dev/null || ( cd "$raiz" && npm run build )
+# Llamando a vite directamente y con la entrada cerrada. Por `npm run build`
+# esto se quedaba colgado para siempre sin escribir una línea: npm espera algo
+# por la entrada estándar, y aquí no hay nadie al teclado.
+( cd "$raiz" && node node_modules/vite/bin/vite.js build < /dev/null )
 
 echo "▸ 2/5 copiando el visor a la app…"
 "$raiz/ios/scripts/copy-webdist.sh"

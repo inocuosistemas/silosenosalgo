@@ -50,7 +50,7 @@ struct VistaContador: View {
 
     @ViewBuilder
     private func fondo(_ c: Contador) -> some View {
-        if tamano == .systemMedium, let foto = c.foto, let img = imagen(foto) {
+        if let foto = c.foto, let img = imagen(foto) {
             FondoDeFoto(imagen: img)
         } else {
             Color.black
@@ -183,10 +183,14 @@ struct VistaContador: View {
         }
     }
 
-    /// Si el número va encima de una foto (solo en el mediano: en el grande la
-    /// foto va arriba y el número sobre liso).
+    /// Si el número va encima de una foto. En el grande no: allí la foto va
+    /// arriba y el número cae sobre el fondo liso, así que no necesita halo.
+    ///
+    /// El pequeño SÍ la lleva, igual que el mediano. Estuvo sin ella y se veía
+    /// negro mientras la vista previa de la app lo enseñaba con foto: lo que se
+    /// elige tiene que ser lo que se ve.
     private func conFoto(_ c: Contador) -> Bool {
-        tamano == .systemMedium && c.foto.flatMap(imagen) != nil
+        tamano != .systemLarge && c.foto.flatMap(imagen) != nil
     }
 
     private func fechaCorta(_ c: Contador) -> Date.FormatStyle {
