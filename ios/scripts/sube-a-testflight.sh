@@ -63,7 +63,9 @@ echo "▸ versión $version, build $build"
 
 if [ "$web" = true ]; then
   echo "▸ 1/4 compilando la web…"
-  ( cd "$raiz" && npm run build >/dev/null ) 2>/dev/null || ( cd "$raiz" && npm run build )
+  # Llamando a vite directamente y con la entrada cerrada, que es lo que
+  # evita el cuelgue que explica `--sin-web` ahí arriba.
+  ( cd "$raiz" && node node_modules/vite/bin/vite.js build < /dev/null )
 else
   echo "▸ 1/4 web: se reutiliza el dist/ ya construido (--sin-web)"
   [ -f "$raiz/dist/index.html" ] || { echo "No hay dist/ que reutilizar: constrúyelo antes." >&2; exit 1; }
