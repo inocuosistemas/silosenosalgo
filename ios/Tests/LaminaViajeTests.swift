@@ -15,12 +15,19 @@ final class LaminaViajeTests: XCTestCase {
     private let bcn = LugarDeViaje(nombre: "Barcelona", abreviatura: "BCN", latitud: 41.2974, longitud: 2.0833)
     private let nrt = LugarDeViaje(nombre: "Tokio", abreviatura: "NRT", latitud: 35.7720, longitud: 140.3929)
 
+    private let titulo = "Viaje a Japón"
+    private let claro = ColoresDeViaje(fondo: "#fef3c7", trayecto: "#f43f5e")
+    private let morado = ColoresDeViaje(fondo: "#3b0764", trayecto: "#f472b6", trayecto2: "#f59e0b")
+    private let tituloLargo = "Viaje de fin de carrera a Japón con toda la cuadrilla del club"
+
     private func datos(_ p: Double, transporte: TransporteDeViaje = .avion,
-                       llegado: Bool = false, sinSenal: Bool = false) -> DatosDeViaje {
+                       llegado: Bool = false, sinSenal: Bool = false,
+                       titulo: String? = nil,
+                       colores: ColoresDeViaje = .porDefecto) -> DatosDeViaje {
         let total = Trayecto.km(bcn.coordenada, nrt.coordenada)
         let resta = total * (1 - p)
         return DatosDeViaje(
-            origen: bcn, destino: nrt, transporte: transporte,
+            titulo: titulo, origen: bcn, destino: nrt, transporte: transporte, colores: colores,
             restanteKm: resta, progreso: p,
             llegada: Calendar.current.date(bySettingHour: 14, minute: 20, second: 0, of: Date()),
             llegado: llegado, sinSenal: sinSenal,
@@ -28,9 +35,9 @@ final class LaminaViajeTests: XCTestCase {
     }
 
     /// La caja de la pantalla de bloqueo: así la recorta el sistema.
-    private func bloqueo<V: View>(_ v: V) -> some View {
+    private func bloqueo(_ v: TarjetaViaje) -> some View {
         v.frame(width: 361)
-            .background(ColoresViaje.fondo.opacity(0.92))
+            .background(Color(hexContador: v.datos.colores.fondo))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -52,11 +59,17 @@ final class LaminaViajeTests: XCTestCase {
             bloqueo(TarjetaViaje(datos: datos(1, llegado: true)))
             rotulo("B · más apretada, a medio camino")
             bloqueo(TarjetaViaje(datos: datos(0.58), variante: .b))
+            rotulo("A · con título")
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo)))
+            rotulo("B · con título")
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo), variante: .b))
+            rotulo("A · con un título demasiado largo")
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: tituloLargo)))
 
             rotulo("Isla Dinámica · recogida y mínima")
             HStack(spacing: 14) {
                 HStack {
-                    IslaViajeInicio(transporte: .avion)
+                    IslaViajeInicio(datos: datos(0.58))
                     Spacer()
                     IslaViajeFin(datos: datos(0.58))
                 }
@@ -70,27 +83,21 @@ final class LaminaViajeTests: XCTestCase {
             }
             .frame(width: 361)
 
-            rotulo("Isla Dinámica · abierta")
-            VStack(spacing: 10) {
-                HStack(alignment: .top) {
-                    ExtremoDeViaje(lugar: bcn, alineado: .leading, tamano: 24)
-                    Spacer()
-                    ExtremoDeViaje(lugar: nrt, alineado: .trailing, tamano: 24)
-                }
-                BarraDeViaje(progreso: 0.58, transporte: .avion, chapa: 24)
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(ColoresViaje.km(datos(0.58).restanteKm))
-                        .font(.system(size: 18, weight: .bold)).monospacedDigit()
-                    Text("km").font(.caption).foregroundStyle(ColoresViaje.apagado)
-                    Spacer()
-                    (Text("llegada ") + Text(datos(0.58).llegada!, style: .time).bold())
-                        .font(.caption).foregroundStyle(ColoresViaje.apagado)
-                }
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 22).padding(.vertical, 16)
-            .frame(width: 371)
-            .background(RoundedRectangle(cornerRadius: 44, style: .continuous).fill(.black))
+            rotulo("Isla Dinámica · abierta, con título")
+            IslaViajeAbierta(datos: datos(0.58, titulo: titulo))
+                .padding(.horizontal, 22).padding(.vertical, 16)
+                .frame(width: 371)
+                .background(RoundedRectangle(cornerRadius: 44, style: .continuous).fill(.black))
+
+            rotulo("Colores elegidos · fondo claro, trayecto de uno")
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo, colores: claro)))
+            rotulo("Colores elegidos · fondo morado, degradado rosa → ámbar")
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo, colores: morado)))
+            rotulo("Isla Dinámica con esos colores: el fondo sigue negro")
+            IslaViajeAbierta(datos: datos(0.58, colores: claro))
+                .padding(.horizontal, 22).padding(.vertical, 16)
+                .frame(width: 371)
+                .background(RoundedRectangle(cornerRadius: 44, style: .continuous).fill(.black))
 
             rotulo("Los medios de transporte")
             VStack(spacing: 6) {
@@ -98,13 +105,14 @@ final class LaminaViajeTests: XCTestCase {
                     HStack {
                         Text(t.nombre).font(.caption).foregroundStyle(.white.opacity(0.7))
                             .frame(width: 60, alignment: .leading)
-                        BarraDeViaje(progreso: 0.5, transporte: t, chapa: 22)
+                        BarraDeViaje(progreso: 0.5, transporte: t,
+                                     pintura: PinturaDeViaje(.porDefecto), chapa: 22)
                     }
                 }
             }
             .padding(12)
             .frame(width: 361)
-            .background(ColoresViaje.fondo.opacity(0.92))
+            .background(Color(hexContador: ColoresDeViaje.porDefecto.fondo))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
     }
@@ -157,6 +165,42 @@ final class LaminaViajeTests: XCTestCase {
             bloqueo(TarjetaViaje(datos: datos(0.58)))
             bloqueo(TarjetaViaje(datos: datos(0.58), variante: .b))
         }), "06-a-contra-b")
+        try pinta(sobreFondo(bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo)))), "07-a-con-titulo")
+        try pinta(sobreFondo(bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo), variante: .b))), "08-b-con-titulo")
+        try pinta(sobreFondo(bloqueo(TarjetaViaje(datos: datos(0.58, titulo: tituloLargo)))), "09-a-titulo-largo")
+        try pinta(sobreFondo(VStack(spacing: 14) {
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo, colores: claro)))
+            bloqueo(TarjetaViaje(datos: datos(0.58, titulo: titulo, colores: morado)))
+        }), "10-colores-elegidos")
+    }
+
+    /// Lo que mide la tarjeta a lo alto, al ancho de la pantalla de bloqueo.
+    private func alto(_ d: DatosDeViaje, _ v: TarjetaViaje.Variante,
+                      letra: DynamicTypeSize = .large) -> CGFloat {
+        let host = UIHostingController(rootView: TarjetaViaje(datos: d, variante: v)
+            .environment(\.dynamicTypeSize, letra)
+            .environment(\.locale, Locale(identifier: "es_ES")))
+        return host.sizeThatFits(in: CGSize(width: 361, height: 1000)).height
+    }
+
+    /// El sistema recorta la tarjeta de la pantalla de bloqueo a 160 puntos de
+    /// alto. Con el título se añade una línea, y sin apretar el resto no cabía:
+    /// se cortaba por abajo, justo donde van los kilómetros.
+    func testCabeEnElAltoQueDejaElSistema() {
+        for v in [TarjetaViaje.Variante.a, .b] {
+            for t in [nil, titulo, tituloLargo] {
+                for d in [datos(0.58, titulo: t), datos(0.74, sinSenal: true, titulo: t),
+                          datos(1, llegado: true, titulo: t)] {
+                    let h = alto(d, v)
+                    XCTAssertLessThanOrEqual(h, 160, "la variante \(v) con título \(t ?? "-") mide \(h)")
+                    // Y con la letra más grande de accesibilidad, igual.
+                    let grande = alto(d, v, letra: .accessibility5)
+                    XCTAssertLessThanOrEqual(grande, 160,
+                        "con letra de accesibilidad, la variante \(v) mide \(grande)")
+                    print("ALTO \(v) titulo=\(t == nil ? "no" : "si") \(Int(h))")
+                }
+            }
+        }
     }
 
     /// Barcelona–Tokio por la superficie de la Tierra: unos 10.400 km.

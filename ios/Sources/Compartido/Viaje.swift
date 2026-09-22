@@ -68,6 +68,25 @@ public enum TransporteDeViaje: String, Codable, CaseIterable, Hashable, Sendable
     public var miraALaIzquierda: Bool { self == .coche }
 }
 
+/// Los colores que se eligen: el fondo de la tarjeta y el del trayecto (uno,
+/// o dos en degradado, como el número de las cuentas atrás). El del TEXTO no se
+/// elige: sale solo, claro u oscuro según el fondo, para que se lea siempre.
+public struct ColoresDeViaje: Codable, Hashable, Sendable {
+    public var fondo: String
+    public var trayecto: String
+    public var trayecto2: String?
+
+    public init(fondo: String, trayecto: String, trayecto2: String? = nil) {
+        self.fondo = fondo
+        self.trayecto = trayecto
+        self.trayecto2 = trayecto2
+    }
+
+    /// Los de la propuesta aprobada: azul noche de fondo y el trayecto de azul
+    /// hondo a azul cielo.
+    public static let porDefecto = ColoresDeViaje(fondo: "#0f1729", trayecto: "#0284c7", trayecto2: "#38bdf8")
+}
+
 /// Las cuentas del trayecto: cuánto hay en línea recta y qué parte va hecha.
 ///
 /// En línea recta de verdad —por la superficie de la Tierra, no en un plano—,
@@ -116,14 +135,20 @@ public struct ViajeAtributos: ActivityAttributes {
         }
     }
 
+    /// El nombre del viaje, si se le ha puesto: «Viaje a Japón». Opcional.
+    public var titulo: String?
     public var origen: LugarDeViaje
     public var destino: LugarDeViaje
     public var transporte: TransporteDeViaje
+    public var colores: ColoresDeViaje
 
-    public init(origen: LugarDeViaje, destino: LugarDeViaje, transporte: TransporteDeViaje) {
+    public init(titulo: String? = nil, origen: LugarDeViaje, destino: LugarDeViaje,
+                transporte: TransporteDeViaje, colores: ColoresDeViaje = .porDefecto) {
+        self.titulo = titulo
         self.origen = origen
         self.destino = destino
         self.transporte = transporte
+        self.colores = colores
     }
 
     public var totalKm: Double { Trayecto.km(origen.coordenada, destino.coordenada) }

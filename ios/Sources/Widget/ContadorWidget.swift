@@ -114,7 +114,10 @@ struct ContadorWidget: Widget {
 
 @main
 struct WidgetsSiLoSeNoSalgo: WidgetBundle {
-    var body: some Widget { ContadorWidget() }
+    var body: some Widget {
+        ContadorWidget()
+        ViajeActividad()
+    }
 }
 
 extension Contador {

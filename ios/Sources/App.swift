@@ -16,12 +16,22 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 PantallaDePruebaDeEncuadre()
                     .tint(Theme.sky500)
                     .preferredColorScheme(.dark)
+            } else if PruebaDeViaje.pedida {
+                // Arranque de prueba del viaje en directo: empieza uno fijo
+                // (Madrid → Barcelona) para moverlo con una ruta GPS simulada.
+                NavigationStack { PantallaViaje() }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+                    .onAppear { ViajeEnDirecto.shared.empieza(PruebaDeViaje.atributos) }
             } else {
             ContentView()
                 .environmentObject(auth)
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
+                // Si iOS cerró la app con un viaje en directo en marcha, se
+                // vuelve a enganchar a él y a encender el GPS.
+                .task { ViajeEnDirecto.shared.reanuda() }
                 // Busca visor web nuevo al arrancar, nunca con el visor abierto:
                 // cambiar los assets bajo un WKWebView vivo lo romperia. Si hay
                 // build nuevo, entra en la siguiente apertura del visor.
@@ -99,4 +109,31 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         completionHandler([.banner, .sound])
     }
+
+    /// Al tocar un aviso. El de la hora de salida de un viaje en directo lo
+    /// arranca: Apple no deja arrancar la Actividad sin la app delante, y tocar
+    /// el aviso es justo lo que la pone delante.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.notification.request.identifier == ViajeEnDirecto.idDelAviso {
+            MainActor.assumeIsolated { ViajeEnDirecto.shared.empiezaElProgramado() }
+        }
+        completionHandler()
+    }
+}
+
+/// El viaje en directo de prueba: con `-PruebaDeViaje` la app arranca en su
+/// pantalla y empieza uno fijo, para poder moverlo con una ruta GPS simulada
+/// (`xcrun simctl location … start`). Solo responde a un argumento de arranque.
+enum PruebaDeViaje {
+    static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeViaje") }
+
+    static let atributos = ViajeAtributos(
+        titulo: "Prueba de viaje",
+        origen: LugarDeViaje(nombre: "Madrid", abreviatura: "MAD", latitud: 40.4168, longitud: -3.7038),
+        destino: LugarDeViaje(nombre: "Barcelona", abreviatura: "BCN", latitud: 41.3874, longitud: 2.1686),
+        transporte: .avion)
 }

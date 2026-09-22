@@ -77,9 +77,21 @@ inicio. Iría en la sección de cuenta atrás, como bloque propio:
 - **Mapa real, no:** una Actividad en Directo no puede cargar mapas; por eso la
   barra.
 
-## Pendiente de montar (cuando se apruebe el diseño)
+## Estado
 
-- La pantalla de configuración (buscador de ciudades, abreviaturas, transporte).
-- Arrancar, actualizar y cerrar la Actividad; retomarla si la app se relanza.
-- El GPS en segundo plano con el ritmo de actualización.
-- Prueba de punta a punta en el simulador con una ruta GPS simulada.
+Montado con la **variante A** y colores elegibles:
+
+- **Colores:** el fondo de la tarjeta y el trayecto (uno, o dos en degradado).
+  El texto y el icono se ponen solos claros u oscuros para que se lean
+  (`10-colores-elegidos.png`). En la Isla Dinámica el fondo es siempre negro:
+  ahí solo manda el trayecto.
+- **Dónde:** Cuenta atrás ▸ En directo ▸ Viaje en directo.
+- **Cuándo empieza:** con «Empezar ahora», o con un aviso a la hora de salida
+  que al tocarlo la arranca. Apple no deja que empiece sola sin la app delante;
+  para eso haría falta un push desde el servidor (push-to-start), que queda
+  para después y solo se puede probar en TestFlight.
+- **Probado en el simulador:** la Actividad arranca, avanza con una ruta GPS
+  simulada y sale en la pantalla de bloqueo pintada por el sistema. La Isla
+  Dinámica no se puede capturar en el simulador: queda por ver en el iPhone.
+
+Pendiente: el push programado, y el uso en las carreras.

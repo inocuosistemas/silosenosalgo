@@ -41,6 +41,27 @@ struct ContadoresView: View {
                     .font(.caption).foregroundStyle(Theme.slate400)
             }
 
+            Section {
+                NavigationLink {
+                    PantallaViaje()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Viaje en directo")
+                            Text(ViajeEnDirecto.shared.enMarcha
+                                 ? "En marcha en la pantalla de bloqueo"
+                                 : "De un sitio a otro, avanzando con el GPS")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
+                    } icon: {
+                        Image(systemName: "airplane").foregroundStyle(Theme.sky500)
+                    }
+                }
+            } header: {
+                Text("EN DIRECTO").font(.caption).foregroundStyle(Theme.slate400)
+            }
+            .listRowBackground(Theme.slate900)
+
             if !deCarrera.isEmpty {
                 Section {
                     ForEach(deCarrera) { c in
