@@ -101,13 +101,16 @@ public struct NumeroCuentaAtras: View {
                         .frame(width: anchoPrefijo, alignment: .leading)
                         .foregroundStyle(tramo(par + colon, par + colon + anchoPrefijo, total))
                 }
-                // El RELOJ DEL SISTEMA, a pelo: fuente del sistema (no una
-                // `UIFont` convertida), un color liso (no un `AnyShapeStyle`) y
-                // sin nada más encima. Es quien lo refresca cada segundo, y
-                // cuanto menos envoltorio tenga, menos hay que pueda impedirlo.
+                // El RELOJ DEL SISTEMA, con la fuente del sistema y nada más
+                // encima. Lo que lo dejaba PARADO era la `UIFont` convertida
+                // con `Font(_:)`, no el color: `testConDegradadoEncima` lo
+                // comprueba. Por eso aquí sí puede llevar su tramo de degradado
+                // —y tiene que llevarlo: es tres cuartas partes del número, y
+                // con un color liso el degradado se veía como dos bloques de
+                // color pegados en vez de como una transición.
                 Text(corte, style: .timer)
                     .font(.system(size: tam, weight: .bold).monospacedDigit())
-                    .foregroundColor(colorReloj)
+                    .foregroundStyle(tramo(par + colon + anchoPrefijo, total, total))
                     // Un pelo de holgura a la derecha: si el reloj midiera
                     // medio punto más que la cuenta, se cortaría con "…".
                     .frame(width: anchoReloj + 4, alignment: .leading)
@@ -135,12 +138,6 @@ public struct NumeroCuentaAtras: View {
             }
             .frame(width: w, height: etiqueta * 1.4)
         }
-    }
-
-    /// El color liso del reloj: con degradado, el del punto donde cae.
-    private var colorReloj: Color {
-        guard let d = degradado else { return color }
-        return ColoresContador.mezcla(d.0, d.1, 0.72)
     }
 
     /// El trozo de degradado que le toca a una pieza (ver `ColoresContador.mezcla`).

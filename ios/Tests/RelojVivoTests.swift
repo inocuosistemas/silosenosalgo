@@ -41,7 +41,7 @@ final class RelojVivoTests: XCTestCase {
         let conDegradado = Text(hasta, style: .timer)
             .font(.system(size: 30))
             .foregroundStyle(LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing))
-        XCTAssertTrue(semueve(conDegradado), "con degradado encima el reloj se queda parado")
+        XCTAssertTrue(semueve(conDegradado), "con un degradado encima el reloj tiene que seguir corriendo")
     }
 
     func testElNumeroDeLaCuentaAtrasSeMueve() {

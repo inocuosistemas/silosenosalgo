@@ -44,12 +44,12 @@ public struct TarjetaGrande: View {
         // Hasta dónde baja el TÍTULO. Va más abajo de lo que parecería: ahí la
         // fundida ya ha apagado el cartel, y un título sobre un cartel claro
         // —de los que son casi blancos— no se lee por mucha sombra que lleve.
-        let altoCartel = tamano.height * 0.62
+        let altoCartel = tamano.height * 0.66
         // Y hasta dónde llega la FOTO, que es más abajo: sigue por detrás del
         // rótulo y se apaga del todo justo encima de los números. Cortándola
         // donde acaba el título, la tarjeta se partía en dos mitades —foto
         // arriba, gris liso abajo— y se veía la costura.
-        let altoFoto = tamano.height * 0.72
+        let altoFoto = tamano.height * 0.78
         return ZStack(alignment: .top) {
             // La foto, de fondo y a lo alto, con su fundida encima.
             fondoDeCartel(color: color, alto: altoFoto)
@@ -144,12 +144,12 @@ public struct TarjetaGrande: View {
             // 0,63 del alto ya es indistinguible del fondo.
             LinearGradient(
                 stops: [
-                    .init(color: fondo.opacity(0), location: enLaFoto(0.24)),
-                    .init(color: fondo.opacity(0.30), location: enLaFoto(0.40)),
-                    .init(color: fondo.opacity(0.62), location: enLaFoto(0.50)),
-                    .init(color: fondo.opacity(0.85), location: enLaFoto(0.58)),
-                    .init(color: fondo.opacity(0.95), location: enLaFoto(0.63)),
-                    .init(color: fondo.opacity(0.99), location: enLaFoto(0.68)),
+                    .init(color: fondo.opacity(0), location: enLaFoto(0.28)),
+                    .init(color: fondo.opacity(0.32), location: enLaFoto(0.44)),
+                    .init(color: fondo.opacity(0.66), location: enLaFoto(0.54)),
+                    .init(color: fondo.opacity(0.88), location: enLaFoto(0.62)),
+                    .init(color: fondo.opacity(0.96), location: enLaFoto(0.67)),
+                    .init(color: fondo.opacity(0.99), location: enLaFoto(0.71)),
                     .init(color: fondo, location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom
