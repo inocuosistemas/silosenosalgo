@@ -48,6 +48,18 @@ final class ReglasDeViajeTests: XCTestCase {
         XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 50), 1, accuracy: 0.001)
     }
 
+    /// Cerca del destino el GPS tiene que avisar más a menudo: con el filtro de
+    /// 2 km de un vuelo largo, un avión parado a 1,5 km (dentro del radio de
+    /// llegada) podía no mandar ninguna posición más.
+    func testCercaDelDestinoElGPSAvisaMasAMenudo() {
+        XCTAssertEqual(ReglasDeViaje.filtroDeDistancia(totalKm: 10_000), 2000)
+        XCTAssertEqual(ReglasDeViaje.filtroDeDistancia(totalKm: 10_000, restanteKm: 5_000), 2000)
+        let cerca = ReglasDeViaje.filtroDeDistancia(totalKm: 10_000, restanteKm: 3)
+        XCTAssertLessThan(cerca, ReglasDeViaje.radioDeLlegada(totalKm: 10_000) * 1000,
+                          "a 3 km tiene que avisar antes de lo que mide el radio de llegada")
+        XCTAssertEqual(ReglasDeViaje.filtroDeDistancia(totalKm: 10_000, restanteKm: 0.1), 50, "nunca por debajo de 50 m")
+    }
+
     func testLaHoraDeLlegadaSaleDeLaVelocidad() {
         let ahora = Date()
         // 900 km a 250 m/s (900 km/h): una hora.

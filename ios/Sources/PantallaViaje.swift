@@ -33,9 +33,17 @@ final class BuscadorDeLugares: NSObject, ObservableObject, MKLocalSearchComplete
         let busqueda = MKLocalSearch(request: MKLocalSearch.Request(completion: s))
         guard let item = try? await busqueda.start().mapItems.first else { return nil }
         let c = item.placemark.coordinate
-        // El nombre corto: «Barcelona», no «Barcelona, España».
-        let nombre = item.placemark.locality ?? item.name ?? s.title
-        return LugarDeViaje(nombre: nombre, abreviatura: Self.abreviatura(de: nombre),
+        let esAeropuerto = item.pointOfInterestCategory == .airport
+        // Un aeropuerto, por su nombre: su localidad es el pueblo donde está
+        // («Prat de Llobregat»), no la ciudad a la que se va. Y sin abreviatura
+        // propuesta: Mapas no da el código (BCN), y las tres primeras letras
+        // saldrían «AER». Se deja vacía para que se escriba.
+        // Una ciudad, por el nombre corto: «Barcelona», no «Barcelona, España».
+        let nombre = esAeropuerto
+            ? (item.name ?? s.title)
+            : (item.placemark.locality ?? item.name ?? s.title)
+        return LugarDeViaje(nombre: nombre,
+                            abreviatura: esAeropuerto ? "" : Self.abreviatura(de: nombre),
                             latitud: c.latitude, longitud: c.longitude)
     }
 
@@ -60,7 +68,14 @@ private struct CampoDeLugar: View {
         if let l = lugar, !buscando {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(l.nombre).font(.body.weight(.semibold))
+                    // Editable: lo que sale debajo del código en la tarjeta.
+                    // De un aeropuerto sale su nombre entero, y quizá se
+                    // prefiere la ciudad.
+                    TextField("Nombre", text: Binding(
+                        get: { l.nombre },
+                        set: { lugar?.nombre = $0 }
+                    ))
+                    .font(.body.weight(.semibold))
                     Text(String(format: "%.3f, %.3f", l.latitud, l.longitud))
                         .font(.caption2.monospaced()).foregroundStyle(Theme.slate400)
                 }
@@ -84,7 +99,7 @@ private struct CampoDeLugar: View {
             }
             .font(.footnote)
         } else {
-            TextField("Busca la ciudad o el aeropuerto", text: $buscador.texto)
+            TextField("Ciudad, o «Aeropuerto de …»", text: $buscador.texto)
                 .autocorrectionDisabled()
             ForEach(buscador.resultados, id: \.self) { r in
                 Button {
@@ -247,7 +262,7 @@ struct PantallaViaje: View {
         } header: {
             Text("DESTINO").font(.caption).foregroundStyle(Theme.slate400)
         } footer: {
-            Text("La abreviatura es lo que sale en grande. Para un vuelo, lo suyo es el código del aeropuerto: BCN, NRT…")
+            Text("Para un vuelo, elige el AEROPUERTO, no la ciudad: el viaje se da por llegado a 2 km del punto elegido, y el centro de una ciudad puede estar a decenas de kilómetros del aeropuerto. Búscalo por su nombre («Aeropuerto de Barcelona»); por el código (BCN) Mapas no lo encuentra. El código se escribe después, en el recuadro: es lo que sale en grande.")
                 .font(.caption).foregroundStyle(Theme.slate400)
         }
         .listRowBackground(Theme.slate900)
@@ -367,9 +382,13 @@ struct PantallaViaje: View {
             }
             .disabled(atributos == nil)
         } footer: {
-            if atributos == nil {
+            if origen == nil || destino == nil {
                 Text("Elige el origen y el destino para poder empezar.")
                     .font(.caption).foregroundStyle(Theme.slate400)
+            } else if atributos == nil {
+                // Pasa con los aeropuertos: su código no lo da Mapas.
+                Text("Falta el código de algún extremo (el recuadro de al lado del nombre): es lo que sale en grande.")
+                    .font(.caption).foregroundStyle(Theme.amber200)
             }
         }
         .listRowBackground(Theme.slate900)

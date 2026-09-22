@@ -70,8 +70,16 @@ enum ReglasDeViaje {
 
     /// Cada cuánto pedir posición, en metros: una milésima del viaje, entre 50
     /// metros y 2 km. En un vuelo, pedirla cada pocos metros solo gasta batería.
-    static func filtroDeDistancia(totalKm: Double) -> CLLocationDistance {
-        max(50, min(2000, totalKm * 1000 * 0.001))
+    ///
+    /// Y más fino cuanto más cerca del destino: una cuarta parte de lo que
+    /// falta. Con el filtro fijo de 2 km, un avión que se paraba en la puerta a
+    /// 1,5 km del aeropuerto —dentro del radio de llegada— no llegaba a mandar
+    /// posición nueva si la última se tomó a 2,5 km, y el viaje no se daba
+    /// nunca por llegado.
+    static func filtroDeDistancia(totalKm: Double, restanteKm: Double? = nil) -> CLLocationDistance {
+        var m = min(2000, totalKm * 1000 * 0.001)
+        if let r = restanteKm { m = min(m, r * 1000 / 4) }
+        return max(50, m)
     }
 }
 
@@ -220,6 +228,8 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     private func recibe(_ pos: CLLocation) {
         guard let a = actividad else { return }
         let nuevo = ReglasDeViaje.estado(en: pos, de: a.attributes)
+        gps.distanceFilter = ReglasDeViaje.filtroDeDistancia(
+            totalKm: a.attributes.totalKm, restanteKm: nuevo.restanteKm)
         guard ReglasDeViaje.mereceMandar(nuevo, despuesDe: estado, totalKm: a.attributes.totalKm) else { return }
         estado = nuevo
         let contenido = ActivityContent(
