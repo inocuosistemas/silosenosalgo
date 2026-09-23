@@ -69,8 +69,8 @@ public struct PinturaDeViaje {
     public let trayectoFin: Color
     public let texto: Color
     public let apagado: Color
-    /// El del icono dentro de la chapa.
-    public let sobreChapa: Color
+    private let hexInicio: String
+    private let hexFin: String
 
     private static let oscuro = Color(red: 0.06, green: 0.09, blue: 0.16)
 
@@ -80,19 +80,44 @@ public struct PinturaDeViaje {
         trayectoFin = Color(hexContador: c.trayecto2 ?? c.trayecto)
         texto = Self.luminancia(c.fondo) > 0.5 ? Self.oscuro : .white
         apagado = texto.opacity(0.6)
-        sobreChapa = Self.luminancia(c.trayecto2 ?? c.trayecto) > 0.5 ? Self.oscuro : .white
+        hexInicio = c.trayecto
+        hexFin = c.trayecto2 ?? c.trayecto
+    }
+
+    /// El color del trayecto en un punto, de 0 (la salida) a 1 (la llegada).
+    ///
+    /// Es el de la CHAPA del que viaja: va cambiando a medida que avanza, a
+    /// juego con la punta de la línea, que en ese punto es de ese mismo color.
+    /// Con un solo color, es siempre ese.
+    public func trayecto(en f: Double) -> Color {
+        ColoresContador.mezcla(hexInicio, hexFin, f)
+    }
+
+    /// El del icono dentro de la chapa en ese punto: claro u oscuro según lo
+    /// clara que sea la chapa ahí, que en un degradado cambia por el camino.
+    public func sobreChapa(en f: Double) -> Color {
+        let k = min(1, max(0, f))
+        let a = Self.componentes(hexInicio), b = Self.componentes(hexFin)
+        let l = Self.luminancia(r: a.0 + (b.0 - a.0) * k, g: a.1 + (b.1 - a.1) * k, b: a.2 + (b.2 - a.2) * k)
+        return l > 0.5 ? Self.oscuro : .white
+    }
+
+    private static func componentes(_ hex: String) -> (Double, Double, Double) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(Color(hexContador: hex)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (Double(r), Double(g), Double(b))
+    }
+
+    private static func luminancia(r: Double, g: Double, b: Double) -> Double {
+        func lineal(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lineal(r) + 0.7152 * lineal(g) + 0.0722 * lineal(b)
     }
 
     /// Lo claro que se ve un color, de 0 a 1: la luminancia relativa de las
     /// normas de accesibilidad, donde el verde pesa mucho más que el azul.
     public static func luminancia(_ hex: String) -> Double {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(Color(hexContador: hex)).getRed(&r, green: &g, blue: &b, alpha: &a)
-        func lineal(_ v: CGFloat) -> Double {
-            let v = Double(v)
-            return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * lineal(r) + 0.7152 * lineal(g) + 0.0722 * lineal(b)
+        let c = componentes(hex)
+        return luminancia(r: c.0, g: c.1, b: c.2)
     }
 }
 
@@ -153,11 +178,16 @@ public struct BarraDeViaje: View {
                 }
                 .stroke(pintura.texto.opacity(0.3),
                         style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [0.5, 6]))
-                // Lo hecho, lleno.
-                Capsule()
-                    .fill(LinearGradient(colors: [pintura.trayecto, pintura.trayectoFin],
-                                         startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(0, x - r), height: 4)
+                // Lo hecho, lleno. El degradado es del trayecto ENTERO y se va
+                // descubriendo: así la punta de la línea es del color de ese
+                // punto del camino, el mismo que la chapa. Repartido solo en lo
+                // hecho, la punta era siempre del color final.
+                LinearGradient(colors: [pintura.trayecto, pintura.trayectoFin],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: max(0, g.size.width - chapa), height: 4)
+                    .mask(alignment: .leading) {
+                        Capsule().frame(width: max(0, x - r), height: 4)
+                    }
                     .offset(x: r, y: medio - 2)
                 // Los dos extremos: el de salida lleno, el de llegada hueco.
                 Circle().fill(pintura.trayecto)
@@ -170,10 +200,10 @@ public struct BarraDeViaje: View {
                 Image(systemName: transporte.simbolo)
                     .font(.system(size: chapa * 0.5, weight: .bold))
                     .scaleEffect(x: transporte.miraALaIzquierda ? -1 : 1)
-                    .foregroundStyle(pintura.sobreChapa)
+                    .foregroundStyle(pintura.sobreChapa(en: progreso))
                     .frame(width: chapa, height: chapa)
-                    .background(Circle().fill(pintura.trayectoFin))
-                    .shadow(color: pintura.trayectoFin.opacity(0.5), radius: 5)
+                    .background(Circle().fill(pintura.trayecto(en: progreso)))
+                    .shadow(color: pintura.trayecto(en: progreso).opacity(0.5), radius: 5)
                     .position(x: x, y: medio)
             }
         }
@@ -380,7 +410,7 @@ public struct IslaViajeInicio: View {
         Image(systemName: datos.transporte.simbolo)
             .font(.system(size: 14, weight: .bold))
             .scaleEffect(x: datos.transporte.miraALaIzquierda ? -1 : 1)
-            .foregroundStyle(datos.pintura.trayectoFin)
+            .foregroundStyle(datos.pintura.trayecto(en: datos.llegado ? 1 : datos.progreso))
     }
 }
 
@@ -410,12 +440,13 @@ public struct IslaViajeMinima: View {
         ZStack {
             Circle().stroke(Color.white.opacity(0.2), lineWidth: 2.5)
             Circle().trim(from: 0, to: datos.llegado ? 1 : datos.progreso)
-                .stroke(p.trayectoFin, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .stroke(p.trayecto(en: datos.llegado ? 1 : datos.progreso),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Image(systemName: datos.transporte.simbolo)
                 .font(.system(size: 9, weight: .bold))
                 .scaleEffect(x: datos.transporte.miraALaIzquierda ? -1 : 1)
-                .foregroundStyle(p.trayectoFin)
+                .foregroundStyle(p.trayecto(en: datos.llegado ? 1 : datos.progreso))
         }
         .frame(width: 22, height: 22)
     }

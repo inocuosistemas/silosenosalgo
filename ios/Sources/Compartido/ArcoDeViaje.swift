@@ -47,16 +47,19 @@ public struct ArcoDeViaje: View {
                 Circle().strokeBorder(pintura.texto.opacity(0.7), lineWidth: 1.5)
                     .frame(width: 10, height: 10)
                     .position(geo.punto(1))
+                // La chapa, del color de la línea donde está: el degradado va de
+                // izquierda a derecha por todo el ancho, así que es el de su x.
+                let enLaLinea = g.size.width > 0 ? Double(aqui.x / g.size.width) : p
                 Image(systemName: transporte.simbolo)
                     .font(.system(size: chapa * 0.5, weight: .bold))
                     .scaleEffect(x: transporte.miraALaIzquierda ? -1 : 1)
                     // Siguiendo la curva: es lo que hace que se lea como un
                     // despegue y un aterrizaje, y no como un punto que sube.
                     .rotationEffect(.radians(geo.angulo(p)))
-                    .foregroundStyle(pintura.sobreChapa)
+                    .foregroundStyle(pintura.sobreChapa(en: enLaLinea))
                     .frame(width: chapa, height: chapa)
-                    .background(Circle().fill(pintura.trayectoFin))
-                    .shadow(color: pintura.trayectoFin.opacity(0.5), radius: 5)
+                    .background(Circle().fill(pintura.trayecto(en: enLaLinea)))
+                    .shadow(color: pintura.trayecto(en: enLaLinea).opacity(0.5), radius: 5)
                     .position(aqui)
             }
         }

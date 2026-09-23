@@ -92,6 +92,28 @@ final class LaminaArcoTests: XCTestCase {
                             restanteKm: total, progreso: 0)
     }
 
+    /// La chapa cambia de color con el degradado a medida que se avanza.
+    func testPintaLaChapaConElDegradado() throws {
+        let colores = ColoresDeViaje(fondo: "#3b0764", trayecto: "#f472b6", trayecto2: "#f59e0b")
+        func d(_ p: Double, _ t: TransporteDeViaje) -> DatosDeViaje {
+            var x = datos(p); x.colores = colores; x.transporte = t; return x
+        }
+        func fila(_ v: some View) -> some View {
+            v.frame(width: 361).background(Color(hexContador: colores.fondo))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        try pinta(sobreFondo(VStack(spacing: 10) {
+            rotulo("Semicírculo · 10 %, 50 %, 90 %")
+            fila(TarjetaDelViaje(datos: d(0.1, .avion)))
+            fila(TarjetaDelViaje(datos: d(0.5, .avion)))
+            fila(TarjetaDelViaje(datos: d(0.9, .avion)))
+            rotulo("Barra · 10 %, 50 %, 90 %")
+            fila(TarjetaDelViaje(datos: d(0.1, .tren)))
+            fila(TarjetaDelViaje(datos: d(0.5, .tren)))
+            fila(TarjetaDelViaje(datos: d(0.9, .tren)))
+        }), "04-chapa-con-degradado")
+    }
+
     func testPintaLaPropuestaDelArco() throws {
         try pinta(sobreFondo(VStack(spacing: 12) {
             rotulo("Nombres largos · al salir")
@@ -133,6 +155,23 @@ final class LaminaArcoTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// La chapa va del color de salida al de llegada, y su icono se lee sobre
+    /// ella aunque el degradado vaya de un color claro a uno oscuro.
+    func testLaChapaSigueElDegradado() {
+        let p = PinturaDeViaje(ColoresDeViaje(fondo: "#000000", trayecto: "#ffffff", trayecto2: "#000000"))
+        func componentes(_ c: Color) -> [CGFloat] {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b]
+        }
+        XCTAssertEqual(componentes(p.trayecto(en: 0))[0], 1, accuracy: 0.01, "al salir, el de salida")
+        XCTAssertEqual(componentes(p.trayecto(en: 1))[0], 0, accuracy: 0.01, "al llegar, el de llegada")
+        XCTAssertEqual(componentes(p.trayecto(en: 0.5))[0], 0.5, accuracy: 0.01, "a mitad, a mitad")
+        // Sobre blanco, icono oscuro; sobre negro, icono blanco.
+        XCTAssertNotEqual(componentes(p.sobreChapa(en: 0)), componentes(p.sobreChapa(en: 1)))
+        XCTAssertEqual(componentes(p.sobreChapa(en: 1)), [1, 1, 1], "sobre la chapa negra, icono blanco")
     }
 
     /// Los km, con el punto de los millares aunque el móvil esté en español.
