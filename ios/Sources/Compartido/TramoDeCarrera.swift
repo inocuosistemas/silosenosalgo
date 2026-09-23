@@ -239,7 +239,7 @@ public struct TarjetaTramo: View {
     private var cabecera: some View {
         HStack(spacing: 6) {
             Text(datos.carrera.uppercased())
-                .font(.system(size: 11, weight: .heavy)).tracking(0.8)
+                .font(.system(size: 11, weight: .heavy)).tracking(selector == nil ? 0.8 : 0.3)
                 .lineLimit(1)
             if let selector {
                 Spacer(minLength: 4)
@@ -250,7 +250,10 @@ public struct TarjetaTramo: View {
                     .foregroundStyle(apagado)
             }
             Spacer(minLength: 4)
-            Image(systemName: "stopwatch").font(.system(size: 11)).foregroundStyle(apagado)
+            // Con el selector no cabe el icono: el nombre se cortaba.
+            if selector == nil {
+                Image(systemName: "stopwatch").font(.system(size: 11)).foregroundStyle(apagado)
+            }
             Group {
                 if datos.enMeta, let fin = datos.prevision, fin > datos.salida {
                     // En meta, el reloj se para en la hora de llegada.

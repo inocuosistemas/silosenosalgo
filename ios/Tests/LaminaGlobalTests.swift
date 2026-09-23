@@ -136,6 +136,32 @@ final class LaminaGlobalTests: XCTestCase {
             caja(TarjetaCarreraGlobal(tramo: c.0, global: c.1))
         }), "01-carrera-tres-momentos")
 
+        // Los demás: los de alrededor y el primero.
+        let otros = DatosCorredores(posicion: 34, de: 120, actualizado: Date().addingTimeInterval(-120), corredores: [
+            .init(km: 31.2, emoji: "🦅", nombre: "Aitor", lider: true),
+            .init(km: 23.9, emoji: "🐐", nombre: "Nerea"),
+            .init(km: 22.4, emoji: "🐺", nombre: "Pau"),
+            .init(km: 21.7, emoji: "🦊", nombre: "Marta"),
+            .init(km: 21.0, emoji: "🐢", nombre: "Jon"),
+            .init(km: 20.2, emoji: "🦔", nombre: "Laia"),
+            .init(km: 19.1, emoji: "🐻", nombre: "Iker"),
+        ])
+        let ahora = Date()
+        var antes = momento(km: 0, margen: 40)
+        antes.0.salida = ahora.addingTimeInterval(25 * 60 + 12)
+        antes.1.llegadaAMeta = ahora.addingTimeInterval(25 * 60 + 42 * 12 * 60)
+        // La zona de alrededor: 4 km por detrás y 4 por delante, con más detalle.
+        var ventana = b.1
+        ventana.inicioKm = b.1.posicionKm - 4
+        ventana.totalKm = b.1.posicionKm + 4
+        ventana.perfil = stride(from: ventana.inicioKm, through: ventana.totalKm, by: 8.0 / 39).map { .init(km: $0, ele: ele($0)) }
+        try pinta(sobreFondo(VStack(spacing: 12) {
+            rotulo("Corredores · 34.º de 120: la zona de alrededor y el primero")
+            caja(TarjetaCarreraGlobal(tramo: b.0, global: b.1, corredores: otros, ventana: ventana))
+            rotulo("Carrera · antes de la salida: cuenta atrás")
+            caja(TarjetaCarreraGlobal(tramo: antes.0, global: antes.1, ahora: ahora))
+        }), "03-corredores-y-antes-de-salir")
+
         let d = momento(km: 33, margen: 0)
         try pinta(sobreFondo(VStack(spacing: 12) {
             rotulo("Carrera · km 33 · sin más cortes por delante")
@@ -150,6 +176,10 @@ final class LaminaGlobalTests: XCTestCase {
             let vistas: [(String, AnyView)] = [
                 ("tramo", AnyView(TarjetaTramo(datos: t, forma: .perfilGrande, selector: .tramo))),
                 ("carrera", AnyView(TarjetaCarreraGlobal(tramo: t, global: g))),
+                ("corredores", AnyView(TarjetaCarreraGlobal(tramo: t, global: g, corredores: DatosCorredores(
+                    posicion: 34, de: 120, actualizado: Date(), corredores: [
+                        .init(km: 22, emoji: "🦊", nombre: "Marta Garcia"), .init(km: 20, emoji: "🐢", nombre: "Jon Etxeberria"),
+                    ])))),
             ]
             for (nombre, v) in vistas {
                 let host = UIHostingController(rootView: v.environment(\.dynamicTypeSize, letra))
