@@ -117,6 +117,25 @@ final class ReglasDeCarreraTests: XCTestCase {
         XCTAssertLessThan(bytes, 4096, "la tarjeta ocupa \(bytes) bytes")
     }
 
+    /// Con corredores, la zona de alrededor: 8 km, aunque se esté cerca de la
+    /// salida; y cabe en 4 KB con seis de nombre largo y el primero.
+    func testLaZonaDeCorredores() throws {
+        let otros = DatosCorredores(posicion: 34, de: 120, actualizado: salida, corredores:
+            [.init(km: 18, emoji: "🦅", nombre: "Aitor Etxeberria Goikoetxea", lider: true)] +
+            (0..<6).map { .init(km: 1 + Double($0) * 0.5, emoji: "🦊", nombre: "Corredora con nombre largo \($0)") })
+        let e = ReglasDeCarrera.estado(carrera: "Ultra Trail de los Nombres Largos 2026", km: 1.2,
+                                       ahora: salida.addingTimeInterval(600), historia: [],
+                                       anterior: nil, corredores: otros, hoja)!
+        XCTAssertEqual(e.perfilCerca.count, ReglasDeCarrera.muestrasDelTramo)
+        XCTAssertEqual(e.perfilCerca.first!.km, 0, accuracy: 0.01, "cerca de la salida, empieza en la salida")
+        XCTAssertEqual(e.perfilCerca.last!.km, 8, accuracy: 0.01, "y sigue siendo de 8 km")
+        let bytes = try JSONEncoder().encode(e).count
+        XCTAssertLessThan(bytes, 4096, "con corredores ocupa \(bytes) bytes")
+        // Sin corredores, no se manda la zona.
+        let sin = ReglasDeCarrera.estado(carrera: "P", km: 1.2, ahora: salida, historia: [], anterior: nil, hoja)!
+        XCTAssertTrue(sin.perfilCerca.isEmpty)
+    }
+
     /// El perfil viaja compacto y vuelve igual: solo altitudes, con los km
     /// repartidos a lo parejo entre el primero y el último.
     func testElPerfilCompactoVuelveIgual() throws {

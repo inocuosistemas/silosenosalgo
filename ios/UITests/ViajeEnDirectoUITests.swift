@@ -209,5 +209,15 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertTrue(sistema.staticTexts.containing(NSPredicate(format: "label CONTAINS 'de 20,0 km'")).firstMatch
                         .waitForExistence(timeout: 5),
                       "no ha cambiado a la vista de la carrera:\n\(sistema.debugDescription)")
+
+        // Y la de corredores, con su posición.
+        let corredores = sistema.buttons["Corredores"]
+        XCTAssertTrue(corredores.waitForExistence(timeout: 5),
+                      "no está el botón de corredores:\n\(sistema.debugDescription)")
+        corredores.tap()
+        sleep(3)
+        guarda("carrera-bloqueo-corredores")
+        XCTAssertTrue(sistema.staticTexts["34.º"].waitForExistence(timeout: 5),
+                      "no ha cambiado a la vista de corredores:\n\(sistema.debugDescription)")
     }
 }

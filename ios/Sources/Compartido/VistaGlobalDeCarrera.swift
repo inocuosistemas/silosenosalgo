@@ -478,13 +478,12 @@ public struct TarjetaCarreraGlobal: View {
 }
 
 /**
- La tarjeta de la carrera, la que toque según el estado: la del tramo o la de
- la carrera entera. La usan la pantalla de bloqueo, la isla abierta y las
- pruebas, para que las tres enseñen lo mismo.
+ La tarjeta de la carrera, la que toque según el estado: la del tramo, la de
+ la carrera entera o la de los corredores. La usan la pantalla de bloqueo, la
+ isla abierta y las pruebas, para que las tres enseñen lo mismo.
 
- La vista de corredores todavía no tiene datos (llegan del servidor, en el paso
- siguiente): mientras, el selector no la ofrece y, si se llegara a ella, se
- enseña la de la carrera.
+ La de corredores solo se ofrece cuando han llegado sus datos del servidor; si
+ se estaba en ella y se pierden, se enseña la de la carrera.
  */
 public struct TarjetaDeCarrera: View {
     public let estado: EstadoDeCarrera
@@ -495,14 +494,29 @@ public struct TarjetaDeCarrera: View {
         self.interactivo = interactivo
     }
 
+    private var hayCorredores: Bool { estado.corredores != nil }
+
+    /// Lo que se pinta en la vista de corredores: la zona de alrededor.
+    private var ventana: DatosGlobales? {
+        guard let primero = estado.perfilCerca.first, let ultimo = estado.perfilCerca.last else { return nil }
+        var v = estado.global
+        v.inicioKm = primero.km
+        v.totalKm = ultimo.km
+        v.perfil = estado.perfilCerca
+        return v
+    }
+
     public var body: some View {
         switch estado.vista {
         case .tramo:
             TarjetaTramo(datos: estado.tramo, forma: .perfilGrande, selector: .tramo,
-                         interactivo: interactivo, hayCorredores: false)
+                         interactivo: interactivo, hayCorredores: hayCorredores)
+        case .corredores where hayCorredores:
+            TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global, corredores: estado.corredores,
+                                 ventana: ventana, interactivo: interactivo, hayCorredores: true)
         case .carrera, .corredores:
             TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global,
-                                 interactivo: interactivo, hayCorredores: false)
+                                 interactivo: interactivo, hayCorredores: hayCorredores)
         }
     }
 }

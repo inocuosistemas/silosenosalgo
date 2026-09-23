@@ -232,9 +232,16 @@ enum API {
         _ path: String,
         method: String,
         token: String?,
-        body: [String: Any]? = nil
+        body: [String: Any]? = nil,
+        consulta: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
-        let url = Config.baseURL.appendingPathComponent(path)
+        // Los parámetros aparte: metidos en la ruta, `appendingPathComponent`
+        // escapaba el «?» y la URL salía rota.
+        var url = Config.baseURL.appendingPathComponent(path)
+        if !consulta.isEmpty, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            c.queryItems = consulta
+            url = c.url ?? url
+        }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -400,6 +407,30 @@ enum API {
               let texto = try? JSONSerialization.data(withJSONObject: ajustes)
         else { return nil }
         return String(data: texto, encoding: .utf8)
+    }
+
+    /// Quién va cerca de mí en la carrera: la posición, los de alrededor y el
+    /// primero (ver `functions/api/events/[id]/cerca.ts`). Para la vista de
+    /// corredores de la tarjeta de la pantalla de bloqueo.
+    static func corredoresCerca(token: String, eventId: String, km: Double?) async throws -> DatosCorredores {
+        struct Respuesta: Decodable {
+            struct Corredor: Decodable { let km: Double; let emoji: String; let nombre: String; let lider: Bool? }
+            let actualizado: Double
+            let total: Int
+            let posicion: Int?
+            let corredores: [Corredor]
+        }
+        let (data, http) = try await request(
+            "api/events/\(eventId)/cerca", method: "GET", token: token,
+            consulta: km.map { [URLQueryItem(name: "km", value: String(format: "%.3f", $0))] } ?? [])
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        let r = try JSONDecoder().decode(Respuesta.self, from: data)
+        return DatosCorredores(
+            posicion: r.posicion, de: r.total,
+            actualizado: Date(timeIntervalSince1970: r.actualizado / 1000),
+            corredores: r.corredores.map {
+                CorredorEnPerfil(km: $0.km, emoji: $0.emoji, nombre: $0.nombre, lider: $0.lider ?? false)
+            })
     }
 
     /// Une (o saca) del evento la baliza que YA se está emitiendo. Es el camino

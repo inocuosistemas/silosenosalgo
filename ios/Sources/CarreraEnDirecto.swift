@@ -205,12 +205,24 @@ enum ReglasDeCarrera {
     }
 
     /// Todo lo que lleva la tarjeta: las dos vistas y cuál se enseña.
+    /// Cuánto se enseña alrededor en la vista de corredores, a cada lado.
+    static let radioDeCorredores = 4.0
+
     static func estado(carrera: String, km: Double, ahora: Date, historia: [(Date, Double)],
-                       anterior: EstadoDeCarrera?, _ hoja: HojaDeTramos) -> EstadoDeCarrera? {
+                       anterior: EstadoDeCarrera?, corredores: DatosCorredores? = nil,
+                       _ hoja: HojaDeTramos) -> EstadoDeCarrera? {
         guard let tramo = datos(carrera: carrera, km: km, ahora: ahora, historia: historia, hoja) else { return nil }
         let v = vista(anterior: anterior, salida: tramo.salida, ahora: ahora)
+        // La zona de alrededor, solo si hay corredores que pintar en ella; y
+        // de 8 km aunque se esté cerca de la salida o de la meta.
+        var cerca: [DatosDeTramo.Muestra] = []
+        if corredores != nil {
+            let ancho = min(hoja.totalKm, 2 * radioDeCorredores)
+            let desde = min(max(0, km - radioDeCorredores), hoja.totalKm - ancho)
+            cerca = perfil(de: desde, a: desde + ancho, hoja)
+        }
         return EstadoDeCarrera(tramo: tramo, global: global(km: km, ahora: ahora, historia: historia, hoja),
-                               vista: v.0, vistaElegida: v.elegida)
+                               vista: v.0, vistaElegida: v.elegida, corredores: corredores, perfilCerca: cerca)
     }
 
     /// Si hay que mandar la tarjeta otra vez: al cambiar de tramo, al moverse
@@ -252,6 +264,14 @@ final class CarreraEnDirecto {
     private var ultimoEnvio: Date?
     /// Las posiciones de la última hora y pico, para medir cómo se rinde.
     private var historia: [(Date, Double)] = []
+    /// Para pedir quién va cerca (ver `pideCorredores`).
+    private var token: String?
+    private var eventoId: String?
+    private var corredores: DatosCorredores?
+    private var vigilanteDeCorredores: Task<Void, Never>?
+    /// Cada cuánto se pregunta quién va cerca. Poco: lo que cambia en ese rato
+    /// es poco, y lo piden todos los que corren a la vez.
+    static let cadaCuantoCorredores: TimeInterval = 3 * 60
 
     /**
      Preparar la carrera de una baliza que empieza (o que se retoma).
@@ -265,6 +285,8 @@ final class CarreraEnDirecto {
     /// puede no haber llegado todavía y no se sabe de qué carrera es: basta con
     /// la tarjeta viva y la hoja guardada. El nombre lo lleva la propia tarjeta.
     func prepara(sesion: String, token: String, eventoId: String?, nombre: String?, salidaMs: Double?) {
+        self.token = token
+        if let eventoId { self.eventoId = eventoId }
         Task {
             if hoja == nil {
                 hoja = await Self.hoja(sesion: sesion, token: token, eventoId: eventoId, salidaMs: salidaMs)
@@ -274,6 +296,8 @@ final class CarreraEnDirecto {
                 actividad = viva
                 carrera = viva.attributes.carrera
                 ultimo = viva.content.state
+                corredores = viva.content.state.corredores
+                vigilaCorredores()
                 return
             }
             // Arrancar solo se puede con la app delante, y sabiendo la carrera.
@@ -290,7 +314,39 @@ final class CarreraEnDirecto {
                 pushType: nil)
             ultimo = inicial
             ultimoEnvio = Date()
+            vigilaCorredores()
         }
+    }
+
+    /**
+     Preguntar cada poco quién va cerca, mientras dure la tarjeta.
+
+     Necesita cobertura: sin ella, la pregunta falla y se deja lo último que
+     llegó (la tarjeta dice de qué hora es). Los datos entran en la tarjeta al
+     momento, sin esperar a la siguiente posición.
+     */
+    private func vigilaCorredores() {
+        guard vigilanteDeCorredores == nil, eventoId != nil else { return }
+        vigilanteDeCorredores = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.pideCorredores()
+                try? await Task.sleep(nanoseconds: UInt64(Self.cadaCuantoCorredores * 1_000_000_000))
+            }
+        }
+    }
+
+    private func pideCorredores() async {
+        guard let token, let eventoId, let actividad, let hoja else { return }
+        let km = historia.last?.1
+        guard let nuevos = try? await API.corredoresCerca(token: token, eventId: eventoId, km: km) else { return }
+        corredores = nuevos
+        let ahora = Date()
+        guard let e = ReglasDeCarrera.estado(carrera: carrera, km: km ?? 0, ahora: ahora, historia: historia,
+                                             anterior: actividad.content.state, corredores: nuevos, hoja)
+        else { return }
+        ultimo = e
+        ultimoEnvio = ahora
+        await actividad.update(ActivityContent(state: e, staleDate: ahora.addingTimeInterval(20 * 60)))
     }
 
     /// Cada posición con su km de la ruta.
@@ -302,7 +358,7 @@ final class CarreraEnDirecto {
         // `CambiaVistaDeCarrera`), sin pasar por aquí.
         guard let actividad, let hoja,
               let nuevo = ReglasDeCarrera.estado(carrera: carrera, km: km, ahora: fecha, historia: historia,
-                                                 anterior: actividad.content.state, hoja),
+                                                 anterior: actividad.content.state, corredores: corredores, hoja),
               ReglasDeCarrera.mereceMandar(nuevo, despuesDe: actividad.content.state, ahora: fecha,
                                            ultimoEnvio: ultimoEnvio)
         else { return }
@@ -312,6 +368,8 @@ final class CarreraEnDirecto {
         if nuevo.tramo.enMeta {
             // En meta: se queda un rato enseñando el tiempo y se va sola.
             self.actividad = nil
+            vigilanteDeCorredores?.cancel()
+            vigilanteDeCorredores = nil
             Task { await actividad.end(contenido, dismissalPolicy: .after(fecha.addingTimeInterval(2 * 3600))) }
         } else {
             Task { await actividad.update(contenido) }
@@ -320,11 +378,13 @@ final class CarreraEnDirecto {
 
     /// Solo para el arranque de prueba (`-PruebaDeCarrera`): una carrera con
     /// una hoja fija, sin baliza ni web, para ver la tarjeta del sistema.
-    func empiezaDePrueba(hoja: HojaDeTramos, carrera: String, km: Double, ahora: Date) {
+    func empiezaDePrueba(hoja: HojaDeTramos, carrera: String, km: Double, ahora: Date,
+                         corredores: DatosCorredores? = nil) {
         self.hoja = hoja
         self.carrera = carrera
+        self.corredores = corredores
         guard let d = ReglasDeCarrera.estado(carrera: carrera, km: km, ahora: ahora, historia: [],
-                                             anterior: nil, hoja)
+                                             anterior: nil, corredores: corredores, hoja)
         else { return }
         actividad = try? Activity.request(
             attributes: CarreraAtributos(carrera: carrera),
@@ -342,6 +402,9 @@ final class CarreraEnDirecto {
         ultimo = nil
         ultimoEnvio = nil
         historia = []
+        corredores = nil
+        vigilanteDeCorredores?.cancel()
+        vigilanteDeCorredores = nil
         guard let a else { return }
         Task { await a.end(nil, dismissalPolicy: .immediate) }
     }

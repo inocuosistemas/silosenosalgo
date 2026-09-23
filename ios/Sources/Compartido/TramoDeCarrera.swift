@@ -462,12 +462,21 @@ public struct EstadoDeCarrera: Codable, Hashable, Sendable {
     /// Si la vista la ha elegido quien corre: entonces se respeta y ya no se
     /// cambia sola a la hora de salida.
     public var vistaElegida: Bool
+    /// Los demás corredores, si han llegado del servidor (hace falta
+    /// cobertura). Sin ellos, el selector no ofrece esa vista.
+    public var corredores: DatosCorredores?
+    /// El perfil de la zona de alrededor (4 km a cada lado), para la vista de
+    /// corredores: a escala de la carrera entera no se distinguían.
+    @PerfilCompacto public var perfilCerca: [DatosDeTramo.Muestra]
 
-    public init(tramo: DatosDeTramo, global: DatosGlobales, vista: VistaDeCarrera, vistaElegida: Bool = false) {
+    public init(tramo: DatosDeTramo, global: DatosGlobales, vista: VistaDeCarrera, vistaElegida: Bool = false,
+                corredores: DatosCorredores? = nil, perfilCerca: [DatosDeTramo.Muestra] = []) {
         self.tramo = tramo
         self.global = global
         self.vista = vista
         self.vistaElegida = vistaElegida
+        self.corredores = corredores
+        self.perfilCerca = perfilCerca
     }
 }
 

@@ -195,6 +195,15 @@ enum PruebaDeCarrera {
                       corte: ahora.addingTimeInterval((4.6 * 30 + 21) * 60).timeIntervalSince1970 * 1000),
                 .init(nombre: "Meta", km: 20, tipo: "meta", corte: nil),
             ])
-        CarreraEnDirecto.shared.empiezaDePrueba(hoja: hoja, carrera: "Matxicots 26", km: 7.4, ahora: ahora)
+        // Y quién va cerca, como si hubiera llegado del servidor.
+        let corredores = DatosCorredores(posicion: 34, de: 120, actualizado: ahora, corredores: [
+            .init(km: 17.8, emoji: "🦅", nombre: "Aitor", lider: true),
+            .init(km: 8.9, emoji: "🐺", nombre: "Pau"),
+            .init(km: 7.8, emoji: "🦊", nombre: "Marta"),
+            .init(km: 7.1, emoji: "🐢", nombre: "Jon"),
+            .init(km: 5.9, emoji: "🦔", nombre: "Laia"),
+        ])
+        CarreraEnDirecto.shared.empiezaDePrueba(hoja: hoja, carrera: "Matxicots 26", km: 7.4, ahora: ahora,
+                                                corredores: corredores)
     }
 }
