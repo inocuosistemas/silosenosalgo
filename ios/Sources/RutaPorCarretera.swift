@@ -106,6 +106,25 @@ enum Carreteras {
     }
 
     /**
+     El punto de la ruta más cercano, esté a la distancia que esté: en qué km
+     cae y a cuántos metros. Para cuando se va por calles que no son las de
+     la ruta (en Estambul, a más de 250 m de ella en todo el final): así se
+     sigue sabiendo por dónde se va, y la forma no se pierde.
+     */
+    static func cercano(_ pos: CLLocationCoordinate2D, de ruta: RutaPorCarretera) -> (km: Double, metros: Double)? {
+        let g = ruta.geometria
+        guard !g.points.isEmpty else { return nil }
+        let k = cos(pos.latitude * .pi / 180)
+        var mejor = 0, dMejor = Double.greatestFiniteMagnitude
+        for (i, p) in g.points.enumerated() {
+            let dx = (p.lon - pos.longitude) * k, dy = p.lat - pos.latitude
+            let d = dx * dx + dy * dy
+            if d < dMejor { dMejor = d; mejor = i }
+        }
+        return (g.cumKm[mejor], dMejor.squareRoot() * 111_195)
+    }
+
+    /**
      La FORMA de la ruta, para dibujarla en la tarjeta: `n` puntos repartidos
      por km, en una caja de 0 a 1 con su proporción (la x ya corregida por la
      latitud, para que no salga aplastada).

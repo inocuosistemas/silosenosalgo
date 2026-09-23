@@ -560,6 +560,12 @@ struct PantallaViaje: View {
                     .foregroundStyle(r.hasPrefix("sin") ? Color.orange : Theme.slate400)
             }
         }
+        if let m = d.fueraDeRuta {
+            LabeledContent("Fuera de la ruta") {
+                Text(m < 1000 ? "a \(Int(m)) m" : "a \(ColoresViaje.km(m / 1000)) km").monospacedDigit()
+                    .foregroundStyle(Color.orange)
+            }
+        }
         if let l = d.llegada {
             LabeledContent("Llegada") {
                 Text(l).multilineTextAlignment(.trailing)

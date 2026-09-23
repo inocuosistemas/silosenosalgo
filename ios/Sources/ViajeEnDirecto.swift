@@ -20,6 +20,21 @@ enum ReglasDeViaje {
         max(0.1, min(2, totalKm * 0.02))
     }
 
+    /**
+     El radio de llegada con la precisión de ESTA posición. Por tierra, con
+     buena señal, se llega de verdad: en Estambul, con 44 km de viaje, el 2 %
+     daba 880 m en línea recta, y en el centro eso es más de un km de calles:
+     el viaje se daba por terminado antes de llegar al hotel. Con el GPS fino
+     (±22 m), 100 m; con peor señal crece con el error, hasta el de siempre.
+     En avión, el de siempre: el aeropuerto no está donde la ciudad.
+     */
+    static func radioDeLlegada(totalKm: Double, precision: CLLocationAccuracy,
+                               transporte: TransporteDeViaje) -> Double {
+        let base = radioDeLlegada(totalKm: totalKm)
+        guard transporte != .avion, precision >= 0 else { return base }
+        return min(base, max(0.1, 3 * precision / 1000))
+    }
+
     /// Dónde se va sobre la ruta por carretera, para `estado`.
     struct EnRuta: Equatable {
         /// Km hechos desde el principio de la ruta, y los que tiene.
@@ -39,7 +54,8 @@ enum ReglasDeViaje {
         // Llegado se decide en línea recta también yendo por carretera: la
         // ruta de Apple acaba en la calle más cercana, que puede no ser el
         // punto marcado.
-        let llegado = recta <= radioDeLlegada(totalKm: ruta?.total ?? a.totalKm)
+        let llegado = recta <= radioDeLlegada(totalKm: ruta?.total ?? a.totalKm,
+                                              precision: pos.horizontalAccuracy, transporte: a.transporte)
         guard let ruta else {
             return ViajeAtributos.ContentState(
                 restanteKm: recta,
@@ -69,6 +85,9 @@ enum ReglasDeViaje {
     /// Por encima de este error la posición no sirve para situarse en la ruta
     /// (con la ubicación aproximada, todo quedaría «fuera»): se deja donde iba.
     static let precisionParaLaRuta: CLLocationAccuracy = 300
+    /// Fuera de la ruta pero a menos de esto (por calles paralelas), se cuenta
+    /// que se va por su punto más cercano.
+    static let cercaDeLaRuta: CLLocationDistance = 1500
 
     /// A qué hora se llega yendo a esta velocidad (metros por segundo), o nil
     /// si no hay con qué calcularla. Se descarta lo que caiga a más de un día:
@@ -170,6 +189,8 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         var ruta: String?
         /// De dónde sale la hora de llegada, y si la última petición falló.
         var llegada: String?
+        /// A cuántos metros de la ruta, si la última posición quedaba fuera.
+        var fueraDeRuta: Double?
     }
     @Published private(set) var diagnostico = Diagnostico()
     @Published private(set) var permiso: CLAuthorizationStatus = .notDetermined
@@ -427,10 +448,22 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
             if let km = Carreteras.km(en: pos.coordinate, de: r, antes: kmEnRuta) {
                 kmEnRuta = km
                 fueraDeRuta = 0
-            } else {
+                diagnostico.fueraDeRuta = nil
+            } else if let c = Carreteras.cercano(pos.coordinate, de: r) {
+                // Fuera de la ruta: se cuenta en su punto más cercano (sin
+                // volver atrás), para no perder la forma mientras se
+                // recalcula; si ya se sabía dónde se iba y el más cercano
+                // queda lejos, mejor quedarse donde se iba.
+                if let antes = kmEnRuta {
+                    if c.metros <= ReglasDeViaje.cercaDeLaRuta { kmEnRuta = max(antes, c.km) }
+                } else {
+                    kmEnRuta = c.km
+                }
+                diagnostico.fueraDeRuta = c.metros
                 fueraDeRuta += 1
                 if fueraDeRuta >= ReglasDeViaje.fuerasParaRecalcular { buscaRuta(desde: pos.coordinate) }
             }
+            if let km = kmEnRuta { guardaDondeSeVa(km) }
         }
         refrescaLlegada(desde: pos)
         guard let km = kmEnRuta else { return nil }
@@ -454,11 +487,14 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
             do {
                 let nueva = try await Carreteras.pide(desde: desde, hasta: destino, tipo: tipo)
                 guard actividad?.id == id else { return }
-                ponRuta(empalma(nueva))
+                ponRuta(empalma(nueva, desde: desde))
                 if nueva.km > 0 { ritmoDeApple = nueva.segundos / nueva.km }
                 llegadaPedida = Date()
                 apuntaLlegada(nil)
-                diagnostico.ruta = "\(ColoresViaje.km(ruta?.km ?? nueva.km)) km por carretera"
+                // Si se pidió porque no se pudo recuperar la guardada, que
+                // siga diciendo por qué.
+                let porque = diagnostico.ruta.flatMap { $0.hasSuffix("se pide otra") ? " (\($0))" : nil } ?? ""
+                diagnostico.ruta = "\(ColoresViaje.km(ruta?.km ?? nueva.km)) km por carretera · pedida \(Date().formatted(date: .omitted, time: .shortened))" + porque
                 guardaRuta()
                 // Con la última posición, o desde el origen si aún no hay.
                 if let p = ultimaPosicion {
@@ -473,19 +509,22 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     /// La nueva ruta, pegada a lo hecho de la que había.
-    private func empalma(_ nueva: RutaPorCarretera) -> RutaPorCarretera {
-        guard let vieja = ruta, let hecho = kmEnRuta, hecho > 0 else { return nueva }
+    private func empalma(_ nueva: RutaPorCarretera, desde: CLLocationCoordinate2D) -> RutaPorCarretera {
+        guard let vieja = ruta else { return nueva }
+        // Lo hecho: donde se iba, o si no se sabía (recién relanzada la app y
+        // ya fuera de la ruta), el punto más cercano a donde se pide la nueva.
+        guard let hecho = kmEnRuta ?? Carreteras.cercano(desde, de: vieja)?.km, hecho > 0 else { return nueva }
         let hasta = vieja.geometria.cumKm.firstIndex(where: { $0 > hecho }) ?? vieja.geometria.points.count
         let puntos = Array(vieja.geometria.points.prefix(hasta)) + nueva.geometria.points
         return RutaPorCarretera(geometria: Carreteras.rellena(puntos), segundos: nueva.segundos, pedida: nueva.pedida)
     }
 
-    private func ponRuta(_ r: RutaPorCarretera) {
+    private func ponRuta(_ r: RutaPorCarretera, km: Double? = nil) {
         ruta = r
         formaDeLaRuta = Carreteras.forma(r.geometria)
         fueraDeRuta = 0
         // Donde se iba en la vieja no vale en la nueva: se busca de nuevo.
-        kmEnRuta = nil
+        kmEnRuta = km
     }
 
     /// La hora de llegada con el tráfico de ahora, cada pocos minutos (o ya,
@@ -528,6 +567,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         ultimoIntentoDeRuta = nil
         ritmoDeApple = nil
         llegadaPedida = nil
+        UserDefaults.standard.removeObject(forKey: Self.claveDondeSeVa)
         ultimaPosicion = nil
         try? FileManager.default.removeItem(at: Self.archivoDeRuta)
     }
@@ -545,6 +585,22 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         var segundos: Double
     }
 
+    /// Por dónde se iba y a qué ritmo, aparte de la ruta (que pesa): se
+    /// guarda con cada posición, y al relanzarse la app se sigue desde ahí.
+    private struct DondeSeVa: Codable {
+        var actividad: String
+        var km: Double
+        var ritmo: Double?
+    }
+    private static let claveDondeSeVa = "viaje.ruta.dondeSeVa"
+
+    private func guardaDondeSeVa(_ km: Double) {
+        guard let a = actividad,
+              let d = try? JSONEncoder().encode(DondeSeVa(actividad: a.id, km: km, ritmo: ritmoDeApple))
+        else { return }
+        UserDefaults.standard.set(d, forKey: Self.claveDondeSeVa)
+    }
+
     private func guardaRuta() {
         guard let a = actividad, let r = ruta else { return }
         let g = RutaGuardada(actividad: a.id, puntos: r.geometria.points.map { [$0.lat, $0.lon] },
@@ -553,13 +609,25 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     private func cargaRuta() {
-        guard let a = actividad, ruta == nil,
-              let d = try? Data(contentsOf: Self.archivoDeRuta),
-              let g = try? JSONDecoder().decode(RutaGuardada.self, from: d), g.actividad == a.id
-        else { return }
+        guard let a = actividad, ruta == nil, Carreteras.tipo(a.attributes.transporte) != nil else { return }
+        // Si no se puede, que se vea por qué: en Estambul, al relanzarse la
+        // app, se volvió a pedir la ruta entera sin saber qué había pasado.
+        guard let d = try? Data(contentsOf: Self.archivoDeRuta) else {
+            diagnostico.ruta = "no había ruta guardada; se pide otra"
+            return
+        }
+        guard let g = try? JSONDecoder().decode(RutaGuardada.self, from: d), g.actividad == a.id else {
+            diagnostico.ruta = "la ruta guardada era de otro viaje; se pide otra"
+            return
+        }
         let puntos = g.puntos.compactMap { $0.count == 2 ? (lat: $0[0], lon: $0[1]) : nil }
-        ponRuta(RutaPorCarretera(geometria: Carreteras.rellena(puntos), segundos: g.segundos, pedida: Date()))
-        diagnostico.ruta = "\(ColoresViaje.km(ruta?.km ?? 0)) km por carretera"
+        let donde = UserDefaults.standard.data(forKey: Self.claveDondeSeVa)
+            .flatMap { try? JSONDecoder().decode(DondeSeVa.self, from: $0) }
+            .flatMap { $0.actividad == a.id ? $0 : nil }
+        ponRuta(RutaPorCarretera(geometria: Carreteras.rellena(puntos), segundos: g.segundos, pedida: Date()),
+                km: donde?.km)
+        ritmoDeApple = donde?.ritmo ?? (ruta.map { g.segundos / max(0.001, $0.km) })
+        diagnostico.ruta = "\(ColoresViaje.km(ruta?.km ?? 0)) km por carretera · recuperada"
     }
 
     // MARK: Con hora de salida

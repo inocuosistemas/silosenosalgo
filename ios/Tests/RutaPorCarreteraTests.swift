@@ -38,6 +38,14 @@ final class RutaPorCarreteraTests: XCTestCase {
         }
     }
 
+    /// Por una calle paralela, a más de 250 m: no está «en» la ruta, pero su
+    /// punto más cercano dice por dónde se va.
+    func testElPuntoMasCercanoFueraDeLaRuta() throws {
+        let c = try XCTUnwrap(Carreteras.cercano(CLLocationCoordinate2D(latitude: 41.005, longitude: 2.12), de: ruta))
+        XCTAssertEqual(c.km, 10, accuracy: 0.3)
+        XCTAssertEqual(c.metros, 556, accuracy: 30)
+    }
+
     func testFueraDeLaRutaEsNil() {
         XCTAssertNil(Carreteras.km(en: CLLocationCoordinate2D(latitude: 41.5, longitude: 2.5), de: ruta, antes: nil))
     }
@@ -113,6 +121,27 @@ final class ReglasDeViajePorCarreteraTests: XCTestCase {
         XCTAssertTrue(e.llegado)
         XCTAssertEqual(e.progreso, 1)
         XCTAssertEqual(e.restanteKm, 0)
+    }
+
+    /// Estambul: 44 km de viaje, a 800 m del hotel en línea recta y con el
+    /// GPS fino. Antes se daba por llegado (radio 880 m); ahora no, hasta los
+    /// 100 m.
+    func testConBuenaSenalSeLlegaDeVerdad() {
+        XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 44, precision: 22, transporte: .coche), 0.1, accuracy: 0.001)
+        XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 44, precision: 200, transporte: .coche), 0.6, accuracy: 0.001)
+        XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 44, precision: 2000, transporte: .coche), 0.88, accuracy: 0.001)
+        XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 3000, precision: 10, transporte: .avion), 2)
+        let hotel = ViajeAtributos(
+            origen: LugarDeViaje(nombre: "Istanbul Airport", abreviatura: "AIR", latitud: 41.2753, longitud: 28.7519),
+            destino: LugarDeViaje(nombre: "Fatih", abreviatura: "HTL", latitud: 41.0186, longitud: 28.9497),
+            transporte: .coche)
+        func en(_ metrosAlNorte: Double, error: Double) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 41.0186 + metrosAlNorte / 111_195, longitude: 28.9497),
+                       altitude: 0, horizontalAccuracy: error, verticalAccuracy: error, timestamp: ahora)
+        }
+        let ruta = ReglasDeViaje.EnRuta(km: 42, total: 44, forma: "AAA=")
+        XCTAssertFalse(ReglasDeViaje.estado(en: en(800, error: 22), de: hotel, ruta: ruta, ahora: ahora).llegado)
+        XCTAssertTrue(ReglasDeViaje.estado(en: en(60, error: 22), de: hotel, ruta: ruta, ahora: ahora).llegado)
     }
 
     /// Cuando llega la ruta (o cambia), se manda aunque no se haya movido.
