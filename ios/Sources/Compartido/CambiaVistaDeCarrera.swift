@@ -32,7 +32,7 @@ public struct CambiaVistaDeCarrera: LiveActivityIntent {
     public func perform() async throws -> some IntentResult {
         #if canImport(ActivityKit)
         guard let nueva = VistaDeCarrera(rawValue: vista) else { return .result() }
-        for a in Activity<CarreraAtributos>.activities where a.activityState == .active {
+        for a in Activity<CarreraAtributos>.activities where a.activityState == .active || a.activityState == .stale {
             var estado = a.content.state
             estado.vista = nueva
             estado.vistaElegida = true

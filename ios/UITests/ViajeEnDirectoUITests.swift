@@ -89,6 +89,29 @@ final class ViajeEnDirectoUITests: XCTestCase {
                       "la tarjeta no dice «km por carretera»:\n\(bloqueo.debugDescription)")
     }
 
+    /// La app cerrada con un viaje en marcha, y la tarjeta ya caducada (sin
+    /// actualizar): al volver a abrirla se engancha a ella y se puede
+    /// terminar. Antes solo buscaba las activas, se quedaba sin «En marcha» ni
+    /// botón de terminar, y con el GPS de respaldo encendido.
+    func testAlReabrirSeEnganchaALaTarjetaCaducada() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeViaje", "-CaducidadCorta"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 20))
+        app.terminate()
+        sleep(8)
+
+        app.launchArguments = ["-PruebaDeViaje", "-SoloReanudar"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 15),
+                      "no se ha enganchado a la tarjeta caducada:\n\(app.debugDescription)")
+        let terminar = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Terminar el viaje'")).firstMatch
+        if !terminar.exists { app.swipeUp() }
+        XCTAssertTrue(terminar.waitForExistence(timeout: 5))
+        terminar.tap()
+        XCTAssertFalse(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 3))
+    }
+
     /// Lo que se configura sigue ahí al salir de la pantalla y volver a entrar.
     /// Antes se perdía: vivía solo en memoria y la pantalla se cierra al volver.
     func testLoConfiguradoSigueAlVolver() {

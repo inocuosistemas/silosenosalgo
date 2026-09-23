@@ -40,7 +40,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 NavigationStack { PantallaViaje() }
                     .tint(Theme.sky500)
                     .preferredColorScheme(.dark)
-                    .onAppear { ViajeEnDirecto.shared.empieza(PruebaDeViaje.atributos) }
+                    .onAppear {
+                        // Con `-SoloReanudar`, abrir sin empezar otro: lo que
+                        // pasa al relanzar la app con un viaje en marcha.
+                        if !ProcessInfo.processInfo.arguments.contains("-SoloReanudar") {
+                            ViajeEnDirecto.shared.empieza(PruebaDeViaje.atributos)
+                        }
+                    }
             } else {
             ContentView()
                 .environmentObject(auth)

@@ -353,6 +353,19 @@ struct PantallaViaje: View {
 
     @ViewBuilder
     private var formulario: some View {
+        if viaje.tarjetasSueltas {
+            Section {
+                Button(role: .destructive) {
+                    viaje.quitaTodas()
+                } label: {
+                    Label("Quitar la tarjeta del viaje", systemImage: "xmark.circle.fill")
+                }
+            } footer: {
+                Text("Hay una tarjeta de viaje en la pantalla de bloqueo que ya no se está siguiendo. Esto la quita y apaga su GPS.")
+                    .font(.caption).foregroundStyle(Theme.slate400)
+            }
+            .listRowBackground(Theme.slate900)
+        }
         Section {
             TextField("Viaje a Japón", text: $titulo)
         } header: {

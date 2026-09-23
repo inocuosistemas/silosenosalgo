@@ -11,7 +11,8 @@ import UserNotifications
 enum ReglasDeViaje {
     /// Sin actualización en este tiempo, el sistema la da por caducada y la
     /// tarjeta dice «sin señal» (ver `ViajeActividad`).
-    static let caducidad: TimeInterval = 20 * 60
+    static let caducidad: TimeInterval =
+        ProcessInfo.processInfo.arguments.contains("-CaducidadCorta") ? 3 : 20 * 60
 
     /// A cuánto del destino se da por llegado. Dos kilómetros en un vuelo —el
     /// aeropuerto no está en el centro de la ciudad—, pero mucho menos en un
@@ -239,6 +240,22 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
 
     var enMarcha: Bool { actividad != nil }
 
+    /// Tarjetas de viaje en pantalla que la app no sigue: la de «Has llegado»,
+    /// que se queda un rato, o una que se hubiera quedado suelta.
+    var tarjetasSueltas: Bool {
+        actividad == nil && Activity<ViajeAtributos>.activities.contains { $0.activityState != .ended && $0.activityState != .dismissed }
+    }
+
+    /// Quitar todas las tarjetas de viaje y apagar su GPS, pase lo que pase.
+    func quitaTodas() {
+        termina()
+        for a in Activity<ViajeAtributos>.activities {
+            Task { await a.end(nil, dismissalPolicy: .immediate) }
+        }
+        paraGPS()
+        objectWillChange.send()
+    }
+
     // MARK: Empezar y terminar
 
     /// Arranca ya. Si había otro viaje en marcha, lo termina antes: solo se
@@ -286,9 +303,18 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     /// Al arrancar la app: si iOS la había cerrado con un viaje en marcha, se
     /// vuelve a enganchar a él y a encender el GPS.
     func reanuda() {
-        guard actividad == nil,
-              let a = Activity<ViajeAtributos>.activities.first(where: { $0.activityState == .active })
-        else { return }
+        guard actividad == nil else { return }
+        // Activa o CADUCADA: una tarjeta que lleva 20 min sin actualizarse
+        // (la app cerrada, al instalar otra versión) está «stale», no
+        // «active». Buscando solo las activas, al volver a abrir la app se
+        // quedaba sin enganchar: sin «En marcha», sin botón de terminar, y el
+        // GPS de respaldo encendido sin nadie que lo apagara.
+        guard let a = Activity<ViajeAtributos>.activities.first(where: {
+            $0.activityState == .active || $0.activityState == .stale
+        }) else {
+            apagaElRespaldoHuerfano()
+            return
+        }
         engancha(a)
         estado = a.content.state
         cargaRuta()
@@ -339,13 +365,33 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         // abrir en segundo plano y el viaje se retoma (ver `AppDelegate`).
         // Con el GPS normal no pasa: una app cerrada no se reabre sola.
         gps.startMonitoringSignificantLocationChanges()
+        UserDefaults.standard.set(true, forKey: Self.claveRespaldo)
         // Con la «Ubicación exacta» apagada, se pide durante este viaje.
         if gps.accuracyAuthorization == .reducedAccuracy {
             gps.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "ViajeEnDirecto")
         }
     }
 
+    /// Los cambios de ubicación importantes siguen encendidos aunque la app se
+    /// cierre (para eso están: para reabrirla). Si se encendieron para un
+    /// viaje y ya no hay viaje, se apagan aquí; si no, nadie lo haría.
+    private static let claveRespaldo = "viaje.respaldoEncendido"
+
+    private func apagaElRespaldoHuerfano() {
+        // Las versiones de antes no lo apuntaban: la primera vez, se apaga
+        // igual por si alguna lo dejó encendido.
+        let primeraVez = !UserDefaults.standard.bool(forKey: "viaje.respaldoRevisado")
+        UserDefaults.standard.set(true, forKey: "viaje.respaldoRevisado")
+        guard primeraVez || UserDefaults.standard.bool(forKey: Self.claveRespaldo) else { return }
+        UserDefaults.standard.removeObject(forKey: Self.claveRespaldo)
+        // Son de la app entera: si la baliza está compartiendo, son suyos.
+        guard !TrackingStore.shared.isSharing else { return }
+        gps.stopMonitoringSignificantLocationChanges()
+        gps.stopUpdatingLocation()
+    }
+
     private func paraGPS() {
+        UserDefaults.standard.removeObject(forKey: Self.claveRespaldo)
         gps.stopMonitoringSignificantLocationChanges()
         gps.stopUpdatingLocation()
         gps.allowsBackgroundLocationUpdates = false

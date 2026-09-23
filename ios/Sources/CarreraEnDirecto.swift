@@ -292,7 +292,7 @@ final class CarreraEnDirecto {
                 hoja = await Self.hoja(sesion: sesion, token: token, eventoId: eventoId, salidaMs: salidaMs)
             }
             guard let hoja else { return }
-            if let viva = Activity<CarreraAtributos>.activities.first(where: { $0.activityState == .active }) {
+            if let viva = Activity<CarreraAtributos>.activities.first(where: { $0.activityState == .active || $0.activityState == .stale }) {
                 actividad = viva
                 carrera = viva.attributes.carrera
                 ultimo = viva.content.state
