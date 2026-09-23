@@ -57,6 +57,19 @@ struct ContadoresView: View {
                         Image(systemName: "airplane").foregroundStyle(Theme.sky500)
                     }
                 }
+                NavigationLink {
+                    PantallaCarreraSimulada()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Carrera en directo")
+                            Text("Simula cómo se verá la tarjeta en tu carrera")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
+                    } icon: {
+                        Image(systemName: "figure.run").foregroundStyle(Theme.sky500)
+                    }
+                }
             } header: {
                 Text("EN DIRECTO").font(.caption).foregroundStyle(Theme.slate400)
             }

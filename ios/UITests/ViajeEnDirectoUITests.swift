@@ -220,4 +220,46 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertTrue(sistema.staticTexts["34.º"].waitForExistence(timeout: 5),
                       "no ha cambiado a la vista de corredores:\n\(sistema.debugDescription)")
     }
+
+    /// La carrera simulada: el deslizador lleva la tarjeta por toda la
+    /// carrera, y los botones del selector cambian de vista.
+    func testLaCarreraSimulada() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaDeViaje"]
+        app.launch()
+        let entrar = app.buttons["Carrera en directo"]
+        XCTAssertTrue(entrar.waitForExistence(timeout: 20))
+        entrar.tap()
+
+        let tiempo = app.sliders["tiempoDeLaSimulacion"]
+        XCTAssertTrue(tiempo.waitForExistence(timeout: 10), "no está el deslizador:\n\(app.debugDescription)")
+        sleep(1)
+        guarda("sim-1-antes-de-salir")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Salida en'")).firstMatch.exists)
+
+        tiempo.adjust(toNormalizedSliderPosition: 0.35)
+        sleep(1)
+        guarda("sim-2-en-carrera-tramo")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'en carrera'")).firstMatch.exists)
+
+        app.buttons["Carrera"].firstMatch.tap()
+        sleep(1)
+        guarda("sim-3-vista-carrera")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'de 42,0 km'")).firstMatch.exists,
+                      "no cambia a la vista de la carrera:\n\(app.debugDescription)")
+
+        app.buttons["Corredores"].firstMatch.tap()
+        sleep(1)
+        guarda("sim-4-corredores")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label ENDSWITH '.º'")).firstMatch.exists,
+                      "no cambia a la de corredores:\n\(app.debugDescription)")
+
+        // Muy lento, y casi al final: fuera de corte, o ya en meta.
+        app.buttons["Muy lento"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Tramo'")).firstMatch.tap()
+        tiempo.adjust(toNormalizedSliderPosition: 1)
+        sleep(1)
+        guarda("sim-5-meta")
+        XCTAssertTrue(app.staticTexts["En meta"].firstMatch.exists, "al final no está en meta:\n\(app.debugDescription)")
+    }
 }

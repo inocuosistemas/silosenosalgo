@@ -48,6 +48,16 @@ final class ReglasDeViajeTests: XCTestCase {
         XCTAssertEqual(ReglasDeViaje.radioDeLlegada(totalKm: 50), 1, accuracy: 0.001)
     }
 
+    /// Con la «Ubicación exacta» apagada, iOS da posiciones con varios km de
+    /// error. Con un tope fijo de 1 km se tiraban todas, y un viaje entero
+    /// (Barcelona–Estambul) se quedó en el origen. Para un viaje largo sirven.
+    func testLaPrecisionAdmitidaDependeDelViaje() {
+        XCTAssertEqual(ReglasDeViaje.precisionAdmitida(totalKm: 2220), 22_200, accuracy: 1)
+        XCTAssertGreaterThan(ReglasDeViaje.precisionAdmitida(totalKm: 2220), 5000,
+                             "una posición aproximada (±5 km) tiene que valer en un vuelo")
+        XCTAssertEqual(ReglasDeViaje.precisionAdmitida(totalKm: 20), 1000, "nunca menos de 1 km")
+    }
+
     func testLaHoraDeLlegadaSaleDeLaVelocidad() {
         let ahora = Date()
         // 900 km a 250 m/s (900 km/h): una hora.

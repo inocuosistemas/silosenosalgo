@@ -21,7 +21,10 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 // probar que lo escrito sigue ahí al salir y volver a entrar.
                 let _ = PruebaDeViaje.siembraSiSePide()
                 NavigationStack {
-                    List { NavigationLink("Viaje en directo") { PantallaViaje() } }
+                    List {
+                        NavigationLink("Viaje en directo") { PantallaViaje() }
+                        NavigationLink("Carrera en directo") { PantallaCarreraSimulada() }
+                    }
                 }
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
@@ -43,8 +46,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
                 // Si iOS cerró la app con un viaje en directo en marcha, se
-                // vuelve a enganchar a él y a encender el GPS.
-                .task { ViajeEnDirecto.shared.reanuda() }
+                // vuelve a enganchar a él y a encender el GPS; y cada vez que
+                // la app vuelve delante, por si iOS había parado el GPS.
+                .task { ViajeEnDirecto.shared.alVolver() }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: UIApplication.didBecomeActiveNotification)) { _ in
+                    ViajeEnDirecto.shared.alVolver()
+                }
                 // Busca visor web nuevo al arrancar, nunca con el visor abierto:
                 // cambiar los assets bajo un WKWebView vivo lo romperia. Si hay
                 // build nuevo, entra en la siguiente apertura del visor.
@@ -84,6 +92,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // UIKit lifecycle callbacks run on the main thread, where TrackingStore
         // (a @MainActor singleton) is safe to touch.
         MainActor.assumeIsolated {
+            // Un viaje en directo en marcha: si iOS relanza la app en segundo
+            // plano por un cambio de ubicación, la vista puede no llegar a
+            // montarse, así que se retoma aquí.
+            ViajeEnDirecto.shared.alVolver()
             if let token = Keychain.load() {
                 TrackingStore.shared.configure(token: token)
                 TrackingStore.shared.restoreActiveSession()

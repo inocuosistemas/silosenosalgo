@@ -57,6 +57,19 @@ enum ReglasDeViaje {
         return nuevo.actualizado.timeIntervalSince(viejo.actualizado) >= 60
     }
 
+    /**
+     El error máximo que se admite en una posición, en metros.
+
+     Depende del viaje: para uno de 2.000 km, una posición con 5 km de error
+     sirve de sobra. Con un tope fijo de 1 km, un móvil con la «Ubicación
+     exacta» apagada —que da posiciones de varios km de error— no llegaba a
+     mandar NINGUNA, y la tarjeta se quedó en el origen un viaje entero,
+     Barcelona–Estambul. Nunca menos de 1 km; un 1 % del viaje si es más.
+     */
+    static func precisionAdmitida(totalKm: Double) -> CLLocationAccuracy {
+        max(1000, totalKm * 1000 * 0.01)
+    }
+
     /// El tipo de movimiento, que ajusta cómo filtra el GPS: en avión no hay
     /// carreteras a las que pegar la posición.
     static func tipoDeActividad(_ t: TransporteDeViaje) -> CLActivityType {
@@ -90,6 +103,19 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     @Published private(set) var programado: ViajeProgramado?
     @Published var error: String?
 
+    /// Lo que ha pasado con el GPS en este viaje, para enseñarlo: si falla,
+    /// que se vea en pantalla por qué, en vez de tener que adivinarlo.
+    struct Diagnostico: Equatable {
+        var recibidas = 0
+        var descartadas = 0
+        /// El error de la última posición recibida, en metros.
+        var ultimoError: Double?
+        var ultimaRecibida: Date?
+    }
+    @Published private(set) var diagnostico = Diagnostico()
+    @Published private(set) var permiso: CLAuthorizationStatus = .notDetermined
+    @Published private(set) var exacta = true
+
     private let gps = CLLocationManager()
     /// Mantiene el permiso de GPS en segundo plano con «Mientras se usa», y
     /// ayuda a retomar el viaje si iOS relanza la app.
@@ -103,6 +129,19 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         super.init()
         gps.delegate = self
         programado = Self.leeProgramado()
+        permiso = gps.authorizationStatus
+        exacta = gps.accuracyAuthorization == .fullAccuracy
+    }
+
+    /// Al volver la app a primer plano (o al relanzarla iOS): se retoma el
+    /// viaje si había uno, y se vuelve a encender el GPS por si iOS lo había
+    /// parado. Barato si ya estaba encendido.
+    func alVolver() {
+        if let a = actividad {
+            enciendeGPS(para: a.attributes)
+        } else {
+            reanuda()
+        }
     }
 
     var enMarcha: Bool { actividad != nil }
@@ -118,6 +157,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
             return
         }
         termina()
+        diagnostico = Diagnostico()
         let inicial = ViajeAtributos.ContentState(
             restanteKm: atributos.totalKm, progreso: 0, actualizado: Date())
         do {
@@ -194,9 +234,19 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         gps.showsBackgroundLocationIndicator = true
         sesion = CLBackgroundActivitySession()
         gps.startUpdatingLocation()
+        // De respaldo, los cambios de ubicación importantes (de antena en
+        // antena): si iOS cierra la app en pleno viaje, estos la vuelven a
+        // abrir en segundo plano y el viaje se retoma (ver `AppDelegate`).
+        // Con el GPS normal no pasa: una app cerrada no se reabre sola.
+        gps.startMonitoringSignificantLocationChanges()
+        // Con la «Ubicación exacta» apagada, se pide durante este viaje.
+        if gps.accuracyAuthorization == .reducedAccuracy {
+            gps.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "ViajeEnDirecto")
+        }
     }
 
     private func paraGPS() {
+        gps.stopMonitoringSignificantLocationChanges()
         gps.stopUpdatingLocation()
         gps.allowsBackgroundLocationUpdates = false
         sesion?.invalidate()
@@ -204,12 +254,31 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // Las posiciones malas (más de 1 km de error) no se usan: en un avión,
-        // sin cobertura, lo que llega a veces es una estimación por antenas de
-        // hace un rato.
-        guard let pos = locations.last(where: { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy < 1000 })
-        else { return }
-        Task { @MainActor in self.recibe(pos) }
+        guard let pos = locations.last(where: { $0.horizontalAccuracy >= 0 }) else { return }
+        Task { @MainActor in self.llega(pos) }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let p = manager.authorizationStatus
+        let e = manager.accuracyAuthorization == .fullAccuracy
+        Task { @MainActor in
+            self.permiso = p
+            self.exacta = e
+        }
+    }
+
+    /// Una posición del GPS: se cuenta, y si su error es admisible para este
+    /// viaje (ver `ReglasDeViaje.precisionAdmitida`), se usa.
+    private func llega(_ pos: CLLocation) {
+        guard let a = actividad else { return }
+        diagnostico.ultimoError = pos.horizontalAccuracy
+        diagnostico.ultimaRecibida = pos.timestamp
+        guard pos.horizontalAccuracy <= ReglasDeViaje.precisionAdmitida(totalKm: a.attributes.totalKm) else {
+            diagnostico.descartadas += 1
+            return
+        }
+        diagnostico.recibidas += 1
+        recibe(pos)
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

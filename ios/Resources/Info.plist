@@ -75,6 +75,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>ViajeEnDirecto</key>
+		<string>Para saber cuánto te falta para llegar mientras dura el viaje en directo.</string>
+	</dict>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

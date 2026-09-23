@@ -486,6 +486,7 @@ struct PantallaViaje: View {
                     Text(e.actualizado, style: .time)
                 }
             }
+            gps
             Button(role: .destructive) { viaje.termina() } label: {
                 Label("Terminar el viaje", systemImage: "stop.fill")
                     .frame(maxWidth: .infinity)
@@ -500,6 +501,53 @@ struct PantallaViaje: View {
                 .font(.caption).foregroundStyle(Theme.slate400)
         }
         .listRowBackground(Theme.slate900)
+    }
+
+    /// Qué está pasando con el GPS: el permiso, si es exacto, y cuántas
+    /// posiciones llegan. En un viaje que no avanzaba no había forma de saber
+    /// por qué; así se ve en la propia pantalla.
+    @ViewBuilder
+    private var gps: some View {
+        let d = viaje.diagnostico
+        LabeledContent("Ubicación") {
+            Text(nombreDelPermiso + (viaje.exacta ? ", exacta" : ", aproximada"))
+                .foregroundStyle(permisoMalo || !viaje.exacta ? Color.orange : Theme.slate400)
+        }
+        LabeledContent("Posiciones del GPS") {
+            Text(d.descartadas > 0 ? "\(d.recibidas) buenas · \(d.descartadas) con mucho error"
+                                   : "\(d.recibidas)")
+                .monospacedDigit()
+        }
+        if let cuando = d.ultimaRecibida {
+            LabeledContent("La última") {
+                (Text(cuando, style: .time)
+                 + Text(d.ultimoError.map { " · ±\(Int($0)) m" } ?? ""))
+                    .monospacedDigit()
+            }
+        }
+        if permisoMalo || !viaje.exacta {
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            } label: {
+                Label(permisoMalo ? "Permitir la ubicación en Ajustes" : "Activar la ubicación exacta en Ajustes",
+                      systemImage: "location.circle")
+            }
+            .font(.footnote)
+        }
+    }
+
+    private var permisoMalo: Bool {
+        viaje.permiso == .denied || viaje.permiso == .restricted || viaje.permiso == .notDetermined
+    }
+
+    private var nombreDelPermiso: String {
+        switch viaje.permiso {
+        case .authorizedAlways: return "Siempre"
+        case .authorizedWhenInUse: return "Mientras se usa"
+        case .denied: return "Denegada"
+        case .restricted: return "Restringida"
+        default: return "Sin decidir"
+        }
     }
 
     /// Lo que se arranca, si ya está todo lo necesario.

@@ -97,6 +97,43 @@ public struct DatosGlobales: Codable, Hashable, Sendable {
     }
 }
 
+/**
+ El tiempo en carrera de la cabecera.
+
+ En la tarjeta de verdad lo lleva el RELOJ DEL SISTEMA, que corre solo sin que
+ la app haga nada. En la simulación de la app el tiempo es el del deslizador, no
+ el de verdad: con `virtual` se escribe esa hora tal cual.
+ */
+public struct RelojDeCarrera: View {
+    public let salida: Date
+    /// Ya en meta: el reloj se para en la hora de llegada.
+    public var fin: Date?
+    public var virtual: Date?
+
+    public init(salida: Date, fin: Date? = nil, virtual: Date? = nil) {
+        self.salida = salida
+        self.fin = fin
+        self.virtual = virtual
+    }
+
+    public var body: some View {
+        if let v = virtual {
+            Text(Self.duracion((fin ?? v).timeIntervalSince(salida)))
+        } else if let fin, fin > salida {
+            Text(timerInterval: salida...fin, pauseTime: fin, countsDown: false)
+        } else {
+            Text(salida, style: .timer)
+        }
+    }
+
+    /// «3:42:15», o «25:11» por debajo de la hora; sin signo.
+    public static func duracion(_ segundos: TimeInterval) -> String {
+        let s = Int(abs(segundos).rounded())
+        let h = s / 3600, m = (s % 3600) / 60, seg = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, seg) : String(format: "%d:%02d", m, seg)
+    }
+}
+
 /// El selector de la cabecera: tres partes, la elegida encendida. En la
 /// tarjeta de la pantalla de bloqueo son BOTONES (`interactivo`): un toque
 /// cambia de vista sin abrir la app (ver `CambiaVistaDeCarrera`); el resto de
@@ -107,17 +144,22 @@ public struct SelectorDeVista: View {
     public let deTramos: Int
     /// Botones de verdad, o solo el dibujo (vista previa, pruebas).
     public var interactivo: Bool
+    /// Lo que hace cada botón fuera de la Actividad (la simulación de la app):
+    /// cambiar la vista al momento, sin pasar por el sistema.
+    public var alCambiar: ((VistaDeCarrera) -> Void)?
     /// Con la tercera parte, la de los corredores. Sin sus datos no sale: un
     /// botón que lleva a una vista vacía es peor que no tenerlo.
     public var conCorredores: Bool
 
     public init(vista: VistaDeCarrera, numero: Int, deTramos: Int,
-                interactivo: Bool = false, conCorredores: Bool = true) {
+                interactivo: Bool = false, conCorredores: Bool = true,
+                alCambiar: ((VistaDeCarrera) -> Void)? = nil) {
         self.vista = vista
         self.numero = numero
         self.deTramos = deTramos
         self.interactivo = interactivo
         self.conCorredores = conCorredores
+        self.alCambiar = alCambiar
     }
 
     public var body: some View {
@@ -144,7 +186,10 @@ public struct SelectorDeVista: View {
 
     @ViewBuilder
     private func parte<V: View>(_ v: VistaDeCarrera, @ViewBuilder _ contenido: () -> V) -> some View {
-        if interactivo {
+        if let alCambiar {
+            Button { alCambiar(v) } label: { contenido() }
+                .buttonStyle(.plain)
+        } else if interactivo {
             Button(intent: CambiaVistaDeCarrera(v)) { contenido() }
                 .buttonStyle(.plain)
         } else {
@@ -330,10 +375,16 @@ public struct TarjetaCarreraGlobal: View {
     public var interactivo: Bool
     /// Si hay datos de corredores: sin ellos, el selector no ofrece esa vista.
     public var hayCorredores: Bool
+    /// El tiempo es el de la simulación (`ahora`), no el del reloj de verdad.
+    public var tiempoVirtual: Bool
+    public var alCambiarVista: ((VistaDeCarrera) -> Void)?
 
     public init(tramo: DatosDeTramo, global: DatosGlobales, corredores: DatosCorredores? = nil,
                 ventana: DatosGlobales? = nil, ahora: Date = Date(),
-                interactivo: Bool = false, hayCorredores: Bool = true) {
+                interactivo: Bool = false, hayCorredores: Bool = true,
+                tiempoVirtual: Bool = false, alCambiarVista: ((VistaDeCarrera) -> Void)? = nil) {
+        self.tiempoVirtual = tiempoVirtual
+        self.alCambiarVista = alCambiarVista
         self.tramo = tramo
         self.global = global
         self.corredores = corredores
@@ -358,18 +409,13 @@ public struct TarjetaCarreraGlobal: View {
                 Spacer(minLength: 4)
                 SelectorDeVista(vista: corredores == nil ? .carrera : .corredores,
                                 numero: tramo.numero, deTramos: tramo.deTramos,
-                                interactivo: interactivo, conCorredores: hayCorredores || corredores != nil)
+                                interactivo: interactivo, conCorredores: hayCorredores || corredores != nil,
+                                alCambiar: alCambiarVista)
                 // Antes de la salida el reloj no va aquí: la cuenta atrás va
                 // en grande abajo, que es lo que se mira en ese momento.
                 if !antesDeSalir {
-                    Group {
-                        if tramo.enMeta, let fin = tramo.prevision, fin > tramo.salida {
-                            // En meta, el reloj se para en la hora de llegada.
-                            Text(timerInterval: tramo.salida...fin, pauseTime: fin, countsDown: false)
-                        } else {
-                            Text(tramo.salida, style: .timer)
-                        }
-                    }
+                    RelojDeCarrera(salida: tramo.salida, fin: tramo.enMeta ? tramo.prevision : nil,
+                                   virtual: tiempoVirtual ? ahora : nil)
                     .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .frame(width: 56, alignment: .trailing)
                 }
@@ -428,9 +474,15 @@ public struct TarjetaCarreraGlobal: View {
                     // pasada la hora seguía contando hacia arriba («Salida en
                     // 0:05») hasta la primera posición después de salir, que
                     // es cuando la tarjeta cambia sola a la vista de tramo.
-                    Text(timerInterval: ahora...max(ahora, tramo.salida), countsDown: true)
-                        .font(.system(size: 20, weight: .bold)).monospacedDigit()
-                        .fixedSize()
+                    Group {
+                        if tiempoVirtual {
+                            Text(RelojDeCarrera.duracion(tramo.salida.timeIntervalSince(ahora)))
+                        } else {
+                            Text(timerInterval: ahora...max(ahora, tramo.salida), countsDown: true)
+                        }
+                    }
+                    .font(.system(size: 20, weight: .bold)).monospacedDigit()
+                    .fixedSize()
                 } else {
                     // Con un decimal siempre: en carrera, «21» de 42 no dice
                     // si se va por el 21,0 o por el 21,9.
@@ -488,10 +540,17 @@ public struct TarjetaCarreraGlobal: View {
 public struct TarjetaDeCarrera: View {
     public let estado: EstadoDeCarrera
     public var interactivo: Bool
+    /// En la simulación de la app: la hora del deslizador, y lo que hace el
+    /// selector (cambiar la vista al momento).
+    public var ahoraVirtual: Date?
+    public var alCambiarVista: ((VistaDeCarrera) -> Void)?
 
-    public init(estado: EstadoDeCarrera, interactivo: Bool = false) {
+    public init(estado: EstadoDeCarrera, interactivo: Bool = false, ahoraVirtual: Date? = nil,
+                alCambiarVista: ((VistaDeCarrera) -> Void)? = nil) {
         self.estado = estado
         self.interactivo = interactivo
+        self.ahoraVirtual = ahoraVirtual
+        self.alCambiarVista = alCambiarVista
     }
 
     private var hayCorredores: Bool { estado.corredores != nil }
@@ -510,13 +569,17 @@ public struct TarjetaDeCarrera: View {
         switch estado.vista {
         case .tramo:
             TarjetaTramo(datos: estado.tramo, forma: .perfilGrande, selector: .tramo,
-                         interactivo: interactivo, hayCorredores: hayCorredores)
+                         interactivo: interactivo, hayCorredores: hayCorredores,
+                         ahoraVirtual: ahoraVirtual, alCambiarVista: alCambiarVista)
         case .corredores where hayCorredores:
             TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global, corredores: estado.corredores,
-                                 ventana: ventana, interactivo: interactivo, hayCorredores: true)
+                                 ventana: ventana, ahora: ahoraVirtual ?? Date(), interactivo: interactivo,
+                                 hayCorredores: true, tiempoVirtual: ahoraVirtual != nil,
+                                 alCambiarVista: alCambiarVista)
         case .carrera, .corredores:
-            TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global,
-                                 interactivo: interactivo, hayCorredores: hayCorredores)
+            TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global, ahora: ahoraVirtual ?? Date(),
+                                 interactivo: interactivo, hayCorredores: hayCorredores,
+                                 tiempoVirtual: ahoraVirtual != nil, alCambiarVista: alCambiarVista)
         }
     }
 }

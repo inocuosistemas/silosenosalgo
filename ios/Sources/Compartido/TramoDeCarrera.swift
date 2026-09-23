@@ -216,14 +216,21 @@ public struct TarjetaTramo: View {
     /// El selector con botones de verdad (en la pantalla de bloqueo).
     public var interactivo: Bool
     public var hayCorredores: Bool
+    /// En la simulación de la app: la hora del deslizador para el reloj, y lo
+    /// que hace el selector.
+    public var ahoraVirtual: Date?
+    public var alCambiarVista: ((VistaDeCarrera) -> Void)?
 
     public init(datos: DatosDeTramo, forma: Forma, selector: VistaDeCarrera? = nil,
-                interactivo: Bool = false, hayCorredores: Bool = true) {
+                interactivo: Bool = false, hayCorredores: Bool = true,
+                ahoraVirtual: Date? = nil, alCambiarVista: ((VistaDeCarrera) -> Void)? = nil) {
         self.datos = datos
         self.forma = forma
         self.selector = selector
         self.interactivo = interactivo
         self.hayCorredores = hayCorredores
+        self.ahoraVirtual = ahoraVirtual
+        self.alCambiarVista = alCambiarVista
     }
 
     private let apagado = Color.white.opacity(0.6)
@@ -251,7 +258,8 @@ public struct TarjetaTramo: View {
             if let selector {
                 Spacer(minLength: 4)
                 SelectorDeVista(vista: selector, numero: datos.numero, deTramos: datos.deTramos,
-                                interactivo: interactivo, conCorredores: hayCorredores)
+                                interactivo: interactivo, conCorredores: hayCorredores,
+                                alCambiar: alCambiarVista)
             } else {
                 Text("· TRAMO \(datos.numero)/\(datos.deTramos)")
                     .font(.system(size: 11, weight: .semibold)).tracking(0.5)
@@ -262,14 +270,9 @@ public struct TarjetaTramo: View {
             if selector == nil {
                 Image(systemName: "stopwatch").font(.system(size: 11)).foregroundStyle(apagado)
             }
-            Group {
-                if datos.enMeta, let fin = datos.prevision, fin > datos.salida {
-                    // En meta, el reloj se para en la hora de llegada.
-                    Text(timerInterval: datos.salida...fin, pauseTime: fin, countsDown: false)
-                } else {
-                    Text(datos.salida, style: .timer)
-                }
-            }
+            // En meta, el reloj se para en la hora de llegada.
+            RelojDeCarrera(salida: datos.salida, fin: datos.enMeta ? datos.prevision : nil,
+                           virtual: ahoraVirtual)
             .font(.system(size: 13, weight: .semibold)).monospacedDigit()
             .frame(width: 58, alignment: .trailing)
         }
@@ -345,6 +348,10 @@ public struct TarjetaTramo: View {
                 Spacer(minLength: 4)
                 margen
             }
+            // En una línea siempre: en una tarjeta algo más estrecha, «12 m»
+            // se partía en dos. Antes que eso, las letras se encogen un poco.
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             }
         }
     }
