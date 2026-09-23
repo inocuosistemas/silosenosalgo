@@ -19,6 +19,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
             } else if PruebaDeViaje.pantalla {
                 // Solo la pantalla de configurar, detrás de un enlace: para
                 // probar que lo escrito sigue ahí al salir y volver a entrar.
+                let _ = PruebaDeViaje.siembraSiSePide()
                 NavigationStack {
                     List { NavigationLink("Viaje en directo") { PantallaViaje() } }
                 }
@@ -140,6 +141,20 @@ enum PruebaDeViaje {
     static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeViaje") }
     /// Solo la pantalla de configurar, sin arrancar ningún viaje.
     static var pantalla: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDePantallaDeViaje") }
+
+    /// Con `-ConViajeDeEjemplo`, la pantalla se abre ya configurada: Barcelona
+    /// → Estambul, como el que se estaba probando en el móvil.
+    static func siembraSiSePide() {
+        guard ProcessInfo.processInfo.arguments.contains("-ConViajeDeEjemplo") else { return }
+        BorradorDeViaje(
+            titulo: "Algo muy especial...🎁",
+            origen: LugarDeViaje(nombre: "El Prat de Llobregat", abreviatura: "BCN", latitud: 41.2886, longitud: 2.0743),
+            destino: LugarDeViaje(nombre: "Istanbul Airport", abreviatura: "IST", latitud: 41.2753, longitud: 28.7519),
+            transporte: .avion,
+            colores: ColoresDeViaje(fondo: "#1a0b2e", trayecto: "#f472b6", trayecto2: "#f59e0b"),
+            conHora: false, hora: Date().addingTimeInterval(3600)
+        ).guarda()
+    }
 
     static let atributos = ViajeAtributos(
         titulo: "Prueba de viaje",

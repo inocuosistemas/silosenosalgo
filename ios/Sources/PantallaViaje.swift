@@ -209,6 +209,9 @@ struct PantallaViaje: View {
     /// Hasta haber leído lo guardado no se guarda nada: si no, el primer
     /// cambio de estado —la carga misma— podía pisar lo guardado con vacío.
     @State private var cargado = false
+    /// Por dónde va la simulación de la vista previa: empieza a un tercio del
+    /// camino, que es donde mejor se ve el trayecto.
+    @State private var simulado = 0.35
     /// El extremo que se está eligiendo en el mapa, si se está.
     @State private var mapaPara: ExtremoDelViaje?
 
@@ -221,6 +224,12 @@ struct PantallaViaje: View {
                 vistaPrevia
                     .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                if !viaje.enMarcha {
+                    simulacion
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
             } header: {
                 Text("EN LA PANTALLA DE BLOQUEO").font(.caption).foregroundStyle(Theme.slate400)
             }
@@ -272,9 +281,34 @@ struct PantallaViaje: View {
         let o = origen ?? LugarDeViaje(nombre: "Origen", abreviatura: "ORI", latitud: 41.39, longitud: 2.17)
         let d = destino ?? LugarDeViaje(nombre: "Destino", abreviatura: "DES", latitud: 35.68, longitud: 139.69)
         let total = Trayecto.km(o.coordenada, d.coordenada)
-        // A un tercio del camino, para que se vea la barra y el transporte.
+        // Donde diga el deslizador de la simulación (ver `simulacion`), con los
+        // km que de verdad faltarían desde ahí: la distancia real entre los dos
+        // puntos, no un número de muestra.
         return DatosDeViaje(titulo: titulo, origen: o, destino: d, transporte: transporte,
-                            colores: colores, restanteKm: total * 0.65, progreso: 0.35)
+                            colores: colores, restanteKm: total * (1 - simulado),
+                            // Llegado desde el 99 %: con el dedo, el deslizador
+                            // casi nunca se queda en el 100 % exacto.
+                            progreso: simulado, llegado: simulado >= 0.99)
+    }
+
+    /// Mover la vista previa por todo el recorrido, para ver cómo va a quedar
+    /// en cada punto: la salida, lo alto del arco, la llegada. Solo mientras se
+    /// configura; con el viaje en marcha la vista previa es la de verdad.
+    private var simulacion: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image(systemName: transporte.simbolo)
+                    .scaleEffect(x: transporte.miraALaIzquierda ? -1 : 1)
+                    .foregroundStyle(Theme.slate400)
+                Slider(value: $simulado, in: 0...1)
+                    .accessibilityIdentifier("simulacionDelRecorrido")
+                Image(systemName: "flag.checkered")
+                    .foregroundStyle(Theme.slate400)
+            }
+            Text("Simulación del recorrido: no es tu posición. Los km son los reales desde ese punto.")
+                .font(.caption2)
+                .foregroundStyle(Theme.slate400)
+        }
     }
 
     @ViewBuilder

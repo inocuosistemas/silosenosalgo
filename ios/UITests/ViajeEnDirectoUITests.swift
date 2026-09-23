@@ -137,4 +137,38 @@ final class ViajeEnDirectoUITests: XCTestCase {
                       "el punto no ha llegado a la pantalla del viaje:\n\(app.debugDescription)")
         guarda("mapa-3-elegido")
     }
+
+    /// La simulación del recorrido en la vista previa: capturas en la salida,
+    /// a un tercio (como empieza), en lo alto y a punto de llegar.
+    func testLaSimulacionDelRecorrido() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaDeViaje", "-ConViajeDeEjemplo"]
+        app.launch()
+        let entrar = app.buttons["Viaje en directo"]
+        XCTAssertTrue(entrar.waitForExistence(timeout: 20))
+        entrar.tap()
+        let deslizador = app.sliders["simulacionDelRecorrido"]
+        XCTAssertTrue(deslizador.waitForExistence(timeout: 10), "no está la simulación")
+        sleep(1)
+        guarda("simulacion-1-como-empieza")
+        // Arriba del todo antes de cada captura: al mover el deslizador la
+        // prueba desplaza la lista, y la tarjeta salía cortada.
+        func alPrincipio() {
+            let abajo = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            abajo.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+            sleep(1)
+        }
+        for (nombre, punto) in [("simulacion-2-salida", 0.0), ("simulacion-3-en-lo-alto", 0.5),
+                                ("simulacion-4-aterrizando", 0.85)] {
+            deslizador.adjust(toNormalizedSliderPosition: punto)
+            alPrincipio()
+            guarda(nombre)
+        }
+        // Y al final: arrastrando el mando más allá del borde, como con el dedo.
+        deslizador.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: deslizador.coordinate(withNormalizedOffset: CGVector(dx: 1.3, dy: 0.5)))
+        alPrincipio()
+        guarda("simulacion-5-llegado")
+        XCTAssertTrue(app.staticTexts["Has llegado"].exists, "al final del recorrido tiene que decir que se ha llegado")
+    }
 }
