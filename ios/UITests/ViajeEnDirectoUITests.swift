@@ -274,6 +274,45 @@ final class ViajeEnDirectoUITests: XCTestCase {
                       "no ha cambiado a la vista de corredores:\n\(sistema.debugDescription)")
     }
 
+    /// Tocar la tarjeta en la pantalla de bloqueo abre la app en la pantalla
+    /// del viaje —aunque estuviera cerrada—, y desde ahí se termina.
+    func testTocarLaTarjetaAbreElViajeParaTerminarlo() {
+        addTeardownBlock {
+            let inicio = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+                .press(forDuration: 0.1,
+                       thenDragTo: inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            sleep(1)
+        }
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeViaje", "-ViajeEnCoche"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 20))
+        sleep(2)
+        app.terminate()
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        let sistema = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let permitir = sistema.buttons["Permitir siempre"]
+        if permitir.waitForExistence(timeout: 2) { permitir.tap(); sleep(2) }
+        let tarjeta = sistema.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Esquí en Grandvalira'")).firstMatch
+        XCTAssertTrue(tarjeta.waitForExistence(timeout: 5), "no está la tarjeta:\n\(sistema.debugDescription)")
+        tarjeta.tap()
+        // Sin código en el simulador: se abre la app sin más.
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "no se ha abierto la app")
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 15),
+                      "no se ha abierto la pantalla del viaje:\n\(app.debugDescription)")
+        guarda("viaje-abierto-desde-la-tarjeta")
+        let terminar = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Terminar el viaje'")).firstMatch
+        for _ in 0..<4 where !terminar.isHittable { app.swipeUp() }
+        terminar.tap()
+        XCTAssertFalse(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 3))
+    }
+
     /// La carrera simulada: el deslizador lleva la tarjeta por toda la
     /// carrera, y los botones del selector cambian de vista.
     func testLaCarreraSimulada() {

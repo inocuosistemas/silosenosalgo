@@ -17,6 +17,8 @@ struct ViajeActividad: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ViajeAtributos.self) { contexto in
             TarjetaDelViaje(datos: datos(contexto))
+                // Tocarla abre la pantalla del viaje, con «Terminar el viaje».
+                .widgetURL(EnlaceDeViaje.url)
                 .activityBackgroundTint(Color(hexContador: contexto.attributes.colores.fondo))
                 // El color de los botones del sistema que salen encima (el de
                 // cerrarla), a juego con el texto.
@@ -36,6 +38,7 @@ struct ViajeActividad: Widget {
                 IslaViajeMinima(datos: d)
             }
             .keylineTint(d.pintura.trayectoFin)
+            .widgetURL(EnlaceDeViaje.url)
         }
     }
 

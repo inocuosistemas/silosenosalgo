@@ -149,9 +149,16 @@ public struct ViajeAtributos: ActivityAttributes {
     public var destino: LugarDeViaje
     public var transporte: TransporteDeViaje
     public var colores: ColoresDeViaje
+    /// Parado este rato cerca del destino, se da por llegado (0, nunca). Nil
+    /// en los viajes de antes de poder elegirlo: 5 min.
+    public var paradaMin: Int?
+
+    public var minutosDeParada: Int { paradaMin ?? 5 }
 
     public init(titulo: String? = nil, origen: LugarDeViaje, destino: LugarDeViaje,
-                transporte: TransporteDeViaje, colores: ColoresDeViaje = .porDefecto) {
+                transporte: TransporteDeViaje, colores: ColoresDeViaje = .porDefecto,
+                paradaMin: Int? = nil) {
+        self.paradaMin = paradaMin
         self.titulo = titulo
         self.origen = origen
         self.destino = destino
@@ -162,3 +169,14 @@ public struct ViajeAtributos: ActivityAttributes {
     public var totalKm: Double { Trayecto.km(origen.coordenada, destino.coordenada) }
 }
 #endif
+
+/// El enlace de la tarjeta del viaje: al tocarla, la app abre la pantalla del
+/// viaje (ver `App`), donde se ve cómo va y se termina.
+public enum EnlaceDeViaje {
+    public static let esquema = "silosenosalgo"
+    public static let url = URL(string: "\(esquema)://viaje")!
+
+    public static func es(_ url: URL) -> Bool {
+        url.scheme == esquema && url.host == "viaje"
+    }
+}

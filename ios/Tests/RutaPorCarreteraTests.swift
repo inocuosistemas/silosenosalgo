@@ -160,3 +160,57 @@ final class ReglasDeViajePorCarreteraTests: XCTestCase {
         XCTAssertFalse(e.porRuta)
     }
 }
+
+/// Parado un rato cerca del destino: llegado, aunque no al punto marcado.
+final class ParadaCercaDelDestinoTests: XCTestCase {
+    private func viaje(_ min: Int?) -> ViajeAtributos {
+        ViajeAtributos(
+            origen: LugarDeViaje(nombre: "Istanbul Airport", abreviatura: "AIR", latitud: 41.2753, longitud: 28.7519),
+            destino: LugarDeViaje(nombre: "Fatih", abreviatura: "HTL", latitud: 41.0186, longitud: 28.9497),
+            transporte: .coche, paradaMin: min)
+    }
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private func en(_ norte: Double, _ t: TimeInterval) -> CLLocation {
+        CLLocation(coordinate: CLLocationCoordinate2D(latitude: 41.0186 + norte / 111_195, longitude: 28.9497),
+                   altitude: 0, horizontalAccuracy: 10, verticalAccuracy: 10, timestamp: t0.addingTimeInterval(t))
+    }
+
+    /// Aparcado a 400 m del hotel (dentro de los 880 m de un viaje de 44 km):
+    /// a los 5 min, llegado; a los 4, aún no.
+    func testAparcadoCercaCincoMinutos() {
+        let a = viaje(nil)
+        var p: ReglasDeViaje.Parada?
+        for t in stride(from: 0.0, through: 240, by: 30) {
+            p = ReglasDeViaje.parada(p, pos: en(400 + (t.truncatingRemainder(dividingBy: 60) == 0 ? 0 : 20), t), de: a, totalKm: 44)
+        }
+        XCTAssertFalse(ReglasDeViaje.llegadoPorParada(p, ahora: t0.addingTimeInterval(240), minutos: a.minutosDeParada))
+        p = ReglasDeViaje.parada(p, pos: en(400, 300), de: a, totalKm: 44)
+        XCTAssertTrue(ReglasDeViaje.llegadoPorParada(p, ahora: t0.addingTimeInterval(300), minutos: a.minutosDeParada))
+    }
+
+    /// En un atasco cerca del destino se avanza: la parada vuelve a empezar.
+    func testAvanzandoNoCuentaComoParado() {
+        let a = viaje(5)
+        var p: ReglasDeViaje.Parada?
+        for (i, t) in stride(from: 0.0, through: 600, by: 60).enumerated() {
+            p = ReglasDeViaje.parada(p, pos: en(800 - Double(i) * 80, t), de: a, totalKm: 44)
+        }
+        XCTAssertFalse(ReglasDeViaje.llegadoPorParada(p, ahora: t0.addingTimeInterval(600), minutos: 5))
+    }
+
+    /// Lejos del destino (un peaje, un café a medio camino), nunca.
+    func testParadoLejosNoEsLlegar() {
+        XCTAssertNil(ReglasDeViaje.parada(nil, pos: en(5000, 0), de: viaje(5), totalKm: 44))
+    }
+
+    func testNuncaSiNoSeQuiere() {
+        XCTAssertNil(ReglasDeViaje.parada(nil, pos: en(100, 0), de: viaje(0), totalKm: 44))
+    }
+
+    /// Un viaje empezado con la versión de antes (sin el ajuste): 5 min.
+    func testLosViajesDeAntesSonCincoMinutos() throws {
+        let json = try JSONEncoder().encode(viaje(nil))
+        let a = try JSONDecoder().decode(ViajeAtributos.self, from: json)
+        XCTAssertEqual(a.minutosDeParada, 5)
+    }
+}

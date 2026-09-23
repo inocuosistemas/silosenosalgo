@@ -8,6 +8,8 @@ struct SiLoSeNoSalgoTrackerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var auth = AuthStore()
     @StateObject private var guideLibrary = GuideLibrary.shared
+    /// La pantalla del viaje, abierta al tocar su tarjeta (ver `EnlaceDeViaje`).
+    @State private var viajeAbierto = false
 
     var body: some Scene {
         WindowGroup {
@@ -44,6 +46,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
                         // Con `-SoloReanudar`, abrir sin empezar otro: lo que
                         // pasa al relanzar la app con un viaje en marcha.
                         if !ProcessInfo.processInfo.arguments.contains("-SoloReanudar") {
+                            PruebaDeViaje.terminaLosDeAntes()
                             ViajeEnDirecto.shared.empieza(PruebaDeViaje.atributos)
                         }
                     }
@@ -66,8 +69,23 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 // build nuevo, entra en la siguiente apertura del visor.
                 .task { await WebOTAUpdater.shared.refresh() }
                 .onOpenURL { url in
+                    if EnlaceDeViaje.es(url) { viajeAbierto = true; return }
                     guard url.pathExtension.lowercased() == "slsnsguide" else { return }
                     Task { await guideLibrary.openImportedGuide(from: url) }
+                }
+                // Al tocar la tarjeta del viaje: su pantalla, esté donde esté
+                // la app, para ver cómo va o terminarlo.
+                .sheet(isPresented: $viajeAbierto) {
+                    NavigationStack {
+                        PantallaViaje()
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Cerrar") { viajeAbierto = false }
+                                }
+                            }
+                    }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
                 }
                 .fullScreenCover(item: $guideLibrary.presentedGuide) { guide in
                     LiveMapView(
@@ -185,6 +203,10 @@ enum PruebaDeViaje {
     /// pantalla de bloqueo hay dos tarjetas.
     static func terminaLosDeAntes() {
         for a in Activity<ViajeAtributos>.activities {
+            Task { await a.end(nil, dismissalPolicy: .immediate) }
+        }
+        // Y la de la carrera de prueba, que se ponía encima y tapaba la del viaje.
+        for a in Activity<CarreraAtributos>.activities {
             Task { await a.end(nil, dismissalPolicy: .immediate) }
         }
     }

@@ -4,38 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
 	<string>$(APP_DISPLAY_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<!-- La app solo cifra con HTTPS estándar, que está exento. Declararlo aquí
-	     evita que App Store Connect pregunte por el cumplimiento de exportación
-	     en cada subida a TestFlight. -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<!-- Al declarar CFBundleDocumentTypes, Apple exige decir también cómo se
-	     abre el fichero, y avisa en cada subida si falta. «En su sitio» es lo
-	     que recomienda y lo que encaja aquí: importGuide lee el original con
-	     permiso de ámbito y se queda una copia propia en LocalStore, así que no
-	     hace falta que el sistema duplique nada en Documents/Inbox, que además
-	     nadie limpia después. No expone la carpeta de la app en Archivos: eso
-	     pide además UIFileSharingEnabled, que no está puesto. -->
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -48,6 +18,64 @@
 				<string>com.themakercrowd.slsnsguide</string>
 			</array>
 		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.silosenosalgo.viaje</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>silosenosalgo</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>SiLoSeNoSalgo usa la cámara para hacer una foto y anclarla a una nota de campo.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Para seguir compartiendo tu posición con la pantalla apagada o la app en segundo plano, permite el acceso a la ubicación "Siempre".</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>ViajeEnDirecto</key>
+		<string>Para saber cuánto te falta para llegar mientras dura el viaje en directo.</string>
+	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SiLoSeNoSalgo usa tu ubicación para compartir tu posición en directo durante la carrera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SiLoSeNoSalgo usa el micrófono para grabar notas de voz ancladas a tu posición.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SiLoSeNoSalgo guarda en tu carrete la foto original a máxima calidad; en la app queda una copia ligera.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
@@ -69,32 +97,5 @@
 			</dict>
 		</dict>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict/>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
-	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
-	<dict>
-		<key>ViajeEnDirecto</key>
-		<string>Para saber cuánto te falta para llegar mientras dura el viaje en directo.</string>
-	</dict>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-	</array>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>SiLoSeNoSalgo usa tu ubicación para compartir tu posición en directo durante la carrera.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Para seguir compartiendo tu posición con la pantalla apagada o la app en segundo plano, permite el acceso a la ubicación "Siempre".</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>SiLoSeNoSalgo usa el micrófono para grabar notas de voz ancladas a tu posición.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>SiLoSeNoSalgo usa la cámara para hacer una foto y anclarla a una nota de campo.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>SiLoSeNoSalgo guarda en tu carrete la foto original a máxima calidad; en la app queda una copia ligera.</string>
 </dict>
 </plist>

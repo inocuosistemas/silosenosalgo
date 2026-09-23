@@ -75,6 +75,38 @@ enum ReglasDeViaje {
             forma: ruta.forma)
     }
 
+    /// Dónde y desde cuándo se está parado cerca del destino.
+    struct Parada: Equatable {
+        var lat: Double
+        var lon: Double
+        var desde: Date
+    }
+
+    /// Moverse menos que esto (o que el error de la posición) es seguir parado.
+    static let radioDeParada: CLLocationDistance = 75
+
+    /**
+     La parada cerca del destino, con una posición nueva: la misma si no se ha
+     movido, una nueva si sí, o ninguna si está lejos del destino o no se
+     quiere. «Cerca» es el radio de llegada de siempre (2 % del viaje, hasta
+     2 km): se aparca o se baja a unas calles del punto marcado.
+     */
+    static func parada(_ anterior: Parada?, pos: CLLocation, de a: ViajeAtributos, totalKm: Double) -> Parada? {
+        guard a.minutosDeParada > 0,
+              Trayecto.km(pos.coordinate, a.destino.coordenada) <= radioDeLlegada(totalKm: totalKm)
+        else { return nil }
+        if let p = anterior,
+           CLLocation(latitude: p.lat, longitude: p.lon).distance(from: pos) <= max(radioDeParada, pos.horizontalAccuracy) {
+            return p
+        }
+        return Parada(lat: pos.coordinate.latitude, lon: pos.coordinate.longitude, desde: pos.timestamp)
+    }
+
+    static func llegadoPorParada(_ p: Parada?, ahora: Date, minutos: Int) -> Bool {
+        guard let p, minutos > 0 else { return false }
+        return ahora.timeIntervalSince(p.desde) >= Double(minutos) * 60
+    }
+
     /// Cada cuánto se vuelve a pedir a Apple la hora de llegada con el tráfico
     /// del momento.
     static let refrescoDeLlegada: TimeInterval = 5 * 60
@@ -192,6 +224,8 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         var llegada: String?
         /// A cuántos metros de la ruta, si la última posición quedaba fuera.
         var fueraDeRuta: Double?
+        /// Desde cuándo se está parado cerca del destino.
+        var paradoDesde: Date?
     }
     @Published private(set) var diagnostico = Diagnostico()
     @Published private(set) var permiso: CLAuthorizationStatus = .notDetermined
@@ -214,6 +248,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     private var ritmoDeApple: Double?
     private var llegadaPedida: Date?
     private var ultimaPosicion: CLLocation?
+    private var parada: ReglasDeViaje.Parada?
 
     static let idDelAviso = "viaje-en-directo"
     private static let claveProgramado = "viaje.programado"
@@ -268,6 +303,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         }
         termina()
         olvidaRuta()
+        parada = nil
         diagnostico = Diagnostico()
         let inicial = ViajeAtributos.ContentState(
             restanteKm: atributos.totalKm, progreso: 0, actualizado: Date())
@@ -459,7 +495,17 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     private func recibe(_ pos: CLLocation) {
         guard let a = actividad else { return }
         ultimaPosicion = pos
-        let nuevo = ReglasDeViaje.estado(en: pos, de: a.attributes, ruta: enRuta(pos))
+        var nuevo = ReglasDeViaje.estado(en: pos, de: a.attributes, ruta: enRuta(pos))
+        // Parado un rato cerca del destino: llegado, aunque no al punto.
+        parada = ReglasDeViaje.parada(parada, pos: pos, de: a.attributes, totalKm: ruta?.km ?? a.attributes.totalKm)
+        diagnostico.paradoDesde = parada?.desde
+        if !nuevo.llegado,
+           ReglasDeViaje.llegadoPorParada(parada, ahora: pos.timestamp, minutos: a.attributes.minutosDeParada) {
+            nuevo.llegado = true
+            nuevo.progreso = 1
+            nuevo.restanteKm = 0
+            nuevo.llegada = nil
+        }
         guard ReglasDeViaje.mereceMandar(nuevo, despuesDe: estado, totalKm: a.attributes.totalKm) else { return }
         estado = nuevo
         let contenido = ActivityContent(

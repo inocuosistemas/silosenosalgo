@@ -205,6 +205,8 @@ struct PantallaViaje: View {
     @State private var transporte: TransporteDeViaje = .avion
     @State private var colores = ColoresDeViaje.porDefecto
     @State private var conHora = false
+    /// Parado este rato cerca del destino, se da por llegado; 0, nunca.
+    @State private var paradaMin = 5
     @State private var hora = Date().addingTimeInterval(3600)
     /// Hasta haber leído lo guardado no se guarda nada: si no, el primer
     /// cambio de estado —la carga misma— podía pisar lo guardado con vacío.
@@ -464,6 +466,19 @@ struct PantallaViaje: View {
         .listRowBackground(Theme.slate900)
 
         Section {
+            Picker("Parado cerca del destino", selection: $paradaMin) {
+                Text("Nunca").tag(0)
+                ForEach([2, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
+            }
+        } header: {
+            Text("AL LLEGAR").font(.caption).foregroundStyle(Theme.slate400)
+        } footer: {
+            Text("Con buena señal, se llega a 100 m del destino. Si aparcas o te bajas algo más lejos, estar parado este rato cerca también cuenta como llegado: se marca y se apaga el GPS. Y siempre se puede terminar tocando la tarjeta, que abre esta pantalla.")
+                .font(.caption).foregroundStyle(Theme.slate400)
+        }
+        .listRowBackground(Theme.slate900)
+
+        Section {
             Toggle("Avisarme a la hora de salida", isOn: $conHora)
             if conHora {
                 DatePicker("Salida", selection: $hora, in: Date()...)
@@ -573,6 +588,11 @@ struct PantallaViaje: View {
                     .foregroundStyle(r.hasPrefix("sin") ? Color.orange : Theme.slate400)
             }
         }
+        if let p = d.paradoDesde {
+            LabeledContent("Parado cerca del destino") {
+                (Text("desde las ") + Text(p, style: .time)).monospacedDigit()
+            }
+        }
         if let m = d.fueraDeRuta {
             LabeledContent("Fuera de la ruta") {
                 Text(m < 1000 ? "a \(Int(m)) m" : "a \(ColoresViaje.km(m / 1000)) km").monospacedDigit()
@@ -632,13 +652,13 @@ struct PantallaViaje: View {
               !o.abreviatura.isEmpty, !d.abreviatura.isEmpty else { return nil }
         let t = titulo.trimmingCharacters(in: .whitespaces)
         return ViajeAtributos(titulo: t.isEmpty ? nil : t, origen: o, destino: d,
-                              transporte: transporte, colores: colores)
+                              transporte: transporte, colores: colores, paradaMin: paradaMin)
     }
 
     /// Lo que hay en pantalla, para guardarlo.
     private var borrador: BorradorDeViaje {
         BorradorDeViaje(titulo: titulo, origen: origen, destino: destino, transporte: transporte,
-                        colores: colores, conHora: conHora, hora: hora)
+                        colores: colores, conHora: conHora, hora: hora, paradaMin: paradaMin)
     }
 
     /// Al entrar: lo que se dejó la última vez. Si hay un viaje programado,
@@ -652,6 +672,7 @@ struct PantallaViaje: View {
             destino = p.atributos.destino
             transporte = p.atributos.transporte
             colores = p.atributos.colores
+            paradaMin = p.atributos.minutosDeParada
             conHora = true
             hora = p.hora
         } else if let b = BorradorDeViaje.lee() {
@@ -660,6 +681,7 @@ struct PantallaViaje: View {
             destino = b.destino
             transporte = b.transporte
             colores = b.colores
+            paradaMin = b.paradaMin ?? 5
             conHora = b.conHora
             // Una hora que ya pasó no se puede elegir: se propone dentro de una.
             hora = b.hora > Date() ? b.hora : Date().addingTimeInterval(3600)
@@ -682,6 +704,8 @@ struct BorradorDeViaje: Codable, Equatable {
     var colores: ColoresDeViaje
     var conHora: Bool
     var hora: Date
+    /// Opcional: los borradores guardados antes no lo tienen.
+    var paradaMin: Int?
 
     static let clave = "viaje.borrador"
 
