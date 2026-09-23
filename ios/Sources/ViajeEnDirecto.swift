@@ -67,20 +67,6 @@ enum ReglasDeViaje {
         case .bici, .andando: return .fitness
         }
     }
-
-    /// Cada cuánto pedir posición, en metros: una milésima del viaje, entre 50
-    /// metros y 2 km. En un vuelo, pedirla cada pocos metros solo gasta batería.
-    ///
-    /// Y más fino cuanto más cerca del destino: una cuarta parte de lo que
-    /// falta. Con el filtro fijo de 2 km, un avión que se paraba en la puerta a
-    /// 1,5 km del aeropuerto —dentro del radio de llegada— no llegaba a mandar
-    /// posición nueva si la última se tomó a 2,5 km, y el viaje no se daba
-    /// nunca por llegado.
-    static func filtroDeDistancia(totalKm: Double, restanteKm: Double? = nil) -> CLLocationDistance {
-        var m = min(2000, totalKm * 1000 * 0.001)
-        if let r = restanteKm { m = min(m, r * 1000 / 4) }
-        return max(50, m)
-    }
 }
 
 /**
@@ -196,7 +182,12 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
             gps.requestWhenInUseAuthorization()
         }
         gps.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        gps.distanceFilter = ReglasDeViaje.filtroDeDistancia(totalKm: a.totalKm)
+        // Sin filtro de distancia: con él (se probó uno de 2 km en un viaje
+        // largo), el móvil QUIETO no daba ninguna posición, a los 20 minutos
+        // la tarjeta caducaba y parecía que no había GPS. Lo que gasta batería
+        // es la precisión pedida, no cuántas posiciones llegan; y ya se manda
+        // la tarjeta solo cuando se nota (ver `ReglasDeViaje.mereceMandar`).
+        gps.distanceFilter = kCLDistanceFilterNone
         gps.activityType = ReglasDeViaje.tipoDeActividad(a.transporte)
         gps.pausesLocationUpdatesAutomatically = false
         gps.allowsBackgroundLocationUpdates = true
@@ -228,8 +219,6 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     private func recibe(_ pos: CLLocation) {
         guard let a = actividad else { return }
         let nuevo = ReglasDeViaje.estado(en: pos, de: a.attributes)
-        gps.distanceFilter = ReglasDeViaje.filtroDeDistancia(
-            totalKm: a.attributes.totalKm, restanteKm: nuevo.restanteKm)
         guard ReglasDeViaje.mereceMandar(nuevo, despuesDe: estado, totalKm: a.attributes.totalKm) else { return }
         estado = nuevo
         let contenido = ActivityContent(

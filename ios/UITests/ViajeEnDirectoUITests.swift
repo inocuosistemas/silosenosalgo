@@ -192,6 +192,22 @@ final class ViajeEnDirectoUITests: XCTestCase {
         sleep(2)
         XCUIDevice.shared.press(.home)
         sleep(3)
+        let sistema = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        // La primera vez iOS pregunta si se permiten las actividades.
+        let permitir = sistema.buttons["Permitir"]
+        if permitir.waitForExistence(timeout: 2) { permitir.tap(); sleep(2) }
         guarda("carrera-bloqueo")
+
+        // El selector de la tarjeta: «Carrera» cambia a la vista global SIN
+        // abrir la app. Es un botón de la Actividad, que ejecuta el sistema.
+        let carrera = sistema.buttons["Carrera"]
+        XCTAssertTrue(carrera.waitForExistence(timeout: 5),
+                      "no está el botón Carrera en la tarjeta:\n\(sistema.debugDescription)")
+        carrera.tap()
+        sleep(3)
+        guarda("carrera-bloqueo-global")
+        XCTAssertTrue(sistema.staticTexts.containing(NSPredicate(format: "label CONTAINS 'de 20,0 km'")).firstMatch
+                        .waitForExistence(timeout: 5),
+                      "no ha cambiado a la vista de la carrera:\n\(sistema.debugDescription)")
     }
 }

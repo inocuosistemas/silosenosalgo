@@ -69,10 +69,14 @@ enum ReglasDeCarrera {
         return a.ele + (b.ele - a.ele) * t
     }
 
-    /// El perfil de un tramo en `muestrasDelTramo` puntos parejos.
-    static func perfil(de desde: Double, a hasta: Double, _ hoja: HojaDeTramos) -> [DatosDeTramo.Muestra] {
-        guard hasta > desde else { return [] }
-        let n = muestrasDelTramo
+    /// Y del perfil de la carrera entera: más largo, pero sigue siendo un dibujo.
+    static let muestrasGlobales = 60
+
+    /// El perfil entre dos km, en `n` puntos parejos (así viaja compacto: ver
+    /// `PerfilCompacto`).
+    static func perfil(de desde: Double, a hasta: Double, _ hoja: HojaDeTramos,
+                       muestras n: Int = muestrasDelTramo) -> [DatosDeTramo.Muestra] {
+        guard hasta > desde, n > 1 else { return [] }
         return (0..<n).map { j in
             let km = desde + (hasta - desde) * Double(j) / Double(n - 1)
             return .init(km: (km * 1000).rounded() / 1000, ele: ele(en: km, hoja.perfil).rounded())
@@ -169,9 +173,56 @@ enum ReglasDeCarrera {
             actualizado: ahora)
     }
 
+    /// La vista de la carrera entera, para un km y una hora.
+    static func global(km: Double, ahora: Date, historia: [(Date, Double)],
+                       _ hoja: HojaDeTramos) -> DatosGlobales {
+        let total = hoja.totalKm
+        let d = desnivel(de: km, a: total, hoja)
+        let enMeta = km >= total * 0.99
+        let corte = hoja.puntos.first { $0.km > km + 0.05 && $0.corte != nil }
+        return DatosGlobales(
+            totalKm: total, posicionKm: km,
+            perfil: perfil(de: 0, a: total, hoja, muestras: muestrasGlobales),
+            marcas: hoja.puntos.filter { $0.tipo != "meta" }.map {
+                .init(km: $0.km, tipo: TipoDePunto(rawValue: $0.tipo), conCorte: $0.corte != nil)
+            },
+            subidaAMetaM: d.sube, bajadaAMetaM: d.baja,
+            llegadaAMeta: enMeta ? nil : prevision(de: km, a: total, ahora: ahora, historia: historia, hoja),
+            proximoCorte: corte?.nombre,
+            corte: corte?.corte.map { Date(timeIntervalSince1970: $0 / 1000) },
+            previsionAlCorte: corte.flatMap { prevision(de: km, a: $0.km, ahora: ahora, historia: historia, hoja) })
+    }
+
+    /**
+     Qué vista toca. Antes de la salida, la de la carrera (el tramo todavía no
+     dice nada: se está en el km 0); a partir de la hora de salida, la del
+     tramo. Pero si quien corre ha elegido una con el selector, esa manda: el
+     cambio automático es solo para quien no ha tocado nada.
+     */
+    static func vista(anterior: EstadoDeCarrera?, salida: Date, ahora: Date) -> (VistaDeCarrera, elegida: Bool) {
+        if let a = anterior, a.vistaElegida { return (a.vista, true) }
+        return (ahora < salida ? .carrera : .tramo, false)
+    }
+
+    /// Todo lo que lleva la tarjeta: las dos vistas y cuál se enseña.
+    static func estado(carrera: String, km: Double, ahora: Date, historia: [(Date, Double)],
+                       anterior: EstadoDeCarrera?, _ hoja: HojaDeTramos) -> EstadoDeCarrera? {
+        guard let tramo = datos(carrera: carrera, km: km, ahora: ahora, historia: historia, hoja) else { return nil }
+        let v = vista(anterior: anterior, salida: tramo.salida, ahora: ahora)
+        return EstadoDeCarrera(tramo: tramo, global: global(km: km, ahora: ahora, historia: historia, hoja),
+                               vista: v.0, vistaElegida: v.elegida)
+    }
+
     /// Si hay que mandar la tarjeta otra vez: al cambiar de tramo, al moverse
     /// lo bastante para que se note en el perfil, o cada minuto como mucho,
     /// para que el margen al corte no se quede viejo.
+    static func mereceMandar(_ nuevo: EstadoDeCarrera, despuesDe viejoEstado: EstadoDeCarrera?, ahora: Date,
+                             ultimoEnvio: Date?) -> Bool {
+        guard let viejoEstado, let ultimoEnvio else { return true }
+        if nuevo.vista != viejoEstado.vista { return true }
+        return mereceMandar(nuevo.tramo, despuesDe: viejoEstado.tramo, ahora: ahora, ultimoEnvio: ultimoEnvio)
+    }
+
     static func mereceMandar(_ nuevo: DatosDeTramo, despuesDe viejo: DatosDeTramo?, ahora: Date,
                              ultimoEnvio: Date?) -> Bool {
         guard let viejo, let ultimoEnvio else { return true }
@@ -197,7 +248,7 @@ final class CarreraEnDirecto {
     private var actividad: Activity<CarreraAtributos>?
     private var hoja: HojaDeTramos?
     private var carrera = ""
-    private var ultimo: DatosDeTramo?
+    private var ultimo: EstadoDeCarrera?
     private var ultimoEnvio: Date?
     /// Las posiciones de la última hora y pico, para medir cómo se rinde.
     private var historia: [(Date, Double)] = []
@@ -229,8 +280,8 @@ final class CarreraEnDirecto {
             guard let nombre, eventoId != nil,
                   UIApplication.shared.applicationState != .background,
                   ActivityAuthorizationInfo().areActivitiesEnabled,
-                  let inicial = ReglasDeCarrera.datos(carrera: nombre, km: 0, ahora: Date(),
-                                                       historia: [], hoja)
+                  let inicial = ReglasDeCarrera.estado(carrera: nombre, km: 0, ahora: Date(),
+                                                        historia: [], anterior: nil, hoja)
             else { return }
             carrera = nombre
             actividad = try? Activity.request(
@@ -246,15 +297,19 @@ final class CarreraEnDirecto {
     func recibe(km: Double, en fecha: Date) {
         historia.append((fecha, km))
         historia.removeAll { fecha.timeIntervalSince($0.0) > 2 * 3600 }
+        // La vista, de la tarjeta viva y no de la última que se mandó: el
+        // selector la cambia directamente en la tarjeta (ver
+        // `CambiaVistaDeCarrera`), sin pasar por aquí.
         guard let actividad, let hoja,
-              let nuevo = ReglasDeCarrera.datos(carrera: carrera, km: km, ahora: fecha,
-                                                historia: historia, hoja),
-              ReglasDeCarrera.mereceMandar(nuevo, despuesDe: ultimo, ahora: fecha, ultimoEnvio: ultimoEnvio)
+              let nuevo = ReglasDeCarrera.estado(carrera: carrera, km: km, ahora: fecha, historia: historia,
+                                                 anterior: actividad.content.state, hoja),
+              ReglasDeCarrera.mereceMandar(nuevo, despuesDe: actividad.content.state, ahora: fecha,
+                                           ultimoEnvio: ultimoEnvio)
         else { return }
         ultimo = nuevo
         ultimoEnvio = fecha
         let contenido = ActivityContent(state: nuevo, staleDate: fecha.addingTimeInterval(20 * 60))
-        if nuevo.enMeta {
+        if nuevo.tramo.enMeta {
             // En meta: se queda un rato enseñando el tiempo y se va sola.
             self.actividad = nil
             Task { await actividad.end(contenido, dismissalPolicy: .after(fecha.addingTimeInterval(2 * 3600))) }
@@ -268,7 +323,8 @@ final class CarreraEnDirecto {
     func empiezaDePrueba(hoja: HojaDeTramos, carrera: String, km: Double, ahora: Date) {
         self.hoja = hoja
         self.carrera = carrera
-        guard let d = ReglasDeCarrera.datos(carrera: carrera, km: km, ahora: ahora, historia: [], hoja)
+        guard let d = ReglasDeCarrera.estado(carrera: carrera, km: km, ahora: ahora, historia: [],
+                                             anterior: nil, hoja)
         else { return }
         actividad = try? Activity.request(
             attributes: CarreraAtributos(carrera: carrera),

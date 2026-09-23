@@ -66,8 +66,9 @@ public struct DatosDeTramo: Codable, Hashable, Sendable {
     public var hasta: PuntoDeCarrera
     /// Km de la ruta en el que se va.
     public var posicionKm: Double
-    /// La altitud del tramo, muestreada: (km, metros).
-    public var perfil: [Muestra]
+    /// La altitud del tramo, muestreada: (km, metros). Viaja compacta (ver
+    /// `PerfilCompacto`).
+    @PerfilCompacto public var perfil: [Muestra]
     public var subidaRestanteM: Int
     public var bajadaRestanteM: Int
     /// Hora de salida de la carrera, para el reloj de tiempo en carrera.
@@ -212,11 +213,17 @@ public struct TarjetaTramo: View {
     public let forma: Forma
     /// Con el selector de vista (Tramo / Carrera) en la cabecera, marcando cuál.
     public var selector: VistaDeCarrera?
+    /// El selector con botones de verdad (en la pantalla de bloqueo).
+    public var interactivo: Bool
+    public var hayCorredores: Bool
 
-    public init(datos: DatosDeTramo, forma: Forma, selector: VistaDeCarrera? = nil) {
+    public init(datos: DatosDeTramo, forma: Forma, selector: VistaDeCarrera? = nil,
+                interactivo: Bool = false, hayCorredores: Bool = true) {
         self.datos = datos
         self.forma = forma
         self.selector = selector
+        self.interactivo = interactivo
+        self.hayCorredores = hayCorredores
     }
 
     private let apagado = Color.white.opacity(0.6)
@@ -243,7 +250,8 @@ public struct TarjetaTramo: View {
                 .lineLimit(1)
             if let selector {
                 Spacer(minLength: 4)
-                SelectorDeVista(vista: selector, numero: datos.numero, deTramos: datos.deTramos)
+                SelectorDeVista(vista: selector, numero: datos.numero, deTramos: datos.deTramos,
+                                interactivo: interactivo, conCorredores: hayCorredores)
             } else {
                 Text("· TRAMO \(datos.numero)/\(datos.deTramos)")
                     .font(.system(size: 11, weight: .semibold)).tracking(0.5)
@@ -276,10 +284,12 @@ public struct TarjetaTramo: View {
     private var margen: some View {
         Group {
             if datos.sinSenal {
-                // Sin posiciones nuevas, el margen de hace un rato no vale.
+                // Sin posiciones nuevas, el margen de hace un rato no vale. Se
+                // dice de qué hora es la última, sin suponer por qué: parado en
+                // un avituallamiento, el GPS tampoco da posiciones nuevas.
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text("sin señal").font(.caption2.weight(.semibold))
-                    (Text("desde ") + Text(datos.actualizado, style: .time)).font(.caption2)
+                    Text("posición de").font(.caption2)
+                    (Text("las ") + Text(datos.actualizado, style: .time)).font(.caption2.weight(.semibold))
                 }
                 .foregroundStyle(Color.orange)
             } else if let m = datos.margenMin, let c = datos.corte {
@@ -398,10 +408,73 @@ public struct IslaTramoFin: View {
     }
 }
 
+/**
+ Un perfil que viaja COMPACTO: solo las altitudes, en metros enteros, y los km
+ de la primera y la última muestra; los de en medio se reparten a lo parejo.
+
+ Hace falta porque el sistema no admite más de 4 KB por actualización de una
+ Actividad, y con las dos vistas —la del tramo y la de la carrera— en cada una,
+ los perfiles con su km y su altitud en decimales ya no cabían. Así, uno de 60
+ muestras ocupa unos 300 bytes en vez de 2 KB.
+
+ Solo vale para muestras repartidas a lo parejo, que es como se hacen todas
+ (ver `ReglasDeCarrera.perfil`).
+ */
+@propertyWrapper
+public struct PerfilCompacto: Codable, Hashable, Sendable {
+    public var wrappedValue: [DatosDeTramo.Muestra]
+
+    public init(wrappedValue: [DatosDeTramo.Muestra]) { self.wrappedValue = wrappedValue }
+
+    private enum Claves: String, CodingKey { case i, f, e }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Claves.self)
+        try c.encode(((wrappedValue.first?.km ?? 0) * 1000).rounded() / 1000, forKey: .i)
+        try c.encode(((wrappedValue.last?.km ?? 0) * 1000).rounded() / 1000, forKey: .f)
+        try c.encode(wrappedValue.map { Int($0.ele.rounded()) }, forKey: .e)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Claves.self)
+        let i = try c.decode(Double.self, forKey: .i)
+        let f = try c.decode(Double.self, forKey: .f)
+        let e = try c.decode([Int].self, forKey: .e)
+        let n = e.count
+        wrappedValue = e.enumerated().map { j, ele in
+            .init(km: n > 1 ? i + (f - i) * Double(j) / Double(n - 1) : i, ele: Double(ele))
+        }
+    }
+}
+
+/**
+ Todo lo que lleva la tarjeta de la carrera en cada actualización: las dos
+ vistas y cuál se está enseñando.
+
+ Van las dos siempre para que el cambio de vista sea instantáneo y no dependa
+ de la red: el botón de la tarjeta solo cambia `vista` (ver
+ `CambiaVistaDeCarrera`).
+ */
+public struct EstadoDeCarrera: Codable, Hashable, Sendable {
+    public var tramo: DatosDeTramo
+    public var global: DatosGlobales
+    public var vista: VistaDeCarrera
+    /// Si la vista la ha elegido quien corre: entonces se respeta y ya no se
+    /// cambia sola a la hora de salida.
+    public var vistaElegida: Bool
+
+    public init(tramo: DatosDeTramo, global: DatosGlobales, vista: VistaDeCarrera, vistaElegida: Bool = false) {
+        self.tramo = tramo
+        self.global = global
+        self.vista = vista
+        self.vistaElegida = vistaElegida
+    }
+}
+
 #if canImport(ActivityKit)
-/// La Actividad de la carrera: lo fijo es el nombre; lo que cambia, el tramo.
+/// La Actividad de la carrera: lo fijo es el nombre; lo que cambia, el estado.
 public struct CarreraAtributos: ActivityAttributes {
-    public typealias ContentState = DatosDeTramo
+    public typealias ContentState = EstadoDeCarrera
     public var carrera: String
     public init(carrera: String) { self.carrera = carrera }
 }

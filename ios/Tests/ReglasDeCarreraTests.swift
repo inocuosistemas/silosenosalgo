@@ -100,12 +100,71 @@ final class ReglasDeCarreraTests: XCTestCase {
         XCTAssertNil(d.corte)
     }
 
-    /// Cabe en lo que admite el sistema para una Actividad: 4 KB.
+    /// Cabe en lo que admite el sistema para una Actividad: 4 KB, con las dos
+    /// vistas dentro y en el peor caso: nombres largos y muchos puntos.
     func testCabeEnLos4KB() throws {
-        let d = ReglasDeCarrera.datos(carrera: "Ultra Trail de los Nombres Largos 2026", km: 7,
-                                      ahora: salida.addingTimeInterval(70 * 60), historia: [], hoja)!
-        let bytes = try JSONEncoder().encode(d).count
+        let largo = "Refugio de la Collada de los Nombres Muy Largos"
+        let muchos = (1...24).map {
+            HojaDeTramos.Punto(nombre: "\(largo) \($0)", km: Double($0) * 0.8, tipo: "completo",
+                               corte: salida.addingTimeInterval(Double($0) * 1800).timeIntervalSince1970 * 1000)
+        } + [.init(nombre: "Meta", km: 20, tipo: "meta", corte: nil)]
+        let h = HojaDeTramos(version: 1, salida: hoja.salida, totalKm: 20, perfil: hoja.perfil,
+                             previsto: hoja.previsto, puntos: muchos)
+        let e = ReglasDeCarrera.estado(carrera: "Ultra Trail de los Nombres Largos 2026", km: 7,
+                                       ahora: salida.addingTimeInterval(70 * 60), historia: [],
+                                       anterior: nil, h)!
+        let bytes = try JSONEncoder().encode(e).count
         XCTAssertLessThan(bytes, 4096, "la tarjeta ocupa \(bytes) bytes")
+    }
+
+    /// El perfil viaja compacto y vuelve igual: solo altitudes, con los km
+    /// repartidos a lo parejo entre el primero y el último.
+    func testElPerfilCompactoVuelveIgual() throws {
+        let d = ReglasDeCarrera.datos(carrera: "P", km: 7, ahora: salida, historia: [], hoja)!
+        let vuelta = try JSONDecoder().decode(DatosDeTramo.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(vuelta.perfil.count, d.perfil.count)
+        for (a, b) in zip(vuelta.perfil, d.perfil) {
+            XCTAssertEqual(a.km, b.km, accuracy: 0.002)
+            XCTAssertEqual(a.ele, b.ele, accuracy: 0.5)
+        }
+    }
+
+    /// Antes de la salida, la vista de la carrera; después, la del tramo.
+    func testLaVistaCambiaSolaALaHoraDeSalida() {
+        let antes = ReglasDeCarrera.estado(carrera: "P", km: 0, ahora: salida.addingTimeInterval(-600),
+                                           historia: [], anterior: nil, hoja)!
+        XCTAssertEqual(antes.vista, .carrera)
+        let despues = ReglasDeCarrera.estado(carrera: "P", km: 0.3, ahora: salida.addingTimeInterval(120),
+                                             historia: [], anterior: antes, hoja)!
+        XCTAssertEqual(despues.vista, .tramo, "a la hora de salida, sola a la del tramo")
+        XCTAssertFalse(despues.vistaElegida)
+    }
+
+    /// Pero si quien corre la ha elegido, esa manda.
+    func testLaVistaElegidaSeRespeta() {
+        var elegida = ReglasDeCarrera.estado(carrera: "P", km: 0, ahora: salida.addingTimeInterval(-600),
+                                             historia: [], anterior: nil, hoja)!
+        elegida.vista = .carrera
+        elegida.vistaElegida = true
+        let despues = ReglasDeCarrera.estado(carrera: "P", km: 3, ahora: salida.addingTimeInterval(1800),
+                                             historia: [], anterior: elegida, hoja)!
+        XCTAssertEqual(despues.vista, .carrera)
+        XCTAssertTrue(despues.vistaElegida)
+    }
+
+    /// La vista global: lo que queda hasta meta y el próximo corte.
+    func testLaVistaGlobal() {
+        let g = ReglasDeCarrera.global(km: 7, ahora: salida.addingTimeInterval(70 * 60), historia: [], hoja)
+        XCTAssertEqual(g.totalKm, 20)
+        XCTAssertEqual(g.perfil.count, ReglasDeCarrera.muestrasGlobales)
+        XCTAssertEqual(g.subidaAMetaM, 120, accuracy: 3, "del 7 al 10 sube 120")
+        XCTAssertEqual(g.bajadaAMetaM, 200, accuracy: 3, "del 10 a meta baja 200")
+        XCTAssertEqual(g.proximoCorte, "Refugio")
+        XCTAssertEqual(g.margenMin, 30)
+        XCTAssertEqual(g.marcas.count, 2, "la meta no lleva marca")
+        // A meta, con el plan: del 7 al 20, 130 min.
+        let meta = g.llegadaAMeta!.timeIntervalSince(salida.addingTimeInterval(70 * 60)) / 60
+        XCTAssertEqual(meta, 130, accuracy: 1)
     }
 
     func testSoloSeMandaCuandoSeNota() {

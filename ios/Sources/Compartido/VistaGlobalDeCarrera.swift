@@ -1,16 +1,16 @@
+import AppIntents
 import SwiftUI
 
 /**
- PROPUESTA: la vista GLOBAL de la carrera en directo, y el selector para
- cambiar entre ella y la del tramo desde la propia tarjeta.
+ La vista GLOBAL de la carrera en directo, y el selector para cambiar entre
+ ella y la del tramo desde la propia tarjeta.
 
  La del tramo dice cómo va lo de ahora; esta, cómo va la carrera entera: el
  perfil completo con el punto donde se va y marcas en cada avituallamiento y
  cada corte, lo hecho de lo total, lo que queda por subir hasta meta, el
  próximo corte con su margen y la llegada prevista a meta.
 
- Todavía no la usa la Actividad: está para verla y decidir
- (`docs/propuestas/carreras/global`).
+ Ver `docs/propuestas/carreras/global` para lo que se decidió.
  */
 public enum VistaDeCarrera: String, Codable, Hashable, Sendable {
     case tramo, carrera, corredores
@@ -53,8 +53,8 @@ public struct DatosGlobales: Codable, Hashable, Sendable {
     public var inicioKm: Double = 0
     public var totalKm: Double
     public var posicionKm: Double
-    /// El perfil de la carrera entera, en pocas muestras.
-    public var perfil: [DatosDeTramo.Muestra]
+    /// El perfil de la carrera entera, en pocas muestras. Viaja compacta.
+    @PerfilCompacto public var perfil: [DatosDeTramo.Muestra]
     /// Los puntos que cierran tramo: sus marcas en el perfil.
     public var marcas: [Marca]
     public var subidaAMetaM: Int
@@ -97,43 +97,75 @@ public struct DatosGlobales: Codable, Hashable, Sendable {
     }
 }
 
-/// El selector de la cabecera: dos pastillas, la elegida encendida. En la
-/// Actividad sería un botón (las tarjetas admiten botones desde iOS 17): un
-/// toque cambia de vista sin abrir la app.
+/// El selector de la cabecera: tres partes, la elegida encendida. En la
+/// tarjeta de la pantalla de bloqueo son BOTONES (`interactivo`): un toque
+/// cambia de vista sin abrir la app (ver `CambiaVistaDeCarrera`); el resto de
+/// la tarjeta, al tocarlo, abre la app, como siempre.
 public struct SelectorDeVista: View {
     public let vista: VistaDeCarrera
     public let numero: Int
     public let deTramos: Int
+    /// Botones de verdad, o solo el dibujo (vista previa, pruebas).
+    public var interactivo: Bool
+    /// Con la tercera parte, la de los corredores. Sin sus datos no sale: un
+    /// botón que lleva a una vista vacía es peor que no tenerlo.
+    public var conCorredores: Bool
 
-    public init(vista: VistaDeCarrera, numero: Int, deTramos: Int) {
+    public init(vista: VistaDeCarrera, numero: Int, deTramos: Int,
+                interactivo: Bool = false, conCorredores: Bool = true) {
         self.vista = vista
         self.numero = numero
         self.deTramos = deTramos
+        self.interactivo = interactivo
+        self.conCorredores = conCorredores
     }
 
     public var body: some View {
         HStack(spacing: 2) {
-            pastilla("Tramo \(numero)/\(deTramos)", encendida: vista == .tramo)
-            pastilla("Carrera", encendida: vista == .carrera)
-            // La tercera, solo un icono: con tres palabras no cabe en la
-            // cabecera junto al nombre de la carrera y el reloj.
-            Image(systemName: "person.2.fill")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(vista == .corredores ? Color(hexContador: "#0f1729") : Color.white.opacity(0.65))
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Capsule().fill(vista == .corredores ? Color(hexContador: "#38bdf8") : .clear))
+            parte(.tramo) { texto("Tramo \(numero)/\(deTramos)", .tramo) }
+            parte(.carrera) { texto("Carrera", .carrera) }
+            if conCorredores {
+                // La tercera, solo un icono: con tres palabras no cabe en la
+                // cabecera junto al nombre de la carrera y el reloj.
+                parte(.corredores) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(tinta(.corredores))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(fondo(.corredores)))
+                        .accessibilityLabel("Corredores")
+                }
+            }
         }
         .padding(2)
         .background(Capsule().fill(Color.white.opacity(0.1)))
         .fixedSize()
     }
 
-    private func pastilla(_ t: String, encendida: Bool) -> some View {
+    @ViewBuilder
+    private func parte<V: View>(_ v: VistaDeCarrera, @ViewBuilder _ contenido: () -> V) -> some View {
+        if interactivo {
+            Button(intent: CambiaVistaDeCarrera(v)) { contenido() }
+                .buttonStyle(.plain)
+        } else {
+            contenido()
+        }
+    }
+
+    private func texto(_ t: String, _ v: VistaDeCarrera) -> some View {
         Text(t)
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(encendida ? Color(hexContador: "#0f1729") : Color.white.opacity(0.65))
+            .foregroundStyle(tinta(v))
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(encendida ? Color(hexContador: "#38bdf8") : .clear))
+            .background(Capsule().fill(fondo(v)))
+    }
+
+    private func tinta(_ v: VistaDeCarrera) -> Color {
+        vista == v ? Color(hexContador: "#0f1729") : Color.white.opacity(0.65)
+    }
+
+    private func fondo(_ v: VistaDeCarrera) -> Color {
+        vista == v ? Color(hexContador: "#38bdf8") : .clear
     }
 }
 
@@ -294,12 +326,20 @@ public struct TarjetaCarreraGlobal: View {
     /// La hora de ahora, para saber si todavía no se ha salido.
     public var ahora: Date
 
+    /// El selector con botones de verdad (en la pantalla de bloqueo).
+    public var interactivo: Bool
+    /// Si hay datos de corredores: sin ellos, el selector no ofrece esa vista.
+    public var hayCorredores: Bool
+
     public init(tramo: DatosDeTramo, global: DatosGlobales, corredores: DatosCorredores? = nil,
-                ventana: DatosGlobales? = nil, ahora: Date = Date()) {
+                ventana: DatosGlobales? = nil, ahora: Date = Date(),
+                interactivo: Bool = false, hayCorredores: Bool = true) {
         self.tramo = tramo
         self.global = global
         self.corredores = corredores
         self.ventana = ventana
+        self.interactivo = interactivo
+        self.hayCorredores = hayCorredores
         self.ahora = ahora
     }
 
@@ -317,13 +357,21 @@ public struct TarjetaCarreraGlobal: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 SelectorDeVista(vista: corredores == nil ? .carrera : .corredores,
-                                numero: tramo.numero, deTramos: tramo.deTramos)
+                                numero: tramo.numero, deTramos: tramo.deTramos,
+                                interactivo: interactivo, conCorredores: hayCorredores || corredores != nil)
                 // Antes de la salida el reloj no va aquí: la cuenta atrás va
                 // en grande abajo, que es lo que se mira en ese momento.
                 if !antesDeSalir {
-                    Text(tramo.salida, style: .timer)
-                        .font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                        .frame(width: 56, alignment: .trailing)
+                    Group {
+                        if tramo.enMeta, let fin = tramo.prevision, fin > tramo.salida {
+                            // En meta, el reloj se para en la hora de llegada.
+                            Text(timerInterval: tramo.salida...fin, pauseTime: fin, countsDown: false)
+                        } else {
+                            Text(tramo.salida, style: .timer)
+                        }
+                    }
+                    .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                    .frame(width: 56, alignment: .trailing)
                 }
             }
             PerfilDeCarrera(datos: corredores != nil ? (ventana ?? global) : global,
@@ -376,7 +424,11 @@ public struct TarjetaCarreraGlobal: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if antesDeSalir {
                     Text("Salida en").font(.caption).foregroundStyle(apagado)
-                    Text(tramo.salida, style: .timer)
+                    // Cuenta atrás que se para en 0:00: con el reloj normal,
+                    // pasada la hora seguía contando hacia arriba («Salida en
+                    // 0:05») hasta la primera posición después de salir, que
+                    // es cuando la tarjeta cambia sola a la vista de tramo.
+                    Text(timerInterval: ahora...max(ahora, tramo.salida), countsDown: true)
                         .font(.system(size: 20, weight: .bold)).monospacedDigit()
                         .fixedSize()
                 } else {
@@ -422,5 +474,35 @@ public struct TarjetaCarreraGlobal: View {
         f.minimumFractionDigits = 1
         f.maximumFractionDigits = 1
         return f.string(from: NSNumber(value: v)) ?? "\(v)"
+    }
+}
+
+/**
+ La tarjeta de la carrera, la que toque según el estado: la del tramo o la de
+ la carrera entera. La usan la pantalla de bloqueo, la isla abierta y las
+ pruebas, para que las tres enseñen lo mismo.
+
+ La vista de corredores todavía no tiene datos (llegan del servidor, en el paso
+ siguiente): mientras, el selector no la ofrece y, si se llegara a ella, se
+ enseña la de la carrera.
+ */
+public struct TarjetaDeCarrera: View {
+    public let estado: EstadoDeCarrera
+    public var interactivo: Bool
+
+    public init(estado: EstadoDeCarrera, interactivo: Bool = false) {
+        self.estado = estado
+        self.interactivo = interactivo
+    }
+
+    public var body: some View {
+        switch estado.vista {
+        case .tramo:
+            TarjetaTramo(datos: estado.tramo, forma: .perfilGrande, selector: .tramo,
+                         interactivo: interactivo, hayCorredores: false)
+        case .carrera, .corredores:
+            TarjetaCarreraGlobal(tramo: estado.tramo, global: estado.global,
+                                 interactivo: interactivo, hayCorredores: false)
+        }
     }
 }

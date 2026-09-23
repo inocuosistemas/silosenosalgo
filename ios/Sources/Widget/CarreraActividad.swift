@@ -13,21 +13,23 @@ import WidgetKit
 struct CarreraActividad: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: CarreraAtributos.self) { contexto in
-            TarjetaTramo(datos: datos(contexto), forma: .perfilGrande)
+            // El selector de arriba son botones: cambian de vista sin abrir la
+            // app. Tocar el resto de la tarjeta la abre, como siempre.
+            TarjetaDeCarrera(estado: estado(contexto), interactivo: true)
                 .activityBackgroundTint(Color(hexContador: "#0f1729"))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { contexto in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.bottom) {
-                    TarjetaTramo(datos: datos(contexto), forma: .perfilGrande)
+                    TarjetaDeCarrera(estado: estado(contexto), interactivo: true)
                         .padding(.horizontal, -8)
                 }
             } compactLeading: {
-                IslaTramoInicio(datos: contexto.state)
+                IslaTramoInicio(datos: contexto.state.tramo)
             } compactTrailing: {
-                IslaTramoFin(datos: contexto.state)
+                IslaTramoFin(datos: contexto.state.tramo)
             } minimal: {
-                Image(systemName: contexto.state.hasta.tipo?.simbolo ?? "figure.run")
+                Image(systemName: contexto.state.tramo.hasta.tipo?.simbolo ?? "figure.run")
                     .foregroundStyle(Color(hexContador: "#38bdf8"))
             }
             .keylineTint(Color(hexContador: "#38bdf8"))
@@ -36,9 +38,9 @@ struct CarreraActividad: Widget {
 
     /// «Sin señal» lo decide el SISTEMA (`isStale`): cada actualización lleva
     /// fecha de caducidad, y si no llega otra antes, es que no hay posiciones.
-    private func datos(_ c: ActivityViewContext<CarreraAtributos>) -> DatosDeTramo {
-        var d = c.state
-        d.sinSenal = c.isStale && !d.enMeta
-        return d
+    private func estado(_ c: ActivityViewContext<CarreraAtributos>) -> EstadoDeCarrera {
+        var e = c.state
+        e.tramo.sinSenal = c.isStale && !e.tramo.enMeta
+        return e
     }
 }

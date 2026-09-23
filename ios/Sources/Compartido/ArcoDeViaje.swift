@@ -225,7 +225,7 @@ public struct TarjetaViajeArco: View {
                         .font(.system(size: 26, weight: .bold)).monospacedDigit()
                         .minimumScaleFactor(0.7).lineLimit(1)
                     if datos.sinSenal {
-                        (Text("sin señal ") + Text(datos.actualizado, style: .time))
+                        (Text("posición de las ") + Text(datos.actualizado, style: .time))
                             .font(.caption2).foregroundStyle(Color.orange)
                     } else if let llegada = datos.llegada {
                         (Text("km · llega ") + Text(llegada, style: .time).bold())

@@ -325,10 +325,12 @@ public struct PieDeViaje: View {
                     .font(.caption).foregroundStyle(apagado)
                 Spacer(minLength: 6)
                 if datos.sinSenal {
-                    // Desde QUÉ HORA, y no «hace tanto»: sin señal no llegan
-                    // actualizaciones, y el reloj relativo del sistema lo
-                    // escribía con segundos («25 min y 0 s»).
-                    (Text("sin señal desde las ") + Text(datos.actualizado, style: .time))
+                    // Lo que se SABE: de qué hora es la última posición. No
+                    // «sin señal», que es suponer la causa: se decía también
+                    // con el GPS perfecto y el móvil quieto. Y la hora, no
+                    // «hace tanto», que el reloj relativo del sistema escribía
+                    // con segundos («25 min y 0 s»).
+                    (Text("posición de las ") + Text(datos.actualizado, style: .time))
                         .font(.caption).foregroundStyle(Color.orange)
                         .lineLimit(1)
                 } else if let llegada = datos.llegada {
