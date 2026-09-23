@@ -25,6 +25,10 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 }
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
+            } else if PruebaDeCarrera.pedida {
+                Text("Carrera de prueba en marcha")
+                    .preferredColorScheme(.dark)
+                    .onAppear { PruebaDeCarrera.empieza() }
             } else if PruebaDeViaje.pedida {
                 // Arranque de prueba del viaje en directo: empieza uno fijo
                 // (Madrid → Barcelona) para moverlo con una ruta GPS simulada.
@@ -161,4 +165,36 @@ enum PruebaDeViaje {
         origen: LugarDeViaje(nombre: "Madrid", abreviatura: "MAD", latitud: 40.4168, longitud: -3.7038),
         destino: LugarDeViaje(nombre: "Barcelona", abreviatura: "BCN", latitud: 41.3874, longitud: 2.1686),
         transporte: .avion)
+}
+
+
+/// La carrera en directo de prueba: con `-PruebaDeCarrera` la app arranca una
+/// tarjeta de tramo con una hoja fija —20 km, sube hasta el 10 y baja—, para
+/// ver lo que pinta el sistema sin salir a correr.
+enum PruebaDeCarrera {
+    static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeCarrera") }
+
+    @MainActor
+    static func empieza() {
+        let ahora = Date()
+        let salida = ahora.addingTimeInterval(-(3 * 3600 + 42 * 60))
+        let perfil = stride(from: 0.0, through: 20.0, by: 0.05).map { km in
+            HojaDeTramos.Muestra(km: km, ele: (km <= 10 ? 2000 + 40 * km : 2400 - 30 * (km - 10))
+                                 + 15 * sin(km * 3))
+        }
+        // El plan: 30 min por km (en montaña, y contando que sube).
+        let previsto = stride(from: 0.0, through: 20.0, by: 0.25).map { HojaDeTramos.Previsto(km: $0, min: $0 * 30) }
+        let hoja = HojaDeTramos(
+            version: 1, salida: salida.timeIntervalSince1970 * 1000, totalKm: 20,
+            perfil: perfil, previsto: previsto,
+            puntos: [
+                .init(nombre: "Font del Gel", km: 5, tipo: "liquido", corte: nil),
+                .init(nombre: "Refugi del Rebost", km: 12, tipo: "solido",
+                      // Del 7,4 al 12 el plan prevé 4,6 × 30 = 138 min: con el
+                      // corte 21 min después, sale un margen justo, en ámbar.
+                      corte: ahora.addingTimeInterval((4.6 * 30 + 21) * 60).timeIntervalSince1970 * 1000),
+                .init(nombre: "Meta", km: 20, tipo: "meta", corte: nil),
+            ])
+        CarreraEnDirecto.shared.empiezaDePrueba(hoja: hoja, carrera: "Matxicots 26", km: 7.4, ahora: ahora)
+    }
 }

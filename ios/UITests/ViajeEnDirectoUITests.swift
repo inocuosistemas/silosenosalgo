@@ -171,4 +171,27 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("simulacion-5-llegado")
         XCTAssertTrue(app.staticTexts["Has llegado"].exists, "al final del recorrido tiene que decir que se ha llegado")
     }
+
+    /// La carrera en directo en la pantalla de bloqueo, pintada por el sistema.
+    func testLaCarreraSeVeEnLaPantallaDeBloqueo() {
+        addTeardownBlock {
+            let inicio = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+                .press(forDuration: 0.1,
+                       thenDragTo: inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            sleep(1)
+        }
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeCarrera"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Carrera de prueba en marcha"].waitForExistence(timeout: 20))
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        guarda("carrera-bloqueo")
+    }
 }

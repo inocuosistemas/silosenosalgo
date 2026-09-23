@@ -17,6 +17,8 @@ enum LocalStore {
     static func trailURL(_ token: String) -> URL { dir("trails").appendingPathComponent("\(token).json") }
     /// Gzipped SharePayload bytes for a session's linked plan (verbatim from the API).
     static func planURL(_ token: String) -> URL { dir("plans").appendingPathComponent("\(token).gz") }
+    /// La hoja de tramos de la carrera de una sesión (ver `CarreraEnDirecto`).
+    static func hojaURL(_ token: String) -> URL { dir("hojas").appendingPathComponent("\(token).json") }
 
     /// Runner-confirmed form factor + change log (JSON), so it survives relaunch.
     static func formURL(_ token: String) -> URL { dir("form").appendingPathComponent("\(token).json") }

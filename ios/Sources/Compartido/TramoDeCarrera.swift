@@ -1,7 +1,10 @@
 import SwiftUI
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 /**
- PROPUESTA: la carrera en directo, por TRAMOS. En una carrera lo que importa no
+ La carrera en directo, por TRAMOS. En una carrera lo que importa no
  es cuánto queda hasta meta, sino el tramo en el que se está: cuánto falta al
  próximo punto, cuánto sube y baja todavía, qué hay allí (agua, comida, bolsa)
  y con cuánto margen se llega al corte.
@@ -11,8 +14,8 @@ import SwiftUI
  altitud de cada punto de la traza, los puntos con su km, su tipo y su hora de
  corte, y la hora prevista de paso.
 
- Todavía no lo usa ninguna Actividad: está para verlo y decidir
- (`docs/propuestas/carreras`).
+ Se eligió la forma A, con el perfil grande (`docs/propuestas/carreras`). Lo
+ arranca y lo alimenta `CarreraEnDirecto`, en la app.
  */
 public enum TipoDePunto: String, Codable, Hashable, Sendable, CaseIterable {
     case control, liquido, solido, completo, bolsa, meta
@@ -40,7 +43,7 @@ public enum TipoDePunto: String, Codable, Hashable, Sendable, CaseIterable {
     }
 }
 
-public struct PuntoDeCarrera: Hashable, Sendable {
+public struct PuntoDeCarrera: Codable, Hashable, Sendable {
     public var nombre: String
     public var km: Double
     public var tipo: TipoDePunto?
@@ -52,8 +55,10 @@ public struct PuntoDeCarrera: Hashable, Sendable {
     }
 }
 
-/// Lo que enseña la tarjeta del tramo.
-public struct DatosDeTramo: Hashable, Sendable {
+/// Lo que enseña la tarjeta del tramo. Es también lo que se le manda a la
+/// Actividad en cada actualización, así que va justo: el sistema no admite más
+/// de 4 KB, y por eso el perfil del tramo va en unas pocas muestras.
+public struct DatosDeTramo: Codable, Hashable, Sendable {
     public var carrera: String
     public var numero: Int
     public var deTramos: Int
@@ -71,8 +76,15 @@ public struct DatosDeTramo: Hashable, Sendable {
     public var prevision: Date?
     /// Hora de corte del próximo punto, si tiene.
     public var corte: Date?
+    /// Ya en meta.
+    public var enMeta: Bool = false
+    /// Cuándo se calculó: con la última posición buena.
+    public var actualizado: Date = Date()
+    /// Hace rato que no llega nada (lo decide el sistema: ver `CarreraActividad`).
+    /// Se dice, en vez de enseñar como actual un margen que puede ser viejo.
+    public var sinSenal: Bool = false
 
-    public struct Muestra: Hashable, Sendable {
+    public struct Muestra: Codable, Hashable, Sendable {
         public var km: Double
         public var ele: Double
         public init(km: Double, ele: Double) { self.km = km; self.ele = ele }
@@ -80,7 +92,8 @@ public struct DatosDeTramo: Hashable, Sendable {
 
     public init(carrera: String, numero: Int, deTramos: Int, desde: PuntoDeCarrera, hasta: PuntoDeCarrera,
                 posicionKm: Double, perfil: [Muestra], subidaRestanteM: Int, bajadaRestanteM: Int,
-                salida: Date, prevision: Date?, corte: Date?) {
+                salida: Date, prevision: Date?, corte: Date?, enMeta: Bool = false,
+                actualizado: Date = Date()) {
         self.carrera = carrera
         self.numero = numero
         self.deTramos = deTramos
@@ -93,6 +106,8 @@ public struct DatosDeTramo: Hashable, Sendable {
         self.salida = salida
         self.prevision = prevision
         self.corte = corte
+        self.enMeta = enMeta
+        self.actualizado = actualizado
     }
 
     public var restanteKm: Double { max(0, hasta.km - posicionKm) }
@@ -228,9 +243,16 @@ public struct TarjetaTramo: View {
                 .foregroundStyle(apagado)
             Spacer(minLength: 4)
             Image(systemName: "stopwatch").font(.system(size: 11)).foregroundStyle(apagado)
-            Text(datos.salida, style: .timer)
-                .font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                .frame(width: 58, alignment: .trailing)
+            Group {
+                if datos.enMeta, let fin = datos.prevision, fin > datos.salida {
+                    // En meta, el reloj se para en la hora de llegada.
+                    Text(timerInterval: datos.salida...fin, pauseTime: fin, countsDown: false)
+                } else {
+                    Text(datos.salida, style: .timer)
+                }
+            }
+            .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+            .frame(width: 58, alignment: .trailing)
         }
     }
 
@@ -242,7 +264,14 @@ public struct TarjetaTramo: View {
 
     private var margen: some View {
         Group {
-            if let m = datos.margenMin, let c = datos.corte {
+            if datos.sinSenal {
+                // Sin posiciones nuevas, el margen de hace un rato no vale.
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("sin señal").font(.caption2.weight(.semibold))
+                    (Text("desde ") + Text(datos.actualizado, style: .time)).font(.caption2)
+                }
+                .foregroundStyle(Color.orange)
+            } else if let m = datos.margenMin, let c = datos.corte {
                 VStack(alignment: .trailing, spacing: 0) {
                     (Text("corte ") + Text(c, style: .time))
                         .font(.caption2).foregroundStyle(apagado)
@@ -273,6 +302,14 @@ public struct TarjetaTramo: View {
                 icono(datos.hasta, tam: 10)
             }
             .font(.caption2).foregroundStyle(apagado)
+            if datos.enMeta {
+                HStack {
+                    Label("En meta", systemImage: "flag.checkered")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(acento)
+                    Spacer()
+                }
+            } else {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 (Text(ColoresViaje.km(datos.restanteKm)).font(.system(size: 20, weight: .bold))
                  + Text(" km").font(.caption).foregroundColor(apagado))
@@ -284,6 +321,7 @@ public struct TarjetaTramo: View {
                     .foregroundStyle(apagado)
                 Spacer(minLength: 4)
                 margen
+            }
             }
         }
     }
@@ -346,3 +384,12 @@ public struct IslaTramoFin: View {
         .font(.system(size: 14, weight: .semibold)).monospacedDigit()
     }
 }
+
+#if canImport(ActivityKit)
+/// La Actividad de la carrera: lo fijo es el nombre; lo que cambia, el tramo.
+public struct CarreraAtributos: ActivityAttributes {
+    public typealias ContentState = DatosDeTramo
+    public var carrera: String
+    public init(carrera: String) { self.carrera = carrera }
+}
+#endif

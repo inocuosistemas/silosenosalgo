@@ -69,6 +69,31 @@ final class GpxImporter: NSObject {
         return Ruta(nombre: nombre, distanciaKm: km, desnivelM: desnivel, cuerpo: cuerpo)
     }
 
+    /**
+     La hoja de tramos de una carrera (ver `src/lib/hojaDeTramos.ts`), con el
+     mismo visor oculto: los puntos que cierran tramo con su corte, el perfil y
+     el horario del plan. Devuelve el JSON tal cual, para guardarlo.
+     */
+    func hojaDeTramos(planGz: Data, ajustes: String?, salidaMs: Double?) async throws -> Data {
+        let web = try await preparado()
+        let resultado = try await web.callAsyncJavaScript(
+            "return await window.slsnsHojaDeTramos(plan, ajustes, salida)",
+            arguments: ["plan": planGz.base64EncodedString(), "ajustes": ajustes ?? "", "salida": salidaMs ?? 0],
+            contentWorld: .page
+        )
+        guard let texto = resultado as? String, let datos = texto.data(using: .utf8) else {
+            throw Fallo.conversion("No se pudo preparar la hoja de tramos.")
+        }
+        return datos
+    }
+
+    /// Quitar el visor oculto de la ventana: si no, se queda ahí colgado,
+    /// invisible, hasta que se cierre la app.
+    func suelta() {
+        web?.removeFromSuperview()
+        web = nil
+    }
+
     /// El visor oculto, cargado y con el conversor a punto. Se crea una vez.
     private func preparado() async throws -> WKWebView {
         if let web { return web }

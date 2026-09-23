@@ -117,6 +117,7 @@ struct WidgetsSiLoSeNoSalgo: WidgetBundle {
     var body: some Widget {
         ContadorWidget()
         ViajeActividad()
+        CarreraActividad()
     }
 }
 

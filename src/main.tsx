@@ -97,7 +97,8 @@ if (import.meta.env.DEV) {
 initGhostScrollbars()
 
 /**
- * El conversor de GPX para las apps: una página SIN interfaz.
+ * El conversor de GPX para las apps —y la hoja de tramos de una carrera—: una
+ * página SIN interfaz.
  *
  * Las balizas cargan `index.html?convierte=gpx` en un visor oculto, le pasan el
  * fichero a `slsnsGpxARuta` y reciben la ruta hecha con el mismo código que la
@@ -108,10 +109,16 @@ const esConversor = params.get('convierte') === 'gpx'
 if (esConversor) {
   const w = window as unknown as {
     slsnsGpxARuta?: (texto: string, fichero: string, actividad?: string) => Promise<unknown>
+    slsnsHojaDeTramos?: (planGzBase64: string, ajustesJson: string, salidaMs: number) => Promise<string>
     slsnsConversorListo?: boolean
   }
   w.slsnsGpxARuta = async (texto, fichero, actividad) =>
     (await import('./lib/convierteGpx')).gpxARuta(texto, fichero, actividad)
+  // La hoja de tramos de una carrera, para la Actividad en Directo de la app
+  // (ver `lib/hojaDeTramos`). Se devuelve en texto: la app la guarda tal cual.
+  // Sin ajustes llega "", y sin salida oficial, 0.
+  w.slsnsHojaDeTramos = async (plan, ajustes, salida) =>
+    JSON.stringify(await (await import('./lib/hojaDeTramos')).hojaDeTramos(plan, ajustes || null, salida || null))
   w.slsnsConversorListo = true
 }
 

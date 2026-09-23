@@ -1155,6 +1155,8 @@ final class TrackingStore: ObservableObject {
     func stopSharing() async {
         // Se acabó: los avisos de una salida que ya no va a ocurrir sobran.
         AvisosDeCarrera.borra()
+        // Y la tarjeta del tramo, fuera de la pantalla de bloqueo.
+        CarreraEnDirecto.shared.termina()
         flushTimer?.invalidate()
         flushTimer = nil
         location.stop()
@@ -1300,6 +1302,7 @@ final class TrackingStore: ObservableObject {
         }
         if let km {
             lastRouteKm = km
+            CarreraEnDirecto.shared.recibe(km: km, en: loc.timestamp)
             // Meta con margen: el GPS no clava el último metro y el arco nunca
             // cae en el punto exacto del GPX, así que exigir el 100% sería no
             // detectarla nunca.
@@ -1718,6 +1721,15 @@ final class TrackingStore: ObservableObject {
     private func loadRouteGeometry(for sessionId: String) {
         routeGeometry = PlanGeometry.route(forSession: sessionId)
         lastRouteKm = nil
+        // Con recorrido y carrera, la tarjeta del tramo en la pantalla de
+        // bloqueo (ver `CarreraEnDirecto`). Una baliza suelta no la lleva.
+        // Sin el evento todavía (retomando tras un cierre, antes de que llegue
+        // la lista) se engancha igual a la tarjeta que ya estuviera en marcha.
+        if isSharing, sessionToken == sessionId, routeGeometry != nil {
+            let ev = activeEvent
+            CarreraEnDirecto.shared.prepara(sesion: sessionId, token: token, eventoId: ev?.id,
+                                            nombre: ev?.name, salidaMs: ev?.startsAt)
+        }
     }
 
     // MARK: Resume-on-relaunch ("last known state")

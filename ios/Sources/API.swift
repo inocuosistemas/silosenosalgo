@@ -388,6 +388,20 @@ enum API {
         return try JSONDecoder().decode(Wrapper.self, from: data).events
     }
 
+    /// Los ajustes que quien organiza ha hecho a los puntos del recorrido (qué
+    /// es cada uno, cuánto se para, los movidos y los nuevos), en el JSON tal
+    /// cual: se le pasan a la web para la hoja de tramos. Nil si no hay.
+    static func ajustesDelEvento(token: String, eventId: String) async throws -> String? {
+        let (data, http) = try await request("api/events/\(eventId)", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        guard let raiz = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let evento = raiz["event"] as? [String: Any],
+              let ajustes = evento["puntosAjustes"] as? [String: Any], !ajustes.isEmpty,
+              let texto = try? JSONSerialization.data(withJSONObject: ajustes)
+        else { return nil }
+        return String(data: texto, encoding: .utf8)
+    }
+
     /// Une (o saca) del evento la baliza que YA se está emitiendo. Es el camino
     /// para quien se acuerda a mitad de carrera, que es lo normal: no obliga a
     /// parar y volver a empezar, que partiría la traza en dos.
