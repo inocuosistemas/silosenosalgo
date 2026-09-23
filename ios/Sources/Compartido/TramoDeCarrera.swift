@@ -210,10 +210,13 @@ public struct TarjetaTramo: View {
 
     public let datos: DatosDeTramo
     public let forma: Forma
+    /// Con el selector de vista (Tramo / Carrera) en la cabecera, marcando cuál.
+    public var selector: VistaDeCarrera?
 
-    public init(datos: DatosDeTramo, forma: Forma) {
+    public init(datos: DatosDeTramo, forma: Forma, selector: VistaDeCarrera? = nil) {
         self.datos = datos
         self.forma = forma
+        self.selector = selector
     }
 
     private let apagado = Color.white.opacity(0.6)
@@ -238,9 +241,14 @@ public struct TarjetaTramo: View {
             Text(datos.carrera.uppercased())
                 .font(.system(size: 11, weight: .heavy)).tracking(0.8)
                 .lineLimit(1)
-            Text("· TRAMO \(datos.numero)/\(datos.deTramos)")
-                .font(.system(size: 11, weight: .semibold)).tracking(0.5)
-                .foregroundStyle(apagado)
+            if let selector {
+                Spacer(minLength: 4)
+                SelectorDeVista(vista: selector, numero: datos.numero, deTramos: datos.deTramos)
+            } else {
+                Text("· TRAMO \(datos.numero)/\(datos.deTramos)")
+                    .font(.system(size: 11, weight: .semibold)).tracking(0.5)
+                    .foregroundStyle(apagado)
+            }
             Spacer(minLength: 4)
             Image(systemName: "stopwatch").font(.system(size: 11)).foregroundStyle(apagado)
             Group {
@@ -293,7 +301,9 @@ public struct TarjetaTramo: View {
         VStack(spacing: 6) {
             cabecera
             PerfilDeTramo(datos: datos, color: acento)
-                .frame(height: 50)
+                // Un pelo más bajo con el selector, que es más alto que la
+                // línea de texto a la que sustituye: si no, se pasaba de 160.
+                .frame(height: selector == nil ? 50 : 47)
             HStack(spacing: 4) {
                 icono(datos.desde, tam: 10)
                 Text(datos.desde.nombre).lineLimit(1)
