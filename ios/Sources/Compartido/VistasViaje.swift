@@ -106,6 +106,11 @@ public enum ColoresViaje {
     /// el punto.
     public static func km(_ v: Double) -> String {
         let f = NumberFormatter()
+        // Con un idioma fijo y neutro, y los separadores puestos a mano. Con
+        // el del móvil en español el sistema NO separa los de cuatro cifras
+        // aunque se le pida: en el iPhone salía «2224». En el simulador, en
+        // inglés, sí salía el punto, y por eso no se vio antes.
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.numberStyle = .decimal
         f.usesGroupingSeparator = true
         f.groupingSeparator = "."

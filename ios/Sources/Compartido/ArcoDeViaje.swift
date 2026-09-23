@@ -165,45 +165,75 @@ public struct TarjetaViajeArco: View {
     }
 
     private var semicirculo: some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            // Los códigos, con su sitio asegurado: sin esto la cúpula, que se
-            // estira a lo que le dejen, echaba al de destino fuera de la tarjeta.
-            ExtremoDeViaje(lugar: datos.origen, alineado: .leading, apagado: pintura.apagado, tamano: 26)
-                .fixedSize().layoutPriority(1)
-            ZStack(alignment: .bottom) {
-                ArcoDeViaje(progreso: progreso, transporte: datos.transporte, pintura: pintura, chapa: 24)
-                // Dentro de la cúpula, lo que se mira: cuánto falta y cuándo se
-                // llega (o que se ha llegado, o que no hay señal).
-                VStack(spacing: 0) {
-                    if datos.llegado {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(pintura.trayectoFin)
-                        Text("Has llegado").font(.caption.weight(.semibold))
+        VStack(spacing: 2) {
+            HStack(alignment: .bottom, spacing: 4) {
+                // Solo los CÓDIGOS a los lados de la cúpula, y los nombres en
+                // su línea de abajo. Con el nombre debajo de cada código, la
+                // columna se ensanchaba a lo que midiera el nombre —«El Prat
+                // de Llobregat», «Istanbul Airport»— y la cúpula se quedaba con
+                // lo que sobraba: en el móvil salía apretadísima.
+                codigo(datos.origen.abreviatura)
+                cupula
+                    // Un semicírculo de verdad: el doble de ancho que de alto.
+                    // Con tope de alto, que la tarjeta no puede pasar de 160.
+                    .aspectRatio(2, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: datos.tituloVisible == nil ? 100 : 92)
+                codigo(datos.destino.abreviatura)
+            }
+            // Los nombres, cada uno con la mitad del ancho: caben enteros los
+            // largos, y si alguno no, se encoge un poco antes de cortarse.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(datos.origen.nombre)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(datos.destino.nombre)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .font(.caption)
+            .foregroundStyle(pintura.apagado)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+    }
+
+    private func codigo(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 26, weight: .heavy)).tracking(1)
+            .fixedSize()
+            .layoutPriority(1)
+            // A la altura de las puntas del arco, que están media chapa por
+            // encima de la base.
+            .padding(.bottom, 4)
+    }
+
+    /// La cúpula, con lo que se mira dentro: cuánto falta y cuándo se llega
+    /// (o que se ha llegado, o que no hay señal).
+    private var cupula: some View {
+        ZStack(alignment: .bottom) {
+            ArcoDeViaje(progreso: progreso, transporte: datos.transporte, pintura: pintura, chapa: 24)
+            VStack(spacing: 0) {
+                if datos.llegado {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(pintura.trayectoFin)
+                    Text("Has llegado").font(.caption.weight(.semibold))
+                } else {
+                    Text(ColoresViaje.km(datos.restanteKm))
+                        .font(.system(size: 26, weight: .bold)).monospacedDigit()
+                        .minimumScaleFactor(0.7).lineLimit(1)
+                    if datos.sinSenal {
+                        (Text("sin señal ") + Text(datos.actualizado, style: .time))
+                            .font(.caption2).foregroundStyle(Color.orange)
+                    } else if let llegada = datos.llegada {
+                        (Text("km · llega ") + Text(llegada, style: .time).bold())
+                            .font(.caption2).foregroundStyle(pintura.apagado)
                     } else {
-                        Text(ColoresViaje.km(datos.restanteKm))
-                            .font(.system(size: 24, weight: .bold)).monospacedDigit()
-                            .minimumScaleFactor(0.7).lineLimit(1)
-                        if datos.sinSenal {
-                            (Text("sin señal ") + Text(datos.actualizado, style: .time))
-                                .font(.caption2).foregroundStyle(Color.orange)
-                        } else if let llegada = datos.llegada {
-                            (Text("km · llega ") + Text(llegada, style: .time).bold())
-                                .font(.caption2).foregroundStyle(pintura.apagado)
-                        } else {
-                            Text("km").font(.caption2).foregroundStyle(pintura.apagado)
-                        }
+                        Text("km").font(.caption2).foregroundStyle(pintura.apagado)
                     }
                 }
-                .padding(.bottom, 4)
-                .padding(.horizontal, 30)
             }
-            // Un semicírculo de verdad: el doble de ancho que de alto. Con tope
-            // de alto, que la tarjeta no puede pasar de 160 puntos.
-            .aspectRatio(2, contentMode: .fit)
-            .frame(maxWidth: .infinity, maxHeight: 92)
-            ExtremoDeViaje(lugar: datos.destino, alineado: .trailing, apagado: pintura.apagado, tamano: 26)
-                .fixedSize().layoutPriority(1)
+            .padding(.bottom, 4)
+            .padding(.horizontal, 30)
         }
     }
 }

@@ -82,7 +82,27 @@ final class LaminaArcoTests: XCTestCase {
         print("LAMINA \(carpeta.path)/\(nombre).png")
     }
 
+    /// Lo que salió apretado en el móvil: nombres largos debajo de los códigos.
+    private var estambul: DatosDeViaje {
+        let prat = LugarDeViaje(nombre: "El Prat de Llobregat", abreviatura: "BCN", latitud: 41.2886, longitud: 2.0743)
+        let ist = LugarDeViaje(nombre: "Istanbul Airport", abreviatura: "IST", latitud: 41.2753, longitud: 28.7519)
+        let total = Trayecto.km(prat.coordenada, ist.coordenada)
+        return DatosDeViaje(titulo: "Algo muy especial...🎁", origen: prat, destino: ist, transporte: .avion,
+                            colores: ColoresDeViaje(fondo: "#1a0b2e", trayecto: "#8b5cf6"),
+                            restanteKm: total, progreso: 0)
+    }
+
     func testPintaLaPropuestaDelArco() throws {
+        try pinta(sobreFondo(VStack(spacing: 12) {
+            rotulo("Nombres largos · al salir")
+            TarjetaViajeArco(datos: estambul, forma: .semicirculo)
+                .frame(width: 361).background(Color(hexContador: "#1a0b2e"))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            rotulo("Nombres largos · a medio camino")
+            TarjetaViajeArco(datos: { var d = estambul; d.progreso = 0.5; d.restanteKm = 1112; return d }(), forma: .semicirculo)
+                .frame(width: 361).background(Color(hexContador: "#1a0b2e"))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }), "03-nombres-largos")
         try pinta(sobreFondo(serie(.tendido, "Arco tendido")), "01-arco-tendido")
         try pinta(sobreFondo(serie(.semicirculo, "Semicírculo")), "02-semicirculo")
         try pinta(sobreFondo(VStack(spacing: 12) {
@@ -100,7 +120,12 @@ final class LaminaArcoTests: XCTestCase {
         for forma in [TarjetaViajeArco.Forma.tendido, .semicirculo] {
             for t in [nil, "Viaje a Japón"] {
                 for letra in [DynamicTypeSize.large, .accessibility5] {
-                    let host = UIHostingController(rootView: TarjetaViajeArco(datos: datos(0.5, titulo: t), forma: forma)
+                    var d = datos(0.5, titulo: t)
+                    if forma == .semicirculo {
+                        d.origen = estambul.origen
+                        d.destino = estambul.destino
+                    }
+                    let host = UIHostingController(rootView: TarjetaViajeArco(datos: d, forma: forma)
                         .environment(\.dynamicTypeSize, letra))
                     let h = host.sizeThatFits(in: CGSize(width: 361, height: 1000)).height
                     print("ALTO \(forma) titulo=\(t == nil ? "no" : "si") \(letra) \(Int(h))")
@@ -108,6 +133,11 @@ final class LaminaArcoTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Los km, con el punto de los millares aunque el móvil esté en español.
+    func testElPuntoDeLosMillaresSaleSiempre() {
+        XCTAssertEqual(ColoresViaje.km(2224), "2.224")
     }
 
     /// El avión sigue la curva: morro arriba al salir, recto arriba del todo,
