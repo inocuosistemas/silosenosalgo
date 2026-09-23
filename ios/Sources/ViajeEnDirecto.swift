@@ -111,6 +111,13 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         /// El error de la última posición recibida, en metros.
         var ultimoError: Double?
         var ultimaRecibida: Date?
+        /// Cuándo se encendió el GPS por última vez (al empezar, al volver la
+        /// app delante, al relanzarla iOS).
+        var encendido: Date?
+        /// El último fallo que ha dado el GPS, tal cual. Antes se ignoraba en
+        /// silencio, y un viaje entero se quedó sin avanzar sin saber por qué.
+        var ultimoFallo: String?
+        var ultimoFalloA: Date?
     }
     @Published private(set) var diagnostico = Diagnostico()
     @Published private(set) var permiso: CLAuthorizationStatus = .notDetermined
@@ -234,6 +241,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         gps.showsBackgroundLocationIndicator = true
         sesion = CLBackgroundActivitySession()
         gps.startUpdatingLocation()
+        diagnostico.encendido = Date()
         // De respaldo, los cambios de ubicación importantes (de antena en
         // antena): si iOS cierra la app en pleno viaje, estos la vuelven a
         // abrir en segundo plano y el viaje se retoma (ver `AppDelegate`).
@@ -282,7 +290,32 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Sin señal no se hace nada: la tarjeta caduca sola y dice «sin señal».
+        // Sin señal no se hace nada con la tarjeta —caduca sola y dice de qué
+        // hora es la última posición—, pero el fallo se apunta para verlo.
+        let texto = Self.describe(error)
+        Task { @MainActor in
+            self.diagnostico.ultimoFallo = texto
+            self.diagnostico.ultimoFalloA = Date()
+        }
+    }
+
+    nonisolated private static func describe(_ error: Error) -> String {
+        guard let e = error as? CLError else { return error.localizedDescription }
+        switch e.code {
+        case .locationUnknown: return "sin posición por ahora (el GPS sigue buscando)"
+        case .denied: return "permiso de ubicación denegado"
+        case .network: return "sin red para situarse"
+        default: return "error \(e.code.rawValue): \(e.localizedDescription)"
+        }
+    }
+
+    /// Pedir una posición AHORA y usarla, sin esperar a las del GPS normal.
+    /// Para el botón de «En marcha»: si no avanza, se ve al momento si llega
+    /// una posición o qué fallo da.
+    func pidePosicionAhora() {
+        diagnostico.ultimoFallo = nil
+        if let a = actividad { enciendeGPS(para: a.attributes) }
+        gps.requestLocation()
     }
 
     private func recibe(_ pos: CLLocation) {

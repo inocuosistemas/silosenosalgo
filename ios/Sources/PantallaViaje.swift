@@ -525,6 +525,22 @@ struct PantallaViaje: View {
                     .monospacedDigit()
             }
         }
+        if let e = d.encendido {
+            LabeledContent("GPS encendido") { Text(e, style: .time).monospacedDigit() }
+        }
+        if let f = d.ultimoFallo {
+            LabeledContent("Último fallo") {
+                (Text(f) + Text(d.ultimoFalloA.map { " · " + $0.formatted(date: .omitted, time: .shortened) } ?? ""))
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        Button {
+            viaje.pidePosicionAhora()
+        } label: {
+            Label("Pedir posición ahora", systemImage: "location.fill.viewfinder")
+        }
+        .font(.footnote)
         if permisoMalo || !viaje.exacta {
             Button {
                 if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
