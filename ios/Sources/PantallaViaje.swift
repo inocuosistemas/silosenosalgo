@@ -560,6 +560,12 @@ struct PantallaViaje: View {
                     .foregroundStyle(r.hasPrefix("sin") ? Color.orange : Theme.slate400)
             }
         }
+        if let l = d.llegada {
+            LabeledContent("Llegada") {
+                Text(l).multilineTextAlignment(.trailing)
+                    .foregroundStyle(l.hasPrefix("sin") ? Color.orange : Theme.slate400)
+            }
+        }
         if let e = d.encendido {
             LabeledContent("GPS encendido") { Text(e, style: .time).monospacedDigit() }
         }

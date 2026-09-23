@@ -26,8 +26,9 @@ enum ReglasDeViaje {
         var km: Double
         var total: Double
         var forma: String
-        /// La hora de llegada que da Apple con el tráfico, si es reciente.
-        var llegada: Date?
+        /// El ritmo que da Apple por esta ruta con el tráfico, en segundos por
+        /// km: la llegada es lo que falta a este ritmo (ver `estado`).
+        var ritmo: Double?
     }
 
     /// Lo que enseña la tarjeta con una posición: en línea recta, o sobre la
@@ -51,16 +52,15 @@ enum ReglasDeViaje {
         return ViajeAtributos.ContentState(
             restanteKm: llegado ? 0 : resta,
             progreso: llegado ? 1 : min(1, max(0, ruta.km / max(0.001, ruta.total))),
-            llegada: llegado ? nil : (ruta.llegada ?? llegada(restanteKm: resta, velocidad: pos.speed, ahora: ahora)),
+            llegada: llegado ? nil : llegada(restanteKm: resta, ritmo: ruta.ritmo, velocidad: pos.speed, ahora: ahora),
             llegado: llegado,
             actualizado: ahora,
             forma: ruta.forma)
     }
 
     /// Cada cuánto se vuelve a pedir a Apple la hora de llegada con el tráfico
-    /// del momento, y hasta cuándo vale la que se pidió.
+    /// del momento.
     static let refrescoDeLlegada: TimeInterval = 5 * 60
-    static let validezDeLlegada: TimeInterval = 15 * 60
     /// Posiciones seguidas fuera de la ruta para recalcularla: con una sola,
     /// un salto del GPS en un túnel la recalculaba para nada.
     static let fuerasParaRecalcular = 3
@@ -73,6 +73,17 @@ enum ReglasDeViaje {
     /// A qué hora se llega yendo a esta velocidad (metros por segundo), o nil
     /// si no hay con qué calcularla. Se descarta lo que caiga a más de un día:
     /// un avión rodando por la pista a 30 km/h daba llegadas a dos semanas vista.
+    /**
+     Yendo por carretera, a qué hora se llega: lo que falta al ritmo de la
+     última respuesta de Apple. No a la velocidad de ese momento: en el
+     tráfico de Estambul, a 17 km/h, 19 km daban 66 minutos cuando Apple
+     decía 25. Si una petición falla, se sigue con el último ritmo.
+     */
+    static func llegada(restanteKm: Double, ritmo: Double?, velocidad: CLLocationSpeed, ahora: Date) -> Date? {
+        guard let ritmo, ritmo > 0 else { return llegada(restanteKm: restanteKm, velocidad: velocidad, ahora: ahora) }
+        return ahora.addingTimeInterval(restanteKm * ritmo)
+    }
+
     static func llegada(restanteKm: Double, velocidad: CLLocationSpeed, ahora: Date) -> Date? {
         guard velocidad > 1 else { return nil }
         let segundos = restanteKm * 1000 / velocidad
@@ -157,6 +168,8 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         var ultimoFalloA: Date?
         /// La ruta por carretera: cuántos km tiene, o por qué no la hay.
         var ruta: String?
+        /// De dónde sale la hora de llegada, y si la última petición falló.
+        var llegada: String?
     }
     @Published private(set) var diagnostico = Diagnostico()
     @Published private(set) var permiso: CLAuthorizationStatus = .notDetermined
@@ -175,7 +188,8 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     private var fueraDeRuta = 0
     private var pidiendoRuta = false
     private var ultimoIntentoDeRuta: Date?
-    private var llegadaPorTrafico: Date?
+    /// Segundos por km según la última respuesta de Apple (ver `EnRuta.ritmo`).
+    private var ritmoDeApple: Double?
     private var llegadaPedida: Date?
     private var ultimaPosicion: CLLocation?
 
@@ -196,6 +210,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
     func alVolver() {
         if let a = actividad {
             enciendeGPS(para: a.attributes)
+            if let p = ultimaPosicion { refrescaLlegada(desde: p, ya: true) }
         } else {
             reanuda()
         }
@@ -419,9 +434,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         }
         refrescaLlegada(desde: pos)
         guard let km = kmEnRuta else { return nil }
-        let vale = llegadaPedida.map { Date().timeIntervalSince($0) < ReglasDeViaje.validezDeLlegada } ?? false
-        return ReglasDeViaje.EnRuta(km: km, total: r.km, forma: formaDeLaRuta,
-                                    llegada: vale ? llegadaPorTrafico : nil)
+        return ReglasDeViaje.EnRuta(km: km, total: r.km, forma: formaDeLaRuta, ritmo: ritmoDeApple)
     }
 
     /**
@@ -442,8 +455,9 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
                 let nueva = try await Carreteras.pide(desde: desde, hasta: destino, tipo: tipo)
                 guard actividad?.id == id else { return }
                 ponRuta(empalma(nueva))
-                llegadaPorTrafico = Date().addingTimeInterval(nueva.segundos)
+                if nueva.km > 0 { ritmoDeApple = nueva.segundos / nueva.km }
                 llegadaPedida = Date()
+                apuntaLlegada(nil)
                 diagnostico.ruta = "\(ColoresViaje.km(ruta?.km ?? nueva.km)) km por carretera"
                 guardaRuta()
                 // Con la última posición, o desde el origen si aún no hay.
@@ -474,20 +488,35 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         kmEnRuta = nil
     }
 
-    /// La hora de llegada con el tráfico de ahora, cada pocos minutos.
-    private func refrescaLlegada(desde pos: CLLocation) {
-        guard let a = actividad, let tipo = Carreteras.tipo(a.attributes.transporte) else { return }
-        if let p = llegadaPedida, Date().timeIntervalSince(p) < ReglasDeViaje.refrescoDeLlegada { return }
+    /// La hora de llegada con el tráfico de ahora, cada pocos minutos (o ya,
+    /// con `ya`, al volver a la app): se guarda como ritmo por km.
+    private func refrescaLlegada(desde pos: CLLocation, ya: Bool = false) {
+        guard let a = actividad, let tipo = Carreteras.tipo(a.attributes.transporte),
+              let r = ruta, let km = kmEnRuta else { return }
+        if !ya, let p = llegadaPedida, Date().timeIntervalSince(p) < ReglasDeViaje.refrescoDeLlegada { return }
         // Se apunta ya, no al volver: sin red no se insiste en cada posición.
         llegadaPedida = Date()
+        let resta = r.km - km
         let destino = a.attributes.destino.coordenada
         Task {
-            guard let s = try? await Carreteras.tiempo(desde: pos.coordinate, hasta: destino, tipo: tipo) else {
-                llegadaPorTrafico = nil
-                return
+            do {
+                let s = try await Carreteras.tiempo(desde: pos.coordinate, hasta: destino, tipo: tipo)
+                guard actividad?.id == a.id, resta > 0.2 else { return }
+                ritmoDeApple = s / resta
+                apuntaLlegada(nil)
+                if ya, let p = ultimaPosicion { recibe(p) }
+            } catch {
+                apuntaLlegada(error)
             }
-            llegadaPorTrafico = Date().addingTimeInterval(s)
-            llegadaPedida = Date()
+        }
+    }
+
+    private func apuntaLlegada(_ error: Error?) {
+        let hora = Date().formatted(date: .omitted, time: .shortened)
+        if let error {
+            diagnostico.llegada = "sin respuesta de Apple (\(error.localizedDescription)) · \(hora); sigue con el último ritmo"
+        } else if let r = ritmoDeApple {
+            diagnostico.llegada = "tráfico de Apple · \(hora) · \(Int((3600 / r).rounded())) km/h de media"
         }
     }
 
@@ -497,7 +526,7 @@ final class ViajeEnDirecto: NSObject, ObservableObject, CLLocationManagerDelegat
         kmEnRuta = nil
         fueraDeRuta = 0
         ultimoIntentoDeRuta = nil
-        llegadaPorTrafico = nil
+        ritmoDeApple = nil
         llegadaPedida = nil
         ultimaPosicion = nil
         try? FileManager.default.removeItem(at: Self.archivoDeRuta)

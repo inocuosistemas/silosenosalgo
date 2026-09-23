@@ -73,17 +73,29 @@ final class ReglasDeViajePorCarreteraTests: XCTestCase {
 
     func testLosKmSonLosDeLaRuta() {
         let pos = CLLocation(latitude: 41.8, longitude: 1.9)
-        let llegada = ahora.addingTimeInterval(5400)
-        let e = ReglasDeViaje.estado(en: pos, de: a, ruta: .init(km: 80, total: 192, forma: "AAA=", llegada: llegada),
+        // 45 s por km (80 km/h de media).
+        let e = ReglasDeViaje.estado(en: pos, de: a, ruta: .init(km: 80, total: 192, forma: "AAA=", ritmo: 45),
                                      ahora: ahora)
         XCTAssertEqual(e.restanteKm, 112, accuracy: 0.01)
         XCTAssertEqual(e.progreso, 80.0 / 192, accuracy: 0.001)
-        XCTAssertEqual(e.llegada, llegada, "la hora de Apple, con tráfico")
+        XCTAssertEqual(e.llegada, ahora.addingTimeInterval(112 * 45), "al ritmo de Apple, con tráfico")
         XCTAssertTrue(e.porRuta)
         XCTAssertFalse(e.llegado)
     }
 
-    /// Sin la hora de Apple (sin red), la de la velocidad, sobre lo que falta
+    /// Lo que pasó en Estambul: en el tráfico, a 17 km/h, con 19 km por
+    /// delante. Al ritmo de Apple (25 min para esos 19 km), no a la velocidad
+    /// de ese momento, que daba 66.
+    func testEnElTraficoMandaElRitmoDeApple() {
+        let pos = CLLocation(coordinate: CLLocationCoordinate2D(latitude: 41.8, longitude: 1.9), altitude: 0,
+                             horizontalAccuracy: 5, verticalAccuracy: 5, course: 0, speed: 17 / 3.6,
+                             timestamp: ahora)
+        let e = ReglasDeViaje.estado(en: pos, de: a, ruta: .init(km: 25, total: 44, forma: "AAA=", ritmo: 25 * 60 / 19),
+                                     ahora: ahora)
+        XCTAssertEqual(e.llegada!.timeIntervalSince(ahora) / 60, 25, accuracy: 0.1)
+    }
+
+    /// Sin ritmo de Apple (nunca hubo red), la de la velocidad, sobre lo que falta
     /// de ruta y no en línea recta.
     func testSinTraficoLaHoraSaleDeLaVelocidad() {
         let pos = CLLocation(coordinate: CLLocationCoordinate2D(latitude: 41.8, longitude: 1.9), altitude: 0,
