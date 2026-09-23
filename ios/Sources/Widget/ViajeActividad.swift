@@ -49,6 +49,6 @@ struct ViajeActividad: Widget {
             transporte: a.transporte, colores: a.colores,
             restanteKm: e.restanteKm, progreso: e.progreso, llegada: e.llegada,
             llegado: e.llegado, sinSenal: c.isStale && !e.llegado,
-            actualizado: e.actualizado)
+            actualizado: e.actualizado, porRuta: e.porRuta, forma: e.forma)
     }
 }

@@ -124,9 +124,17 @@ public struct ViajeAtributos: ActivityAttributes {
         public var llegado: Bool
         /// Cuándo fue la última posición buena.
         public var actualizado: Date
+        /// La forma de la ruta por carretera, si se va por ella (ver
+        /// `FormaDeRuta`); con ella, los km y el progreso son de la ruta, no
+        /// en línea recta. Va aquí y no en los atributos porque la ruta se
+        /// pide después de empezar (hace falta red) y cambia si se recalcula.
+        public var forma: String?
+
+        public var porRuta: Bool { forma != nil }
 
         public init(restanteKm: Double, progreso: Double, llegada: Date? = nil,
-                    llegado: Bool = false, actualizado: Date = Date()) {
+                    llegado: Bool = false, actualizado: Date = Date(), forma: String? = nil) {
+            self.forma = forma
             self.restanteKm = restanteKm
             self.progreso = progreso
             self.llegada = llegada

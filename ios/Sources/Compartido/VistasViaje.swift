@@ -27,11 +27,18 @@ public struct DatosDeViaje: Hashable, Sendable {
     /// actual un número que puede ser de hace una hora.
     public var sinSenal: Bool
     public var actualizado: Date
+    /// Los km son de la ruta de verdad (carretera, camino), no en línea recta.
+    public var porRuta: Bool
+    /// La forma de la ruta para dibujarla, si hay ruta (ver `FormaDeRuta`).
+    public var forma: String?
 
     public init(titulo: String? = nil, origen: LugarDeViaje, destino: LugarDeViaje,
                 transporte: TransporteDeViaje, colores: ColoresDeViaje = .porDefecto,
                 restanteKm: Double, progreso: Double, llegada: Date? = nil,
-                llegado: Bool = false, sinSenal: Bool = false, actualizado: Date = Date()) {
+                llegado: Bool = false, sinSenal: Bool = false, actualizado: Date = Date(),
+                porRuta: Bool = false, forma: String? = nil) {
+        self.porRuta = porRuta
+        self.forma = forma
         self.titulo = titulo
         self.origen = origen
         self.destino = destino
@@ -307,6 +314,15 @@ public struct PieDeViaje: View {
         self.tamano = tamano
     }
 
+    /// «en línea recta», o por dónde se va de verdad.
+    private var textoDeKm: String {
+        guard datos.porRuta else { return "km en línea recta" }
+        switch datos.transporte {
+        case .coche, .autobus: return "km por carretera"
+        default: return "km de camino"
+        }
+    }
+
     public var body: some View {
         let p = datos.pintura
         let apagado = sobreNegro ? Color.white.opacity(0.6) : p.apagado
@@ -321,7 +337,7 @@ public struct PieDeViaje: View {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(ColoresViaje.km(datos.restanteKm))
                     .font(.system(size: tamano, weight: .bold)).monospacedDigit()
-                Text(sobreNegro ? "km" : "km en línea recta")
+                Text(sobreNegro ? "km" : textoDeKm)
                     .font(.caption).foregroundStyle(apagado)
                 Spacer(minLength: 6)
                 if datos.sinSenal {

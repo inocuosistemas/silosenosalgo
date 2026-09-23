@@ -257,6 +257,10 @@ public struct TarjetaDelViaje: View {
     public var body: some View {
         if datos.transporte == .avion {
             TarjetaViajeArco(datos: datos, forma: .semicirculo)
+        } else if let f = datos.forma, datos.transporte == .coche || datos.transporte == .autobus {
+            // Por carretera, la ruta dibujada; a pie o en bici, la barra con
+            // los km de camino (la forma de un paseo dice poco).
+            TarjetaViajeRuta(datos: datos, forma: f)
         } else {
             TarjetaViaje(datos: datos)
         }

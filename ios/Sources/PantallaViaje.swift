@@ -214,6 +214,9 @@ struct PantallaViaje: View {
     @State private var simulado = 0.35
     /// El extremo que se está eligiendo en el mapa, si se está.
     @State private var mapaPara: ExtremoDelViaje?
+    /// La ruta por carretera de lo que se configura, para la vista previa:
+    /// la misma que pedirá el viaje al empezar.
+    @State private var rutaDeMuestra: RutaPorCarretera?
 
     /// Fondos oscuros que casan con la pantalla de bloqueo, y un par de claros.
     private let fondos = ["#0f1729", "#000000", "#1e1b4b", "#052e16", "#450a0a", "#3b0764", "#f8fafc", "#fef3c7"]
@@ -253,6 +256,7 @@ struct PantallaViaje: View {
             }
         }
         .onAppear(perform: carga)
+        .task(id: claveDeRuta) { await pideRutaDeMuestra() }
         // Lo que se va eligiendo se guarda al momento: la pantalla se cierra en
         // cuanto se vuelve atrás, y con el estado solo en memoria, al volver a
         // entrar estaba todo vacío.
@@ -276,10 +280,18 @@ struct PantallaViaje: View {
             return DatosDeViaje(titulo: a.titulo, origen: a.origen, destino: a.destino,
                                 transporte: a.transporte, colores: a.colores,
                                 restanteKm: e.restanteKm, progreso: e.progreso,
-                                llegada: e.llegada, llegado: e.llegado, actualizado: e.actualizado)
+                                llegada: e.llegada, llegado: e.llegado, actualizado: e.actualizado,
+                                porRuta: e.porRuta, forma: e.forma)
         }
         let o = origen ?? LugarDeViaje(nombre: "Origen", abreviatura: "ORI", latitud: 41.39, longitud: 2.17)
         let d = destino ?? LugarDeViaje(nombre: "Destino", abreviatura: "DES", latitud: 35.68, longitud: 139.69)
+        if let r = rutaDeMuestra, Carreteras.tipo(transporte) != nil {
+            return DatosDeViaje(titulo: titulo, origen: o, destino: d, transporte: transporte,
+                                colores: colores, restanteKm: r.km * (1 - simulado), progreso: simulado,
+                                llegada: Date().addingTimeInterval(r.segundos * (1 - simulado)),
+                                llegado: simulado >= 0.99, porRuta: true,
+                                forma: Carreteras.forma(r.geometria))
+        }
         let total = Trayecto.km(o.coordenada, d.coordenada)
         // Donde diga el deslizador de la simulación (ver `simulacion`), con los
         // km que de verdad faltarían desde ahí: la distancia real entre los dos
@@ -289,6 +301,21 @@ struct PantallaViaje: View {
                             // Llegado desde el 99 %: con el dedo, el deslizador
                             // casi nunca se queda en el 100 % exacto.
                             progreso: simulado, llegado: simulado >= 0.99)
+    }
+
+    /// Qué ruta hay que pedir: cambia con los extremos y con el transporte
+    /// (en coche y a pie la ruta es otra; en avión, ninguna).
+    private var claveDeRuta: String {
+        guard let o = origen, let d = destino, let t = Carreteras.tipo(transporte) else { return "" }
+        return "\(o.latitud),\(o.longitud)>\(d.latitud),\(d.longitud)·\(t.rawValue)"
+    }
+
+    private func pideRutaDeMuestra() async {
+        guard !claveDeRuta.isEmpty, let o = origen, let d = destino, let t = Carreteras.tipo(transporte) else {
+            rutaDeMuestra = nil
+            return
+        }
+        rutaDeMuestra = try? await Carreteras.pide(desde: o.coordenada, hasta: d.coordenada, tipo: t)
     }
 
     /// Mover la vista previa por todo el recorrido, para ver cómo va a quedar
@@ -305,7 +332,9 @@ struct PantallaViaje: View {
                 Image(systemName: "flag.checkered")
                     .foregroundStyle(Theme.slate400)
             }
-            Text("Simulación del recorrido: no es tu posición. Los km son los reales desde ese punto.")
+            Text(rutaDeMuestra != nil && Carreteras.tipo(transporte) != nil
+                 ? "Simulación del recorrido: no es tu posición. Km y hora por carretera, con el tráfico de ahora."
+                 : "Simulación del recorrido: no es tu posición. Los km son los reales desde ese punto.")
                 .font(.caption2)
                 .foregroundStyle(Theme.slate400)
         }
@@ -523,6 +552,12 @@ struct PantallaViaje: View {
                 (Text(cuando, style: .time)
                  + Text(d.ultimoError.map { " · ±\(Int($0)) m" } ?? ""))
                     .monospacedDigit()
+            }
+        }
+        if let r = d.ruta {
+            LabeledContent("Ruta") {
+                Text(r).multilineTextAlignment(.trailing)
+                    .foregroundStyle(r.hasPrefix("sin") ? Color.orange : Theme.slate400)
             }
         }
         if let e = d.encendido {

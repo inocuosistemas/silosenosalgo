@@ -1,4 +1,5 @@
 import SwiftUI
+import ActivityKit
 import UIKit
 import UserNotifications
 
@@ -20,6 +21,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 // Solo la pantalla de configurar, detrás de un enlace: para
                 // probar que lo escrito sigue ahí al salir y volver a entrar.
                 let _ = PruebaDeViaje.siembraSiSePide()
+                let _ = PruebaDeViaje.terminaLosDeAntes()
                 NavigationStack {
                     List {
                         NavigationLink("Viaje en directo") { PantallaViaje() }
@@ -172,7 +174,28 @@ enum PruebaDeViaje {
         ).guarda()
     }
 
-    static let atributos = ViajeAtributos(
+    /// Quitar los viajes que haya dejado en marcha otra prueba: con uno en
+    /// marcha, la pantalla enseña «En marcha» y no el formulario, y en la
+    /// pantalla de bloqueo hay dos tarjetas.
+    static func terminaLosDeAntes() {
+        for a in Activity<ViajeAtributos>.activities {
+            Task { await a.end(nil, dismissalPolicy: .immediate) }
+        }
+    }
+
+    /// Con `-ViajeEnCoche`, uno por carretera, Barcelona → Andorra, para ver
+    /// la ruta dibujada; si no, el de avión.
+    static var atributos: ViajeAtributos {
+        ProcessInfo.processInfo.arguments.contains("-ViajeEnCoche") ? enCoche : enAvion
+    }
+
+    static let enCoche = ViajeAtributos(
+        titulo: "Esquí en Grandvalira",
+        origen: LugarDeViaje(nombre: "Barcelona", abreviatura: "BCN", latitud: 41.3874, longitud: 2.1686),
+        destino: LugarDeViaje(nombre: "Andorra la Vella", abreviatura: "AND", latitud: 42.5063, longitud: 1.5218),
+        transporte: .coche)
+
+    static let enAvion = ViajeAtributos(
         titulo: "Prueba de viaje",
         origen: LugarDeViaje(nombre: "Madrid", abreviatura: "MAD", latitud: 40.4168, longitud: -3.7038),
         destino: LugarDeViaje(nombre: "Barcelona", abreviatura: "BCN", latitud: 41.3874, longitud: 2.1686),
@@ -188,6 +211,7 @@ enum PruebaDeCarrera {
 
     @MainActor
     static func empieza() {
+        PruebaDeViaje.terminaLosDeAntes()
         let ahora = Date()
         let salida = ahora.addingTimeInterval(-(3 * 3600 + 42 * 60))
         let perfil = stride(from: 0.0, through: 20.0, by: 0.05).map { km in

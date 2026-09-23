@@ -59,6 +59,36 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("viaje-3-bloqueo")
     }
 
+    /// En coche, la ruta de Apple llega sola al empezar: se ve en «En
+    /// marcha», y la tarjeta de la pantalla de bloqueo la dibuja.
+    func testElViajeEnCocheVaPorCarretera() throws {
+        addTeardownBlock {
+            let inicio = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+                .press(forDuration: 0.1,
+                       thenDragTo: inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            sleep(1)
+        }
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeViaje", "-ViajeEnCoche"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 20))
+        let ruta = app.staticTexts.containing(NSPredicate(format: "label ENDSWITH 'km por carretera'")).firstMatch
+        guard ruta.waitForExistence(timeout: 30) else {
+            throw XCTSkip("Sin ruta de Apple Maps (¿sin red?):\n\(app.debugDescription)")
+        }
+        guarda("coche-1-app")
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        guarda("coche-2-bloqueo")
+        let bloqueo = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        XCTAssertTrue(bloqueo.staticTexts.containing(NSPredicate(format: "label CONTAINS 'km por carretera'"))
+                        .firstMatch.waitForExistence(timeout: 5),
+                      "la tarjeta no dice «km por carretera»:\n\(bloqueo.debugDescription)")
+    }
+
     /// Lo que se configura sigue ahí al salir de la pantalla y volver a entrar.
     /// Antes se perdía: vivía solo en memoria y la pantalla se cierra al volver.
     func testLoConfiguradoSigueAlVolver() {
