@@ -11,12 +11,15 @@ import android.content.Intent
 object PruebaDePantalla {
     var pedida = false
         private set
+    var nota = false
+        private set
     private var carrera: String? = null
     /** Empezar sin ninguna carrera preparada de antes. */
     var sinPreparar = false
         private set
 
     fun lee(intent: Intent?) {
+        nota = intent?.getBooleanExtra("nota", false) == true
         if (intent?.getBooleanExtra("prueba", false) == true) {
             pedida = true
             carrera = intent.getStringExtra("carrera")

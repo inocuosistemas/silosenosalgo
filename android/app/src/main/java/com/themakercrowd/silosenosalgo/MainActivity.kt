@@ -188,6 +188,11 @@ private fun App() {
 
     // Solo en la de depuración: la pantalla principal sin entrar, con carreras
     // de muestra, para probarla en el emulador (ver `PruebaDePantalla`).
+    // (Depuración: la hoja de añadir nota, sola, para probar la foto.)
+    if (BuildConfig.DEBUG && PruebaDePantalla.nota) {
+        HojaAnadirNota(onGuardar = { _, _, _, _ -> }, onCerrar = {})
+        return
+    }
     if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
         LaunchedEffect(Unit) { PruebaDePantalla.siembra() }
         PantallaSeguimiento(usuario = "prueba", onSalir = {})

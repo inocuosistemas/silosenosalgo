@@ -14,6 +14,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -81,33 +93,63 @@ fun HojaAnadirNota(
     var audio by remember { mutableStateOf<ByteArray?>(null) }
     var grabando by remember { mutableStateOf(false) }
     var eligiendoFoto by remember { mutableStateOf(false) }
+    /** La foto se está preparando (traerla —de la nube, si no está en el
+     *  móvil— y reducirla): sin nada en pantalla parecía colgado. */
+    var preparandoFoto by remember { mutableStateOf(false) }
+    var fotoFallida by remember { mutableStateOf(false) }
+    val alcance = rememberCoroutineScope()
     val grabadora = remember { GrabadoraAudio(context) }
+    /** Preparar la foto fuera del hilo de la pantalla. */
+    fun prepara(uri: Uri, despues: () -> Unit = {}) {
+        preparandoFoto = true
+        fotoFallida = false
+        alcance.launch {
+            val lista = withContext(Dispatchers.IO) { MediosNota.preparaFoto(context, uri) }
+            foto = lista
+            fotoFallida = lista == null
+            preparandoFoto = false
+            despues()
+        }
+    }
 
     var uriCaptura by remember { mutableStateOf<Uri?>(null) }
     var ficheroCaptura by remember { mutableStateOf<File?>(null) }
     val camara = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = uriCaptura
-        if (ok && uri != null) {
-            foto = MediosNota.preparaFoto(context, uri)
-            // El original, a máxima calidad, se queda en la galería: la app solo
-            // conserva (y sube) la copia encogida, pero la foto buena es del
-            // usuario y puede ser la única que hizo de esa cima.
-            MediosNota.guardaEnGaleria(context, uri, "slsns_${System.currentTimeMillis()}.jpg")
-        }
-        // El original de la cámara se borra en cuanto se ha encogido: son varios
-        // megas por foto y en una travesía larga llenarían la caché.
-        runCatching { ficheroCaptura?.delete() }
+        val fichero = ficheroCaptura
         ficheroCaptura = null
         uriCaptura = null
+        if (ok && uri != null) {
+            prepara(uri) {
+                // El original, a máxima calidad, se queda en la galería: la app
+                // solo conserva (y sube) la copia encogida, pero la foto buena es
+                // del usuario y puede ser la única que hizo de esa cima.
+                MediosNota.guardaEnGaleria(context, uri, "slsns_${System.currentTimeMillis()}.jpg")
+                // Y se borra de la caché en cuanto se ha encogido: son varios
+                // megas por foto y en una travesía larga la llenarían.
+                runCatching { fichero?.delete() }
+            }
+        } else {
+            runCatching { fichero?.delete() }
+        }
     }
 
     val galeria = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> if (uri != null) foto = MediosNota.preparaFoto(context, uri) }
+    ) { uri -> if (uri != null) prepara(uri) }
 
     val pideMicrofono = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { concedido -> if (concedido) grabando = grabadora.empieza() }
+
+    fun abreCamara() {
+        val destino = File.createTempFile("foto_", ".jpg", context.cacheDir)
+        ficheroCaptura = destino
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.ficheros", destino)
+        uriCaptura = uri
+        runCatching { camara.launch(uri) }
+    }
+    fun abreGaleria() = galeria.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
 
     ModalBottomSheet(onDismissRequest = { grabadora.cancela(); onCerrar() }) {
         Column(
@@ -116,6 +158,44 @@ fun HojaAnadirNota(
         ) {
             Text("Añadir nota", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
+
+            // La foto, lo primero y en grande: es lo que casi siempre se hace.
+            val bmp = remember(foto) { foto?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }
+            when {
+                preparandoFoto -> Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Paleta.slate800).padding(16.dp),
+                ) {
+                    Text("🖼️ Preparando la foto…", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(6.dp))
+                    Text("Si está en la nube, puede tardar un poco en bajar.", style = MaterialTheme.typography.bodySmall)
+                }
+                bmp != null -> Column {
+                    Box {
+                        Image(bmp, contentDescription = "Foto de la nota", contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(14.dp)))
+                        Text("✓ Lista", fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                                .clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.5f))
+                                .padding(horizontal = 10.dp, vertical = 4.dp), color = Color.White)
+                    }
+                    Row(Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { eligiendoFoto = true }) { Text("🔄 Cambiar") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { foto = null }) { Text("🗑 Quitar", color = Paleta.rojo) }
+                    }
+                }
+                else -> Column {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        BotonGrandeFoto("📷", "Hacer foto", principal = true, modifier = Modifier.weight(1f)) { abreCamara() }
+                        BotonGrandeFoto("🖼️", "Galería", principal = false, modifier = Modifier.weight(1f)) { abreGaleria() }
+                    }
+                    if (fotoFallida) Text("No se ha podido traer esa foto. Prueba otra vez, o con otra.",
+                        color = Paleta.ambar, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+            Spacer(Modifier.height(14.dp))
 
             Text("Tipo de punto", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -138,12 +218,9 @@ fun HojaAnadirNota(
             )
 
             Spacer(Modifier.height(12.dp))
-            Text("Voz y foto", style = MaterialTheme.typography.titleSmall)
+            Text("Nota de voz", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { eligiendoFoto = true }) {
-                    Text(if (foto != null) "📷 ✓" else "📷 Foto")
-                }
                 OutlinedButton(onClick = {
                     if (grabando) {
                         audio = grabadora.para()
@@ -166,8 +243,8 @@ fun HojaAnadirNota(
                         },
                     )
                 }
-                if (foto != null || audio != null) {
-                    TextButton(onClick = { foto = null; audio = null }) { Text("Quitar") }
+                if (audio != null) {
+                    TextButton(onClick = { audio = null }) { Text("Quitar") }
                 }
             }
             if (grabando) Text("Grabando…", style = MaterialTheme.typography.bodySmall)
@@ -191,6 +268,8 @@ fun HojaAnadirNota(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     modifier = Modifier.weight(1f),
+                    // Con la foto a medio preparar, todavía no: se guardaría sin ella.
+                    enabled = !preparandoFoto,
                     onClick = {
                         // Si se guarda con la grabación abierta, se cierra y se
                         // adjunta: perder la voz por no pulsar "Parar" sería absurdo.
@@ -198,7 +277,7 @@ fun HojaAnadirNota(
                         onGuardar(texto, tipo, foto, voz)
                         onCerrar()
                     },
-                ) { Text("Guardar") }
+                ) { Text(if (preparandoFoto) "Preparando…" else "Guardar") }
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
                     onClick = { grabadora.cancela(); onCerrar() },
@@ -213,26 +292,28 @@ fun HojaAnadirNota(
             title = { Text("Foto de la nota") },
             text = { Text("¿De dónde sale la foto?") },
             confirmButton = {
-                TextButton(onClick = {
-                    eligiendoFoto = false
-                    val destino = File.createTempFile("foto_", ".jpg", context.cacheDir)
-                    ficheroCaptura = destino
-                    val uri = FileProvider.getUriForFile(
-                        context, "${context.packageName}.ficheros", destino,
-                    )
-                    uriCaptura = uri
-                    runCatching { camara.launch(uri) }
-                }) { Text("Hacer foto") }
+                TextButton(onClick = { eligiendoFoto = false; abreCamara() }) { Text("Hacer foto") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    eligiendoFoto = false
-                    galeria.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                }) { Text("Elegir de la galería") }
+                TextButton(onClick = { eligiendoFoto = false; abreGaleria() }) { Text("Elegir de la galería") }
             },
         )
+    }
+}
+
+/** Un botón grande para la foto (cámara o galería). */
+@Composable
+private fun BotonGrandeFoto(icono: String, texto: String, principal: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.height(96.dp).clip(RoundedCornerShape(14.dp))
+            .background(if (principal) Paleta.sky600 else Paleta.sky500.copy(alpha = 0.14f))
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(icono, fontSize = 28.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(texto, fontWeight = FontWeight.SemiBold, color = if (principal) Color.White else Paleta.sky500)
     }
 }
 
