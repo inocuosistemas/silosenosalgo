@@ -39,11 +39,17 @@ class ConversorGpx(private val context: Context) {
         @Volatile var gpx = ""
         @Volatile var nombreFichero = ""
         @Volatile var act = ""
+        @Volatile var plan = ""
+        @Volatile var ajustes = ""
+        @Volatile var salida = 0.0
         @Volatile var espera: CompletableDeferred<Result<String>>? = null
 
         @JavascriptInterface fun texto(): String = gpx
         @JavascriptInterface fun fichero(): String = nombreFichero
         @JavascriptInterface fun actividad(): String = act
+        @JavascriptInterface fun planGz(): String = plan
+        @JavascriptInterface fun ajustesJson(): String = ajustes
+        @JavascriptInterface fun salidaMs(): Double = salida
         @JavascriptInterface fun hecho(json: String) { espera?.complete(Result.success(json)) }
         @JavascriptInterface fun fallo(mensaje: String) { espera?.complete(Result.failure(Fallo(mensaje))) }
     }
@@ -78,6 +84,37 @@ class ConversorGpx(private val context: Context) {
             desnivelM = d.getDouble("desnivelM"),
             cuerpo = Base64.decode(d.getString("cuerpoBase64"), Base64.DEFAULT),
         )
+    }
+
+    /**
+     * La hoja de tramos de una carrera (ver `src/lib/hojaDeTramos.ts`), con el
+     * mismo código que la web y que iOS: el texto JSON tal cual, para guardarlo.
+     */
+    suspend fun hojaDeTramos(planGz: ByteArray, ajustes: String?, salidaMs: Double?): String = withContext(Dispatchers.Main) {
+        val web = preparado()
+        puente.plan = Base64.encodeToString(planGz, Base64.NO_WRAP)
+        puente.ajustes = ajustes ?: ""
+        puente.salida = salidaMs ?: 0.0
+        val espera = CompletableDeferred<Result<String>>()
+        puente.espera = espera
+        web.evaluateJavascript(
+            "window.slsnsHojaDeTramos(SlsnsPuente.planGz(), SlsnsPuente.ajustesJson(), SlsnsPuente.salidaMs())" +
+                ".then(function (r) { SlsnsPuente.hecho(r) }," +
+                " function (e) { SlsnsPuente.fallo(String((e && e.message) || e)) })",
+            null,
+        )
+        try {
+            withTimeout(60_000) { espera.await() }.getOrThrow()
+        } finally {
+            puente.plan = ""
+            puente.espera = null
+        }
+    }
+
+    /** Suelta el visor oculto cuando ya no hace falta. */
+    fun suelta() {
+        web?.destroy()
+        web = null
     }
 
     /** El visor oculto, cargado y con el conversor a punto. Se crea una vez. */

@@ -135,6 +135,15 @@ class LocalStore(context: Context) {
     @Serializable
     data class FormaGuardada(val factor: Double, val log: List<ViewerData.FormaWire>)
 
+    /** La hoja de tramos de la carrera de esta sesión (ver `HojaDeTramos`). */
+    fun guardaHoja(sessionId: String, json: String) {
+        runCatching { File(dirEscritura(sessionId), "hoja.json").writeText(json) }
+    }
+
+    fun leeHoja(sessionId: String): String? = runCatching {
+        File(dir(sessionId), "hoja.json").takeIf { it.exists() }?.readText()
+    }.getOrNull()
+
     fun guardaForma(sessionId: String, forma: FormaGuardada) {
         escribe(File(dir(sessionId), "forma.json"), Api.json.encodeToString(forma))
     }

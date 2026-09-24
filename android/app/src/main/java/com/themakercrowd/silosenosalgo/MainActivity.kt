@@ -132,6 +132,12 @@ class MainActivity : ComponentActivity() {
             if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
             // Una sesión de mentira, para probar lo que pasa sin cobertura.
             if (PruebaDePantalla.pedida) intent.getStringExtra("token")?.let { TokenStore(this).token = it }
+            // En carrera, a mitad de tramo, con la carrera de ejemplo: para ver la
+            // notificación del tramo sin salir a correr.
+            if (intent.getBooleanExtra("enTramo", false)) {
+                TrackingStore.enTramoDePrueba(intent.getDoubleExtra("km", 7.0))
+                TrackingService.arranca(this)
+            }
         }
         miraSiArmar(intent)
         setContent {

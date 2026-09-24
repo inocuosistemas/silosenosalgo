@@ -338,6 +338,17 @@ class Api(
         return decode<PaseResponse>(body).pase
     }
 
+    /** Los ajustes de puntos que puso la organización (corregidos, movidos o
+     *  nuevos), en texto tal cual, para la hoja de tramos. Null si no hay. */
+    suspend fun ajustesDelEvento(token: String, eventId: String): String? {
+        val (body, status) = request("api/events/$eventId", "GET", token)
+        if (!ok(status)) throw decodeError(body, status)
+        val raiz = json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject ?: return null
+        val ev = raiz["event"] as? kotlinx.serialization.json.JsonObject ?: return null
+        val ajustes = ev["puntosAjustes"] as? kotlinx.serialization.json.JsonObject ?: return null
+        return if (ajustes.isEmpty()) null else ajustes.toString()
+    }
+
     suspend fun listEvents(token: String): List<EventSummary> {
         val (body, status) = request("api/events", "GET", token)
         if (!ok(status)) throw decodeError(body, status)

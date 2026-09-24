@@ -351,6 +351,7 @@ object TrackingStore {
         id: String, pendiente: Boolean, nombre: String, planId: String?,
         salidaMs: Double, actividad: BeaconActivity?,
     ) {
+        olvidaHoja()
         pendientes = emptyList()
         traza = emptyList()
         notasPendientes = emptyList()
@@ -431,6 +432,7 @@ object TrackingStore {
         // tras una muerte del proceso dejaba de calcular el kilómetro a mitad
         // de carrera.
         cargaGeometriaGuardada(guardado.sessionId)
+        olvidaHoja()
         cargaNotasDe(guardado.sessionId)
         cargaAnimosDe(guardado.sessionId)
         almacen.leeForma(guardado.sessionId)?.let { ViewerData.cargaForma(it.factor, it.log) }
@@ -466,6 +468,8 @@ object TrackingStore {
         )
         aplicaGps()
         ViewerData.registra(guardado.sessionId)
+        // La hoja de la carrera, si la había (se calculó al empezar).
+        almacen.leePlan(guardado.sessionId)?.let { preparaHoja(guardado.sessionId, it) }
         return true
     }
 
@@ -577,6 +581,7 @@ object TrackingStore {
         }
         almacen.borraActivo()
         ViewerData.registra(null)
+        olvidaHoja()
         pendientes = emptyList()
         traza = emptyList()
         notasPendientes = emptyList()
@@ -709,6 +714,75 @@ object TrackingStore {
         _estado.value = _estado.value.copy(
             compartiendo = true, enEspera = true, eventoId = eventoId, salidaMs = salidaMs, salidaTocada = true,
         )
+    }
+
+    // ── Carrera en directo: la notificación del tramo ───────────────────────
+
+    /** La hoja de tramos de la carrera que se emite (ver `HojaDeTramos`). */
+    private var hoja: HojaDeTramos? = null
+    /** Las posiciones de la última hora y pico, (ms, km): para medir cómo se rinde. */
+    private var historiaKm: List<Pair<Double, Double>> = emptyList()
+    private val _tramo = MutableStateFlow<DatosTramo?>(null)
+    /** Lo que enseña la notificación del tramo; null sin carrera o sin recorrido. */
+    val tramo: StateFlow<DatosTramo?> = _tramo.asStateFlow()
+    private val jsonHoja = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    /**
+     * La hoja de la carrera: guardada si ya estaba; si no, la calcula la web
+     * (hace falta el recorrido y, para los ajustes de la organización, red).
+     * Solo en carreras: una baliza suelta no tiene tramos.
+     */
+    private fun preparaHoja(sessionId: String, planGz: ByteArray) {
+        val e = _estado.value
+        val eventoId = e.eventoId ?: return
+        almacen.leeHoja(sessionId)?.let { texto ->
+            runCatching { jsonHoja.decodeFromString(HojaDeTramos.serializer(), texto) }.getOrNull()?.let {
+                hoja = it; recalculaTramo(); return
+            }
+        }
+        val ctx = appCtx ?: return
+        scope.launch {
+            val ajustes = token?.let { t -> runCatching { api.ajustesDelEvento(t, eventoId) }.getOrNull() }
+            val salida = eventoActual()?.startsAt ?: e.salidaMs.takeIf { it > 0 }
+            val conversor = ConversorGpx(ctx)
+            val texto = runCatching { conversor.hojaDeTramos(planGz, ajustes, salida) }.getOrNull()
+            withContext(Dispatchers.Main) { conversor.suelta() }
+            texto ?: return@launch
+            val h = runCatching { jsonHoja.decodeFromString(HojaDeTramos.serializer(), texto) }.getOrNull() ?: return@launch
+            if (_estado.value.sessionId != sessionId) return@launch
+            almacen.guardaHoja(sessionId, texto)
+            hoja = h
+            recalculaTramo()
+        }
+    }
+
+    /** Con una posición en la ruta (o con el paso del tiempo), el tramo de ahora. */
+    private fun recalculaTramo(kmNuevo: Double? = null) {
+        val h = hoja ?: run { _tramo.value = null; return }
+        val ahora = ahoraMs
+        if (kmNuevo != null) {
+            historiaKm = (historiaKm + (ahora to kmNuevo)).filter { ahora - it.first <= 2 * 3_600_000.0 }
+        }
+        val km = kmNuevo ?: historiaKm.lastOrNull()?.second ?: 0.0
+        _tramo.value = ReglasDeCarrera.datos(km, ahora, historiaKm, h)
+    }
+
+    /** Solo para pruebas: compartiendo en la carrera de ejemplo, en un km. */
+    internal fun enTramoDePrueba(km: Double) {
+        val ahora = ahoraMs
+        val h = HojaDeEjemplo.hoja(ahora - 90 * 60_000.0)
+        hoja = h
+        _estado.value = _estado.value.copy(
+            compartiendo = true, enEspera = false, sessionId = "prueba", eventoId = "e1", salidaMs = h.salida,
+        )
+        historiaKm = listOf((ahora - 50 * 60_000.0) to (km - 5.0).coerceAtLeast(0.0))
+        recalculaTramo(km)
+    }
+
+    private fun olvidaHoja() {
+        hoja = null
+        historiaKm = emptyList()
+        _tramo.value = null
     }
 
     /** En qué va la lista de carreras: sin esto, mientras llegaba (o si no
@@ -1292,6 +1366,7 @@ object TrackingStore {
             if (bytes != null) {
                 almacen.guardaPlan(sessionId, bytes)
                 cargaGeometriaRuta(bytes)
+                preparaHoja(sessionId, bytes)
             }
         }
     }
@@ -1591,6 +1666,7 @@ object TrackingStore {
         val kms = rutaKmAcum ?: return fix
         val km = PlanGeometry.proyectaKm(puntos, kms, fix.lat, fix.lon, ultimoKmRuta) ?: return fix
         ultimoKmRuta = km
+        recalculaTramo(km)
 
         // Meta: el final del recorrido, con margen. El GPS no clava el último
         // metro y el arco de meta nunca cae en el punto exacto del GPX, así que
@@ -1984,6 +2060,8 @@ object TrackingStore {
             scope.launch { compruebaSigueSiendoMia() }
             return
         }
+        // El margen al corte cambia con el reloj aunque no se avance.
+        if (hoja != null) recalculaTramo()
         if (TrackingRules.tocaLatido(ahoraMs, ultimoIntentoMs, e.ritmo)) {
             ultimoIntentoMs = ahoraMs   // optimista: que no se repita cada tic
             motor.pideUnaLectura()

@@ -74,10 +74,12 @@ class TrackingService : Service() {
         // La notificación se mantiene al día con el estado: posiciones subidas,
         // atasco pendiente y hueco con los seguidores. Es la única ventana al
         // seguimiento cuando el móvil va en el bolsillo.
+        // En una carrera, con su tramo: la tarjeta del tramo de iOS, aquí.
         scope.launch {
-            TrackingStore.estado.collectLatest { estado ->
-                if (estado.compartiendo) notifica(construyeNotificacion(estado))
-            }
+            kotlinx.coroutines.flow.combine(TrackingStore.estado, TrackingStore.tramo) { e, t -> e to t }
+                .collectLatest { (estado, _) ->
+                    if (estado.compartiendo) notifica(construyeNotificacion(estado))
+                }
         }
     }
 
@@ -308,6 +310,10 @@ class TrackingService : Service() {
      * atrás lo que ven los seguidores.
      */
     private fun construyeNotificacion(estado: TrackingStore.Estado): Notification {
+        val tramo = TrackingStore.tramo.value
+        if (estado.compartiendo && !estado.enEspera && tramo != null) {
+            return NotificacionDeTramo.construye(this, CANAL, tramo, estado, accionesDeLaBaliza())
+        }
         val titulo = when {
             estado.enEspera -> "Preparado · aún sin transmitir"
             estado.pendientes > 0 -> "Sin cobertura · ${estado.pendientes} en cola"
@@ -325,17 +331,7 @@ class TrackingService : Service() {
             }
         }
 
-        val abrir = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java)
-                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val parar = PendingIntent.getService(
-            this, 1,
-            Intent(this, TrackingService::class.java).setAction(ACCION_PARAR),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
+        val (abrir, parar) = accionesDeLaBaliza()
 
         return NotificationCompat.Builder(this, CANAL)
             .setContentTitle(titulo)
@@ -348,6 +344,22 @@ class TrackingService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    /** Abrir la app y dejar de compartir: las dos notificaciones las llevan. */
+    private fun accionesDeLaBaliza(): Pair<PendingIntent, PendingIntent> {
+        val abrir = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val parar = PendingIntent.getService(
+            this, 1,
+            Intent(this, TrackingService::class.java).setAction(ACCION_PARAR),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        return abrir to parar
     }
 
     companion object {
