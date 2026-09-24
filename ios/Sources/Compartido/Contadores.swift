@@ -351,4 +351,17 @@ public enum AlmacenContadores {
             .filter { $0.vigente(ahora) }
             .sorted { $0.fechaVigente(desde: ahora) < $1.fechaVigente(desde: ahora) }
     }
+
+    /**
+     La SIGUIENTE que vence: la más cercana de las que todavía no han llegado.
+     Es la del widget en automático: en cuanto una vence, pasa a la
+     siguiente. No vale el primero de `vigentes`, que pone delante las que ya
+     pasaron y siguen contando hacia arriba (la carrera de hoy, por ejemplo),
+     y el widget se quedaba en ella. Si ya no queda ninguna por llegar, la
+     que siga contando.
+     */
+    public static func siguiente(_ ahora: Date = Date()) -> Contador? {
+        let todas = vigentes(ahora)
+        return todas.first { $0.fechaVigente(desde: ahora) > ahora } ?? todas.last
+    }
 }

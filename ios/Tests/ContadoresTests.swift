@@ -34,6 +34,21 @@ final class ContadoresTests: XCTestCase {
         XCTAssertTrue(Contador(nombre: "Por venir", fecha: Date().addingTimeInterval(3600)).vigente())
     }
 
+    /// El widget en automático: la siguiente por llegar, y no la carrera de
+    /// hoy que ya cuenta hacia arriba (se ponía delante y el widget se quedaba
+    /// en ella). Sin ninguna por llegar, la que siga contando.
+    func testLaSiguienteQueVence() {
+        let ahora = Date()
+        let hoy = Contador(nombre: "Hoy", fecha: ahora.addingTimeInterval(-3600), alPasar: .contarArriba)
+        let luego = Contador(nombre: "Luego", fecha: ahora.addingTimeInterval(10 * 86_400))
+        let despues = Contador(nombre: "Después", fecha: ahora.addingTimeInterval(40 * 86_400))
+        AlmacenContadores.guarda([despues, hoy, luego])
+        defer { AlmacenContadores.guarda([]) }
+        XCTAssertEqual(AlmacenContadores.siguiente(ahora)?.nombre, "Luego")
+        AlmacenContadores.guarda([hoy])
+        XCTAssertEqual(AlmacenContadores.siguiente(ahora)?.nombre, "Hoy")
+    }
+
     func testSeGuardanYSalenElMasCercanoPrimero() {
         let lejos = Contador(id: "a", nombre: "Lejos", fecha: Date().addingTimeInterval(20 * 86_400))
         let cerca = Contador(id: "b", nombre: "Cerca", fecha: Date().addingTimeInterval(2 * 86_400))

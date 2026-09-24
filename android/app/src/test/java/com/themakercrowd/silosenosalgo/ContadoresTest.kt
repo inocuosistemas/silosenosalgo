@@ -39,3 +39,20 @@ class ContadoresTest {
         assertEquals(listOf("B", "A"), Contadores.ordenados(listOf(a, b, c), ahora).map { it.nombre })
     }
 }
+
+/** El widget en automático: la siguiente por llegar, no la que ya cuenta hacia arriba. */
+class SiguienteContadorTest {
+    private val dia = 86_400_000.0
+    private val ahora = 1_800_000_000_000.0
+
+    @Test fun `la carrera de hoy, contando hacia arriba, no tapa la siguiente`() {
+        val hoy = Contador(nombre = "Hoy", fechaMs = ahora - 3_600_000.0, alPasar = "contarArriba")
+        val luego = Contador(nombre = "Luego", fechaMs = ahora + 10 * dia)
+        assertEquals("Luego", Contadores.siguiente(listOf(hoy, luego), ahora)?.nombre)
+    }
+
+    @Test fun `sin ninguna por llegar, la que siga contando`() {
+        val hoy = Contador(nombre = "Hoy", fechaMs = ahora - 3_600_000.0, alPasar = "contarArriba")
+        assertEquals("Hoy", Contadores.siguiente(listOf(hoy), ahora)?.nombre)
+    }
+}

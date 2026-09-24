@@ -1246,7 +1246,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
 
         if (pestana == Pestana.EN_DIRECTO) {
-            val proxima = Contadores.ordenados(Contadores.lista.collectAsState().value).firstOrNull()
+            val proxima = Contadores.siguiente(Contadores.lista.collectAsState().value)
             Seccion(titulo = "En la pantalla de inicio", icono = "📲",
                 pie = "La cuenta atrás de tus carreras, o de lo que quieras, como widget.") {
                 FilaEnDirecto(

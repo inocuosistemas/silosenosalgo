@@ -114,6 +114,18 @@ object Contadores {
         guarda(ctx, lee(ctx).filterNot { it.id == id })
     }
 
+    /**
+     * La SIGUIENTE que vence: la más cercana de las que todavía no han llegado
+     * (el widget en automático; al vencer una, pasa a la siguiente). No vale la
+     * primera de [ordenados], que pone delante las que ya pasaron y siguen
+     * contando hacia arriba. Si no queda ninguna por llegar, la que siga
+     * contando. Espejo de `AlmacenContadores.siguiente` en iOS.
+     */
+    fun siguiente(lista: List<Contador>, ahoraMs: Double = System.currentTimeMillis().toDouble()): Contador? {
+        val todas = ordenados(lista, ahoraMs)
+        return todas.firstOrNull { it.fechaVigente(ahoraMs) > ahoraMs } ?: todas.lastOrNull()
+    }
+
     /** Lo que se enseña, en orden: el más cercano primero. */
     fun ordenados(lista: List<Contador>, ahoraMs: Double = System.currentTimeMillis().toDouble()): List<Contador> =
         lista.filter { it.vigente(ahoraMs) }.sortedBy { it.fechaVigente(ahoraMs) }

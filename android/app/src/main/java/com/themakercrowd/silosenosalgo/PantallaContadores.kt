@@ -267,7 +267,7 @@ class ConfiguraWidgetActivity : ComponentActivity() {
                     Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
                         Text("¿Qué cuenta atrás enseña?", style = MaterialTheme.typography.titleLarge, color = Paleta.slate100, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(16.dp))
-                        Opcion("⏭️  La próxima", "Va pasando a la siguiente cuando una llega") { elige(widgetId, WidgetCuentaAtras.LA_PROXIMA) }
+                        Opcion("⏭️  La siguiente que venza", "Cuando vence, pasa sola a la siguiente") { elige(widgetId, WidgetCuentaAtras.LA_PROXIMA) }
                         lista.forEach { c ->
                             Opcion(listOfNotNull(c.emoji, c.nombre).joinToString("  "), cuandoEs(c)) { elige(widgetId, c.id) }
                         }

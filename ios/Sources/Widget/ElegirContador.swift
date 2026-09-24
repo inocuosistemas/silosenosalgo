@@ -14,11 +14,22 @@ struct ContadorEntity: AppEntity, Identifiable {
     var nombre: String
     var cuando: Date
 
+    /// «La siguiente que venza»: no una en concreto, sino la que toque en
+    /// cada momento (ver `AlmacenContadores.siguiente`).
+    static let idAutomatico = "automatico"
+    static var automatico: ContadorEntity {
+        ContadorEntity(id: idAutomatico, nombre: "⏭️ La siguiente que venza", cuando: .distantFuture)
+    }
+    var esAutomatico: Bool { id == Self.idAutomatico }
+
     static var typeDisplayRepresentation: TypeDisplayRepresentation { "Cuenta atrás" }
     static var defaultQuery = ConsultaContadores()
 
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(
+        if esAutomatico {
+            return DisplayRepresentation(title: "\(nombre)", subtitle: "Cuando vence, pasa sola a la siguiente")
+        }
+        return DisplayRepresentation(
             title: "\(nombre)",
             subtitle: "\(cuando.formatted(.dateTime.day().month(.abbreviated).year()))"
         )
@@ -27,13 +38,15 @@ struct ContadorEntity: AppEntity, Identifiable {
 
 struct ConsultaContadores: EntityQuery {
     func entities(for identifiers: [String]) async throws -> [ContadorEntity] {
-        todos().filter { identifiers.contains($0.id) }
+        ([ContadorEntity.automatico] + todos()).filter { identifiers.contains($0.id) }
     }
 
-    func suggestedEntities() async throws -> [ContadorEntity] { todos() }
+    /// La automática, la primera; después, una en concreto.
+    func suggestedEntities() async throws -> [ContadorEntity] { [ContadorEntity.automatico] + todos() }
 
-    /// Sin elegir nada: el más cercano. Así el widget recién puesto ya enseña algo.
-    func defaultResult() async -> ContadorEntity? { todos().first }
+    /// Sin elegir nada: la automática. Antes era la más cercana, pero fijada:
+    /// al vencer, el widget se quedaba en ella en vez de pasar a la siguiente.
+    func defaultResult() async -> ContadorEntity? { ContadorEntity.automatico }
 
     private func todos() -> [ContadorEntity] {
         AlmacenContadores.vigentes().map {

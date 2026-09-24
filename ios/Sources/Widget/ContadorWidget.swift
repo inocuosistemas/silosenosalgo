@@ -58,9 +58,10 @@ struct ProveedorContadores: AppIntentTimelineProvider {
     /// El contador que toca: el elegido en el widget o, si no se eligió
     /// ninguno (o el elegido ya no existe), el más cercano de los que quedan.
     private func elegido(_ configuration: ElegirContadorIntent) -> Contador? {
-        let vigentes = AlmacenContadores.vigentes()
-        if let id = configuration.contador?.id, let c = vigentes.first(where: { $0.id == id }) { return c }
-        return vigentes.first
+        guard let id = configuration.contador?.id, id != ContadorEntity.idAutomatico,
+              let c = AlmacenContadores.vigentes().first(where: { $0.id == id })
+        else { return AlmacenContadores.siguiente() }
+        return c
     }
 
     /// Cuándo pedir la siguiente tanda: al pasar la fecha, al entrar en el

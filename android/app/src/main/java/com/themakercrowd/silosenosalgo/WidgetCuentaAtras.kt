@@ -54,7 +54,7 @@ class WidgetCuentaAtras : AppWidgetProvider() {
 
     companion object {
         private const val ACCION_REFRESCO = "com.themakercrowd.silosenosalgo.WIDGET_REFRESCO"
-        /** «La próxima»: el widget va pasando de una a otra solo. */
+        /** «La siguiente que venza»: el widget va pasando de una a otra solo. */
         const val LA_PROXIMA = "la-proxima"
 
         private fun prefs(ctx: Context) = ctx.getSharedPreferences("widget-cuenta-atras", Context.MODE_PRIVATE)
@@ -74,7 +74,7 @@ class WidgetCuentaAtras : AppWidgetProvider() {
         private fun elegido(ctx: Context, widgetId: Int, ahora: Double): Contador? {
             val lista = Contadores.lee(ctx)
             val id = prefs(ctx).getString("elegido-$widgetId", LA_PROXIMA)
-            return lista.firstOrNull { it.id == id && it.vigente(ahora) } ?: Contadores.ordenados(lista, ahora).firstOrNull()
+            return lista.firstOrNull { it.id == id && it.vigente(ahora) } ?: Contadores.siguiente(lista, ahora)
         }
 
         fun pinta(ctx: Context, m: AppWidgetManager, widgetId: Int) {
