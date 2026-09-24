@@ -123,12 +123,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         miraSiArmar(intent)
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
+        if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_VIAJE, false)) PedidosDeNavegacion.viaje.value = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TrackingStore.inicia(this)
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
+        if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_VIAJE, false)) PedidosDeNavegacion.viaje.value = true
         if (BuildConfig.DEBUG) {
             PruebaDePantalla.lee(intent)
             if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
@@ -137,6 +139,7 @@ class MainActivity : ComponentActivity() {
             // En carrera, a mitad de tramo, con la carrera de ejemplo: para ver la
             // notificación del tramo sin salir a correr.
             if (intent.getBooleanExtra("carreraConRuta", false)) CarreraConTrazado.empiezaDePrueba(this)
+            if (intent.getBooleanExtra("viaje", false)) ViajeEnDirecto.empiezaDePrueba(this)
             if (intent.getBooleanExtra("enTramo", false)) {
                 TrackingStore.enTramoDePrueba(intent.getDoubleExtra("km", 7.0))
                 TrackingService.arranca(this)
@@ -352,6 +355,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var viendoMapa by remember { mutableStateOf(false) }
     /** La tarjeta de carrera con una ruta propia, abierta (ver `CarreraConTrazado`). */
     var carreraConRuta by remember { mutableStateOf(false) }
+    /** El viaje en directo, abierto (ver `ViajeEnDirecto`). */
+    var viajeAbierto by remember { mutableStateOf(false) }
+    val viajeEstado by ViajeEnDirecto.estado.collectAsState()
     val enDirecto by CarreraConTrazado.estado.collectAsState()
     /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
     var preparando by remember { mutableStateOf<EventSummary?>(null) }
@@ -483,6 +489,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
     }
 
+    // «Viaje en directo», a pantalla completa.
+    if (viajeAbierto) {
+        PantallaViaje(onCerrar = { viajeAbierto = false })
+        return
+    }
+
     // «Carrera en directo» con una ruta propia, a pantalla completa.
     if (carreraConRuta) {
         PantallaCarreraConTrazado(planes = planes, onCerrar = { carreraConRuta = false })
@@ -516,9 +528,17 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         pestana = Pestana.EN_DIRECTO
         carreraConRuta = true
     }
+    val abrirViaje by PedidosDeNavegacion.viaje.collectAsState()
+    LaunchedEffect(abrirViaje) {
+        if (!abrirViaje) return@LaunchedEffect
+        PedidosDeNavegacion.viaje.value = false
+        pestana = Pestana.EN_DIRECTO
+        viajeAbierto = true
+    }
     // Si el sistema cerró la app con una en marcha, se retoma.
     LaunchedEffect(Unit) {
-        if (!CarreraConTrazado.estado.value.enMarcha && CarreraConTrazado.hayUnaGuardada(context)) {
+        if ((!CarreraConTrazado.estado.value.enMarcha && CarreraConTrazado.hayUnaGuardada(context)) ||
+            (!ViajeEnDirecto.estado.value.enMarcha && ViajeEnDirecto.hayUnoGuardado(context))) {
             EnDirectoService.arranca(context)
         }
     }
@@ -1184,6 +1204,15 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             val t = enDirecto.tramo
             Seccion(titulo = "En la notificación", icono = "📱",
                 pie = "Tarjetas que van avanzando con el GPS. La de una carrera en la que estás inscrito sale sola con su baliza.") {
+                val v = viajeEstado.viaje
+                FilaEnDirecto(
+                    icono = v?.transporte?.emoji ?: "✈️", titulo = "Viaje en directo",
+                    texto = if (viajeEstado.enMarcha && v != null)
+                        "En marcha · ${v.origen.abreviatura} → ${v.destino.abreviatura} · " +
+                            String.format(java.util.Locale("es", "ES"), "%.0f km", viajeEstado.restanteKm)
+                        else "De un sitio a otro, en la notificación",
+                    activa = viajeEstado.enMarcha,
+                ) { viajeAbierto = true }
                 FilaEnDirecto(
                     icono = "🏃", titulo = "Carrera en directo",
                     texto = if (enDirecto.enMarcha) "En marcha · ${enDirecto.nombre}" + (t?.let { " · Tramo ${it.numero}/${it.deTramos}" } ?: "")
@@ -1985,4 +2014,5 @@ private enum class Pestana(val titulo: String, val icono: String) {
 /** Pedidos de ir a una pantalla que llegan de fuera (al tocar una notificación). */
 object PedidosDeNavegacion {
     val enDirecto = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val viaje = kotlinx.coroutines.flow.MutableStateFlow(false)
 }
