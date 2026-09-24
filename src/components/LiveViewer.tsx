@@ -790,6 +790,13 @@ type LiveViewerProps =
   | { token: string; guide?: never; onClose?: never }
   | { token?: never; guide: BrowserGuide; onClose: () => void }
 
+
+/** Lo más que crece la tarjeta: la pantalla menos lo de arriba (muesca y barra
+ *  de la app, fuera de la app cero) y lo de abajo (la lengüeta, la pastilla de
+ *  estado y la barra de inicio del sistema). */
+const ALTO_MAX_TARJETA =
+  'calc(100dvh - 9rem - env(safe-area-inset-top, 0px) - var(--barra-app, 0px) - env(safe-area-inset-bottom, 0px))'
+
 export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const localGuide = guide ?? null
   // Contexto de evento: cuando se llega aquí desde el mapa de un evento, el
@@ -3445,13 +3452,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <div className="relative mx-auto max-w-md pointer-events-auto">
         {/* El alto maximo deja hueco por debajo para la lenguesta Y para la
             pastilla de estado: desplegado, el cuadro llegaba casi al borde y el
-            tirador quedaba fuera de pantalla, sin forma de volver a plegarlo. */}
+            tirador quedaba fuera de pantalla, sin forma de volver a plegarlo.
+            Y descuenta lo que la tarjeta baja arriba (la muesca y la barra de
+            la app) y la barra de inicio de abajo: sin eso, en la app de iOS el
+            tirador caía encima de la barra de inicio, donde el sistema se
+            queda los gestos y costaba cogerlo. */}
         <div
           ref={tarjetaRef}
-          className="flex max-h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl"
-          style={altoForzado != null
-            ? { height: altoForzado, transition: asentando ? 'height 220ms cubic-bezier(.2,.8,.2,1)' : 'none' }
-            : undefined}
+          className="flex flex-col overflow-hidden rounded-2xl bg-slate-900/85 backdrop-blur border border-slate-700 shadow-xl"
+          style={{
+            maxHeight: ALTO_MAX_TARJETA,
+            ...(altoForzado != null
+              ? { height: altoForzado, transition: asentando ? 'height 220ms cubic-bezier(.2,.8,.2,1)' : 'none' }
+              : {}),
+          }}
         >
           {mini && !showAdvanced ? tarjetaMini : (<>
           <div className="shrink-0 px-3 pt-2.5 pb-1.5">
@@ -4026,7 +4040,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               // Hacia donde no hay más tamaño, con resistencia: se nota que
               // cede un poco y vuelve, como un elástico.
               const sinSalida = (dy < 0 && est.desde === 'mini') || (dy > 0 && est.desde === 'ampliada')
-              const tope = window.innerHeight - 144 // el max-h de la tarjeta
+              // El max-h de la tarjeta, tal como lo ha resuelto el navegador.
+              const tope = parseFloat(getComputedStyle(tarjetaRef.current!).maxHeight) || window.innerHeight - 144
               setAltoForzado(Math.max(40, Math.min(tope, est.alto0 + (sinSalida ? dy * 0.2 : dy))))
             }}
             onPointerUp={(e) => {
@@ -4054,7 +4069,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 }
                 natural += 2 // el borde
                 setAsentando(true)
-                setAltoForzado(Math.min(window.innerHeight - 144, natural))
+                setAltoForzado(Math.min(parseFloat(getComputedStyle(t).maxHeight) || window.innerHeight - 144, natural))
                 window.setTimeout(() => { setAltoForzado(null); setAsentando(false) }, 240)
               }))
             }}
@@ -4065,7 +4080,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               setAltoForzado(null)
             }}
             aria-label={mini ? 'Agrandar la tarjeta' : showAdvanced ? 'Ocultar datos avanzados' : 'Mostrar datos avanzados (toca, o arrastra hacia arriba para encoger)'}
-            className="group absolute left-1/2 top-full flex w-16 -translate-x-1/2 -translate-y-px touch-none items-center justify-center gap-1 rounded-b-xl border border-t-0 border-slate-700 bg-slate-900/85 py-1.5 shadow-lg backdrop-blur"
+            // La zona de toque, más grande que lo que se ve (el `after`): la
+            // lengüeta mide 64×16 y con el pulgar costaba acertarla.
+            className="group absolute left-1/2 top-full flex w-16 -translate-x-1/2 -translate-y-px touch-none items-center justify-center gap-1 rounded-b-xl border border-t-0 border-slate-700 bg-slate-900/85 py-1.5 shadow-lg backdrop-blur after:absolute after:-inset-x-6 after:-bottom-4 after:top-0 after:content-['']"
           >
             {[0, 1, 2].map((i) => (
               <span key={i} className={`h-1 w-1 rounded-full transition-colors ${showAdvanced ? 'bg-slate-300' : 'bg-slate-600 group-hover:bg-slate-400'}`} />
