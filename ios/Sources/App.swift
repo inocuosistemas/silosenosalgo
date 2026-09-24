@@ -12,6 +12,8 @@ struct SiLoSeNoSalgoTrackerApp: App {
     @State private var viajeAbierto = false
     /// La de la carrera en directo, al tocar la suya.
     @State private var carreraAbierta = false
+    /// Las cuentas atrás, al tocar el widget.
+    @State private var contadoresAbiertos = false
 
     var body: some Scene {
         WindowGroup {
@@ -99,6 +101,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .onOpenURL { url in
                     if EnlaceDeViaje.es(url) { viajeAbierto = true; return }
                     if EnlaceDeCarrera.es(url) { carreraAbierta = true; return }
+                    if EnlaceDeContadores.es(url) { contadoresAbiertos = true; return }
                     guard url.pathExtension.lowercased() == "slsnsguide" else { return }
                     Task { await guideLibrary.openImportedGuide(from: url) }
                 }
@@ -110,6 +113,18 @@ struct SiLoSeNoSalgoTrackerApp: App {
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Cerrar") { viajeAbierto = false }
+                                }
+                            }
+                    }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+                }
+                .sheet(isPresented: $contadoresAbiertos) {
+                    NavigationStack {
+                        ContadoresView()
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Cerrar") { contadoresAbiertos = false }
                                 }
                             }
                     }

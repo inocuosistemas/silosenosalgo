@@ -189,3 +189,13 @@ public enum EnlaceDeCarrera {
         url.scheme == EnlaceDeViaje.esquema && url.host == "carrera"
     }
 }
+
+/// El del widget de la cuenta atrás: al tocarlo, la sección de las cuentas
+/// atrás en la app (ver `App`), en vez de la pantalla principal.
+public enum EnlaceDeContadores {
+    public static let url = URL(string: "\(EnlaceDeViaje.esquema)://cuenta-atras")!
+
+    public static func es(_ url: URL) -> Bool {
+        url.scheme == EnlaceDeViaje.esquema && url.host == "cuenta-atras"
+    }
+}

@@ -100,6 +100,8 @@ struct ContadorWidget: Widget {
         ) { entrada in
             // El fondo lo pone la propia vista: depende del contador (su foto).
             VistaContador(entrada: entrada)
+                // Tocarlo abre las cuentas atrás, no la pantalla principal.
+                .widgetURL(EnlaceDeContadores.url)
         }
         // Sin los márgenes que pone el sistema: sumados a los nuestros dejaban
         // la tarjeta con el doble de aire que la de referencia, y el número,

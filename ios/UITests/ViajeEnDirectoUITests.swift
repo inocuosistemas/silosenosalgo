@@ -403,6 +403,21 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("principal-5-baliza-con-carrera")
     }
 
+    /// El enlace del widget de la cuenta atrás abre esa sección, no la
+    /// pantalla principal.
+    func testElWidgetAbreLasCuentasAtras() {
+        let app = XCUIApplication()
+        app.launch()
+        sleep(2)
+        app.open(URL(string: "silosenosalgo://cuenta-atras")!)
+        let sistema = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let abrir = sistema.buttons["Abrir"]
+        if abrir.waitForExistence(timeout: 3) { abrir.tap() }
+        XCTAssertTrue(app.navigationBars["Cuenta atrás"].waitForExistence(timeout: 10),
+                      "no ha abierto las cuentas atrás:\n\(app.debugDescription)")
+        guarda("widget-abre-cuentas-atras")
+    }
+
     /// La foto de la nota: los dos botones grandes, elegir de la galería, y la
     /// foto puesta (con «Cambiar» y «Quitar»).
     func testLaFotoDeLaNota() {
