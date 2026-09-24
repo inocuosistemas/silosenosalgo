@@ -12,12 +12,48 @@ final class AuthStore: ObservableObject {
     @Published var status: Status = .loading
     @Published var user: AuthUser?
     @Published private(set) var token: String?
+    /// La marca de la cuenta, para el botón de arriba a la derecha. Guardada en
+    /// el móvil para que se vea al abrir sin esperar a la red (ver `cargaPerfil`).
+    @Published private(set) var perfil = PerfilDeCuenta()
 
     /// Last known user, cached so the username shows even with no connectivity.
     private let cachedUserKey = "cachedAuthUser"
+    private let perfilKey = "perfilDeCuenta"
 
     init() {
         token = Keychain.load()
+        if let d = UserDefaults.standard.data(forKey: perfilKey),
+           let p = try? JSONDecoder().decode(PerfilDeCuenta.self, from: d) { perfil = p }
+    }
+
+    /// La marca, del servidor. Sin red se queda la guardada.
+    func cargaPerfil() async {
+        guard let t = token, let p = try? await API.perfil(token: t) else { return }
+        ponPerfil(p)
+    }
+
+    func guardaPerfil(emoji: String?? = nil, color: String?? = nil) async throws {
+        guard let t = token else { throw APIError(status: 401, code: "unauthorized") }
+        ponPerfil(try await API.guardaPerfil(token: t, emoji: emoji, color: color))
+    }
+
+    /// Para las pantallas de prueba (`-PruebaDePantallaPrincipal`): un usuario
+    /// y una marca sin pasar por el servidor.
+    func siembraDePrueba(usuario: String, perfil p: PerfilDeCuenta) {
+        user = AuthUser(id: "prueba", username: usuario)
+        perfil = p
+    }
+
+    private func ponPerfil(_ p: PerfilDeCuenta) {
+        perfil = p
+        if let d = try? JSONEncoder().encode(p) { UserDefaults.standard.set(d, forKey: perfilKey) }
+    }
+
+    /// Cambia la contraseña y se queda con la sesión nueva que da el servidor:
+    /// la de antes deja de valer, en este móvil y en todos.
+    func cambiaContrasena(actual: String, nueva: String) async throws {
+        guard let t = token else { throw APIError(status: 401, code: "unauthorized") }
+        try apply(try await API.cambiaContrasena(token: t, actual: actual, nueva: nueva))
     }
 
     func bootstrap() async {
@@ -63,6 +99,8 @@ final class AuthStore: ObservableObject {
     private func clearLocal() {
         Keychain.clear()
         UserDefaults.standard.removeObject(forKey: cachedUserKey)
+        UserDefaults.standard.removeObject(forKey: perfilKey)
+        perfil = PerfilDeCuenta()
         token = nil
         user = nil
         status = .anonymous

@@ -117,7 +117,8 @@ struct TrackingView: View {
     @State private var downloadPolyline: [(lat: Double, lon: Double)]?
     @State private var downloadRouteName: String?
     @State private var resolvingRoute = false
-    @State private var pendingLogout = false
+    /// «Mi cuenta», al tocar la marca de arriba a la derecha.
+    @State private var viendoCuenta = false
     /// Cuántas salidas se enseñan sin tener que pedir más.
     private let salidasVisibles = 4
     @State private var verTodasLasSalidas = false
@@ -1266,22 +1267,9 @@ struct TrackingView: View {
                 }
 
 
-                // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era
-                // fácil rozarlo con prisa, y es lo que menos se hace. Se sigue
-                // preguntando antes, que en marcha además hay que detener la
-                // baliza. Igual que en Android.
+                // Salir de la cuenta está en «Mi cuenta», la marca de arriba a
+                // la derecha. La versión se queda también aquí, al pie.
                 if pestana == .archivo {
-                Section {
-                    // En rojo, pero apagado: es una salida, no una alarma. En
-                    // azul se leía como un enlace más de los muchos que hay en
-                    // esta pantalla, y lo que hace —cerrar la sesión, y en
-                    // marcha detener la baliza— no es como abrir un mapa.
-                    Button("Salir de la cuenta") { pendingLogout = true }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundStyle(Theme.rose300.opacity(0.85))
-                }
-                .listRowBackground(Theme.slate900)
-
                 // La versión, al pie y en pequeño. No es decoración: es lo
                 // primero que hay que preguntar cuando alguien dice que algo no
                 // le funciona, y hasta ahora no había forma de saberlo —el
@@ -1374,6 +1362,13 @@ struct TrackingView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.slate950)
             .tint(Theme.sky500)
+            // Al cambiar la contraseña el servidor cierra todas las sesiones y
+            // da una nueva: la baliza en marcha sigue enviando con esa.
+            .onChange(of: auth.token) { _, nuevo in
+                guard pestana == .baliza, let nuevo else { return }
+                store.configure(token: nuevo)
+                CarreraEnDirecto.shared.renuevaToken(nuevo)
+            }
             .task {
                 // Una vez, desde la pestaña de la baliza (la que se abre primero).
                 guard pestana == .baliza, !PruebaDePantallaPrincipal.pedida else { return }
@@ -1382,6 +1377,8 @@ struct TrackingView: View {
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
+                // La marca de arriba a la derecha, al día (sin red, la guardada).
+                Task { await auth.cargaPerfil() }
                 // Cheer alerts need permission; asked here, on opening the
                 // portal (like Android's POST_NOTIFICATIONS), not mid-route.
                 // Pide el permiso Y da de alta el aparato para los push: el
@@ -1518,23 +1515,6 @@ struct TrackingView: View {
                 confirmandoParada: $confirmandoParada,
                 carreraAUnir: $carreraAUnir,
             ))
-            .alert("Salir de la cuenta", isPresented: $pendingLogout) {
-                Button(store.isSharing ? "Detener y salir" : "Salir", role: .destructive) {
-                    Task {
-                        await store.stopSharing()
-                        // Antes de cerrar la sesión, que es cuando todavía hay
-                        // con qué autenticar la baja: si no, este móvil seguiría
-                        // recibiendo los ánimos de quien ya no lo usa.
-                        await PushRegistrar.shared.daDeBaja()
-                        await auth.logout()
-                    }
-                }
-                Button("Cancelar", role: .cancel) { }
-            } message: {
-                Text(store.isSharing
-                     ? "Estás compartiendo tu ubicación. Al salir se detiene el seguimiento y se cierra la sesión."
-                     : "Se cerrará tu sesión en este dispositivo.")
-            }
             // Sin barra de navegación del sistema: en iOS 26 envuelve lo que se
             // pone en ella en botones de cristal redondos, y la marca quedaba
             // metida en un círculo, descentrada y sin sitio para el nombre ni el
@@ -1603,8 +1583,9 @@ struct TrackingView: View {
         return t.isEmpty ? nil : t
     }
 
-    /// La cabecera de la pantalla: marca y "Baliza · usuario". Salir de la cuenta
-    /// va al final (ver el `Form`).
+    /// La cabecera de la pantalla: marca de la app y "Baliza · usuario" a la
+    /// izquierda; a la derecha, la de quien la usa, que abre «Mi cuenta» (su
+    /// marca, la contraseña, salir).
     private var cabecera: some View {
         HStack(spacing: 12) {
             Image("MarcaApp")
@@ -1622,6 +1603,10 @@ struct TrackingView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            BotonDeCuenta { viendoCuenta = true }
+        }
+        .sheet(isPresented: $viendoCuenta) {
+            PantallaMiCuenta().environmentObject(auth)
         }
     }
 

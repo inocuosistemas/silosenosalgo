@@ -366,6 +366,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var viajeAbierto by remember { mutableStateOf(false) }
     /** Las cuentas atrás del widget, abiertas (ver `Contadores`). */
     var contadoresAbiertos by remember { mutableStateOf(false) }
+    // «Mi cuenta», al tocar la marca de arriba a la derecha.
+    var cuentaAbierta by remember { mutableStateOf(false) }
+    var confirmandoSalida by remember { mutableStateOf(false) }
     val viajeEstado by ViajeEnDirecto.estado.collectAsState()
     val enDirecto by CarreraConTrazado.estado.collectAsState()
     /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
@@ -466,6 +469,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     // Sin permiso de notificaciones (Android 13+) el servicio arranca igual,
     // pero su notificación no se ve: el usuario pierde el único indicador de que
     // sigue transmitiendo. Se pide al abrir, no al empezar a compartir.
+    // La marca de arriba a la derecha: la guardada ya, y al día en cuanto
+    // conteste el servidor.
+    LaunchedEffect(Unit) {
+        Cuenta.lee(context)
+        if (!(BuildConfig.DEBUG && PruebaDePantalla.pedida)) Cuenta.carga(context)
+    }
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pideNotificaciones.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -496,6 +505,17 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         if (hayRed && TrackingStore.cargaDeCarreras.value == TrackingStore.CargaDeCarreras.FALLO) {
             TrackingStore.cargaEventos()
         }
+    }
+
+    // «Mi cuenta», a pantalla completa. Salir se sigue preguntando antes, en
+    // el diálogo de esta pantalla (que en marcha hay que detener la baliza).
+    if (cuentaAbierta) {
+        PantallaMiCuenta(
+            usuario = usuario,
+            onCerrar = { cuentaAbierta = false },
+            onSalir = { cuentaAbierta = false; confirmandoSalida = true },
+        )
+        return
     }
 
     // «Cuenta atrás y widget», a pantalla completa.
@@ -589,7 +609,6 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 "Comprueba la cobertura y pulsa el botón de compartir."
         }
     }
-    var confirmandoSalida by remember { mutableStateOf(false) }
     var renombrandoEnMarcha by remember { mutableStateOf(false) }
 
     // Arrastrar hacia abajo refresca, como en iOS: recoge lo hecho en otro
@@ -671,6 +690,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     )
                 }
             }
+            // A la derecha, la de quien la usa: abre «Mi cuenta» (su marca, la
+            // contraseña, salir). Igual que en iOS.
+            BotonDeCuenta(usuario) { cuentaAbierta = true }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -1351,20 +1373,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
         }
 
-        // Salir de la cuenta, AL FINAL: arriba, al lado del nombre, era fácil
-        // rozarlo con prisa, y es lo que menos se hace. Se sigue preguntando
-        // antes, que en marcha además hay que detener la baliza. Igual que en iOS.
-        Spacer(Modifier.height(8.dp))
-        // En rojo, pero apagado: es una salida, no una alarma. En azul se leía
-        // como un enlace más de los muchos que hay en esta pantalla, y lo que
-        // hace —cerrar la sesión, y en marcha detener la baliza— no es como
-        // abrir un mapa. Igual que en iOS.
-        OutlinedButton(
-            onClick = { confirmandoSalida = true },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.rojo.copy(alpha = 0.85f)),
-        ) { Text("Salir de la cuenta") }
-
+        // Salir de la cuenta está en «Mi cuenta», la marca de arriba a la
+        // derecha. La versión se queda también aquí, al pie.
         // La versión, al pie y en pequeño. No es decoración: es lo primero que
         // hay que preguntar cuando alguien dice que algo no le funciona, y sin
         // esto no había forma de saberlo —`versionName` es "1.0" en todas—.
@@ -1435,6 +1445,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         runCatching {
                             TokenStore(context).token?.let { Api().logout(it) }
                         }
+                        Cuenta.olvida(context)
                         onSalir()
                     }
                 }) { Text(if (estado.compartiendo) "Detener y salir" else "Salir") }

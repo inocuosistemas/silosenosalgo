@@ -59,6 +59,13 @@ data class AuthUser(val id: String, val username: String)
 @Serializable
 data class AuthResponse(val user: AuthUser, val token: String? = null)
 
+/** La marca de la cuenta (ver `functions/api/auth/profile.ts`). */
+@Serializable
+data class PerfilDeCuenta(val favEmoji: String? = null, val favColor: String? = null)
+
+@Serializable
+data class CodigoDeCambio(val code: String)
+
 @Serializable
 data class MeResponse(val user: AuthUser? = null)
 
@@ -239,6 +246,9 @@ class ApiException(val status: Int, val code: String) : Exception() {
             // dejaría en cuenta atrás en vez de emitiendo.
             "event_not_yet" -> "Esa carrera todavía no empieza. Podrás unir la baliza desde unas horas antes de su salida."
             "network" -> "No se pudo conectar con el servidor."
+            "invalid_reset" -> "Se ha tardado demasiado. Vuelve a intentarlo."
+            "bad_emoji" -> "Tiene que ser un solo emoji, y no una bandera de país."
+            "bad_color" -> "Ese color no está en la paleta."
             "too_large" -> "El GPX es demasiado grande para guardarlo como ruta."
             else -> "Error ($status): $code"
         }

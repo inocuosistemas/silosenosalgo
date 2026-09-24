@@ -17,6 +17,9 @@ object PruebaDePantalla {
     /** Empezar sin ninguna carrera preparada de antes. */
     var sinPreparar = false
         private set
+    /** Sin marca elegida: la inicial en el botón de la cuenta. */
+    var sinMarca = false
+        private set
 
     fun lee(intent: Intent?) {
         nota = intent?.getBooleanExtra("nota", false) == true
@@ -24,10 +27,12 @@ object PruebaDePantalla {
             pedida = true
             carrera = intent.getStringExtra("carrera")
             sinPreparar = intent.getBooleanExtra("sinPreparar", false)
+            sinMarca = intent.getBooleanExtra("sinMarca", false)
         }
     }
 
     fun siembra() {
+        Cuenta.siembraDePrueba(if (sinMarca) PerfilDeCuenta() else PerfilDeCuenta("🦊", "orange"))
         val ahora = System.currentTimeMillis().toDouble()
         val dia = 86_400_000.0
         val manana = java.util.Calendar.getInstance().apply {

@@ -293,6 +293,11 @@ final class CarreraEnDirecto: ObservableObject {
     /// es poco, y lo piden todos los que corren a la vez.
     static let cadaCuantoCorredores: TimeInterval = 3 * 60
 
+    /// La sesión nueva tras cambiar la contraseña: la de antes ya no vale.
+    func renuevaToken(_ nuevo: String) {
+        if token != nil { token = nuevo }
+    }
+
     /**
      Preparar la carrera de una baliza que empieza (o que se retoma).
 

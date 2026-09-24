@@ -157,6 +157,46 @@ class Api(
         runCatching { request("api/auth/logout", "POST", token) }
     }
 
+    // ── Cuenta ───────────────────────────────────────────────────────────────
+
+    suspend fun perfil(token: String): PerfilDeCuenta {
+        val (body, status) = request("api/auth/profile", "GET", token)
+        if (!ok(status)) throw decodeError(body, status)
+        return decode(body)
+    }
+
+    /** Solo lo que se manda: `Quitar` lo borra, y lo que va a null no se toca. */
+    suspend fun guardaPerfil(token: String, emoji: CambioDeMarca? = null, color: CambioDeMarca? = null): PerfilDeCuenta {
+        val cuerpo = buildJsonObject {
+            emoji?.let { put("favEmoji", it.json()) }
+            color?.let { put("favColor", it.json()) }
+        }
+        val (body, status) = request("api/auth/profile", "POST", token, cuerpo)
+        if (!ok(status)) throw decodeError(body, status)
+        return decode(body)
+    }
+
+    /**
+     * Cambiar la contraseña, en dos pasos (ver `functions/api/auth/password.ts`):
+     * con la actual se consigue un código de un solo uso, y con él se guarda la
+     * nueva. El canje cierra todas las sesiones de la cuenta y devuelve una
+     * nueva para este móvil.
+     */
+    suspend fun cambiaContrasena(token: String, actual: String, nueva: String): AuthResponse {
+        val (b1, s1) = request("api/auth/password", "POST", token, buildJsonObject { put("current", JsonPrimitive(actual)) })
+        if (!ok(s1)) throw decodeError(b1, s1)
+        val codigo = decode<CodigoDeCambio>(b1).code
+        val (b2, s2) = request(
+            "api/auth/reset", "POST", token,
+            buildJsonObject {
+                put("code", JsonPrimitive(codigo))
+                put("password", JsonPrimitive(nueva))
+            },
+        )
+        if (!ok(s2)) throw decodeError(b2, s2)
+        return decode(b2)
+    }
+
     // ── Rutas planificadas ───────────────────────────────────────────────────
 
     suspend fun listPlans(token: String): List<PlanSummary> {

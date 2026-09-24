@@ -46,7 +46,11 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 PantallaPrincipal()
                     .environmentObject(auth)
                     .preferredColorScheme(.dark)
-                    .onAppear { PruebaDePantallaPrincipal.siembra() }
+                    .onAppear {
+                        PruebaDePantallaPrincipal.siembra()
+                        auth.siembraDePrueba(usuario: "laia", perfil: ProcessInfo.processInfo.arguments.contains("-SinMarca")
+                            ? PerfilDeCuenta() : PerfilDeCuenta(favEmoji: "🦊", favColor: "orange"))
+                    }
             } else if PruebaDeCarreraConTrazado.pedida {
                 // La tarjeta con una ruta propia: con `-EnMarcha`, empezada
                 // con una fija; si no, el formulario con dos rutas de muestra.

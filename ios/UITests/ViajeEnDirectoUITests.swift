@@ -389,7 +389,8 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("principal-3-en-directo")
 
         barra.buttons["Archivo"].tap()
-        XCTAssertTrue(app.buttons["Salir de la cuenta"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["LO QUE TIENES GRABADO"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Salir de la cuenta"].exists, "salir está en «Mi cuenta»")
         guarda("principal-4-archivo")
 
         // Elegir una carrera lleva a la baliza, con ella puesta.
@@ -401,6 +402,59 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["QUÉ SALIDA ES ESTA"].waitForExistence(timeout: 5),
                       "no ha saltado a la baliza")
         guarda("principal-5-baliza-con-carrera")
+    }
+
+    /// La marca de arriba a la derecha abre «Mi cuenta»: la marca, la
+    /// contraseña y salir. Sin sesión de verdad no se guarda nada: aquí se mira
+    /// cómo se ve y que el botón de cambiar solo se enciende cuando toca.
+    func testLaMarcaAbreMiCuenta() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaPrincipal"]
+        app.launch()
+        let marca = app.buttons["botonMiCuenta"]
+        XCTAssertTrue(marca.waitForExistence(timeout: 20))
+        sleep(1)
+        guarda("cuenta-1-cabecera")
+        marca.tap()
+        XCTAssertTrue(app.navigationBars["Mi cuenta"].waitForExistence(timeout: 5))
+        sleep(1)
+        guarda("cuenta-2-marca")
+
+        let cambiar = app.buttons["cambiarContrasena"]
+        app.swipeUp()
+        XCTAssertTrue(cambiar.waitForExistence(timeout: 5))
+        XCTAssertFalse(cambiar.isEnabled)
+        app.secureTextFields["claveActual"].tap()
+        app.typeText("vieja-1234")
+        app.secureTextFields["claveNueva"].tap()
+        app.typeText("nueva-5678")
+        app.secureTextFields["claveRepetida"].tap()
+        app.typeText("nueva-567")
+        XCTAssertTrue(app.staticTexts["No coinciden."].waitForExistence(timeout: 3))
+        XCTAssertFalse(cambiar.isEnabled)
+        app.typeText("8")
+        XCTAssertTrue(cambiar.isEnabled)
+        guarda("cuenta-3-contrasena")
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["salirDeLaCuenta"].exists)
+        guarda("cuenta-4-salir")
+    }
+
+    /// Sin marca elegida: la inicial en el botón, y los emojis y colores ya
+    /// desplegados para elegir.
+    func testMiCuentaSinMarca() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaPrincipal", "-SinMarca"]
+        app.launch()
+        let marca = app.buttons["botonMiCuenta"]
+        XCTAssertTrue(marca.waitForExistence(timeout: 20))
+        marca.tap()
+        XCTAssertTrue(app.buttons["🦊"].waitForExistence(timeout: 5), "los emojis no están desplegados")
+        sleep(1)
+        guarda("cuenta-5-sin-marca")
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["Naranja"].waitForExistence(timeout: 5))
+        guarda("cuenta-6-colores")
     }
 
     /// El enlace del widget de la cuenta atrás abre esa sección, no la

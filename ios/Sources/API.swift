@@ -50,6 +50,14 @@ struct AuthResponse: Codable {
     let token: String?
 }
 
+/// La marca de la cuenta: el emoji y el color con los que se entra a cualquier
+/// evento (ver `functions/api/auth/profile.ts`). Cualquiera de los dos puede
+/// faltar: no es obligatorio elegirla.
+struct PerfilDeCuenta: Codable, Equatable {
+    var favEmoji: String?
+    var favColor: String?
+}
+
 struct MeResponse: Codable {
     let user: AuthUser?
 }
@@ -219,6 +227,9 @@ struct APIError: LocalizedError {
         case "unauthorized": return "Sesión caducada. Inicia sesión de nuevo."
         case "ended": return "La sesión de seguimiento ha terminado."
         case "network": return "No se pudo conectar con el servidor."
+        case "invalid_reset": return "Se ha tardado demasiado. Vuelve a intentarlo."
+        case "bad_emoji": return "Tiene que ser un solo emoji, y no una bandera de país."
+        case "bad_color": return "Ese color no está en la paleta."
         case "too_large": return "El GPX es demasiado grande para guardarlo como ruta."
         default: return "Error (\(status)): \(code)"
         }
@@ -299,6 +310,39 @@ enum API {
         let (data, http) = try await request("api/auth/pase", method: "POST", token: token)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
         return try JSONDecoder().decode(R.self, from: data).pase
+    }
+
+    // MARK: Cuenta
+
+    static func perfil(token: String) async throws -> PerfilDeCuenta {
+        let (data, http) = try await request("api/auth/profile", method: "GET", token: token)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(PerfilDeCuenta.self, from: data)
+    }
+
+    /// Solo lo que se manda: `.some(nil)` lo quita, y lo que no va no se toca.
+    static func guardaPerfil(token: String, emoji: String?? = nil, color: String?? = nil) async throws -> PerfilDeCuenta {
+        var cuerpo: [String: Any] = [:]
+        if let emoji { cuerpo["favEmoji"] = emoji ?? NSNull() }
+        if let color { cuerpo["favColor"] = color ?? NSNull() }
+        let (data, http) = try await request("api/auth/profile", method: "POST", token: token, body: cuerpo)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(PerfilDeCuenta.self, from: data)
+    }
+
+    /// Cambiar la contraseña, en dos pasos (ver `functions/api/auth/password.ts`):
+    /// con la actual se consigue un código de un solo uso, y con él se guarda la
+    /// nueva. El canje cierra todas las sesiones de la cuenta y devuelve una
+    /// nueva para este móvil.
+    static func cambiaContrasena(token: String, actual: String, nueva: String) async throws -> AuthResponse {
+        struct Codigo: Codable { let code: String }
+        let (d1, h1) = try await request("api/auth/password", method: "POST", token: token, body: ["current": actual])
+        guard ok(h1) else { throw decodeError(d1, h1.statusCode) }
+        let codigo = try JSONDecoder().decode(Codigo.self, from: d1).code
+        let (d2, h2) = try await request("api/auth/reset", method: "POST", token: token,
+                                         body: ["code": codigo, "password": nueva])
+        guard ok(h2) else { throw decodeError(d2, h2.statusCode) }
+        return try JSONDecoder().decode(AuthResponse.self, from: d2)
     }
 
     // MARK: Plans

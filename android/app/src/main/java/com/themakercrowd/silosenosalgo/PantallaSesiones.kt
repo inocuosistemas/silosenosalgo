@@ -1017,7 +1017,7 @@ fun SelectorEvento(
  * lejos y el emoji de cerca.
  */
 @Composable
-private fun MarcaEvento(emoji: String, colorSlug: String?, tam: Dp = 28.dp) {
+internal fun MarcaEvento(emoji: String, colorSlug: String?, tam: Dp = 28.dp) {
     Box(
         modifier = Modifier
             .size(tam)
@@ -1026,7 +1026,7 @@ private fun MarcaEvento(emoji: String, colorSlug: String?, tam: Dp = 28.dp) {
             .border(2.dp, Paleta.colorEvento(colorSlug), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(emoji, style = MaterialTheme.typography.bodyMedium)
+        Text(emoji, style = MaterialTheme.typography.bodyMedium, fontSize = (tam.value * 0.5).sp)
     }
 }
 

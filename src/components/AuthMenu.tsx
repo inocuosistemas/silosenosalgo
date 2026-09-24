@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Check, Eye, EyeOff, Lock, User, Users, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/AuthContext'
-import { authErrorMessage, createInvite, listInvites, deleteInvite } from '../lib/authClient'
+import { authErrorMessage, codigoDeCambio, createInvite, listInvites, deleteInvite } from '../lib/authClient'
 import { usernameOk, passwordOk, INVITE_RE } from '../../shared/validate'
 import { PUBLIC_BASE_URL } from '../../shared/config'
 import type { InviteInfo } from '../../shared/wireTypes'
@@ -38,6 +38,7 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const [showLogin, setShowLogin] = useState(false)
   const [showUsers, setShowUsers] = useState(false)
   const [showMark, setShowMark] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [showEvents, setShowEvents] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   /**
@@ -142,6 +143,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
                 >
                   🦊 Marca
                 </button>
+                <button
+                  onClick={() => { setMenuOpen(false); setShowPassword(true) }}
+                  className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-sky-400 transition-colors"
+                >
+                  🔑 Contraseña
+                </button>
                 {/* Lo de administrar, aparte y dicho.
                     Mezclado con "mis previsiones" y "mi marca" parecía una
                     opción más de la cuenta de uno, y no lo es: toca las cuentas
@@ -230,6 +237,12 @@ export function AuthMenu({ onOpenPlans }: { onOpenPlans?: () => void }) {
       {showMark && user && (
         <Modal title="Marca en los eventos" onClose={() => setShowMark(false)}>
           <MyMark />
+        </Modal>
+      )}
+
+      {showPassword && user && (
+        <Modal title="Cambiar la contraseña" onClose={() => setShowPassword(false)}>
+          <ChangePasswordForm onSubmit={resetPassword} onDone={() => setShowPassword(false)} />
         </Modal>
       )}
 
@@ -598,6 +611,81 @@ function ResetForm({
         {busy ? 'Guardando…' : 'Guardar contraseña'}
       </button>
       <p className="text-[11px] text-slate-500 text-center">El enlace vale una sola vez.</p>
+    </form>
+  )
+}
+
+/**
+ * Cambiar la contraseña propia, con la actual delante: con la sesión abierta
+ * en un ordenador ajeno no se debe poder cambiar. Dos pasos por debajo (ver
+ * functions/api/auth/password.ts): la actual da un código de un solo uso y con
+ * él se guarda la nueva, que cierra las sesiones de los demás dispositivos.
+ */
+function ChangePasswordForm({
+  onSubmit,
+  onDone,
+}: {
+  onSubmit: (code: string, password: string) => Promise<void>
+  onDone: () => void
+}) {
+  const [current, setCurrent] = useState('')
+  const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  const mismatch = password2.length > 0 && password !== password2
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!passwordOk(password)) { setError(authErrorMessage('invalid_password')); return }
+    if (password !== password2) { setError('Las dos contraseñas no coinciden.'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      const { code } = await codigoDeCambio(current)
+      await onSubmit(code, password)
+      setDone(true)
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? 'network'
+      setError(code === 'invalid_credentials' ? 'La contraseña actual no es esa.' : authErrorMessage(code))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-emerald-400">Contraseña cambiada ✓</p>
+        <p className="text-xs text-slate-400">Aquí sigues dentro; en la app del móvil y en los demás navegadores tendrás que volver a entrar.</p>
+        <button onClick={onDone} className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-sm py-2.5">Cerrar</button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <PasswordField label="Contraseña actual" value={current} onChange={setCurrent} autoComplete="current-password" placeholder="••••••••" />
+      <PasswordField label="Contraseña nueva" value={password} onChange={setPassword} autoComplete="new-password" placeholder="mínimo 8 caracteres" />
+      <PasswordField
+        label="Repite la contraseña"
+        value={password2}
+        onChange={setPassword2}
+        autoComplete="new-password"
+        placeholder="la misma, para comprobar"
+        error={mismatch ? 'No coinciden.' : null}
+      />
+      {error && <p className="text-red-400 text-xs">{error}</p>}
+      <button
+        type="submit"
+        disabled={busy || !current || !password || !password2 || mismatch}
+        className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 transition-colors"
+      >
+        {busy ? 'Guardando…' : 'Cambiar la contraseña'}
+      </button>
+      <p className="text-[11px] text-slate-500 text-center">Se cerrará la sesión en los demás dispositivos, también en la app del móvil.</p>
     </form>
   )
 }

@@ -104,6 +104,13 @@ export function resetPassword(code: string, password: string): Promise<AuthOkRes
   return call<AuthOkResponse>('/api/auth/reset', { method: 'POST', json: { code, password } })
 }
 
+/** Cambiar la contraseña propia, primer paso: con la actual se consigue un
+ *  código de un solo uso, que se canjea con `resetPassword` (ver
+ *  functions/api/auth/password.ts). */
+export function codigoDeCambio(current: string): Promise<{ code: string; expiresAt: number }> {
+  return call('/api/auth/password', { method: 'POST', json: { current } })
+}
+
 /** Map a server error code to a Spanish message. */
 export function authErrorMessage(code: string): string {
   switch (code) {
