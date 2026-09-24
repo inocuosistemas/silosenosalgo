@@ -708,6 +708,7 @@ object TrackingStore {
         _eventos.value = eventos
         _eventosPasados.value = pasadas
         if (planes.isNotEmpty()) _planes.value = planes
+        appCtx?.let { Contadores.sincroniza(it, eventos) }
     }
 
     /** Solo para pruebas: la baliza como si estuviera ARMADA para una carrera. */
@@ -822,6 +823,8 @@ object TrackingStore {
                 ?.putString("ultimas", jsonCarreras.encodeToString(kotlinx.serialization.builtins.ListSerializer(EventSummary.serializer()), lista))
                 ?.apply()
             ponCarreras(lista)
+            // Y las cuentas atrás del widget, al día con las carreras.
+            appCtx?.let { Contadores.sincroniza(it, lista) }
             autoeligeEventoDeHoy()
         }.onFailure { _cargaDeCarreras.value = CargaDeCarreras.FALLO }
     }

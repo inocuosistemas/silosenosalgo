@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
         miraSiArmar(intent)
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_VIAJE, false)) PedidosDeNavegacion.viaje.value = true
+        if (intent.getBooleanExtra(WidgetCuentaAtras.EXTRA_ABRIR_CONTADORES, false)) PedidosDeNavegacion.contadores.value = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
         TrackingStore.inicia(this)
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
         if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_VIAJE, false)) PedidosDeNavegacion.viaje.value = true
+        if (intent.getBooleanExtra(WidgetCuentaAtras.EXTRA_ABRIR_CONTADORES, false)) PedidosDeNavegacion.contadores.value = true
         if (BuildConfig.DEBUG) {
             PruebaDePantalla.lee(intent)
             if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
@@ -357,6 +359,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     var carreraConRuta by remember { mutableStateOf(false) }
     /** El viaje en directo, abierto (ver `ViajeEnDirecto`). */
     var viajeAbierto by remember { mutableStateOf(false) }
+    /** Las cuentas atrás del widget, abiertas (ver `Contadores`). */
+    var contadoresAbiertos by remember { mutableStateOf(false) }
     val viajeEstado by ViajeEnDirecto.estado.collectAsState()
     val enDirecto by CarreraConTrazado.estado.collectAsState()
     /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
@@ -489,6 +493,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
     }
 
+    // «Cuenta atrás y widget», a pantalla completa.
+    if (contadoresAbiertos) {
+        PantallaContadores(onCerrar = { contadoresAbiertos = false })
+        return
+    }
+
     // «Viaje en directo», a pantalla completa.
     if (viajeAbierto) {
         PantallaViaje(onCerrar = { viajeAbierto = false })
@@ -527,6 +537,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         PedidosDeNavegacion.enDirecto.value = false
         pestana = Pestana.EN_DIRECTO
         carreraConRuta = true
+    }
+    LaunchedEffect(Unit) { Contadores.lee(context) }
+    val abrirContadores by PedidosDeNavegacion.contadores.collectAsState()
+    LaunchedEffect(abrirContadores) {
+        if (!abrirContadores) return@LaunchedEffect
+        PedidosDeNavegacion.contadores.value = false
+        pestana = Pestana.EN_DIRECTO
+        contadoresAbiertos = true
     }
     val abrirViaje by PedidosDeNavegacion.viaje.collectAsState()
     LaunchedEffect(abrirViaje) {
@@ -1219,6 +1237,18 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         else "Con una ruta tuya, por tramos",
                     activa = enDirecto.enMarcha,
                 ) { carreraConRuta = true }
+            }
+        }
+
+        if (pestana == Pestana.EN_DIRECTO) {
+            val proxima = Contadores.ordenados(Contadores.lista.collectAsState().value).firstOrNull()
+            Seccion(titulo = "En la pantalla de inicio", icono = "📲",
+                pie = "La cuenta atrás de tus carreras, o de lo que quieras, como widget.") {
+                FilaEnDirecto(
+                    icono = "⏳", titulo = "Cuenta atrás y widget",
+                    texto = proxima?.let { "Próxima: ${listOfNotNull(it.emoji, it.nombre).joinToString(" ")}" } ?: "Para la pantalla de inicio",
+                    activa = false,
+                ) { contadoresAbiertos = true }
             }
         }
 
@@ -2015,4 +2045,5 @@ private enum class Pestana(val titulo: String, val icono: String) {
 object PedidosDeNavegacion {
     val enDirecto = kotlinx.coroutines.flow.MutableStateFlow(false)
     val viaje = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val contadores = kotlinx.coroutines.flow.MutableStateFlow(false)
 }
