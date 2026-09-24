@@ -16,7 +16,25 @@ import SwiftUI
 struct PantallaCarreraSimulada: View {
     @ObservedObject private var tracking = TrackingStore.shared
 
-    @State private var fuente = "ejemplo"
+    /// La carrera de la que se abre, desde su menú: sin elegir otra.
+    var evento: EventSummary?
+    /// O una ruta propia con su hora de salida, desde la tarjeta con ruta
+    /// (ver `CarreraConTrazado`): sin corredores.
+    var plan: PlanSummary?
+    var salidaDelPlan: Date?
+
+    @State private var fuente: String
+
+    init(evento: EventSummary? = nil) {
+        self.evento = evento
+        _fuente = State(initialValue: evento?.id ?? "ejemplo")
+    }
+
+    init(plan: PlanSummary, salida: Date) {
+        self.plan = plan
+        self.salidaDelPlan = salida
+        _fuente = State(initialValue: "plan-" + plan.id)
+    }
     @State private var sim: SimulacionDeCarrera?
     @State private var cargando = false
     @State private var error: String?
@@ -39,12 +57,15 @@ struct PantallaCarreraSimulada: View {
             } header: {
                 Text("EN LA PANTALLA DE BLOQUEO").font(.caption).foregroundStyle(Theme.slate400)
             } footer: {
-                Text("Los botones de arriba cambian de vista, como en la tarjeta de verdad. Lo demás es una simulación: el corredor sigue el plan de la carrera al ritmo elegido, y los demás corredores son inventados.")
+                Text(plan != nil
+                     ? "Los botones de arriba cambian de vista, como en la tarjeta de verdad. Lo demás es una simulación: vas según el plan de la ruta al ritmo elegido."
+                     : "Los botones de arriba cambian de vista, como en la tarjeta de verdad. Lo demás es una simulación: el corredor sigue el plan de la carrera al ritmo elegido, y los demás corredores son inventados.")
                     .font(.caption).foregroundStyle(Theme.slate400)
             }
 
             if sim != nil { controles }
 
+            if evento == nil && plan == nil {
             Section {
                 Picker("Carrera", selection: $fuente) {
                     Text("Trail 42K (ejemplo)").tag("ejemplo")
@@ -60,8 +81,18 @@ struct PantallaCarreraSimulada: View {
                 Text("QUÉ CARRERA").font(.caption).foregroundStyle(Theme.slate400)
             }
             .listRowBackground(Theme.slate900)
+            } else {
+                if cargando {
+                    HStack { ProgressView(); Text("Preparando la carrera…").foregroundStyle(Theme.slate400) }
+                        .listRowBackground(Theme.slate900)
+                }
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.orange)
+                        .listRowBackground(Theme.slate900)
+                }
+            }
         }
-        .navigationTitle("Carrera en directo")
+        .navigationTitle(evento?.name ?? plan?.name ?? "Carrera en directo")
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)
         .background(Theme.slate950)
@@ -159,7 +190,20 @@ struct PantallaCarreraSimulada: View {
     private func carga() async {
         reproduciendo = false
         error = nil
-        guard fuente != "ejemplo", let ev = carreras.first(where: { $0.id == fuente }),
+        if let plan, let salida = salidaDelPlan {
+            cargando = true
+            defer { cargando = false }
+            do {
+                let hoja = try await CarreraConTrazado.hoja(plan: plan, salida: salida, token: tracking.token)
+                var s = SimulacionDeCarrera(hoja: hoja, carrera: plan.name)
+                s.conCorredores = false
+                sim = s
+            } catch {
+                self.error = "No se ha podido preparar la ruta (¿sin cobertura?)."
+            }
+            return
+        }
+        guard fuente != "ejemplo", let ev = evento ?? carreras.first(where: { $0.id == fuente }),
               let shareId = ev.planShareId
         else {
             let salida = Date().addingTimeInterval(20 * 60)

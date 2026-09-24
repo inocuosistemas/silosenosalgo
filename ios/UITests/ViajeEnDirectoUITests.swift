@@ -313,6 +313,58 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 3))
     }
 
+    /// La tarjeta de carrera con una ruta propia, sin carrera ni baliza: el
+    /// formulario, y en marcha en la pantalla de bloqueo SIN vista de
+    /// corredores; se termina desde la app.
+    func testLaCarreraConRutaPropia() {
+        addTeardownBlock {
+            let inicio = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+                .press(forDuration: 0.1,
+                       thenDragTo: inicio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            sleep(1)
+        }
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeCarreraConTrazado"]
+        app.launch()
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'Empezar'")).firstMatch
+                        .waitForExistence(timeout: 20), "no está el formulario:\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts["Vuelta al Montseny"].exists || app.buttons.containing(
+            NSPredicate(format: "label CONTAINS 'Vuelta al Montseny'")).firstMatch.exists)
+        guarda("carrera-ruta-1-formulario")
+        app.terminate()
+
+        app.launchArguments = ["-PruebaDeCarreraConTrazado", "-EnMarcha"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 20),
+                      "no ha empezado:\n\(app.debugDescription)")
+        sleep(2)
+        guarda("carrera-ruta-2-en-marcha")
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
+        sleep(2)
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        let sistema = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let permitir = sistema.buttons["Permitir siempre"]
+        if permitir.waitForExistence(timeout: 2) { permitir.tap(); sleep(2) }
+        guarda("carrera-ruta-3-bloqueo")
+        XCTAssertTrue(sistema.buttons["Carrera"].waitForExistence(timeout: 5),
+                      "no está la tarjeta:\n\(sistema.debugDescription)")
+        XCTAssertFalse(sistema.buttons["Corredores"].exists, "con una ruta propia no hay corredores")
+
+        // Desbloquear, volver a la app y terminarla.
+        sistema.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+            .press(forDuration: 0.1, thenDragTo: sistema.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        sleep(1)
+        app.activate()
+        let terminar = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Terminar la tarjeta'")).firstMatch
+        for _ in 0..<4 where !terminar.isHittable { app.swipeUp() }
+        terminar.tap()
+        XCTAssertFalse(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 3))
+    }
+
     /// La carrera simulada: el deslizador lleva la tarjeta por toda la
     /// carrera, y los botones del selector cambian de vista.
     func testLaCarreraSimulada() {

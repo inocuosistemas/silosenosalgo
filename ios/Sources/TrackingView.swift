@@ -10,6 +10,12 @@ struct TrackingView: View {
     @State private var terminadasAbiertas = false
     /// La pantalla de las cuentas atrás (el widget), abierta.
     @State private var verContadores = false
+    /// La del viaje en directo (la tarjeta de la pantalla de bloqueo).
+    @State private var verViaje = false
+    /// La de la carrera en directo con una ruta propia.
+    @State private var verCarrera = false
+    /// La carrera de la que se enseña la tarjeta en directo, simulada.
+    @State private var tarjetaDe: EventSummary?
     /// La carrera por la que se pregunta al pulsar "Compartir" sin ninguna elegida.
     @State private var carreraAPreguntar: EventSummary?
 
@@ -37,6 +43,13 @@ struct TrackingView: View {
         Menu {
             ForEach(WebDelEvento.secciones(de: ev), id: \.self) { s in
                 Button(s.texto) { abrirEvento(ev, s.vista) }
+            }
+            // Cómo se verá su tarjeta en la pantalla de bloqueo, con sus
+            // tramos: solo las que tienen recorrido y aún no se han corrido.
+            if ev.planShareId != nil && ev.endedAt == nil {
+                Divider()
+                // Con emoji, como las demás del menú.
+                Button("📲  Tarjeta en directo") { tarjetaDe = ev }
             }
         } label: {
             Text("Abrir").foregroundStyle(Theme.sky500)
@@ -648,6 +661,8 @@ struct TrackingView: View {
                 if store.events.isEmpty && store.pastEvents.isEmpty {
                     Section {
                         FilaContadores(abierta: $verContadores)
+                        FilaViajeEnDirecto(abierta: $verViaje)
+                        FilaCarreraEnDirecto(abierta: $verCarrera)
                     } header: {
                         cabecera("Cuenta atrás", "timer")
                     } footer: {
@@ -743,6 +758,8 @@ struct TrackingView: View {
                         // La cuenta atrás de la pantalla de inicio, con la
                         // misma tarjeta que «Terminadas» (ver `FilaContadores`).
                         FilaContadores(abierta: $verContadores)
+                        FilaViajeEnDirecto(abierta: $verViaje)
+                        FilaCarreraEnDirecto(abierta: $verCarrera)
                     } header: {
                         cabecera("Mis carreras", "flag.checkered")
                     } footer: {
@@ -1292,6 +1309,22 @@ struct TrackingView: View {
             // cuando todavía no hay carreras cargadas. La lista, en cambio, está
             // siempre.
             .navigationDestination(isPresented: $verContadores) { ContadoresView() }
+            .navigationDestination(isPresented: $verViaje) { PantallaViaje() }
+            .navigationDestination(isPresented: $verCarrera) { PantallaCarreraEnDirecto() }
+            // La tarjeta en directo de una carrera, simulada con sus tramos y
+            // cortes de verdad: va con la carrera, no con las cuentas atrás.
+            .sheet(item: $tarjetaDe) { ev in
+                NavigationStack {
+                    PantallaCarreraSimulada(evento: ev)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cerrar") { tarjetaDe = nil }
+                            }
+                        }
+                }
+                .tint(Theme.sky500)
+                .preferredColorScheme(.dark)
+            }
             .refreshable {
                 // Pull down to pick up changes made elsewhere (e.g. a route just
                 // created on the web, o un evento al que te acaban de invitar)
@@ -2108,7 +2141,98 @@ private struct ConfirmacionesDeBaliza: ViewModifier {
  flecha y su forma. (Y va en su propia vista porque el cuerpo de la pantalla ya
  está en el límite de lo que el compilador de Swift sabe comprobar de una vez.)
  */
-private struct FilaContadores: View {
+/// El viaje en directo, en la pantalla principal: con uno en marcha lo dice
+/// (y por aquí se entra a terminarlo), si no, qué es.
+struct FilaViajeEnDirecto: View {
+    @Binding var abierta: Bool
+    @ObservedObject private var viaje = ViajeEnDirecto.shared
+    /// Para pintarla en una prueba como si hubiera un viaje en marcha.
+    var muestra: (texto: String, simbolo: String)? = nil
+
+    private var enMarcha: String? {
+        if let m = muestra { return m.texto }
+        guard let a = viaje.actividad?.attributes else { return nil }
+        let km = viaje.estado.map { " · \(ColoresViaje.km($0.restanteKm)) km" } ?? ""
+        return "En marcha · \(a.origen.abreviatura) → \(a.destino.abreviatura)" + km
+    }
+
+    var body: some View {
+        FilaEnDirecto(abierta: $abierta,
+                      simbolo: muestra?.simbolo ?? viaje.actividad?.attributes.transporte.simbolo ?? "airplane",
+                      titulo: "Viaje en directo",
+                      texto: enMarcha ?? "De un sitio a otro, en la pantalla de bloqueo",
+                      activa: enMarcha != nil)
+    }
+}
+
+/// La carrera en directo con una ruta propia, en la pantalla principal. La de
+/// una carrera va con su baliza; con cualquiera en marcha, lo dice.
+struct FilaCarreraEnDirecto: View {
+    @Binding var abierta: Bool
+    @ObservedObject private var carrera = CarreraEnDirecto.shared
+    /// Para pintarla en una prueba como si hubiera una en marcha.
+    var muestra: String? = nil
+
+    private var enMarcha: String? {
+        if let m = muestra { return m }
+        guard carrera.enMarcha else { return nil }
+        let tramo = carrera.estadoActual.map { " · Tramo \($0.tramo.numero)/\($0.tramo.deTramos)" } ?? ""
+        return "En marcha · \(carrera.nombre)" + tramo
+    }
+
+    var body: some View {
+        FilaEnDirecto(abierta: $abierta, simbolo: "figure.run", titulo: "Carrera en directo",
+                      texto: enMarcha ?? "Con una ruta tuya, por tramos",
+                      activa: enMarcha != nil)
+    }
+}
+
+/// Una fila de la pantalla principal con el aire de las tarjetas de carrera.
+struct FilaEnDirecto: View {
+    @Binding var abierta: Bool
+    let simbolo: String
+    let titulo: String
+    let texto: String
+    let activa: Bool
+
+    var body: some View {
+        Button { abierta = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: simbolo)
+                    .foregroundStyle(activa ? Theme.sky500 : Theme.slate400)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titulo)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.slate100)
+                    Text(texto)
+                        .font(.caption)
+                        .foregroundStyle(activa ? Theme.sky500 : Theme.slate400)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.slate400)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Theme.slate900)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Theme.slate800, lineWidth: 1)
+        )
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+}
+
+struct FilaContadores: View {
     @Binding var abierta: Bool
 
     var body: some View {

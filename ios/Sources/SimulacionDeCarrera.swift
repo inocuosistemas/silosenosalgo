@@ -21,6 +21,9 @@ struct SimulacionDeCarrera {
     var minuto: Double = -20
     /// La vista elegida con el selector; nil, la automática.
     var vistaElegida: VistaDeCarrera?
+    /// Con los demás corredores (inventados). Con una ruta propia, sin
+    /// carrera, no hay nadie más: ni vista de corredores.
+    var conCorredores = true
 
     var salida: Date { Date(timeIntervalSince1970: hoja.salida / 1000) }
     var ahora: Date { salida.addingTimeInterval(minuto * 60) }
@@ -90,7 +93,7 @@ struct SimulacionDeCarrera {
     /// La tarjeta en este momento de la simulación.
     var estado: EstadoDeCarrera? {
         guard var e = ReglasDeCarrera.estado(carrera: carrera, km: km, ahora: ahora, historia: historia,
-                                             anterior: nil, corredores: corredores, hoja)
+                                             anterior: nil, corredores: conCorredores ? corredores : nil, hoja)
         else { return nil }
         if let v = vistaElegida {
             e.vista = v

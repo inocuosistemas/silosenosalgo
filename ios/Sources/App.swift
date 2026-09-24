@@ -10,6 +10,8 @@ struct SiLoSeNoSalgoTrackerApp: App {
     @StateObject private var guideLibrary = GuideLibrary.shared
     /// La pantalla del viaje, abierta al tocar su tarjeta (ver `EnlaceDeViaje`).
     @State private var viajeAbierto = false
+    /// La de la carrera en directo, al tocar la suya.
+    @State private var carreraAbierta = false
 
     var body: some Scene {
         WindowGroup {
@@ -32,6 +34,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 }
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
+            } else if PruebaDeCarreraConTrazado.pedida {
+                // La tarjeta con una ruta propia: con `-EnMarcha`, empezada
+                // con una fija; si no, el formulario con dos rutas de muestra.
+                NavigationStack { PantallaCarreraEnDirecto() }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+                    .onAppear { PruebaDeCarreraConTrazado.prepara() }
             } else if PruebaDeCarrera.pedida {
                 Text("Carrera de prueba en marcha")
                     .preferredColorScheme(.dark)
@@ -56,13 +65,21 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
                 .task { await auth.bootstrap() }
+                // «Siempre», al entrar por primera vez (ver `PermisoDeUbicacion`).
+                .onChange(of: auth.status, initial: true) { _, estado in
+                    if estado == .authed { PermisoDeUbicacion.shared.pideSiempreSiToca() }
+                }
                 // Si iOS cerró la app con un viaje en directo en marcha, se
                 // vuelve a enganchar a él y a encender el GPS; y cada vez que
                 // la app vuelve delante, por si iOS había parado el GPS.
-                .task { ViajeEnDirecto.shared.alVolver() }
+                .task {
+                    ViajeEnDirecto.shared.alVolver()
+                    CarreraConTrazado.shared.reanuda()
+                }
                 .onReceive(NotificationCenter.default.publisher(
                     for: UIApplication.didBecomeActiveNotification)) { _ in
                     ViajeEnDirecto.shared.alVolver()
+                    CarreraConTrazado.shared.reanuda()
                 }
                 // Busca visor web nuevo al arrancar, nunca con el visor abierto:
                 // cambiar los assets bajo un WKWebView vivo lo romperia. Si hay
@@ -70,6 +87,7 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 .task { await WebOTAUpdater.shared.refresh() }
                 .onOpenURL { url in
                     if EnlaceDeViaje.es(url) { viajeAbierto = true; return }
+                    if EnlaceDeCarrera.es(url) { carreraAbierta = true; return }
                     guard url.pathExtension.lowercased() == "slsnsguide" else { return }
                     Task { await guideLibrary.openImportedGuide(from: url) }
                 }
@@ -81,6 +99,18 @@ struct SiLoSeNoSalgoTrackerApp: App {
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Cerrar") { viajeAbierto = false }
+                                }
+                            }
+                    }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+                }
+                .sheet(isPresented: $carreraAbierta) {
+                    NavigationStack {
+                        PantallaCarreraEnDirecto()
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Cerrar") { carreraAbierta = false }
                                 }
                             }
                     }
@@ -122,6 +152,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             // plano por un cambio de ubicación, la vista puede no llegar a
             // montarse, así que se retoma aquí.
             ViajeEnDirecto.shared.alVolver()
+            CarreraConTrazado.shared.reanuda()
             if let token = Keychain.load() {
                 TrackingStore.shared.configure(token: token)
                 TrackingStore.shared.restoreActiveSession()
@@ -269,5 +300,30 @@ enum PruebaDeCarrera {
         ])
         CarreraEnDirecto.shared.empiezaDePrueba(hoja: hoja, carrera: "Matxicots 26", km: 7.4, ahora: ahora,
                                                 corredores: corredores)
+    }
+}
+
+
+/// La carrera en directo con una ruta propia, de prueba: `-PruebaDeCarreraConTrazado`.
+enum PruebaDeCarreraConTrazado {
+    static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeCarreraConTrazado") }
+
+    @MainActor
+    static func prepara() {
+        PruebaDeViaje.terminaLosDeAntes()
+        TrackingStore.shared.plans = [
+            PlanSummary(id: "p1", name: "Vuelta al Montseny", routeName: nil, distanceKm: 42,
+                        startTime: nil, eventId: nil, activity: "run"),
+            PlanSummary(id: "p2", name: "Tirada larga domingo", routeName: nil, distanceKm: 21.1,
+                        startTime: nil, eventId: nil, activity: "run"),
+        ]
+        guard ProcessInfo.processInfo.arguments.contains("-EnMarcha") else { return }
+        // 42 km hacia el norte, en línea recta: la hoja de ejemplo por encima.
+        let n = 421
+        let pts = (0..<n).map { i in (lat: 41.7 + Double(i) * 0.1 / 111.195, lon: 2.4) }
+        let cum = (0..<n).map { Double($0) * 0.1 }
+        CarreraConTrazado.shared.empiezaDePrueba(
+            hoja: .ejemplo(salida: Date().addingTimeInterval(-90 * 60)),
+            ruta: PlanGeometry.Route(points: pts, cumKm: cum), nombre: "Vuelta al Montseny")
     }
 }

@@ -78,7 +78,10 @@ final class GpxImporter: NSObject {
         let web = try await preparado()
         let resultado = try await web.callAsyncJavaScript(
             "return await window.slsnsHojaDeTramos(plan, ajustes, salida)",
-            arguments: ["plan": planGz.base64EncodedString(), "ajustes": ajustes ?? "", "salida": salidaMs ?? 0],
+            // Sin salida, null y no 0: la web usa la del plan con `??`, y un 0
+            // no lo salta (daba la salida en 1970).
+            arguments: ["plan": planGz.base64EncodedString(), "ajustes": ajustes ?? "",
+                        "salida": salidaMs.map { $0 as Any } ?? NSNull()],
             contentWorld: .page
         )
         guard let texto = resultado as? String, let datos = texto.data(using: .utf8) else {

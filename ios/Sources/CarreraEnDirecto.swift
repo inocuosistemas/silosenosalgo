@@ -254,10 +254,30 @@ enum ReglasDeCarrera {
  plano, se sigue con la guardada. Lo de cada posición es cuenta de aquí.
  */
 @MainActor
-final class CarreraEnDirecto {
+final class CarreraEnDirecto: ObservableObject {
     static let shared = CarreraEnDirecto()
 
-    private var actividad: Activity<CarreraAtributos>?
+    /**
+     De dónde sale la tarjeta. De la BALIZA de una carrera (arranca y se va con
+     ella, con los tramos y cortes de la organización y los corredores), o de
+     una RUTA propia, sin carrera, que se empieza y se termina a mano y sigue
+     el GPS por su cuenta (ver `CarreraConTrazado`).
+
+     No se mezclan: la baliza no toca una tarjeta de ruta (sus km serían de
+     otro recorrido), ni la termina al pararse.
+     */
+    enum Origen { case baliza, trazado }
+    @Published private(set) var origen: Origen = .baliza
+
+    @Published private var actividad: Activity<CarreraAtributos>?
+    /// Lo último que se mandó a la tarjeta, para enseñarlo en la app.
+    var estadoActual: EstadoDeCarrera? { actividad?.content.state ?? ultimo }
+    var enMarcha: Bool { actividad != nil }
+    var nombre: String { carrera }
+    /// Al acabarse la tarjeta de una ruta —en meta, o quitada desde la
+    /// pantalla de bloqueo—, para apagar su GPS.
+    var alAcabar: (() -> Void)?
+    private var vigilancia: Task<Void, Never>?
     private var hoja: HojaDeTramos?
     private var carrera = ""
     private var ultimo: EstadoDeCarrera?
@@ -285,6 +305,8 @@ final class CarreraEnDirecto {
     /// puede no haber llegado todavía y no se sabe de qué carrera es: basta con
     /// la tarjeta viva y la hoja guardada. El nombre lo lleva la propia tarjeta.
     func prepara(sesion: String, token: String, eventoId: String?, nombre: String?, salidaMs: Double?) {
+        // Con una tarjeta de ruta en marcha, la baliza no pone otra.
+        guard origen == .baliza, !CarreraConTrazado.hayUnaGuardada else { return }
         self.token = token
         if let eventoId { self.eventoId = eventoId }
         Task {
@@ -349,6 +371,74 @@ final class CarreraEnDirecto {
         await actividad.update(ActivityContent(state: e, staleDate: ahora.addingTimeInterval(20 * 60)))
     }
 
+    /// La posición de la baliza: solo para la tarjeta de su carrera.
+    func recibeDeLaBaliza(km: Double, en fecha: Date) {
+        guard origen == .baliza else { return }
+        recibe(km: km, en: fecha)
+    }
+
+    /// Al parar la baliza: su tarjeta, no la de una ruta.
+    func terminaLaDeLaBaliza() {
+        guard origen == .baliza else { return }
+        termina()
+    }
+
+    /**
+     Empezar la tarjeta de una RUTA propia, sin carrera (ver `CarreraConTrazado`).
+     Sin corredores: nadie más va por esa ruta.
+     */
+    func empiezaConTrazado(hoja: HojaDeTramos, nombre: String) throws {
+        if actividad != nil, origen == .baliza {
+            throw ErrorDeCarrera("Ya hay una tarjeta de carrera en marcha, la de la baliza. Para la baliza para empezar esta.")
+        }
+        termina()
+        origen = .trazado
+        self.hoja = hoja
+        carrera = nombre
+        eventoId = nil
+        guard let inicial = ReglasDeCarrera.estado(carrera: nombre, km: 0, ahora: Date(),
+                                                    historia: [], anterior: nil, hoja)
+        else { throw ErrorDeCarrera("La ruta no tiene recorrido con el que hacer tramos.") }
+        let a = try Activity.request(
+            attributes: CarreraAtributos(carrera: nombre),
+            content: ActivityContent(state: inicial, staleDate: Date().addingTimeInterval(20 * 60)),
+            pushType: nil)
+        engancha(a)
+        ultimo = inicial
+        ultimoEnvio = Date()
+    }
+
+    /// Al relanzar la app con la tarjeta de una ruta en marcha: engancharse a
+    /// ella (activa o caducada) con la hoja guardada. False si ya no está.
+    func reenganchaTrazado(hoja: HojaDeTramos) -> Bool {
+        guard let viva = Activity<CarreraAtributos>.activities.first(where: {
+            $0.activityState == .active || $0.activityState == .stale
+        }) else { return false }
+        origen = .trazado
+        self.hoja = hoja
+        carrera = viva.attributes.carrera
+        ultimo = viva.content.state
+        engancha(viva)
+        return true
+    }
+
+    /// Si la quitan desde la pantalla de bloqueo (o el sistema la acaba), se
+    /// avisa para apagar el GPS de la ruta.
+    private func engancha(_ a: Activity<CarreraAtributos>) {
+        actividad = a
+        vigilancia?.cancel()
+        vigilancia = Task { [weak self] in
+            for await e in a.activityStateUpdates where e == .dismissed || e == .ended {
+                await MainActor.run {
+                    guard let self, self.actividad?.id == a.id else { return }
+                    self.actividad = nil
+                    self.alAcabar?()
+                }
+                return
+            }
+        }
+    }
+
     /// Cada posición con su km de la ruta.
     func recibe(km: Double, en fecha: Date) {
         historia.append((fecha, km))
@@ -370,7 +460,9 @@ final class CarreraEnDirecto {
             self.actividad = nil
             vigilanteDeCorredores?.cancel()
             vigilanteDeCorredores = nil
+            vigilancia?.cancel()
             Task { await actividad.end(contenido, dismissalPolicy: .after(fecha.addingTimeInterval(2 * 3600))) }
+            alAcabar?()
         } else {
             Task { await actividad.update(contenido) }
         }
@@ -394,10 +486,12 @@ final class CarreraEnDirecto {
         ultimoEnvio = ahora
     }
 
-    /// Al parar la baliza.
+    /// Quitar la tarjeta, sea de donde sea.
     func termina() {
         let a = actividad
         actividad = nil
+        vigilancia?.cancel()
+        origen = .baliza
         hoja = nil
         ultimo = nil
         ultimoEnvio = nil
@@ -428,4 +522,9 @@ final class CarreraEnDirecto {
         try? datos.write(to: guardada, options: .atomic)
         return h
     }
+}
+
+struct ErrorDeCarrera: LocalizedError {
+    let errorDescription: String?
+    init(_ texto: String) { errorDescription = texto }
 }

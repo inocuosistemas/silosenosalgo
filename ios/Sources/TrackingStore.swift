@@ -568,7 +568,7 @@ final class TrackingStore: ObservableObject {
         maybeBeginFromStandby()
     }
 
-    private static func parseISO(_ s: String) -> Date? {
+    static func parseISO(_ s: String) -> Date? {
         let f1 = ISO8601DateFormatter()
         f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = f1.date(from: s) { return d }
@@ -1156,7 +1156,7 @@ final class TrackingStore: ObservableObject {
         // Se acabó: los avisos de una salida que ya no va a ocurrir sobran.
         AvisosDeCarrera.borra()
         // Y la tarjeta del tramo, fuera de la pantalla de bloqueo.
-        CarreraEnDirecto.shared.termina()
+        CarreraEnDirecto.shared.terminaLaDeLaBaliza()
         flushTimer?.invalidate()
         flushTimer = nil
         location.stop()
@@ -1302,7 +1302,7 @@ final class TrackingStore: ObservableObject {
         }
         if let km {
             lastRouteKm = km
-            CarreraEnDirecto.shared.recibe(km: km, en: loc.timestamp)
+            CarreraEnDirecto.shared.recibeDeLaBaliza(km: km, en: loc.timestamp)
             // Meta con margen: el GPS no clava el último metro y el arco nunca
             // cae en el punto exacto del GPX, así que exigir el 100% sería no
             // detectarla nunca.

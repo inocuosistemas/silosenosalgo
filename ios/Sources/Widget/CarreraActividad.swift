@@ -16,6 +16,8 @@ struct CarreraActividad: Widget {
             // El selector de arriba son botones: cambian de vista sin abrir la
             // app. Tocar el resto de la tarjeta la abre, como siempre.
             TarjetaDeCarrera(estado: estado(contexto), interactivo: true)
+                // Tocar fuera del selector abre su pantalla en la app.
+                .widgetURL(EnlaceDeCarrera.url)
                 .activityBackgroundTint(Color(hexContador: "#0f1729"))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { contexto in
@@ -33,6 +35,7 @@ struct CarreraActividad: Widget {
                     .foregroundStyle(Color(hexContador: "#38bdf8"))
             }
             .keylineTint(Color(hexContador: "#38bdf8"))
+            .widgetURL(EnlaceDeCarrera.url)
         }
     }
 

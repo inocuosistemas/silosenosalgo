@@ -180,3 +180,12 @@ public enum EnlaceDeViaje {
         url.scheme == esquema && url.host == "viaje"
     }
 }
+
+/// El de la tarjeta de carrera: al tocarla, su pantalla (ver `App`).
+public enum EnlaceDeCarrera {
+    public static let url = URL(string: "\(EnlaceDeViaje.esquema)://carrera")!
+
+    public static func es(_ url: URL) -> Bool {
+        url.scheme == EnlaceDeViaje.esquema && url.host == "carrera"
+    }
+}
