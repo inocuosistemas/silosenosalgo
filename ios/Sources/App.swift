@@ -34,6 +34,10 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 }
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
+            } else if ProcessInfo.processInfo.arguments.contains("-PruebaDeNota") {
+                // La hoja de añadir nota, sin entrar (para probar la foto).
+                Color.black.sheet(isPresented: .constant(true)) { AddNoteView() }
+                    .preferredColorScheme(.dark)
             } else if PruebaDePantallaPrincipal.pedida {
                 // La pantalla principal de verdad, sin entrar: con carreras y
                 // rutas de muestra, para verla en pruebas.

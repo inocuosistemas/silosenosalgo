@@ -403,6 +403,34 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("principal-5-baliza-con-carrera")
     }
 
+    /// La foto de la nota: los dos botones grandes, elegir de la galería, y la
+    /// foto puesta (con «Cambiar» y «Quitar»).
+    func testLaFotoDeLaNota() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-PruebaDeNota"]
+        app.launch()
+        let galeria = app.buttons["Galería"]
+        XCTAssertTrue(galeria.waitForExistence(timeout: 15), "no está «Galería»:\n\(app.debugDescription)")
+        guarda("nota-1-sin-foto")
+        galeria.tap()
+        // El selector de fotos es otro proceso: la primera foto, por su sitio.
+        sleep(3)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.16, dy: 0.43)).tap()
+        let lista = app.staticTexts["Lista"]
+        XCTAssertTrue(lista.waitForExistence(timeout: 20), "no ha quedado la foto:\n\(app.debugDescription)")
+        sleep(1)
+        guarda("nota-3-con-foto")
+        XCTAssertTrue(app.buttons["Cambiar"].exists && app.buttons["Quitar"].exists)
+        app.terminate()
+        // Y cómo se ve mientras se trae una foto de iCloud.
+        app.launchArguments = ["-PruebaDeNota", "-NotaPreparando"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Trayendo la foto'")).firstMatch
+                        .waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["Preparando…"].isEnabled, "no se puede guardar a medias")
+        guarda("nota-2-preparando")
+    }
+
     /// Sin la lista de carreras todavía, o sin poder traerla: se dice, y no
     /// «no estás inscrito a ninguna».
     func testCarrerasCargandoOSinConexion() {
