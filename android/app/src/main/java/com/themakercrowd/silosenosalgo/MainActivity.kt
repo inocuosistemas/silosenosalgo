@@ -130,6 +130,8 @@ class MainActivity : ComponentActivity() {
         if (BuildConfig.DEBUG) {
             PruebaDePantalla.lee(intent)
             if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
+            // Una sesión de mentira, para probar lo que pasa sin cobertura.
+            if (PruebaDePantalla.pedida) intent.getStringExtra("token")?.let { TokenStore(this).token = it }
         }
         miraSiArmar(intent)
         setContent {
@@ -894,6 +896,16 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
 
         if (estado.compartiendo) {
+            if (estado.pendienteDeAlta) {
+                Seccion(titulo = "Enlace para compartir", icono = "🔗") {
+                    Text(
+                        "Empezaste sin cobertura: tu ruta se está grabando desde que pulsaste. " +
+                            "El enlace aparece en cuanto haya red, y lo grabado se sube entero con su hora.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Paleta.slate400,
+                    )
+                }
+            }
             estado.enlace?.let { enlace ->
                 Seccion(titulo = "Enlace para compartir", icono = "🔗") {
                     // Sin la URL en texto: leer cuarenta caracteres de enlace no
@@ -1400,6 +1412,8 @@ private fun EstadoCompacto(
     Seccion {
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
+            // Sin cobertura al empezar: graba, pero aún no hay enlace.
+            estado.compartiendo && estado.pendienteDeAlta -> "● Grabando · sin enlace todavía" to Paleta.ambar
             estado.compartiendo -> "● Compartiendo en directo" to Paleta.verde
             else -> "⏸ Detenido" to Paleta.slate400
         }

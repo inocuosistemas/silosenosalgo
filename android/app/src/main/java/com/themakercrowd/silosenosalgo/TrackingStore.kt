@@ -51,6 +51,10 @@ object TrackingStore {
          *  transmite hasta que llega la hora de salida. */
         val enEspera: Boolean = false,
         val sessionId: String? = null,
+        /** Empezó sin cobertura: graba con una clave PROVISIONAL (`sessionId`)
+         *  y se da de alta en el servidor en cuanto haya red. Hasta entonces no
+         *  hay enlace. Espejo de `pendienteDeAlta` en iOS. */
+        val pendienteDeAlta: Boolean = false,
         val titulo: String? = null,
         val perfil: TrackingRules.Perfil = TrackingRules.Perfil.EQUILIBRADO,
         val ritmo: TrackingRules.Ritmo = TrackingRules.Ritmo(),
@@ -127,7 +131,7 @@ object TrackingStore {
         val huecoMetros: Double?
             get() = TrackingRules.huecoSeguidores(ultimaLectura, ultimaReportada)
 
-        val enlace: String? get() = sessionId?.let { Config.shareLink(it) }
+        val enlace: String? get() = if (pendienteDeAlta) null else sessionId?.let { Config.shareLink(it) }
 
         /** La que se enseña: la declarada o, en "Automático", la deducida. */
         val actividadEfectiva: BeaconActivity? get() = actividad ?: actividadDeducida
@@ -316,51 +320,101 @@ object TrackingStore {
         actividad: BeaconActivity? = _estado.value.actividad,
     ): Result<String> {
         val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
-        return runCatching {
-            // Sin nombre puesto, uno con la marca y la hora: en la lista de
-            // seguimientos y en el enlace, "Sin nombre" no distingue nada.
-            val nombre = titulo ?: nombrePorDefecto(salidaMs)
-            val res = api.createTrack(
-                t, nombre, planId, salidaMs, actividad, _estado.value.eventoId, nombreDeEsteAparato(),
-            )
-            pendientes = emptyList()
-            traza = emptyList()
-            notasPendientes = emptyList()
-            borradosPendientes = emptyList()
-            mediosPendientes = emptyList()
-            _notas.value = emptyList()
-            actividadDeducida = null
-            ultimoIntentoMs = 0.0
-            anclaPosicion = null
-            almacen.guardaPendientes(res.id, pendientes)
-            almacen.guardaTraza(res.id, traza)
-            almacen.guardaNotas(res.id, _notas.value)
-            almacen.guardaNotasPendientes(res.id, notasPendientes)
-            almacen.guardaBorradosPendientes(res.id, borradosPendientes)
-            almacen.guardaMediosPendientes(res.id, mediosPendientes)
-            val enEspera = salidaMs - ahoraMs > TrackingRules.ANTELACION_SALIDA_SEGUNDOS * 1000
-            _estado.value = Estado(
-                compartiendo = true,
-                enEspera = enEspera,
-                sessionId = res.id,
-                titulo = nombre,
-                perfil = _estado.value.perfil,
-                ritmo = _estado.value.ritmo,
-                actividad = actividad,
-                planId = planId,
-                salidaMs = salidaMs,
-                retenerHoras = _estado.value.retenerHoras,
-            )
-            aplicaGps()
-            ViewerData.registra(res.id)
-            cachePlan(res.id, planId)
-            guardaActivo()
-            scope.launch { cargaSesiones() }
-            res.id
-        }.onFailure { e ->
+        // Sin nombre puesto, uno con la marca y la hora: en la lista de
+        // seguimientos y en el enlace, "Sin nombre" no distingue nada.
+        val nombre = titulo ?: nombrePorDefecto(salidaMs)
+        val alta = runCatching {
+            api.createTrack(t, nombre, planId, salidaMs, actividad, _estado.value.eventoId, nombreDeEsteAparato())
+        }
+        val fallo = alta.exceptionOrNull()
+        if (fallo != null && !(fallo is ApiException && fallo.status == 0)) {
+            // Lo que contesta el servidor sí es un error que decir.
             _estado.value = _estado.value.copy(
-                error = (e as? ApiException)?.message ?: "No se pudo iniciar el seguimiento.",
+                error = (fallo as? ApiException)?.message ?: "No se pudo iniciar el seguimiento.",
             )
+            return Result.failure(fallo)
+        }
+        // Con alta, con su identificador; sin cobertura, con uno PROVISIONAL:
+        // se graba ya —la ruta empieza a contar al pulsar, como en iOS— y se da
+        // de alta en cuanto haya red (ver `intentaAlta`). En la salida de una
+        // carrera, sin cobertura, antes no se podía ni empezar.
+        val res = alta.getOrNull()
+        val id = res?.id ?: ("local-" + java.util.UUID.randomUUID().toString())
+        empiezaEnLocal(id, pendiente = res == null, nombre, planId, salidaMs, actividad)
+        if (res != null) cachePlan(res.id, planId)
+        scope.launch { cargaSesiones() }
+        return Result.success(id)
+    }
+
+    /** Grabar con esta clave: buffers limpios, estado de compartiendo, GPS. */
+    private fun empiezaEnLocal(
+        id: String, pendiente: Boolean, nombre: String, planId: String?,
+        salidaMs: Double, actividad: BeaconActivity?,
+    ) {
+        pendientes = emptyList()
+        traza = emptyList()
+        notasPendientes = emptyList()
+        borradosPendientes = emptyList()
+        mediosPendientes = emptyList()
+        _notas.value = emptyList()
+        actividadDeducida = null
+        ultimoIntentoMs = 0.0
+        anclaPosicion = null
+        almacen.guardaPendientes(id, pendientes)
+        almacen.guardaTraza(id, traza)
+        almacen.guardaNotas(id, _notas.value)
+        almacen.guardaNotasPendientes(id, notasPendientes)
+        almacen.guardaBorradosPendientes(id, borradosPendientes)
+        almacen.guardaMediosPendientes(id, mediosPendientes)
+        val enEspera = salidaMs - ahoraMs > TrackingRules.ANTELACION_SALIDA_SEGUNDOS * 1000
+        _estado.value = Estado(
+            compartiendo = true,
+            enEspera = enEspera,
+            sessionId = id,
+            pendienteDeAlta = pendiente,
+            titulo = nombre,
+            perfil = _estado.value.perfil,
+            ritmo = _estado.value.ritmo,
+            actividad = actividad,
+            planId = planId,
+            eventoId = _estado.value.eventoId,
+            salidaMs = salidaMs,
+            retenerHoras = _estado.value.retenerHoras,
+        )
+        aplicaGps()
+        ViewerData.registra(id)
+        guardaActivo()
+    }
+
+    /**
+     * Da de alta en el servidor una baliza que empezó sin cobertura. Se intenta
+     * en cada tic hasta que entra; al entrar, lo grabado se pasa a la clave
+     * buena y se sube entero con la hora de cada punto: el seguimiento empieza
+     * cuando su dueño pulsó, no cuando hubo red.
+     */
+    private var dandoDeAlta = false
+    private suspend fun intentaAlta() {
+        val e = _estado.value
+        val provisional = e.sessionId ?: return
+        val t = token ?: return
+        if (!e.compartiendo || !e.pendienteDeAlta || dandoDeAlta) return
+        dandoDeAlta = true
+        try {
+            val res = api.createTrack(
+                t, e.titulo ?: nombrePorDefecto(e.salidaMs), e.planId, e.salidaMs,
+                e.actividad, e.eventoId, nombreDeEsteAparato(),
+            )
+            almacen.renombraSesion(provisional, res.id)
+            _estado.value = _estado.value.copy(sessionId = res.id, pendienteDeAlta = false, error = null)
+            ViewerData.registra(res.id)
+            cachePlan(res.id, e.planId)
+            guardaActivo()
+            vacia()
+        } catch (ex: ApiException) {
+            // Sin cobertura se calla (se reintenta sola); lo del servidor, se dice.
+            if (ex.status != 0) _estado.value = _estado.value.copy(error = ex.message)
+        } finally {
+            dandoDeAlta = false
         }
     }
 
@@ -388,6 +442,8 @@ object TrackingStore {
             enEspera = guardado.enEspera &&
                 !TrackingRules.tocaEmpezar(ahoraMs, guardado.salidaMs),
             sessionId = guardado.sessionId,
+            pendienteDeAlta = guardado.pendienteDeAlta,
+            planId = guardado.planId,
             titulo = guardado.titulo,
             perfil = runCatching { TrackingRules.Perfil.valueOf(guardado.perfil) }
                 .getOrDefault(TrackingRules.Perfil.EQUILIBRADO),
@@ -485,10 +541,13 @@ object TrackingStore {
     /** Deja de transmitir: vacía lo que quede, cierra la sesión en el backend y
      *  borra el rastro local. Lo que quede sin subir se intenta una última vez. */
     suspend fun para() {
+        // Sin alta: último intento de darse de alta, que al terminar suele
+        // volver la cobertura. Si no entra, lo grabado se queda en el móvil.
+        if (_estado.value.pendienteDeAlta) intentaAlta()
         val id = _estado.value.sessionId
         val t = token
         motor.para()
-        if (id != null && t != null) {
+        if (id != null && t != null && !_estado.value.pendienteDeAlta) {
             if (pendientes.isNotEmpty()) {
                 runCatching { api.pingBatch(t, id, pendientes) }
             }
@@ -779,7 +838,8 @@ object TrackingStore {
             aplicaPlanDelEvento()
         }
         guardaActivo()
-        if (!_estado.value.compartiendo) return
+        // Sin alta, el evento viaja en el alta misma.
+        if (!_estado.value.compartiendo || _estado.value.pendienteDeAlta) return
         val t = token ?: return
         scope.launch {
             // Quitar primero del anterior: una sesión pertenece a un evento, no
@@ -952,7 +1012,7 @@ object TrackingStore {
     private var ultimaComprobacionArmada = 0.0
     suspend fun compruebaSigueSiendoMia() {
         val e = _estado.value
-        if (!e.compartiendo || !e.enEspera) return
+        if (!e.compartiendo || !e.enEspera || e.pendienteDeAlta) return
         val id = e.sessionId ?: return
         val t = token ?: return
         if (ahoraMs - ultimaComprobacionArmada < COMPROBACION_ARMADA_MS) return
@@ -1198,6 +1258,7 @@ object TrackingStore {
     fun guardaForma(sessionId: String, factor: Double, historial: List<ViewerData.FormaWire>) {
         almacen.guardaForma(sessionId, LocalStore.FormaGuardada(factor, historial))
         val t = token ?: return
+        if (_estado.value.pendienteDeAlta) return
         val km = historial.lastOrNull()?.km
         scope.launch { runCatching { api.setForm(t, sessionId, factor, km) } }
     }
@@ -1288,6 +1349,7 @@ object TrackingStore {
     private const val ANIMOS_CADA_MS = 30_000
 
     private suspend fun refrescaAnimos() {
+        if (_estado.value.pendienteDeAlta) return
         val id = _estado.value.sessionId ?: return
         if (ahoraMs - ultimaConsultaAnimosMs < ANIMOS_CADA_MS) return
         ultimaConsultaAnimosMs = ahoraMs
@@ -1404,6 +1466,8 @@ object TrackingStore {
     fun ajustaActividad(actividad: BeaconActivity?) {
         _estado.value = _estado.value.copy(actividad = actividad)
         guardaActivo()
+        // Sin alta, la actividad viaja en el alta misma.
+        if (_estado.value.pendienteDeAlta) return
         val id = _estado.value.sessionId ?: return
         val t = token ?: return
         scope.launch { api.setActivity(t, id, actividad) }
@@ -1749,6 +1813,7 @@ object TrackingStore {
      *  intento (sin cobertura, insistir con las 20 solo gasta batería). */
     private suspend fun vaciaNotas() {
         val e = _estado.value
+        if (e.pendienteDeAlta) return
         val id = e.sessionId ?: return
         val t = token ?: return
         if (!e.compartiendo || vaciandoNotas || notasPendientes.isEmpty()) return
@@ -1780,6 +1845,7 @@ object TrackingStore {
      */
     private suspend fun vaciaMedios() {
         val e = _estado.value
+        if (e.pendienteDeAlta) return
         val id = e.sessionId ?: return
         val t = token ?: return
         if (!e.compartiendo || vaciandoMedios || mediosPendientes.isEmpty()) return
@@ -1817,6 +1883,7 @@ object TrackingStore {
 
     private suspend fun vaciaBorradosDeNotas() {
         val e = _estado.value
+        if (e.pendienteDeAlta) return
         val id = e.sessionId ?: return
         val t = token ?: return
         if (!e.compartiendo || borradosPendientes.isEmpty()) return
@@ -1849,6 +1916,8 @@ object TrackingStore {
      * mientras la subida volaba pueden haber entrado posiciones nuevas.
      */
     private suspend fun vacia() {
+        // Sin alta todavía no hay a dónde subir: primero, darse de alta.
+        if (_estado.value.pendienteDeAlta) { intentaAlta(); return }
         val e = _estado.value
         val id = e.sessionId ?: return
         val t = token ?: return
@@ -1910,6 +1979,7 @@ object TrackingStore {
             // Y de paso se comprueba que la sesión sigue siendo la buena: otro
             // móvil de la misma cuenta pudo tomar el relevo mientras esta
             // callaba.
+            scope.launch { intentaAlta() }
             scope.launch { refrescaAnimos() }
             scope.launch { compruebaSigueSiendoMia() }
             return
@@ -1944,6 +2014,8 @@ object TrackingStore {
                 titulo = e.titulo,
                 eventoId = e.eventoId,
                 guardadoMs = ahoraMs,
+                pendienteDeAlta = e.pendienteDeAlta,
+                planId = e.planId,
             ),
         )
     }

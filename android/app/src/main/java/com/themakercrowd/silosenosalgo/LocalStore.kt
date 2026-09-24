@@ -71,6 +71,10 @@ class LocalStore(context: Context) {
          *  siga decodificando. */
         val eventoId: String? = null,
         val guardadoMs: Double = 0.0,
+        /** Empezó sin cobertura y aún no está dada de alta en el servidor: el
+         *  `sessionId` es provisional (ver `TrackingStore.empieza`). */
+        val pendienteDeAlta: Boolean = false,
+        val planId: String? = null,
     )
 
     /**
@@ -294,6 +298,20 @@ class LocalStore(context: Context) {
     /** Borra del todo el rastro local de una sesión. Solo al borrarla de verdad:
      *  al terminarla NO, porque la traza, las notas y las fotos siguen siendo
      *  suyas y son lo que permite revisarla o exportarla luego sin cobertura. */
+    /** Lo grabado con la clave provisional pasa a la del servidor: se mueve la
+     *  carpeta entera (traza, cola, notas, fotos). */
+    fun renombraSesion(de: String, a: String): Boolean = runCatching {
+        val origen = File(raiz, de)
+        if (!origen.exists()) return@runCatching true
+        val destino = File(raiz, a)
+        if (destino.exists()) {
+            origen.copyRecursively(destino, overwrite = true)
+            origen.deleteRecursively()
+        } else {
+            origen.renameTo(destino)
+        }
+    }.getOrDefault(false)
+
     fun limpiaSesion(sessionId: String) {
         runCatching { File(raiz, sessionId).deleteRecursively() }
     }

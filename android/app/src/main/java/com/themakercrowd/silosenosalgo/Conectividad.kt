@@ -37,9 +37,16 @@ object Conectividad {
         val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return
         // Se pregunta el estado actual antes de escuchar: si ya se arranca sin
         // cobertura, el aviso tiene que estar desde el primer pintado.
-        _online.value = cm.activeNetwork
-            ?.let { cm.getNetworkCapabilities(it) }
-            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        fun mira() {
+            _online.value = cm.activeNetwork
+                ?.let { cm.getNetworkCapabilities(it) }
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        }
+        mira()
+        // Con cada cambio se vuelve a mirar la red POR DEFECTO, en vez de dar
+        // por perdida la conexión al caerse UNA red: con wifi y datos a la vez
+        // —o al pasar de una a otra—, perder una no es quedarse sin nada, y así
+        // la app se quedaba creyendo que no había cobertura hasta reiniciarla.
         runCatching {
             cm.registerNetworkCallback(
                 NetworkRequest.Builder()
@@ -47,7 +54,8 @@ object Conectividad {
                     .build(),
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) { _online.value = true }
-                    override fun onLost(network: Network) { _online.value = false }
+                    override fun onLost(network: Network) { mira() }
+                    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { mira() }
                 },
             )
         }
