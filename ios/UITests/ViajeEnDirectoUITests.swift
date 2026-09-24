@@ -403,6 +403,25 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("principal-5-baliza-con-carrera")
     }
 
+    /// Sin la lista de carreras todavía, o sin poder traerla: se dice, y no
+    /// «no estás inscrito a ninguna».
+    func testCarrerasCargandoOSinConexion() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-PruebaDePantallaPrincipal", "-CarrerasCargando"]
+        app.launch()
+        app.tabBars.buttons["Carreras"].tap()
+        XCTAssertTrue(app.staticTexts["Cargando tus carreras…"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'No estás inscrito'")).firstMatch.exists)
+        guarda("carreras-cargando")
+        app.terminate()
+        app.launchArguments = ["-PruebaDePantallaPrincipal", "-CarrerasFallo"]
+        app.launch()
+        app.tabBars.buttons["Carreras"].tap()
+        XCTAssertTrue(app.staticTexts["No se han podido cargar tus carreras"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Reintentar"].exists)
+        guarda("carreras-sin-conexion")
+    }
+
     /// Preparar la carrera la noche antes: la lista, «Dejar lista», y la
     /// tarjeta de la carrera dice «Lista».
     func testPrepararLaCarreraLaNocheAntes() {
@@ -474,13 +493,15 @@ final class ViajeEnDirectoUITests: XCTestCase {
         app.buttons["Carrera"].firstMatch.tap()
         sleep(1)
         guarda("sim-3-vista-carrera")
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'de 42,0 km'")).firstMatch.exists,
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'de 42,0 km'")).firstMatch
+                        .waitForExistence(timeout: 5),
                       "no cambia a la vista de la carrera:\n\(app.debugDescription)")
 
         app.buttons["Corredores"].firstMatch.tap()
         sleep(1)
         guarda("sim-4-corredores")
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label ENDSWITH '.º'")).firstMatch.exists,
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label ENDSWITH '.º'")).firstMatch
+                        .waitForExistence(timeout: 5),
                       "no cambia a la de corredores:\n\(app.debugDescription)")
 
         // Muy lento, y casi al final: fuera de corte, o ya en meta.

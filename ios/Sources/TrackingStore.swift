@@ -579,25 +579,49 @@ final class TrackingStore: ObservableObject {
 
     /// Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
     /// igual que siempre y el selector simplemente no aparece.
+    /// En qué va la lista de carreras: sin esto, mientras llegaba (o si no
+    /// llegaba, sin cobertura) la pestaña decía «no estás inscrito a ninguna».
+    enum CargaDeCarreras { case cargando, cargadas, fallo }
+    @Published var cargaDeCarreras: CargaDeCarreras = .cargando
+
+    private static let claveCarreras = "carreras.ultimas"
+
+    /// La última lista que llegó, guardada: se enseña al abrir, al momento y
+    /// sin cobertura, mientras se pide la de ahora.
+    func cargaCarrerasGuardadas() {
+        guard events.isEmpty, pastEvents.isEmpty,
+              let d = UserDefaults.standard.data(forKey: Self.claveCarreras),
+              let lista = try? JSONDecoder().decode([EventSummary].self, from: d) else { return }
+        ponCarreras(lista)
+    }
+
+    private func ponCarreras(_ result: [EventSummary]) {
+        events = result.filter { !$0.isOver }
+            .sorted { ($0.startsAt ?? .greatestFiniteMagnitude) < ($1.startsAt ?? .greatestFiniteMagnitude) }
+        pastEvents = result.filter { $0.isOver }
+            .sorted { ($0.startsAt ?? 0) > ($1.startsAt ?? 0) }
+        for ev in result { eventNames[ev.id] = ev.name }
+    }
+
     func loadEvents() async {
-        if let result = try? await API.listEvents(token: token) {
-            // Las que vienen, la más cercana primero: es el orden en que se
-            // miran. Las que no tienen hora, al final —no compiten con una que
-            // sale mañana—. Las terminadas al revés: la última corrida arriba.
-            events = result.filter { !$0.isOver }
-                .sorted { ($0.startsAt ?? .greatestFiniteMagnitude) < ($1.startsAt ?? .greatestFiniteMagnitude) }
-            pastEvents = result.filter { $0.isOver }
-                .sorted { ($0.startsAt ?? 0) > ($1.startsAt ?? 0) }
-            // Los terminados NO se ofrecen para emitir —de ahí el filtro— pero
-            // sus nombres siguen haciendo falta: el listado de seguimientos
-            // trae el id del evento, y sin esto una salida pasaba a leerse
-            // "Sin nombre" en cuanto el organizador cerraba la carrera.
-            for ev in result { eventNames[ev.id] = ev.name }
-            // Y lo que el widget necesita, al cajón compartido: su cuenta
-            // atrás sale de aquí (ver `ContadoresDeCarreras`).
-            ContadoresDeCarreras.sincroniza(result)
-            autoSelectTodaysEvent()
+        cargaDeCarreras = .cargando
+        guard let result = try? await API.listEvents(token: token) else {
+            cargaDeCarreras = .fallo
+            return
         }
+        cargaDeCarreras = .cargadas
+        if let d = try? JSONEncoder().encode(result) { UserDefaults.standard.set(d, forKey: Self.claveCarreras) }
+        // Las que vienen, la más cercana primero: es el orden en que se miran.
+        // Las que no tienen hora, al final —no compiten con una que sale
+        // mañana—. Las terminadas al revés: la última corrida arriba. Y los
+        // nombres de todas, también de las terminadas: el listado de
+        // seguimientos trae el id del evento, y sin esto una salida pasaba a
+        // leerse "Sin nombre" en cuanto el organizador cerraba la carrera.
+        ponCarreras(result)
+        // Y lo que el widget necesita, al cajón compartido: su cuenta atrás
+        // sale de aquí (ver `ContadoresDeCarreras`).
+        ContadoresDeCarreras.sincroniza(result)
+        autoSelectTodaysEvent()
     }
 
     /// Deja puesto el evento de HOY al abrir la baliza, si hay uno.

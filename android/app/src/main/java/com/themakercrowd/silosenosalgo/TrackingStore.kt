@@ -639,8 +639,6 @@ object TrackingStore {
         }
     }
 
-    /** Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
-     *  igual que siempre y el selector simplemente no aparece. */
     /** Solo para pruebas en el emulador (ver `PruebaDePantalla`): carreras de muestra sin entrar. */
     internal fun siembraDePrueba(eventos: List<EventSummary>, pasadas: List<EventSummary>) {
         _eventos.value = eventos
@@ -654,18 +652,44 @@ object TrackingStore {
         )
     }
 
+    /** En qué va la lista de carreras: sin esto, mientras llegaba (o si no
+     *  llegaba, sin cobertura) la pestaña parecía decir que no tenías ninguna. */
+    enum class CargaDeCarreras { CARGANDO, CARGADAS, FALLO }
+    private val _cargaDeCarreras = MutableStateFlow(CargaDeCarreras.CARGANDO)
+    val cargaDeCarreras: StateFlow<CargaDeCarreras> = _cargaDeCarreras.asStateFlow()
+    internal fun marcaCargaDePrueba(c: CargaDeCarreras) { _cargaDeCarreras.value = c }
+
+    private val jsonCarreras = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    /** La última lista que llegó, guardada: se enseña al abrir, al momento y
+     *  sin cobertura, mientras se pide la de ahora. */
+    fun cargaCarrerasGuardadas() {
+        if (_eventos.value.isNotEmpty() || _eventosPasados.value.isNotEmpty()) return
+        val s = appCtx?.getSharedPreferences("carreras", Context.MODE_PRIVATE)?.getString("ultimas", null) ?: return
+        runCatching { jsonCarreras.decodeFromString(kotlinx.serialization.builtins.ListSerializer(EventSummary.serializer()), s) }.getOrNull()?.let { ponCarreras(it) }
+    }
+
+    private fun ponCarreras(lista: List<EventSummary>) {
+        // Las que vienen, la más cercana primero: es el orden en que se miran.
+        // Las que no tienen hora, al final. Las terminadas al revés: la última
+        // corrida arriba.
+        _eventos.value = lista.filter { !it.isOver }.sortedBy { it.startsAt ?: Double.MAX_VALUE }
+        _eventosPasados.value = lista.filter { it.isOver }.sortedByDescending { it.startsAt ?: 0.0 }
+    }
+
+    /** Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
+     *  igual y la pestaña dice que no se han podido cargar. */
     suspend fun cargaEventos() {
-        val t = token ?: return
+        val t = token ?: run { _cargaDeCarreras.value = CargaDeCarreras.FALLO; return }
+        _cargaDeCarreras.value = CargaDeCarreras.CARGANDO
         runCatching { api.listEvents(t) }.onSuccess { lista ->
-            // Las que vienen, la más cercana primero: es el orden en que se
-            // miran. Las que no tienen hora, al final. Las terminadas al revés:
-            // la última corrida arriba.
-            _eventos.value = lista.filter { !it.isOver }
-                .sortedBy { it.startsAt ?: Double.MAX_VALUE }
-            _eventosPasados.value = lista.filter { it.isOver }
-                .sortedByDescending { it.startsAt ?: 0.0 }
+            _cargaDeCarreras.value = CargaDeCarreras.CARGADAS
+            appCtx?.getSharedPreferences("carreras", Context.MODE_PRIVATE)?.edit()
+                ?.putString("ultimas", jsonCarreras.encodeToString(kotlinx.serialization.builtins.ListSerializer(EventSummary.serializer()), lista))
+                ?.apply()
+            ponCarreras(lista)
             autoeligeEventoDeHoy()
-        }
+        }.onFailure { _cargaDeCarreras.value = CargaDeCarreras.FALLO }
     }
 
     /**

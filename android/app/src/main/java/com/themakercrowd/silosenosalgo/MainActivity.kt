@@ -50,6 +50,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.foundation.layout.PaddingValues
+import kotlinx.coroutines.coroutineScope
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -448,11 +450,23 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             TrackingStore.reanudaDesdeDisco()
             if (TrackingStore.gps.hayPermiso()) TrackingService.arranca(context)
         }
-        TrackingStore.cargaSesiones()
-        TrackingStore.cargaPlanes()
-        TrackingStore.cargaEventos()
+        // Las últimas carreras que llegaron, ya; y las de ahora, a la vez que lo
+        // demás: en fila, si otra lista tardaba, «Carreras» se quedaba vacía.
+        TrackingStore.cargaCarrerasGuardadas()
+        coroutineScope {
+            launch { TrackingStore.cargaEventos() }
+            launch { TrackingStore.cargaSesiones() }
+            launch { TrackingStore.cargaPlanes() }
+        }
         TrackingStore.refrescaAlmacenamiento()
         TrackingStore.cargaGuias()
+    }
+    // Si no llegaron (sin cobertura), en cuanto vuelva la red.
+    val cargaCarreras by TrackingStore.cargaDeCarreras.collectAsState()
+    LaunchedEffect(hayRed) {
+        if (hayRed && TrackingStore.cargaDeCarreras.value == TrackingStore.CargaDeCarreras.FALLO) {
+            TrackingStore.cargaEventos()
+        }
     }
 
     // «Preparar la carrera», a pantalla completa.
@@ -964,12 +978,28 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         if (pestana == Pestana.CARRERAS && eventos.isEmpty() && eventosPasados.isEmpty()) {
             Seccion(titulo = "Mis carreras", icono = "🏁") {
-                Text(
-                    "No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, " +
-                        "aparecerá aquí con su cuenta atrás.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Paleta.slate400,
-                )
+                // Qué pasa, y no «no tienes ninguna» mientras llega la lista o si
+                // no llega: parecía que no tenías nada.
+                when (cargaCarreras) {
+                    TrackingStore.CargaDeCarreras.CARGANDO -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Cargando tus carreras…", color = Paleta.slate400)
+                    }
+                    TrackingStore.CargaDeCarreras.FALLO -> Column {
+                        Text("No se han podido cargar tus carreras", color = Paleta.ambar, fontWeight = FontWeight.SemiBold)
+                        Text(if (hayRed) "El servidor no ha contestado." else "Sin conexión.",
+                            color = Paleta.slate400, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { scope.launch { TrackingStore.cargaEventos() } },
+                            contentPadding = PaddingValues(0.dp)) { Text("Reintentar") }
+                    }
+                    TrackingStore.CargaDeCarreras.CARGADAS -> Text(
+                        "No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, " +
+                            "aparecerá aquí con su cuenta atrás.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Paleta.slate400,
+                    )
+                }
             }
         }
 

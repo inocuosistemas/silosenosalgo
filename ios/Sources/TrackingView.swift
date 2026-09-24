@@ -719,8 +719,27 @@ struct TrackingView: View {
 
                 if pestana == .carreras && store.events.isEmpty && store.pastEvents.isEmpty {
                     Section {
-                        Text("No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, aparecerá aquí con su cuenta atrás.")
-                            .font(.footnote).foregroundStyle(Theme.slate400)
+                        // Qué pasa, y no «no tienes ninguna» mientras llega la
+                        // lista o si no llega: parecía que no tenías nada.
+                        switch store.cargaDeCarreras {
+                        case .cargando:
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("Cargando tus carreras…").foregroundStyle(Theme.slate400)
+                            }
+                        case .fallo:
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("No se han podido cargar tus carreras", systemImage: "wifi.exclamationmark")
+                                    .foregroundStyle(Color.orange)
+                                Text(net.online ? "El servidor no ha contestado." : "Sin conexión.")
+                                    .font(.footnote).foregroundStyle(Theme.slate400)
+                                Button("Reintentar") { Task { await store.loadEvents() } }
+                                    .font(.footnote.weight(.semibold))
+                            }
+                        case .cargadas:
+                            Text("No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, aparecerá aquí con su cuenta atrás.")
+                                .font(.footnote).foregroundStyle(Theme.slate400)
+                        }
                     } header: {
                         cabecera("Mis carreras", "flag.checkered")
                     }
@@ -814,7 +833,16 @@ struct TrackingView: View {
                         // habla, y el widget se pone desde la pantalla de
                         // inicio, no desde la app.
                     } header: {
-                        cabecera("Mis carreras", "flag.checkered")
+                        HStack {
+                            cabecera("Mis carreras", "flag.checkered")
+                            Spacer()
+                            // Enseñando las guardadas mientras llegan las de ahora.
+                            if store.cargaDeCarreras == .cargando {
+                                ProgressView().controlSize(.small)
+                            } else if store.cargaDeCarreras == .fallo {
+                                Text("sin actualizar").font(.caption2).foregroundStyle(Color.orange)
+                            }
+                        }
                     } footer: {
                         Text("Toca una carrera para preparar la baliza con su hora de salida oficial y tu ruta. «Abrir» lleva a su parrilla, el mapa, la porra o tu plan, con tu sesión ya iniciada.")
                             .font(.caption).foregroundStyle(Theme.slate400)
@@ -1349,6 +1377,8 @@ struct TrackingView: View {
             .task {
                 // Una vez, desde la pestaña de la baliza (la que se abre primero).
                 guard pestana == .baliza, !PruebaDePantallaPrincipal.pedida else { return }
+                // Las últimas carreras que llegaron, ya: sin esperar a la red.
+                store.cargaCarrerasGuardadas()
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
@@ -1362,9 +1392,17 @@ struct TrackingView: View {
                 // aquí y no cinco minutos antes del disparo, que es tarde para
                 // contestar a un diálogo. Ver `AvisosDeCarrera`.
                 AvisosDeCarrera.pideDerechoAAvisar()
-                await store.loadPlans()
-                await store.loadEvents()
-                await store.loadSessions()
+                // A la vez, y las carreras sin esperar a nadie: en fila, si las
+                // rutas tardaban, «Carreras» se quedaba vacía hasta refrescar.
+                async let carreras: Void = store.loadEvents()
+                async let rutas: Void = store.loadPlans()
+                async let salidas: Void = store.loadSessions()
+                _ = await (carreras, rutas, salidas)
+            }
+            // Si no llegaron (sin cobertura), en cuanto vuelva la red.
+            .onChange(of: net.online) { _, online in
+                guard pestana == .baliza, online, store.cargaDeCarreras == .fallo else { return }
+                Task { await store.loadEvents() }
             }
             // La pantalla de las cuentas atrás, colgada de la LISTA y no de la
             // fila que la abre.

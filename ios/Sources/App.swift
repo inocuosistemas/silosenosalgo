@@ -348,6 +348,15 @@ enum PruebaDePantallaPrincipal {
     @MainActor
     static func siembra() {
         let t = TrackingStore.shared
+        t.cargaDeCarreras = .cargadas
+        // Sin lista todavía (`-CarrerasCargando`) o sin poder traerla (`-CarrerasFallo`).
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-CarrerasCargando") || args.contains("-CarrerasFallo") {
+            t.events = []
+            t.pastEvents = []
+            t.cargaDeCarreras = args.contains("-CarrerasFallo") ? .fallo : .cargando
+            return
+        }
         let dia: Double = 86_400_000
         let ahora = Date().timeIntervalSince1970 * 1000
         let a = ProcessInfo.processInfo.arguments

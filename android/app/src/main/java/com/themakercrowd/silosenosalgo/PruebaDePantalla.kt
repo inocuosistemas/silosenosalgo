@@ -39,6 +39,14 @@ object PruebaDePantalla {
             "aviso" -> ahora + 61.5 * 60_000.0
             else -> ahora + 9 * dia
         }
+        TrackingStore.marcaCargaDePrueba(
+            when (carrera) {
+                "cargando" -> TrackingStore.CargaDeCarreras.CARGANDO
+                "fallo" -> TrackingStore.CargaDeCarreras.FALLO
+                else -> TrackingStore.CargaDeCarreras.CARGADAS
+            },
+        )
+        if (carrera == "cargando" || carrera == "fallo") return
         if (carrera == "armada") {
             TrackingStore.armadaDePrueba("e1", ahora + 47 * 60_000.0)
         }
