@@ -4,6 +4,9 @@ import CoreLocation
 import UIKit
 
 struct TrackingView: View {
+    /// Qué pestaña de la pantalla principal es esta (ver `PantallaPrincipal`):
+    /// la misma vista enseña solo sus secciones.
+    var pestana: PestanaPrincipal = .baliza
     /// La sección de la web de una carrera abierta dentro de la app (ver `WebDelEvento`).
     @State private var webEvento: EnlaceWeb?
     /// Si el bloque de carreras terminadas está desplegado.
@@ -16,6 +19,11 @@ struct TrackingView: View {
     @State private var verCarrera = false
     /// La carrera de la que se enseña la tarjeta en directo, simulada.
     @State private var tarjetaDe: EventSummary?
+    /// La que se está preparando para mañana (ver `PantallaPrepararCarrera`).
+    @State private var preparandoCarrera: EventSummary?
+    /// Sube al cerrar esa pantalla: lo preparado vive en UserDefaults, que no
+    /// avisa, y la tarjeta tiene que pasar a «Lista».
+    @State private var preparadas = 0
     /// La carrera por la que se pregunta al pulsar "Compartir" sin ninguna elegida.
     @State private var carreraAPreguntar: EventSummary?
 
@@ -39,6 +47,26 @@ struct TrackingView: View {
     }
 
     /// "Abrir": las secciones de la carrera en la web, sin pasar por la parrilla.
+    /// «Preparar» (o «Lista ✓» si ya lo está), en las que aún no han salido.
+    @ViewBuilder
+    private func botonPreparar(_ ev: EventSummary) -> some View {
+        if !ev.isOver, let ms = ev.startsAt, ms / 1000 > Date().timeIntervalSince1970 {
+            let lista = preparadas >= 0 && PreparacionDeCarrera.de(evento: ev.id) != nil
+            Button { preparandoCarrera = ev } label: {
+                // Icono y texto a mano: con `Label`, al ir justo de sitio iOS
+                // se quedaba solo con el icono, o partía «Lista» en dos.
+                HStack(spacing: 4) {
+                    Image(systemName: lista ? "checkmark.seal.fill" : "checklist")
+                    Text(lista ? "Lista" : "Preparar").lineLimit(1)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(lista ? Theme.emerald300 : Theme.sky500)
+                .fixedSize()
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
     private func menuDeCarrera(_ ev: EventSummary) -> some View {
         Menu {
             ForEach(WebDelEvento.secciones(de: ev), id: \.self) { s in
@@ -143,7 +171,10 @@ struct TrackingView: View {
         if store.isSharing, store.selectedEventId != ev.id {
             carreraAUnir = ev
         } else {
-            store.setEvent(store.selectedEventId == ev.id ? nil : ev.id)
+            let elige = store.selectedEventId != ev.id
+            store.setEvent(elige ? ev.id : nil)
+            // Elegida para la baliza: allí es donde se sale.
+            if elige { PantallaPrincipal.Navegacion.shared.pestana = .baliza }
         }
     }
 
@@ -301,12 +332,16 @@ struct TrackingView: View {
                 // El permiso de ubicación, ARRIBA y con botón. Estaba al final
                 // de la lista, en texto, y había que ir a buscarlo a Ajustes a
                 // mano; sin «Siempre», con la pantalla apagada no se comparte.
-                if store.authStatus != .authorizedAlways && store.authStatus != .notDetermined {
+                if pestana == .baliza, store.authStatus != .authorizedAlways && store.authStatus != .notDetermined {
                     Section {
                         AvisoDeUbicacion(estado: store.authStatus) { store.pideUbicacion() }
                     }
                     .listRowBackground(Theme.slate900)
                 }
+                if pestana == .baliza && store.isStandby {
+                    ListaParaSalir(onDesarmar: { confirmandoParada = true })
+                }
+                if pestana == .baliza {
                 Section {
                     // Si hay red o no. Va ARRIBA porque explica media pantalla:
                     // las previsiones, los eventos y los seguimientos viven en
@@ -533,6 +568,7 @@ struct TrackingView: View {
                         }
                     } label: {
                         Text(abandonaAlParar ? "Abandonar"
+                             : store.isStandby ? "Desarmar"
                              : store.isSharing ? "Dejar de compartir"
                              : dosFormasDeEmpezar ? "Iniciar ahora"
                              : textoCompartir)
@@ -629,6 +665,7 @@ struct TrackingView: View {
                     }
                     .listRowBackground(Theme.slate900)
                 }
+                }
 
                 // Las decisiones, agrupadas por NATURALEZA y plegadas: cada
                 // sección enseña lo elegido y se abre para cambiarlo. Antes
@@ -658,21 +695,39 @@ struct TrackingView: View {
                 // cuentas atrás propias —un viaje, un cumpleaños— no tienen
                 // nada que ver con estar inscrito. Se puede crear siempre; lo
                 // que aparece solo con carrera es el contador de la carrera.
-                if store.events.isEmpty && store.pastEvents.isEmpty {
+                if pestana == .enDirecto {
                     Section {
-                        FilaContadores(abierta: $verContadores)
                         FilaViajeEnDirecto(abierta: $verViaje)
                         FilaCarreraEnDirecto(abierta: $verCarrera)
                     } header: {
-                        cabecera("Cuenta atrás", "timer")
+                        cabecera("En la pantalla de bloqueo", "lock.fill")
                     } footer: {
-                        Text("Pon en la pantalla de inicio la cuenta atrás de lo que quieras. Cuando te inscribas a una carrera, la suya aparecerá sola.")
+                        Text("Tarjetas que van avanzando con el GPS. La de una carrera en la que estás inscrito sale sola con su baliza.")
+                            .font(.caption).foregroundStyle(Theme.slate400)
+                    }
+                    .listRowBackground(Theme.slate900)
+                    Section {
+                        FilaContadores(abierta: $verContadores)
+                    } header: {
+                        cabecera("En la pantalla de inicio", "apps.iphone")
+                    } footer: {
+                        Text("La cuenta atrás de tus carreras, o de lo que quieras, como widget.")
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
                 }
 
-                if !store.events.isEmpty || !store.pastEvents.isEmpty {
+                if pestana == .carreras && store.events.isEmpty && store.pastEvents.isEmpty {
+                    Section {
+                        Text("No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, aparecerá aquí con su cuenta atrás.")
+                            .font(.footnote).foregroundStyle(Theme.slate400)
+                    } header: {
+                        cabecera("Mis carreras", "flag.checkered")
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+
+                if pestana == .carreras, !store.events.isEmpty || !store.pastEvents.isEmpty {
                     Section {
                         // Una tarjeta por carrera, como en la web: el cartel manda.
                         // Tocarla la prepara para la baliza; "Abrir" lleva a la web.
@@ -685,7 +740,10 @@ struct TrackingView: View {
                                 proxima: ev.id == proximaCarreraId,
                                 onElegir: { tocaCarrera(ev) }
                             ) {
-                                menuDeCarrera(ev)
+                                HStack(spacing: 12) {
+                                    botonPreparar(ev)
+                                    menuDeCarrera(ev)
+                                }
                             }
                             .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                             .listRowBackground(Color.clear)
@@ -755,11 +813,6 @@ struct TrackingView: View {
                         // entra por aquí porque es de las carreras de lo que
                         // habla, y el widget se pone desde la pantalla de
                         // inicio, no desde la app.
-                        // La cuenta atrás de la pantalla de inicio, con la
-                        // misma tarjeta que «Terminadas» (ver `FilaContadores`).
-                        FilaContadores(abierta: $verContadores)
-                        FilaViajeEnDirecto(abierta: $verViaje)
-                        FilaCarreraEnDirecto(abierta: $verCarrera)
                     } header: {
                         cabecera("Mis carreras", "flag.checkered")
                     } footer: {
@@ -770,6 +823,7 @@ struct TrackingView: View {
                 }
 
                 // salida es esta" y "cómo se registra".
+                if pestana == .baliza {
                 Section {
                     DisclosureGroup(isExpanded: $outingOpen) {
                         if !store.events.isEmpty {
@@ -1029,8 +1083,18 @@ struct TrackingView: View {
                     }
                 }
                 .listRowBackground(Theme.slate900)
+                }
 
-                if !store.isSharing {
+                if pestana == .archivo && store.isSharing {
+                    Section {
+                        Text("Mientras compartes, lo grabado se guarda para después: al terminar la salida lo tienes aquí.")
+                            .font(.footnote).foregroundStyle(Theme.slate400)
+                    } header: {
+                        cabecera("Lo que tienes grabado", "tray.full")
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+                if pestana == .archivo && !store.isSharing {
                     Section {
                         Text("GUÍAS")
                             .font(.caption2.weight(.bold)).kerning(0.6)
@@ -1133,7 +1197,7 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
                 }
 
-                if store.isSharing, let link = store.shareLink {
+                if pestana == .baliza, store.isSharing, let link = store.shareLink {
                     // El nombre, y poder cambiarlo aquí mismo. Se le ocurre a uno
                     // a mitad de ruta —"esto no era un entrenamiento, era la
                     // carrera"— y hasta ahora había que bajar hasta "Mis
@@ -1166,7 +1230,7 @@ struct TrackingView: View {
 
                 }
 
-                if let err = store.lastError {
+                if pestana == .baliza, let err = store.lastError {
                     Section {
                         Text(err).foregroundStyle(.red).font(.footnote)
                     }
@@ -1178,6 +1242,7 @@ struct TrackingView: View {
                 // fácil rozarlo con prisa, y es lo que menos se hace. Se sigue
                 // preguntando antes, que en marcha además hay que detener la
                 // baliza. Igual que en Android.
+                if pestana == .archivo {
                 Section {
                     // En rojo, pero apagado: es una salida, no una alarma. En
                     // azul se leía como un enlace más de los muchos que hay en
@@ -1203,6 +1268,7 @@ struct TrackingView: View {
                         .textSelection(.enabled)
                 }
                 .listRowBackground(Color.clear)
+                }
 
             }
             .alert("Eliminar seguimiento", isPresented: Binding(
@@ -1281,6 +1347,8 @@ struct TrackingView: View {
             .background(Theme.slate950)
             .tint(Theme.sky500)
             .task {
+                // Una vez, desde la pestaña de la baliza (la que se abre primero).
+                guard pestana == .baliza, !PruebaDePantallaPrincipal.pedida else { return }
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
@@ -1313,6 +1381,11 @@ struct TrackingView: View {
             .navigationDestination(isPresented: $verCarrera) { PantallaCarreraEnDirecto() }
             // La tarjeta en directo de una carrera, simulada con sus tramos y
             // cortes de verdad: va con la carrera, no con las cuentas atrás.
+            .sheet(item: $preparandoCarrera, onDismiss: { preparadas += 1 }) { ev in
+                NavigationStack { PantallaPrepararCarrera(evento: ev) }
+                    .tint(Theme.sky500)
+                    .preferredColorScheme(.dark)
+            }
             .sheet(item: $tarjetaDe) { ev in
                 NavigationStack {
                     PantallaCarreraSimulada(evento: ev)
@@ -1519,26 +1592,12 @@ struct TrackingView: View {
     private var statusContent: some View {
         if store.isStandby {
             VStack(alignment: .leading, spacing: 2) {
+                // Lo grande —para qué, a qué hora, cuánto falta— está en la
+                // tarjeta de arriba (ver `ListaParaSalir`); aquí, el estado.
                 Label("Armado · ahorrando batería", systemImage: "moon.zzz.fill")
                     .foregroundStyle(.yellow)
-                Text("Empieza solo \(Self.cuandoArranca(store.startAt)). Deja la app abierta en segundo plano (no la cierres).")
-                    .font(.caption).foregroundStyle(Theme.slate400)
-                // Y una salida de la espera, aquí mismo. Una baliza armada solo
-                // se desarma sola al llegar su hora, y esa hora vive en una
-                // sección que se ESCONDE mientras se comparte: con una hora
-                // heredada de una carrera lejana, la baliza se quedaba sin
-                // grabar y sin forma de despertarla que no fuera pararla y
-                // empezar de nuevo.
-                Button {
-                    Vibra.exito()
-                    store.empiezaYa()
-                } label: {
-                    Label("Salir ahora · dejar de esperar", systemImage: "bolt.fill")
-                        .font(.footnote.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.sky500)
-                .padding(.top, 4)
+                // La salida de la espera («Salir ya») está en la tarjeta de
+                // arriba (ver `ListaParaSalir`).
             }
         } else if store.isSharing, store.pendienteDeAlta {
             // Grabando de verdad, pero sin enlace todavía: hay que decir las dos
@@ -2262,5 +2321,64 @@ struct FilaContadores: View {
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
+    }
+}
+
+
+/**
+ La baliza ARMADA, en grande, arriba de la pestaña: que la mañana de la carrera
+ se vea de un vistazo que está lista, para qué carrera, cuánto falta y con qué
+ batería, y a mano «Salir ya» por si se adelanta la salida.
+ */
+struct ListaParaSalir: View {
+    @ObservedObject private var store = TrackingStore.shared
+    let onDesarmar: () -> Void
+
+    var body: some View {
+        Section {
+            VStack(spacing: 8) {
+                Label("Lista para salir", systemImage: "checkmark.seal.fill")
+                    .font(.title3.weight(.bold)).foregroundStyle(Theme.emerald300)
+                if let ev = store.activeEvent {
+                    Text(ev.myEmoji.map { "\($0) \(ev.name)" } ?? ev.name)
+                        .font(.headline).foregroundStyle(Theme.slate100)
+                }
+                Text("Sale sola a las \(store.startAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.subheadline).foregroundStyle(Theme.slate400)
+                if store.startAt > Date() {
+                    Text(timerInterval: Date()...store.startAt, countsDown: true)
+                        .font(.system(size: 54, weight: .heavy, design: .rounded))
+                        .monospacedDigit().foregroundStyle(Theme.slate100)
+                        .multilineTextAlignment(.center)
+                    Text("para la salida" + bateria)
+                        .font(.caption).foregroundStyle(Theme.slate400)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            Button {
+                Vibra.exito()
+                store.empiezaYa()
+            } label: {
+                Text("Salir ya").fontWeight(.semibold)
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                    .background(Theme.sky600).foregroundStyle(.white).cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 6, trailing: 16))
+            Button("Desarmar", action: onDesarmar)
+                .font(.subheadline).foregroundStyle(Theme.slate400)
+                .frame(maxWidth: .infinity)
+        } footer: {
+            Text("Puedes guardar el móvil: sale sola a su hora, y 5 minutos antes te avisamos por si acaso. No cierres la app del todo.")
+                .font(.caption).foregroundStyle(Theme.slate400)
+        }
+        .listRowBackground(Theme.slate900)
+    }
+
+    private var bateria: String {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let b = UIDevice.current.batteryLevel
+        return b < 0 ? "" : " · 🔋 \(Int((b * 100).rounded())) %"
     }
 }

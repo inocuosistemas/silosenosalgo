@@ -365,6 +365,91 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["EN MARCHA"].waitForExistence(timeout: 3))
     }
 
+    /// La pantalla principal en cuatro pestañas: cada una con lo suyo, y al
+    /// elegir una carrera se salta a la de la baliza.
+    func testLaPantallaPrincipalEnPestanas() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaPrincipal"]
+        app.launch()
+        let barra = app.tabBars.firstMatch
+        XCTAssertTrue(barra.buttons["Baliza"].waitForExistence(timeout: 20))
+        sleep(1)
+        guarda("principal-1-baliza")
+        XCTAssertTrue(app.staticTexts["QUÉ SALIDA ES ESTA"].exists)
+        XCTAssertFalse(app.staticTexts["MIS CARRERAS"].exists)
+
+        barra.buttons["Carreras"].tap()
+        XCTAssertTrue(app.staticTexts["MIS CARRERAS"].waitForExistence(timeout: 5))
+        sleep(1)
+        guarda("principal-2-carreras")
+
+        barra.buttons["En directo"].tap()
+        XCTAssertTrue(app.staticTexts["Viaje en directo"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Cuenta atrás y widget"].exists)
+        guarda("principal-3-en-directo")
+
+        barra.buttons["Archivo"].tap()
+        XCTAssertTrue(app.buttons["Salir de la cuenta"].waitForExistence(timeout: 5))
+        guarda("principal-4-archivo")
+
+        // Elegir una carrera lleva a la baliza, con ella puesta.
+        barra.buttons["Carreras"].tap()
+        let carrera = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'Matxicots 26'")).firstMatch
+        XCTAssertTrue(carrera.waitForExistence(timeout: 5))
+        carrera.tap()
+        XCTAssertTrue(app.staticTexts["QUÉ SALIDA ES ESTA"].waitForExistence(timeout: 5),
+                      "no ha saltado a la baliza")
+        guarda("principal-5-baliza-con-carrera")
+    }
+
+    /// Preparar la carrera la noche antes: la lista, «Dejar lista», y la
+    /// tarjeta de la carrera dice «Lista».
+    func testPrepararLaCarreraLaNocheAntes() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaPrincipal", "-CarreraManana", "-SinPreparar"]
+        app.launch()
+        app.tabBars.buttons["Carreras"].tap()
+        let preparar = app.buttons["Preparar"].firstMatch
+        XCTAssertTrue(preparar.waitForExistence(timeout: 10), "no está «Preparar»:\n\(app.debugDescription)")
+        preparar.tap()
+        XCTAssertTrue(app.staticTexts["LA NOCHE ANTES"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Ubicación «Siempre»"].exists)
+        sleep(2)
+        guarda("preparar-1-lista")
+        let dejar = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Dejar lista para las'")).firstMatch
+        for _ in 0..<3 where !dejar.isHittable { app.swipeUp() }
+        dejar.tap()
+        XCTAssertTrue(app.staticTexts["Todo listo"].waitForExistence(timeout: 5))
+        guarda("preparar-2-todo-listo")
+        app.buttons["Cerrar"].tap()
+        XCTAssertTrue(app.buttons["Lista"].waitForExistence(timeout: 5), "la tarjeta no dice «Lista»")
+        guarda("preparar-3-tarjeta-lista")
+    }
+
+    /// El día de la carrera, ya a la hora del aviso: «Armar ya» deja la baliza
+    /// armada y en la pestaña de la baliza sale «Lista para salir».
+    func testArmarLaCarreraElMismoDia() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDePantallaPrincipal", "-CarreraEnUnRato", "-SinPreparar"]
+        app.launch()
+        app.tabBars.buttons["Carreras"].tap()
+        let preparar = app.buttons["Preparar"].firstMatch
+        XCTAssertTrue(preparar.waitForExistence(timeout: 10))
+        preparar.tap()
+        let armar = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Armar ya'")).firstMatch
+        for _ in 0..<3 where !armar.isHittable { app.swipeUp() }
+        XCTAssertTrue(armar.waitForExistence(timeout: 5), "no está «Armar ya»:\n\(app.debugDescription)")
+        armar.tap()
+        let lista = app.staticTexts["Lista para salir"]
+        XCTAssertTrue(lista.waitForExistence(timeout: 20), "no ha quedado armada:\n\(app.debugDescription)")
+        XCTAssertTrue(app.tabBars.buttons["Baliza"].isSelected)
+        sleep(1)
+        guarda("preparar-4-lista-para-salir")
+        // Y se desarma.
+        app.buttons["Desarmar"].firstMatch.tap()
+    }
+
     /// La carrera simulada: el deslizador lleva la tarjeta por toda la
     /// carrera, y los botones del selector cambian de vista.
     func testLaCarreraSimulada() {

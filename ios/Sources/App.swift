@@ -34,6 +34,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 }
                 .tint(Theme.sky500)
                 .preferredColorScheme(.dark)
+            } else if PruebaDePantallaPrincipal.pedida {
+                // La pantalla principal de verdad, sin entrar: con carreras y
+                // rutas de muestra, para verla en pruebas.
+                PantallaPrincipal()
+                    .environmentObject(auth)
+                    .preferredColorScheme(.dark)
+                    .onAppear { PruebaDePantallaPrincipal.siembra() }
             } else if PruebaDeCarreraConTrazado.pedida {
                 // La tarjeta con una ruta propia: con `-EnMarcha`, empezada
                 // con una fija; si no, el formulario con dos rutas de muestra.
@@ -200,8 +207,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier == ViajeEnDirecto.idDelAviso {
+        let id = response.notification.request.identifier
+        if id == ViajeEnDirecto.idDelAviso {
             MainActor.assumeIsolated { ViajeEnDirecto.shared.empiezaElProgramado() }
+        }
+        // El aviso de la carrera preparada: al tocarlo, la baliza queda armada.
+        if PreparacionDeCarrera.esSuyo(id) {
+            Task { @MainActor in await PreparacionDeCarrera.arma() }
         }
         completionHandler()
     }
@@ -325,5 +337,41 @@ enum PruebaDeCarreraConTrazado {
         CarreraConTrazado.shared.empiezaDePrueba(
             hoja: .ejemplo(salida: Date().addingTimeInterval(-90 * 60)),
             ruta: PlanGeometry.Route(points: pts, cumKm: cum), nombre: "Vuelta al Montseny")
+    }
+}
+
+
+/// La pantalla principal sin entrar, con datos de muestra: `-PruebaDePantallaPrincipal`.
+enum PruebaDePantallaPrincipal {
+    static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDePantallaPrincipal") }
+
+    @MainActor
+    static func siembra() {
+        let t = TrackingStore.shared
+        let dia: Double = 86_400_000
+        let ahora = Date().timeIntervalSince1970 * 1000
+        let a = ProcessInfo.processInfo.arguments
+        // La primera: mañana a las 7:24 (`-CarreraManana`), dentro de 50 min
+        // (`-CarreraEnUnRato`) o en nueve días.
+        var manana = Calendar.current.date(byAdding: .day, value: 1, to: Date())!
+        manana = Calendar.current.date(bySettingHour: 7, minute: 24, second: 0, of: manana)!
+        let primera = a.contains("-CarreraManana") ? manana.timeIntervalSince1970 * 1000
+            : a.contains("-CarreraEnUnRato") ? ahora + 50 * 60_000
+            : ahora + 9 * dia
+        if a.contains("-SinPreparar") { PreparacionDeCarrera.olvida() }
+        t.events = [
+            EventSummary(id: "e1", name: "Matxicots 26", planShareId: nil, planName: nil,
+                         startsAt: primera, endedAt: nil, myEmoji: "🦊", myColor: "orange", activity: "run"),
+            EventSummary(id: "e2", name: "Ultra Pirineu", planShareId: "y", planName: nil,
+                         startsAt: ahora + 40 * dia, endedAt: nil, myEmoji: "🦊", myColor: "orange", activity: "run"),
+        ]
+        t.pastEvents = [
+            EventSummary(id: "e0", name: "Matxicots 25", planShareId: "z", planName: nil,
+                         startsAt: ahora - 340 * dia, endedAt: ahora - 339 * dia, myEmoji: "🦊", myColor: "orange", activity: "run"),
+        ]
+        t.plans = [
+            PlanSummary(id: "p1", name: "Vuelta al Montseny", routeName: nil, distanceKm: 42,
+                        startTime: nil, eventId: nil, activity: "run"),
+        ]
     }
 }

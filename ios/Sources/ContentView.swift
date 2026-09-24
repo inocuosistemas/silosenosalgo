@@ -15,7 +15,7 @@ struct ContentView: View {
                 LoginView()
             case .authed:
                 if auth.token != nil {
-                    TrackingView()
+                    PantallaPrincipal()
                 } else {
                     LoginView()
                 }

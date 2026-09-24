@@ -50,6 +50,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -405,11 +411,42 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
     val desplazamiento = rememberScrollState()
     var refrescando by remember { mutableStateOf(false) }
+    /** La pestaña de la pantalla principal (ver `Pestana`). */
+    var pestana by rememberSaveable { mutableStateOf(Pestana.BALIZA) }
     var confirmandoSalida by remember { mutableStateOf(false) }
     var renombrandoEnMarcha by remember { mutableStateOf(false) }
 
     // Arrastrar hacia abajo refresca, como en iOS: recoge lo hecho en otro
     // sitio (una previsión recién creada en la web) sin salir de la pantalla.
+    // En pestañas, como en iOS: lo que era una sola lista con todo abrumaba
+    // al entrar. La cabecera, en todas; el resto, en la suya. (iOS tiene una
+    // cuarta, «En directo», con las tarjetas de la pantalla de bloqueo y el
+    // widget, que en Android no existen.)
+    Scaffold(
+        containerColor = Paleta.slate950,
+        // Los bordes ya los guarda quien aloja la pantalla (`safeDrawingPadding`).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            NavigationBar(containerColor = Paleta.slate900, windowInsets = WindowInsets(0, 0, 0, 0)) {
+                Pestana.entries.forEach { p ->
+                    NavigationBarItem(
+                        selected = pestana == p,
+                        onClick = {
+                            pestana = p
+                            scope.launch { desplazamiento.scrollTo(0) }
+                        },
+                        icon = { Text(p.icono) },
+                        label = { Text(p.titulo) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedTextColor = Paleta.sky500,
+                            unselectedTextColor = Paleta.slate400,
+                            indicatorColor = Paleta.slate800,
+                        ),
+                    )
+                }
+            }
+        },
+    ) { relleno ->
     PullToRefreshBox(
         isRefreshing = refrescando,
         onRefresh = {
@@ -422,7 +459,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 refrescando = false
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().padding(relleno),
     ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(desplazamiento).padding(20.dp),
@@ -462,6 +499,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
+        if (pestana == Pestana.BALIZA) {
         if (!permisoUbicacion) {
             TarjetaAviso(
                 titulo = "Falta el permiso de ubicación",
@@ -798,7 +836,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // (la actividad, el ritmo, cuánto se conserva).
         // Las carreras, lo primero después de los mandos de emitir: quien abre
         // la app el día de una carrera la abre POR esa carrera.
-        if (eventos.isNotEmpty() || eventosPasados.isNotEmpty()) {
+        }
+        if (pestana == Pestana.CARRERAS && (eventos.isNotEmpty() || eventosPasados.isNotEmpty())) {
             Seccion(titulo = "Mis carreras", icono = "🏁") {
                 SeccionCarreras(
                     eventos = eventos,
@@ -817,6 +856,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                             carreraAUnir = eventos.firstOrNull { it.id == id }
                         } else {
                             TrackingStore.ajustaEvento(id)
+                            // Elegida para la baliza: allí es donde se sale.
+                            if (id != null) pestana = Pestana.BALIZA
                         }
                     },
                     onAbrir = { id, vista -> TrackingStore.abreEvento(context, id, vista) },
@@ -824,6 +865,18 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             }
         }
 
+        if (pestana == Pestana.CARRERAS && eventos.isEmpty() && eventosPasados.isEmpty()) {
+            Seccion(titulo = "Mis carreras", icono = "🏁") {
+                Text(
+                    "No estás inscrito a ninguna carrera. Cuando te apuntes a una en la web, " +
+                        "aparecerá aquí con su cuenta atrás.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.slate400,
+                )
+            }
+        }
+
+        if (pestana == Pestana.BALIZA) {
         SeccionPlegable(
             titulo = "Qué salida es esta",
             icono = "🏃",
@@ -924,6 +977,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             SelectorRetencion(estado.retenerHoras) { TrackingStore.ajustaRetencion(it) }
         }
 
+        }
         estado.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
@@ -955,6 +1009,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
         }
 
+        if (pestana == Pestana.ARCHIVO) {
         // Y abajo del todo, lo GUARDADO: guías y seguimientos pasados. No es lo
         // que se viene a mirar mientras se anda, y arriba solo estorbaba.
         Spacer(Modifier.height(28.dp))
@@ -1001,6 +1056,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onContinuar = { id ->
                 TrackingStore.continuaSesion(id)
                 TrackingService.arranca(context)
+                pestana = Pestana.BALIZA
                 scope.launch { desplazamiento.animateScrollTo(0) }
             },
             onReanudar = { id ->
@@ -1008,6 +1064,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     TrackingStore.reabreSesion(id)
                     if (TrackingStore.estado.value.compartiendo) {
                         TrackingService.arranca(context)
+                        pestana = Pestana.BALIZA
                         desplazamiento.animateScrollTo(0)
                     }
                 }
@@ -1095,7 +1152,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 )
             }
         }
+        }
         Spacer(Modifier.height(24.dp))
+    }
     }
     }
 
@@ -1728,3 +1787,10 @@ private fun salidaCorta(epochMs: Double): String =
 private fun hora(epochMs: Double): String =
     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMs.toLong()))
 
+
+/** Las pestañas de la pantalla principal (como en iOS, sin «En directo»). */
+private enum class Pestana(val titulo: String, val icono: String) {
+    BALIZA("Baliza", "📡"),
+    CARRERAS("Carreras", "🏁"),
+    ARCHIVO("Archivo", "🗂️"),
+}
