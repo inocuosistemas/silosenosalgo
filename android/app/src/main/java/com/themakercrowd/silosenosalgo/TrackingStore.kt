@@ -704,9 +704,10 @@ object TrackingStore {
     }
 
     /** Solo para pruebas en el emulador (ver `PruebaDePantalla`): carreras de muestra sin entrar. */
-    internal fun siembraDePrueba(eventos: List<EventSummary>, pasadas: List<EventSummary>) {
+    internal fun siembraDePrueba(eventos: List<EventSummary>, pasadas: List<EventSummary>, planes: List<PlanSummary> = emptyList()) {
         _eventos.value = eventos
         _eventosPasados.value = pasadas
+        if (planes.isNotEmpty()) _planes.value = planes
     }
 
     /** Solo para pruebas: la baliza como si estuviera ARMADA para una carrera. */
@@ -1310,6 +1311,12 @@ object TrackingStore {
         val shareId = ev.planShareId ?: return null
         val bytes = runCatching { api.fetchSharePayload(shareId) }.getOrNull() ?: return null
         return PlanGeometry.trazado(bytes)
+    }
+
+    /** Los bytes de una ruta de la cuenta (para la tarjeta con ruta propia). */
+    suspend fun bytesDelPlan(planId: String): ByteArray? {
+        val t = token ?: return null
+        return runCatching { api.fetchPlanPayload(t, planId) }.getOrNull()
     }
 
     suspend fun trazadoDelPlan(planId: String): List<Pair<Double, Double>>? {

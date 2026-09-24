@@ -69,6 +69,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- Las tarjetas en directo que no son la baliza (la carrera con una ruta
+             propia): su propio GPS, sin compartir nada. -->
+        <service
+            android:name=".EnDirectoService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <service
             android:name=".TrackingService"
             android:exported="false"

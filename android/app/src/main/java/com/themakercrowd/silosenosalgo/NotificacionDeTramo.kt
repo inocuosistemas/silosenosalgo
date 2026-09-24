@@ -29,9 +29,14 @@ object NotificacionDeTramo {
     private var ultimaClave: String? = null
     private var ultimoDibujo: Bitmap? = null
 
+    /**
+     * @param carrera El nombre que va arriba (con su emoji si lo tiene).
+     * @param textoParar Qué dice el botón: dejar de compartir la baliza, o
+     *   terminar la tarjeta de una ruta propia.
+     */
     fun construye(
-        ctx: Context, canal: String, t: DatosTramo, estado: TrackingStore.Estado,
-        acciones: Pair<PendingIntent, PendingIntent>,
+        ctx: Context, canal: String, t: DatosTramo, carrera: String?,
+        acciones: Pair<PendingIntent, PendingIntent>, textoParar: String = "Dejar de compartir",
     ): Notification {
         val (abrir, parar) = acciones
         val hacia = "${ReglasDeCarrera.icono(t.hastaTipo)} ${t.hastaNombre}"
@@ -45,7 +50,6 @@ object NotificacionDeTramo {
             val m = t.margenMin
             "Corte ${hora(c)}" + (m?.let { " · ${margen(it)}" } ?: "")
         }
-        val carrera = TrackingStore.eventoActual()?.let { (it.myEmoji?.let { e -> "$e " } ?: "") + it.name }
         val resumen = listOfNotNull(linea, corte).joinToString(" · ")
 
         return NotificationCompat.Builder(ctx, canal)
@@ -62,7 +66,7 @@ object NotificacionDeTramo {
             )
             .setColor(colorDelMargen(t.margenMin))
             .setContentIntent(abrir)
-            .addAction(0, "Dejar de compartir", parar)
+            .addAction(0, textoParar, parar)
             .setOngoing(true)
             .setSilent(true)
             .setOnlyAlertOnce(true)
@@ -90,7 +94,7 @@ object NotificacionDeTramo {
     private fun hora(ms: Double): String = SimpleDateFormat("HH:mm", Locale("es", "ES")).format(Date(ms.toLong()))
 
     /** El perfil del tramo, lo hecho en azul y dónde se va. */
-    private fun dibujo(t: DatosTramo): Bitmap {
+    fun dibujo(t: DatosTramo): Bitmap {
         val clave = "${t.numero}|${(t.progreso * 200).roundToInt()}"
         if (clave == ultimaClave) ultimoDibujo?.let { return it }
         val w = 1000; val h = 420

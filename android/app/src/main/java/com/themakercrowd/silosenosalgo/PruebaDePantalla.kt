@@ -58,6 +58,10 @@ object PruebaDePantalla {
             pasadas = listOf(
                 EventSummary(id = "e0", name = "Matxicots 25", startsAt = ahora - 340 * dia, endedAt = ahora - 339 * dia, myEmoji = "🦊"),
             ),
+            planes = listOf(
+                PlanSummary(id = "p1", name = "Vuelta al Montseny", distanceKm = 42.0),
+                PlanSummary(id = "p2", name = "Tirada larga domingo", distanceKm = 21.1),
+            ),
         )
     }
 }

@@ -122,11 +122,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         miraSiArmar(intent)
+        if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TrackingStore.inicia(this)
+        if (intent.getBooleanExtra(EnDirectoService.EXTRA_ABRIR_EN_DIRECTO, false)) PedidosDeNavegacion.enDirecto.value = true
         if (BuildConfig.DEBUG) {
             PruebaDePantalla.lee(intent)
             if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
@@ -134,6 +136,7 @@ class MainActivity : ComponentActivity() {
             if (PruebaDePantalla.pedida) intent.getStringExtra("token")?.let { TokenStore(this).token = it }
             // En carrera, a mitad de tramo, con la carrera de ejemplo: para ver la
             // notificación del tramo sin salir a correr.
+            if (intent.getBooleanExtra("carreraConRuta", false)) CarreraConTrazado.empiezaDePrueba(this)
             if (intent.getBooleanExtra("enTramo", false)) {
                 TrackingStore.enTramoDePrueba(intent.getDoubleExtra("km", 7.0))
                 TrackingService.arranca(this)
@@ -347,6 +350,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
      *  las pantallas que se abren encima: si no, al volver de una se perdía. */
     var pestana by rememberSaveable { mutableStateOf(Pestana.BALIZA) }
     var viendoMapa by remember { mutableStateOf(false) }
+    /** La tarjeta de carrera con una ruta propia, abierta (ver `CarreraConTrazado`). */
+    var carreraConRuta by remember { mutableStateOf(false) }
+    val enDirecto by CarreraConTrazado.estado.collectAsState()
     /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
     var preparando by remember { mutableStateOf<EventSummary?>(null) }
     /** Sube al cerrar esa pantalla: lo preparado vive en preferencias, que no avisan. */
@@ -477,6 +483,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
     }
 
+    // «Carrera en directo» con una ruta propia, a pantalla completa.
+    if (carreraConRuta) {
+        PantallaCarreraConTrazado(planes = planes, onCerrar = { carreraConRuta = false })
+        return
+    }
+
     // «Preparar la carrera», a pantalla completa.
     preparando?.let { ev ->
         PantallaPrepararCarrera(
@@ -496,6 +508,20 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
      * La carrera se elige, la salida es la suya y se empieza: con la salida por
      * delante, la baliza queda ARMADA y sale sola a su hora.
      */
+    // Tocar la notificación de la carrera con ruta: su pantalla.
+    val abrirEnDirecto by PedidosDeNavegacion.enDirecto.collectAsState()
+    LaunchedEffect(abrirEnDirecto) {
+        if (!abrirEnDirecto) return@LaunchedEffect
+        PedidosDeNavegacion.enDirecto.value = false
+        pestana = Pestana.EN_DIRECTO
+        carreraConRuta = true
+    }
+    // Si el sistema cerró la app con una en marcha, se retoma.
+    LaunchedEffect(Unit) {
+        if (!CarreraConTrazado.estado.value.enMarcha && CarreraConTrazado.hayUnaGuardada(context)) {
+            EnDirectoService.arranca(context)
+        }
+    }
     val armarPedido by PreparacionDeCarrera.armarPedido.collectAsState()
     LaunchedEffect(armarPedido) {
         if (!armarPedido) return@LaunchedEffect
@@ -1152,6 +1178,19 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     TextButton(onClick = { carreraAUnir = null }) { Text("Cancelar") }
                 },
             )
+        }
+
+        if (pestana == Pestana.EN_DIRECTO) {
+            val t = enDirecto.tramo
+            Seccion(titulo = "En la notificación", icono = "📱",
+                pie = "Tarjetas que van avanzando con el GPS. La de una carrera en la que estás inscrito sale sola con su baliza.") {
+                FilaEnDirecto(
+                    icono = "🏃", titulo = "Carrera en directo",
+                    texto = if (enDirecto.enMarcha) "En marcha · ${enDirecto.nombre}" + (t?.let { " · Tramo ${it.numero}/${it.deTramos}" } ?: "")
+                        else "Con una ruta tuya, por tramos",
+                    activa = enDirecto.enMarcha,
+                ) { carreraConRuta = true }
+            }
         }
 
         if (pestana == Pestana.ARCHIVO) {
@@ -1935,9 +1974,15 @@ private fun hora(epochMs: Double): String =
     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMs.toLong()))
 
 
-/** Las pestañas de la pantalla principal (como en iOS, sin «En directo»). */
+/** Las pestañas de la pantalla principal, como en iOS. */
 private enum class Pestana(val titulo: String, val icono: String) {
     BALIZA("Baliza", "📡"),
     CARRERAS("Carreras", "🏁"),
+    EN_DIRECTO("En directo", "📱"),
     ARCHIVO("Archivo", "🗂️"),
+}
+
+/** Pedidos de ir a una pantalla que llegan de fuera (al tocar una notificación). */
+object PedidosDeNavegacion {
+    val enDirecto = kotlinx.coroutines.flow.MutableStateFlow(false)
 }

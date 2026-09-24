@@ -312,7 +312,8 @@ class TrackingService : Service() {
     private fun construyeNotificacion(estado: TrackingStore.Estado): Notification {
         val tramo = TrackingStore.tramo.value
         if (estado.compartiendo && !estado.enEspera && tramo != null) {
-            return NotificacionDeTramo.construye(this, CANAL, tramo, estado, accionesDeLaBaliza())
+            val carrera = TrackingStore.eventoActual()?.let { (it.myEmoji?.let { e -> "$e " } ?: "") + it.name }
+            return NotificacionDeTramo.construye(this, CANAL, tramo, carrera, accionesDeLaBaliza())
         }
         val titulo = when {
             estado.enEspera -> "Preparado · aún sin transmitir"
