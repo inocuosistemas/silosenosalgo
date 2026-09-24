@@ -25,6 +25,10 @@
          justo para escribirla en disco y subirla. Sin esto el móvil se vuelve a
          dormir con el envío a medias y el atasco crece sin que falle nada. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- «Preparar la carrera»: el aviso de la mañana a su hora, y volver a
+         ponerlo si el móvil se reinicia (el reinicio borra las alarmas). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Notas de campo con voz. La cámara no necesita permiso: se dispara la app
          de cámara del sistema con un intent y ella se encarga. -->
@@ -57,6 +61,14 @@
              cerrarse y el servicio sigue. `foregroundServiceType` es obligatorio
              desde Android 14 y tiene que coincidir con el permiso declarado
              arriba, o el sistema rechaza el arranque. -->
+        <receiver
+            android:name=".AvisoDePreparacion"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".TrackingService"
             android:exported="false"

@@ -645,6 +645,9 @@ fun SeccionCarreras(
     elegido: String?,
     onElige: (String?) -> Unit,
     onAbrir: (eventId: String, vista: String) -> Unit,
+    /** Las preparadas para mañana (ver `PreparacionDeCarrera`). */
+    preparadas: Set<String> = emptySet(),
+    onPreparar: (EventSummary) -> Unit = {},
 ) {
     if (eventos.isEmpty() && pasadas.isEmpty()) return
     // El reloj de la cuenta atrás. Un tic por segundo y solo mientras esta
@@ -672,6 +675,8 @@ fun SeccionCarreras(
             ahora = ahora,
             onElige = onElige,
             onAbrir = onAbrir,
+            lista = ev.id in preparadas,
+            onPreparar = { onPreparar(ev) },
         )
     }
 
@@ -736,6 +741,8 @@ private fun TarjetaCarrera(
     ahora: Double,
     onElige: (String?) -> Unit,
     onAbrir: (String, String) -> Unit,
+    lista: Boolean = false,
+    onPreparar: () -> Unit = {},
 ) {
     val forma = RoundedCornerShape(14.dp)
     val vista = LocalView.current
@@ -806,6 +813,17 @@ private fun TarjetaCarrera(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // «Preparar» (o «Lista» si ya lo está), en las que aún no han salido.
+            if ((ev.startsAt ?: 0.0) > ahora && ev.endedAt == null) {
+                TextButton(onClick = onPreparar) {
+                    Text(
+                        if (lista) "✅ Lista" else "☑️ Preparar",
+                        color = if (lista) Paleta.verde else Paleta.sky500,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
             MenuDeCarrera(ev, onAbrir)
         }
     }

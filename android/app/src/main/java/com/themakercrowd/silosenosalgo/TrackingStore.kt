@@ -641,6 +641,19 @@ object TrackingStore {
 
     /** Refresca mis eventos. Al mejor esfuerzo: si falla, la baliza funciona
      *  igual que siempre y el selector simplemente no aparece. */
+    /** Solo para pruebas en el emulador (ver `PruebaDePantalla`): carreras de muestra sin entrar. */
+    internal fun siembraDePrueba(eventos: List<EventSummary>, pasadas: List<EventSummary>) {
+        _eventos.value = eventos
+        _eventosPasados.value = pasadas
+    }
+
+    /** Solo para pruebas: la baliza como si estuviera ARMADA para una carrera. */
+    internal fun armadaDePrueba(eventoId: String, salidaMs: Double) {
+        _estado.value = _estado.value.copy(
+            compartiendo = true, enEspera = true, eventoId = eventoId, salidaMs = salidaMs, salidaTocada = true,
+        )
+    }
+
     suspend fun cargaEventos() {
         val t = token ?: return
         runCatching { api.listEvents(t) }.onSuccess { lista ->
@@ -1130,6 +1143,14 @@ object TrackingStore {
         val shareId = eventoActual()?.planShareId ?: return null
         val bytes = runCatching { api.fetchSharePayload(shareId) }.getOrNull() ?: return null
         _estado.value.sessionId?.let { almacen.guardaPlan(it, bytes) }
+        return PlanGeometry.trazado(bytes)
+    }
+
+    /** El recorrido publicado de una carrera cualquiera (no solo la elegida):
+     *  para comprobar si su mapa está en el móvil al prepararla. */
+    suspend fun trazadoDeCarrera(ev: EventSummary): List<Pair<Double, Double>>? {
+        val shareId = ev.planShareId ?: return null
+        val bytes = runCatching { api.fetchSharePayload(shareId) }.getOrNull() ?: return null
         return PlanGeometry.trazado(bytes)
     }
 

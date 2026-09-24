@@ -56,6 +56,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -108,9 +109,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** El aviso de la carrera preparada: al tocarlo, se arma (ver `PreparacionDeCarrera`). */
+    private fun miraSiArmar(intent: Intent?) {
+        if (intent?.getBooleanExtra(PreparacionDeCarrera.EXTRA_ARMAR, false) == true) {
+            intent.removeExtra(PreparacionDeCarrera.EXTRA_ARMAR)
+            PreparacionDeCarrera.pideArmar()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        miraSiArmar(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TrackingStore.inicia(this)
+        if (BuildConfig.DEBUG) {
+            PruebaDePantalla.lee(intent)
+            if (PruebaDePantalla.sinPreparar) PreparacionDeCarrera.olvida(this)
+        }
+        miraSiArmar(intent)
         setContent {
             TemaSlsns {
                 // El fondo tiene que ser el MÁS oscuro de la paleta, no el de
@@ -147,6 +166,14 @@ private fun App() {
             usuario = it
             ViewerData.ponUsuario(it)
         }
+    }
+
+    // Solo en la de depuración: la pantalla principal sin entrar, con carreras
+    // de muestra, para probarla en el emulador (ver `PruebaDePantalla`).
+    if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
+        LaunchedEffect(Unit) { PruebaDePantalla.siembra() }
+        PantallaSeguimiento(usuario = "prueba", onSalir = {})
+        return
     }
 
     if (token == null) {
@@ -306,7 +333,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     LaunchedEffect(Unit) { Conectividad.inicia(context) }
     /** La nota que quedó si a ESTE móvil le quitaron la baliza. */
     val notaRelevo by TrackingStore.notaRelevo0.collectAsState()
+    /** La pestaña de la pantalla principal (ver `Pestana`). Arriba, antes de
+     *  las pantallas que se abren encima: si no, al volver de una se perdía. */
+    var pestana by rememberSaveable { mutableStateOf(Pestana.BALIZA) }
     var viendoMapa by remember { mutableStateOf(false) }
+    /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
+    var preparando by remember { mutableStateOf<EventSummary?>(null) }
+    /** Sube al cerrar esa pantalla: lo preparado vive en preferencias, que no avisan. */
+    var preparadasVersion by remember { mutableIntStateOf(0) }
     var descargandoMapa by remember { mutableStateOf(false) }
     val guias by TrackingStore.guias.collectAsState()
     var guiaEnMapa by remember { mutableStateOf<String?>(null) }
@@ -384,9 +418,19 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
     }
 
+    // La ubicación «todo el tiempo», al entrar por primera vez y no a mitad de
+    // una carrera, como en iOS: después de contestar a los avisos (dos
+    // peticiones a la vez y Android se queda con una).
+    val prefsPermisos = remember { context.getSharedPreferences("permisos", Context.MODE_PRIVATE) }
+    fun ubicacionAlEntrar() {
+        if (prefsPermisos.getBoolean("ubicacionPedida", false) || TrackingStore.gps.hayPermisoSegundoPlano()) return
+        prefsPermisos.edit().putBoolean("ubicacionPedida", true).apply()
+        pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+
     val pideNotificaciones = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { ubicacionAlEntrar() }
 
     // Sin permiso de notificaciones (Android 13+) el servicio arranca igual,
     // pero su notificación no se ve: el usuario pierde el único indicador de que
@@ -394,6 +438,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pideNotificaciones.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            ubicacionAlEntrar()
         }
         // Si quedó una sesión a medias (el sistema mató la app, se reinstaló, o
         // se reinició el móvil), se retoma al abrir en vez de aparecer como si
@@ -409,10 +455,49 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         TrackingStore.cargaGuias()
     }
 
+    // «Preparar la carrera», a pantalla completa.
+    preparando?.let { ev ->
+        PantallaPrepararCarrera(
+            ev = ev,
+            onPideUbicacion = { pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
+            onArmarYa = { preparando = null; PreparacionDeCarrera.pideArmar() },
+            onCerrar = { preparando = null; preparadasVersion++ },
+        )
+        return
+    }
+
     val desplazamiento = rememberScrollState()
     var refrescando by remember { mutableStateOf(false) }
-    /** La pestaña de la pantalla principal (ver `Pestana`). */
-    var pestana by rememberSaveable { mutableStateOf(Pestana.BALIZA) }
+
+    /**
+     * Armar la carrera preparada: al tocar el aviso de la mañana (o «Armar ya»).
+     * La carrera se elige, la salida es la suya y se empieza: con la salida por
+     * delante, la baliza queda ARMADA y sale sola a su hora.
+     */
+    val armarPedido by PreparacionDeCarrera.armarPedido.collectAsState()
+    LaunchedEffect(armarPedido) {
+        if (!armarPedido) return@LaunchedEffect
+        PreparacionDeCarrera.armadoAtendido()
+        pestana = Pestana.BALIZA
+        val p = PreparacionDeCarrera.lee(context) ?: return@LaunchedEffect
+        if (TrackingStore.estado.value.compartiendo) { PreparacionDeCarrera.quitaAvisos(context); return@LaunchedEffect }
+        if (TrackingStore.eventos.value.isEmpty()) TrackingStore.cargaEventos()
+        TrackingStore.ajustaEvento(p.eventoId)
+        TrackingStore.ajustaSalida(p.salidaMs)
+        val otra = TrackingStore.otraBalizaViva()
+        if (otra != null) { relevo = otra; return@LaunchedEffect }
+        arrancando = true
+        val r = TrackingStore.empieza(titulo.ifBlank { null }, actividad = TrackingStore.estado.value.actividad)
+        arrancando = false
+        if (TrackingStore.estado.value.compartiendo) {
+            TrackingService.arranca(context)
+            PreparacionDeCarrera.quitaAvisos(context)
+        } else {
+            // Que se vea: tocar el aviso y que no pase nada sería lo peor.
+            avisoGuia = "No se ha podido armar la baliza (${r.exceptionOrNull()?.message ?: "sin respuesta"}). " +
+                "Comprueba la cobertura y pulsa el botón de compartir."
+        }
+    }
     var confirmandoSalida by remember { mutableStateOf(false) }
     var renombrandoEnMarcha by remember { mutableStateOf(false) }
 
@@ -499,6 +584,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
+        if (pestana == Pestana.BALIZA && estado.compartiendo && estado.enEspera) {
+            ListaParaSalir(
+                estado = estado,
+                carrera = eventos.firstOrNull { it.id == estado.eventoId },
+                onSalirYa = { TrackingService.empiezaYa(context) },
+                onDesarmar = { TrackingService.para(context) },
+            )
+        }
         if (pestana == Pestana.BALIZA) {
         if (!permisoUbicacion) {
             TarjetaAviso(
@@ -861,6 +954,10 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         }
                     },
                     onAbrir = { id, vista -> TrackingStore.abreEvento(context, id, vista) },
+                    preparadas = remember(preparadasVersion, eventos) {
+                        eventos.mapNotNull { e -> e.id.takeIf { PreparacionDeCarrera.de(context, it) != null } }.toSet()
+                    },
+                    onPreparar = { preparando = it },
                 )
             }
         }
@@ -1709,12 +1806,12 @@ private fun comparteEnlace(context: Context, enlace: String) {
 
 /** ¿Está la app fuera de la optimización de batería? Es lo que en One UI evita
  *  que el sistema mate el seguimiento en una travesía larga. */
-private fun sinRestriccionesDeBateria(context: Context): Boolean {
+internal fun sinRestriccionesDeBateria(context: Context): Boolean {
     val pm = ContextCompat.getSystemService(context, PowerManager::class.java) ?: return true
     return pm.isIgnoringBatteryOptimizations(context.packageName)
 }
 
-private fun pideSinRestricciones(context: Context) {
+internal fun pideSinRestricciones(context: Context) {
     runCatching {
         context.startActivity(
             Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
