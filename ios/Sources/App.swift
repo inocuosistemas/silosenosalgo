@@ -380,7 +380,11 @@ enum PruebaDeFotosEnRuta {
 
     @MainActor
     static func modelo() -> FotosEnRutaModelo {
-        let inicio = (Date().timeIntervalSince1970 - 86_400) * 1000
+        // `-InicioDePrueba <epoch ms>`: la hora fija de la salida, para que
+        // coincida con la de las fotos que se meten en el simulador.
+        let args = ProcessInfo.processInfo.arguments
+        let fijo = args.firstIndex(of: "-InicioDePrueba").flatMap { i in i + 1 < args.count ? Double(args[i + 1]) : nil }
+        let inicio = fijo ?? (Date().timeIntervalSince1970 - 86_400) * 1000
         let sesion = TrackSessionSummary(
             id: "pruebafotos0001", title: "Vuelta al Montseny", planName: nil, status: "ended",
             startedAt: inicio, expiresAt: inicio + 30 * 86_400_000, updatedAt: nil,

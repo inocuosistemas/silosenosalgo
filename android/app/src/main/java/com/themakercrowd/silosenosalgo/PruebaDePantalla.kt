@@ -24,6 +24,9 @@ object PruebaDePantalla {
     /** Con `fotos`: sin las de muestra, para probar «Buscar las fotos de la ruta». */
     var sinFotos = false
         private set
+    /** La hora fija de la salida de muestra (`--el inicio <epoch ms>`), para que
+     *  coincida con la de las fotos que se meten en el emulador. */
+    private var inicioFotos: Long? = null
     /** Sin marca elegida: la inicial en el botón de la cuenta. */
     var sinMarca = false
         private set
@@ -32,6 +35,7 @@ object PruebaDePantalla {
         nota = intent?.getBooleanExtra("nota", false) == true
         fotos = intent?.getBooleanExtra("fotos", false) == true
         sinFotos = intent?.getBooleanExtra("sinFotos", false) == true
+        inicioFotos = intent?.getLongExtra("inicio", 0L)?.takeIf { it > 0 }
         if (intent?.getBooleanExtra("prueba", false) == true) {
             pedida = true
             carrera = intent.getStringExtra("carrera")
@@ -44,7 +48,7 @@ object PruebaDePantalla {
      *  de la salida, una con solo GPS y una sin nada (va a mano). La subida es
      *  de mentira. Espejo de `PruebaDeFotosEnRuta` en iOS. */
     fun fotosEnRuta(): FotosEnRutaEstado {
-        val inicio = System.currentTimeMillis() - 86_400_000.0
+        val inicio = inicioFotos?.toDouble() ?: (System.currentTimeMillis() - 86_400_000.0)
         val sesion = TrackSessionSummary(
             id = "pruebafotos0001", title = "Vuelta al Montseny", status = "ended",
             startedAt = inicio, expiresAt = inicio + 30 * 86_400_000.0, endedAt = inicio + 7_200_000,

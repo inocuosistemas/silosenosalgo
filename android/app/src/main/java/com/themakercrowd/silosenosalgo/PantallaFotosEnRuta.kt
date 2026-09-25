@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +109,9 @@ class FotoDeRuta(
     var sitio by mutableStateOf<ColocaFotos.Sitio?>(null)
 }
 
+/** Una del carrete hecha durante la salida: dónde está y cuándo se hizo. */
+data class Hallada(val uri: Uri, val tomada: Long)
+
 class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
     enum class Fase { CARGANDO, SIN_TRAZADO, ELIGIENDO, REPASO, SUBIENDO, HECHO }
 
@@ -116,7 +120,10 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
     val fotos = mutableStateListOf<FotoDeRuta>()
     var seleccionada by mutableStateOf<String?>(null)
     /** Las del carrete de esas horas (null = aún no se ha buscado). */
-    var halladas by mutableStateOf<List<Uri>?>(null)
+    var halladas by mutableStateOf<List<Hallada>?>(null)
+    /** Las halladas marcadas para añadir, y si se está eligiendo entre ellas. */
+    var elegidasDeLaRuta by mutableStateOf(setOf<Uri>())
+    var eligiendoDeLaRuta by mutableStateOf(false)
     var sinPermiso by mutableStateOf(false)
     var preparando by mutableIntStateOf(0)
     val subidas = mutableStateListOf<String>()
@@ -128,6 +135,31 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
     private var acum = DoubleArray(0)
     /** Cómo se sube una foto; en la pantalla de prueba, de mentira. */
     var subidor: suspend (FotoDeRuta, ColocaFotos.Sitio) -> Unit = { f, s -> subeDeVerdad(f, s) }
+
+    /** Cuántas caben todavía. */
+    val huecos get() = (TOPE - fotos.size).coerceAtLeast(0)
+
+    fun alternaHallada(u: Uri) {
+        elegidasDeLaRuta = when {
+            u in elegidasDeLaRuta -> elegidasDeLaRuta - u
+            elegidasDeLaRuta.size < huecos -> elegidasDeLaRuta + u
+            else -> elegidasDeLaRuta
+        }
+    }
+
+    /** Todas las que quepan, o ninguna. */
+    fun eligeTodasLasHalladas(todas: Boolean) {
+        elegidasDeLaRuta = if (todas) halladas.orEmpty().take(huecos).map { it.uri }.toSet() else emptySet()
+    }
+
+    /** Saca las marcadas (en orden) y deja las demás por si se quieren luego. */
+    fun tomaElegidas(): List<Uri> {
+        val lista = halladas.orEmpty().filter { it.uri in elegidasDeLaRuta }.map { it.uri }
+        halladas = halladas.orEmpty().filter { it.uri !in elegidasDeLaRuta }
+        elegidasDeLaRuta = emptySet()
+        eligiendoDeLaRuta = false
+        return lista
+    }
 
     val colocadas get() = fotos.filter { it.sitio != null }
     val sinSitio get() = fotos.filter { it.sitio == null }
@@ -201,16 +233,17 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
 
 private object FotosDelMovil {
     /** Las del carrete hechas durante la salida (con el margen). */
-    fun deLasHoras(ctx: Context, desde: Double, hasta: Double): List<Uri> {
+    fun deLasHoras(ctx: Context, desde: Double, hasta: Double): List<Hallada> {
         val col = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val sel = "${MediaStore.Images.Media.DATE_TAKEN} >= ? AND ${MediaStore.Images.Media.DATE_TAKEN} <= ?"
         val args = arrayOf(desde.toLong().toString(), hasta.toLong().toString())
-        val lista = mutableListOf<Uri>()
+        val lista = mutableListOf<Hallada>()
         runCatching {
-            ctx.contentResolver.query(col, arrayOf(MediaStore.Images.Media._ID), sel, args,
-                "${MediaStore.Images.Media.DATE_TAKEN} ASC")?.use { c ->
+            ctx.contentResolver.query(col, arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_TAKEN),
+                sel, args, "${MediaStore.Images.Media.DATE_TAKEN} ASC")?.use { c ->
                 val iId = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                while (c.moveToNext()) lista.add(ContentUris.withAppendedId(col, c.getLong(iId)))
+                val iT = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                while (c.moveToNext()) lista.add(Hallada(ContentUris.withAppendedId(col, c.getLong(iId)), c.getLong(iT)))
             }
         }
         return lista
@@ -319,7 +352,7 @@ fun PantallaFotosEnRuta(estado: FotosEnRutaEstado, onCerrar: () -> Unit) {
             val lista = withContext(Dispatchers.IO) {
                 FotosDelMovil.deLasHoras(context, t.first().t - ColocaFotos.MARGEN_MS, t.last().t + ColocaFotos.MARGEN_MS)
             }
-            estado.halladas = lista.filter { u -> estado.fotos.none { it.origen == u.toString() } }
+            estado.halladas = lista.filter { h -> estado.fotos.none { it.origen == h.uri.toString() } }
         }
     }
 
@@ -329,6 +362,11 @@ fun PantallaFotosEnRuta(estado: FotosEnRutaEstado, onCerrar: () -> Unit) {
     val selector = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(FotosEnRutaEstado.TOPE),
     ) { uris -> if (uris.isNotEmpty()) anadeUris(uris) }
+
+    if (estado.eligiendoDeLaRuta && estado.fase == FotosEnRutaEstado.Fase.ELIGIENDO) {
+        ElegirDeLaRuta(estado, onAnadir = { anadeUris(estado.tomaElegidas()) })
+        return
+    }
 
     Column(Modifier.fillMaxSize().background(Paleta.slate950)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -360,9 +398,8 @@ fun PantallaFotosEnRuta(estado: FotosEnRutaEstado, onCerrar: () -> Unit) {
                     else pidePermiso.launch(FotosDelMovil.permisosDeLectura())
                 },
                 onAnadirHalladas = {
-                    val l = estado.halladas.orEmpty()
-                    estado.halladas = emptyList()
-                    anadeUris(l)
+                    estado.elegidasDeLaRuta = emptySet()
+                    estado.eligiendoDeLaRuta = true
                 },
                 onElegir = {
                     selector.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -423,13 +460,20 @@ private fun Eligiendo(
                     )
                     else -> {
                         Text(
-                            if (halladas.size == 1) "Hay una foto hecha durante la salida."
-                            else "Hay ${halladas.size} fotos hechas durante la salida.",
+                            when {
+                                estado.fotos.any { it.origen != null } ->
+                                    if (halladas.size == 1) "Queda una de esas horas sin añadir."
+                                    else "Quedan ${halladas.size} de esas horas sin añadir."
+                                halladas.size == 1 -> "Hay una foto hecha durante la salida."
+                                else -> "Hay ${halladas.size} fotos hechas durante la salida."
+                            },
                             color = Paleta.slate400, style = MaterialTheme.typography.bodySmall,
                         )
                         Spacer(Modifier.height(8.dp))
+                        // Elegir primero: un día de ruta son fácilmente cien
+                        // fotos, y no todas van al mapa.
                         Button(onClick = onAnadirHalladas, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (halladas.size == 1) "Añadirla" else "Añadir las ${halladas.size}")
+                            Text(if (halladas.size == 1) "Verla" else "Elegir cuáles")
                         }
                     }
                 }
@@ -652,5 +696,108 @@ private fun descripcion(f: FotoDeRuta): String {
         ColocaFotos.Modo.POR_HORA -> "${hora(f.fecha)} · km $km · por la hora"
         ColocaFotos.Modo.POR_GPS -> "km $km · por el GPS de la foto"
         ColocaFotos.Modo.A_MANO -> "km $km · puesta a mano"
+    }
+}
+
+/**
+ * Elegir entre las fotos del carrete hechas durante la salida: en una salida
+ * larga son fácilmente cien, y al mapa van unas pocas. Agrupadas por hora, que
+ * es como se recuerda una ruta; mantener pulsada una la enseña en grande.
+ * Espejo de `ElegirDeLaRuta` en iOS.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ElegirDeLaRuta(estado: FotosEnRutaEstado, onAnadir: () -> Unit) {
+    BackHandler { estado.eligiendoDeLaRuta = false }
+    val halladas = estado.halladas.orEmpty()
+    val n = estado.elegidasDeLaRuta.size
+    val formatoHora = remember { SimpleDateFormat("HH:00", Locale.getDefault()) }
+    val grupos = remember(halladas) { halladas.groupBy { formatoHora.format(Date(it.tomada)) }.toList() }
+    var enGrande by remember { mutableStateOf<Uri?>(null) }
+
+    Column(Modifier.fillMaxSize().background(Paleta.slate950)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { estado.eligiendoDeLaRuta = false }) { Text("Atrás") }
+            Text(
+                if (n == 0) "Elige las de la ruta" else "$n elegida${if (n == 1) "" else "s"}",
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                color = Paleta.slate100, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { estado.eligeTodasLasHalladas(n == 0) }) { Text(if (n == 0) "Todas" else "Ninguna") }
+        }
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            grupos.forEach { (hora, fotos) ->
+                item(key = "h-$hora", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    Text(hora, color = Paleta.slate100, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+                fotos.forEach { h ->
+                    item(key = h.uri.toString()) {
+                        val elegida = h.uri in estado.elegidasDeLaRuta
+                        Box(
+                            Modifier.aspectRatio(1f)
+                                .border(3.dp, if (elegida) Paleta.sky500 else Color.Transparent)
+                                .combinedClickable(
+                                    onClick = { estado.alternaHallada(h.uri) },
+                                    onLongClick = { enGrande = h.uri },
+                                ),
+                        ) {
+                            MiniaturaDeUri(h.uri, 240, Modifier.fillMaxSize())
+                            if (elegida) Box(Modifier.fillMaxSize().background(Paleta.sky500.copy(alpha = 0.18f)))
+                            Box(
+                                Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp).clip(CircleShape)
+                                    .background(if (elegida) Paleta.sky500 else Color.Black.copy(alpha = 0.3f))
+                                    .border(1.5.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) { if (elegida) Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                            Text(
+                                hora(h.tomada.toDouble()), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
+                                    .clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.5f))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            if (n >= estado.huecos && halladas.size > n) {
+                Text("Caben ${FotosEnRutaEstado.TOPE} por vez; el resto, en otra tanda.",
+                    color = Paleta.ambar, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+            }
+            Button(onClick = onAnadir, enabled = n > 0, modifier = Modifier.fillMaxWidth()) {
+                Text(if (n == 0) "Toca las que quieras" else "Añadir ${if (n == 1) "1 foto" else "$n fotos"}",
+                    fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
+    enGrande?.let { u ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { enGrande = null }) {
+            MiniaturaDeUri(u, 1000, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                .clickable { enGrande = null }, ajuste = ContentScale.Fit)
+        }
+    }
+}
+
+/** La miniatura de una foto de la galería, pedida a su tamaño. */
+@Composable
+private fun MiniaturaDeUri(uri: Uri, lado: Int, modifier: Modifier, ajuste: ContentScale = ContentScale.Crop) {
+    val context = LocalContext.current
+    val imagen by androidx.compose.runtime.produceState<ImageBitmap?>(null, uri, lado) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { context.contentResolver.loadThumbnail(uri, android.util.Size(lado, lado), null).asImageBitmap() }
+                .getOrNull()
+        }
+    }
+    Box(modifier.background(Paleta.slate800)) {
+        imagen?.let { Image(it, null, contentScale = ajuste, modifier = Modifier.fillMaxSize()) }
     }
 }

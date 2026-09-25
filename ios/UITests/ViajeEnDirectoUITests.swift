@@ -490,11 +490,13 @@ final class ViajeEnDirectoUITests: XCTestCase {
 
     /// «Buscar las fotos de la ruta» con fotos de verdad en el carrete: tres
     /// hechas durante la salida (una con GPS lejos de donde dice su hora) y una
-    /// de antes, que no debe salir. Las pone quien lanza la prueba
-    /// (`xcrun simctl addmedia`), con el permiso de fotos ya dado.
-    func testBuscarLasFotosDeLaRuta() {
+    /// de antes, que no debe salir. Se eligen dos de las tres y la tercera sigue
+    /// ahí. Las fotos las pone quien lanza la prueba (`xcrun simctl addmedia`),
+    /// con la hora de la salida en `INICIO_FOTOS` (epoch ms).
+    func testBuscarLasFotosDeLaRuta() throws {
+        let inicio = try XCTUnwrap(ProcessInfo.processInfo.environment["INICIO_FOTOS"], "falta INICIO_FOTOS")
         let app = XCUIApplication()
-        app.launchArguments += ["-PruebaDeFotosEnRuta", "-SinFotos"]
+        app.launchArguments += ["-PruebaDeFotosEnRuta", "-SinFotos", "-InicioDePrueba", inicio]
         app.launch()
         let buscar = app.buttons["buscarFotos"]
         XCTAssertTrue(buscar.waitForExistence(timeout: 20))
@@ -508,14 +510,22 @@ final class ViajeEnDirectoUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hay 3 fotos hechas durante la salida."].waitForExistence(timeout: 10),
                       app.debugDescription)
         guarda("carrete-1-halladas")
-        app.buttons["anadirHalladas"].tap()
-        XCTAssertTrue(app.staticTexts["3 fotos"].waitForExistence(timeout: 20))
+
+        app.buttons["elegirHalladas"].tap()
+        let celdas = app.descendants(matching: .any).matching(identifier: "hallada")
+        XCTAssertTrue(celdas.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(celdas.count, 3)
+        XCTAssertFalse(app.buttons["anadirElegidas"].isEnabled, "sin elegir nada no se añade nada")
+        celdas.element(boundBy: 0).tap()
+        celdas.element(boundBy: 1).tap()
+        sleep(1)
+        guarda("carrete-2-eligiendo")
+        app.buttons["anadirElegidas"].tap()
+
+        XCTAssertTrue(app.staticTexts["2 fotos"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["GPS"].exists, "la del GPS lejos de su hora va por el GPS")
-        guarda("carrete-2-anadidas")
-        app.buttons["verEnElMapa"].tap()
-        XCTAssertTrue(app.buttons["subirFotos"].waitForExistence(timeout: 5))
-        sleep(2)
-        guarda("carrete-3-mapa")
+        XCTAssertTrue(app.staticTexts["Queda una de esas horas sin añadir."].exists)
+        guarda("carrete-3-anadidas")
     }
 
     /// El enlace del widget de la cuenta atrás abre esa sección, no la

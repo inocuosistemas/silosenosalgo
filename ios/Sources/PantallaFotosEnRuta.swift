@@ -36,6 +36,8 @@ final class FotosEnRutaModelo: ObservableObject {
     @Published var seleccionada: UUID?
     /// Las de la fototeca hechas durante la salida (nil = aún no se ha buscado).
     @Published var halladas: [PHAsset]?
+    /// Las halladas que se han marcado para añadir (por su id de la fototeca).
+    @Published var elegidasDeLaRuta: Set<String> = []
     @Published var sinPermiso = false
     @Published var preparando = 0
     @Published var subidas: Set<UUID> = []
@@ -112,9 +114,24 @@ final class FotosEnRutaModelo: ObservableObject {
         halladas = lista.filter { !ya.contains($0.localIdentifier) }
     }
 
+    /// Cuántas caben todavía.
+    var huecos: Int { max(0, Self.tope - fotos.count) }
+
+    func alternaHallada(_ id: String) {
+        if elegidasDeLaRuta.contains(id) { elegidasDeLaRuta.remove(id) }
+        else if elegidasDeLaRuta.count < huecos { elegidasDeLaRuta.insert(id) }
+    }
+
+    /// Todas las que quepan, o ninguna.
+    func eligeTodasLasHalladas(_ todas: Bool) {
+        elegidasDeLaRuta = todas ? Set((halladas ?? []).prefix(huecos).map(\.localIdentifier)) : []
+    }
+
+    /// Añade las marcadas; las demás siguen ahí por si se quieren luego.
     func anadeHalladas() async {
-        let lista = halladas ?? []
-        halladas = []
+        let lista = (halladas ?? []).filter { elegidasDeLaRuta.contains($0.localIdentifier) }
+        halladas = (halladas ?? []).filter { !elegidasDeLaRuta.contains($0.localIdentifier) }
+        elegidasDeLaRuta = []
         for a in lista {
             guard fotos.count < Self.tope else { break }
             if fotos.contains(where: { $0.assetId == a.localIdentifier }) { continue }
@@ -247,6 +264,7 @@ struct PantallaFotosEnRuta: View {
     @StateObject var modelo: FotosEnRutaModelo
     @Environment(\.dismiss) private var dismiss
     @State private var elegidas: [PhotosPickerItem] = []
+    @State private var eligiendoDeLaRuta = false
 
     var body: some View {
         NavigationStack {
@@ -301,7 +319,7 @@ struct PantallaFotosEnRuta: View {
                         .font(.caption).foregroundStyle(Theme.slate400)
                 }
                 tarjetaDeLaRuta
-                PhotosPicker(selection: $elegidas, maxSelectionCount: FotosEnRutaModelo.tope, matching: .images, photoLibrary: .shared()) {
+                PhotosPicker(selection: $elegidas, maxSelectionCount: max(1, modelo.huecos), matching: .images, photoLibrary: .shared()) {
                     Label("Elegir otras de la galería", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity)
                 }
@@ -320,6 +338,12 @@ struct PantallaFotosEnRuta: View {
                 if !modelo.fotos.isEmpty { cuadricula }
             }
             .padding(16)
+        }
+        .navigationDestination(isPresented: $eligiendoDeLaRuta) {
+            ElegirDeLaRuta(modelo: modelo) {
+                eligiendoDeLaRuta = false
+                Task { await modelo.anadeHalladas() }
+            }
         }
         .safeAreaInset(edge: .bottom) {
             if !modelo.fotos.isEmpty {
@@ -355,15 +379,20 @@ struct PantallaFotosEnRuta: View {
                          : "En tu galería no hay fotos de esas horas. Si las hizo otra cámara, elígelas abajo: se colocan por su GPS.")
                         .font(.footnote).foregroundStyle(Theme.slate400)
                 } else {
-                    Text("Hay \(halladas.count == 1 ? "una foto hecha" : "\(halladas.count) fotos hechas") durante la salida.")
+                    Text(modelo.fotos.contains { $0.assetId != nil }
+                         ? (halladas.count == 1 ? "Queda una de esas horas sin añadir." : "Quedan \(halladas.count) de esas horas sin añadir.")
+                         : "Hay \(halladas.count == 1 ? "una foto hecha" : "\(halladas.count) fotos hechas") durante la salida.")
                         .font(.footnote).foregroundStyle(Theme.slate400)
+                    // Elegir primero: un día de ruta son fácilmente cien fotos,
+                    // y no todas van al mapa.
                     Button {
-                        Task { await modelo.anadeHalladas() }
+                        modelo.elegidasDeLaRuta = []
+                        eligiendoDeLaRuta = true
                     } label: {
-                        Text(halladas.count == 1 ? "Añadirla" : "Añadir las \(halladas.count)").frame(maxWidth: .infinity)
+                        Text(halladas.count == 1 ? "Verla" : "Elegir cuáles").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("anadirHalladas")
+                    .accessibilityIdentifier("elegirHalladas")
                 }
             } else {
                 Text("Busca en tu galería las que hiciste entre la salida y la llegada, y las pone donde estabas a esa hora.")
@@ -557,5 +586,137 @@ struct PantallaFotosEnRuta: View {
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/**
+ Elegir entre las fotos del carrete hechas durante la salida: en una salida
+ larga son fácilmente cien, y al mapa van unas pocas. Agrupadas por hora, que
+ es como se recuerda una ruta («las del mirador, sobre las cuatro»); mantener
+ pulsada una la enseña en grande.
+ */
+private struct ElegirDeLaRuta: View {
+    @ObservedObject var modelo: FotosEnRutaModelo
+    let alAnadir: () -> Void
+
+    private var grupos: [(hora: String, fotos: [PHAsset])] {
+        let f = DateFormatter()
+        f.dateFormat = "HH:00"
+        var orden: [String] = []
+        var por: [String: [PHAsset]] = [:]
+        for a in modelo.halladas ?? [] {
+            let h = a.creationDate.map { f.string(from: $0) } ?? "?"
+            if por[h] == nil { orden.append(h) }
+            por[h, default: []].append(a)
+        }
+        return orden.map { ($0, por[$0] ?? []) }
+    }
+
+    var body: some View {
+        let n = modelo.elegidasDeLaRuta.count
+        let total = modelo.halladas?.count ?? 0
+        ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 4), spacing: 3,
+                      pinnedViews: [.sectionHeaders]) {
+                ForEach(grupos, id: \.hora) { g in
+                    Section {
+                        ForEach(g.fotos, id: \.localIdentifier) { a in celda(a) }
+                    } header: {
+                        Text(g.hora)
+                            .font(.caption.weight(.bold)).foregroundStyle(Theme.slate100)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Theme.slate950.opacity(0.95))
+                    }
+                }
+            }
+        }
+        .background(Theme.slate950)
+        .navigationTitle(n == 0 ? "Elige las de la ruta" : "\(n) elegida\(n == 1 ? "" : "s")")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(n == 0 ? "Todas" : "Ninguna") { modelo.eligeTodasLasHalladas(n == 0) }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 6) {
+                if n >= modelo.huecos && total > n {
+                    Text("Caben \(FotosEnRutaModelo.tope) por vez; el resto, en otra tanda.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Button(action: alAnadir) {
+                    Text(n == 0 ? "Toca las que quieras" : "Añadir \(n == 1 ? "1 foto" : "\(n) fotos")")
+                        .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(n == 0)
+                .accessibilityIdentifier("anadirElegidas")
+            }
+            .padding(16)
+            .background(Theme.slate950)
+        }
+    }
+
+    private func celda(_ a: PHAsset) -> some View {
+        let elegida = modelo.elegidasDeLaRuta.contains(a.localIdentifier)
+        return MiniaturaDeAsset(asset: a)
+            .frame(minWidth: 0, maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
+            .clipped()
+            .overlay(elegida ? Theme.sky500.opacity(0.18) : .clear)
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(elegida ? Theme.sky500 : .clear, lineWidth: 3))
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: elegida ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, elegida ? Theme.sky500 : .black.opacity(0.25))
+                    .padding(5)
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let d = a.creationDate {
+                    Text(d.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(.black.opacity(0.5)).clipShape(Capsule())
+                        .padding(4)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { modelo.alternaHallada(a.localIdentifier) }
+            .contextMenu {
+                Button(elegida ? "Quitar" : "Elegir") { modelo.alternaHallada(a.localIdentifier) }
+            } preview: {
+                MiniaturaDeAsset(asset: a, lado: 700).frame(width: 340, height: 340)
+            }
+            .accessibilityElement()
+            .accessibilityLabel(a.creationDate?.formatted(date: .omitted, time: .shortened) ?? "Foto")
+            .accessibilityAddTraits(elegida ? [.isButton, .isSelected] : .isButton)
+            .accessibilityIdentifier("hallada")
+    }
+}
+
+/// La miniatura de una foto de la fototeca, pedida a su tamaño.
+private struct MiniaturaDeAsset: View {
+    let asset: PHAsset
+    var lado: CGFloat = 240
+    @State private var imagen: UIImage?
+
+    var body: some View {
+        ZStack {
+            Theme.slate800
+            if let imagen { Image(uiImage: imagen).resizable().scaledToFill() }
+        }
+        .task(id: asset.localIdentifier) {
+            imagen = await withCheckedContinuation { c in
+                let o = PHImageRequestOptions()
+                o.deliveryMode = .highQualityFormat   // una sola respuesta
+                o.resizeMode = .fast
+                o.isNetworkAccessAllowed = true
+                PHImageManager.default().requestImage(
+                    for: asset, targetSize: CGSize(width: lado, height: lado),
+                    contentMode: .aspectFill, options: o
+                ) { img, _ in c.resume(returning: img) }
+            }
+        }
     }
 }
