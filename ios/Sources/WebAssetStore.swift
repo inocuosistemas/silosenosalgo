@@ -21,7 +21,7 @@ final class WebAssetStore {
     static let shared = WebAssetStore()
 
     /// Assets empaquetados con la app (carpeta de referencia `WebDist`).
-    private lazy var bundleRoot: URL? = Bundle.main.url(forResource: "WebDist", withExtension: nil)
+    private(set) lazy var bundleRoot: URL? = Bundle.main.url(forResource: "WebDist", withExtension: nil)
 
     /// Raiz de la copia OTA activa, o nil si aun no se ha instalado ninguna.
     private(set) var activeRoot: URL?
@@ -32,7 +32,15 @@ final class WebAssetStore {
     private var visores = 0
     private let cerrojoVisores = NSLock()
     func abreVisor() { cerrojoVisores.lock(); visores += 1; cerrojoVisores.unlock() }
-    func cierraVisor() { cerrojoVisores.lock(); visores = max(0, visores - 1); cerrojoVisores.unlock() }
+    func cierraVisor() {
+        cerrojoVisores.lock()
+        visores = max(0, visores - 1)
+        let ninguno = visores == 0
+        cerrojoVisores.unlock()
+        // Si quedó una web nueva preparada mientras había un visor abierto, es
+        // el momento: la próxima vez que se abra ya será la nueva.
+        if ninguno { Task { await WebOTAUpdater.shared.promuevePendiente() } }
+    }
     var hayVisorAbierto: Bool { cerrojoVisores.lock(); defer { cerrojoVisores.unlock() }; return visores > 0 }
 
     private init() {

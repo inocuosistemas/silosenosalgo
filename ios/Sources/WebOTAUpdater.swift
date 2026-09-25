@@ -26,6 +26,9 @@ actor WebOTAUpdater {
 
     private var running = false
     private var ultimaVez: Date?
+    /// Una web nueva ya bajada y verificada que no se pudo activar porque había
+    /// un visor abierto: se activa al cerrarse (ver `promuevePendiente`).
+    private var pendiente: (buildId: String, builtAt: Double?)?
     /// Al volver al primer plano, como mucho una vez cada media hora: es un
     /// manifiesto pequeño, pero en el monte cada petición cuenta.
     private static let cadaCuanto: TimeInterval = 30 * 60
@@ -36,8 +39,20 @@ actor WebOTAUpdater {
     @discardableResult
     func refreshAlVolver() async -> String? {
         if let u = ultimaVez, Date().timeIntervalSince(u) < Self.cadaCuanto { return nil }
-        if await MainActor.run(body: { WebAssetStore.shared.hayVisorAbierto }) { return nil }
         return await refresh()
+    }
+
+    /// Activa la web que se bajó con un visor abierto, si ya no hay ninguno.
+    func promuevePendiente() async {
+        guard let p = pendiente, !running, !WebAssetStore.shared.hayVisorAbierto else { return }
+        do {
+            try promote(buildId: p.buildId, builtAt: p.builtAt)
+            pendiente = nil
+            await MainActor.run { WebAssetStore.shared.reloadActive() }
+        } catch {
+            pendiente = nil
+            try? FileManager.default.removeItem(at: WebAssetStore.stagingURL)
+        }
     }
 
     private struct Manifest: Decodable {
@@ -69,12 +84,13 @@ actor WebOTAUpdater {
             if let b = empaquetada, let m = manifest.builtAt, m <= b { return nil }
             guard manifest.totalBytes <= Self.maxTotalBytes else { return nil }
 
+            pendiente = nil
             try await download(manifest)
-            // Si mientras se bajaba se abrió un visor, no se cambia bajo él: se
-            // deja para la próxima vez.
+            // Con un visor abierto no se cambia bajo él: queda preparada y se
+            // activa al cerrarlo (antes se tiraba, y si se abría el mapa
+            // mientras se bajaba, nunca llegaba a entrar).
             if WebAssetStore.shared.hayVisorAbierto {
-                try? FileManager.default.removeItem(at: WebAssetStore.stagingURL)
-                ultimaVez = nil
+                pendiente = (manifest.buildId, manifest.builtAt)
                 return nil
             }
             try promote(buildId: manifest.buildId, builtAt: manifest.builtAt)
@@ -108,8 +124,28 @@ actor WebOTAUpdater {
 
         var shell: String?
 
+        // Los que ya hay en el móvil (en la copia activa o en la que trae la
+        // app) con el mismo hash se copian de ahí: de una versión a otra
+        // cambian pocos, y bajar los 10 MB enteros cada vez hacía la descarga
+        // lo bastante larga como para que el mapa se abriera antes de acabar.
+        let locales = [WebAssetStore.shared.activeRoot, WebAssetStore.shared.bundleRoot].compactMap { $0 }
+        func local(_ entry: Manifest.Entry) -> Data? {
+            guard !entry.path.hasSuffix(".html") else { return nil }
+            for raiz in locales {
+                guard let d = try? Data(contentsOf: raiz.appendingPathComponent(entry.path)) else { continue }
+                if SHA256.hash(data: d).map({ String(format: "%02x", $0) }).joined() == entry.sha256 { return d }
+            }
+            return nil
+        }
+
         for entry in manifest.files {
             guard !entry.path.contains("..") else { throw OTAError.badPath }
+            if let d = local(entry) {
+                let dest = staging.appendingPathComponent(entry.path)
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try d.write(to: dest, options: .atomic)
+                continue
+            }
             var req = URLRequest(url: Config.baseURL.appendingPathComponent(entry.path))
             req.timeoutInterval = Self.requestTimeout
             let (data, resp) = try await URLSession.shared.data(for: req)
