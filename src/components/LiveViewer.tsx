@@ -1320,6 +1320,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // tocándolo. La selección va por HORA y no por posición en la lista: al
   // corregir, dos tramos pueden juntarse y la lista cambia de largo.
   const [modoTramos, setModoTramos] = useState(false)
+  // La lista de la hoja, plegada o no: plegada deja el mapa para trabajar. Se
+  // recuerda en este dispositivo.
+  const [listaPlegada, setListaPlegadaState] = useState(() => {
+    try { return localStorage.getItem('slsns.tramosPlegada') === '1' } catch { return false }
+  })
+  const setListaPlegada = (v: boolean) => {
+    setListaPlegadaState(v)
+    try { localStorage.setItem('slsns.tramosPlegada', v ? '1' : '0') } catch { /* sin almacenamiento: solo esta vez */ }
+  }
   const [selMs, setSelMs] = useState<number | null>(null)
   const tramoSel = selMs == null ? -1 : tramos.findIndex((t) => selMs >= t.desde && selMs <= t.hasta)
   const eligeTramo = (k: number) => {
@@ -3002,6 +3011,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             <span className="font-semibold">Tramos</span>
             <span className="text-slate-400"> · {tSel ? `${tramoSel + 1} de ${tramos.length}` : 'toca uno en el mapa'}</span>
           </p>
+          {tSel && (
+            <button type="button" onClick={() => setSelMs(null)}
+              className="shrink-0 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:border-slate-400">
+              ☰ Lista
+            </button>
+          )}
           <button type="button" onClick={() => { setModoTramos(false); setSelMs(null) }}
             className="shrink-0 rounded-lg bg-sky-600 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-500">
             Listo
@@ -3013,9 +3028,20 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl backdrop-blur">
           {!tSel ? (
             <>
+              {/* La cabecera pliega y despliega la lista: plegada, el mapa entero
+                  para trabajar. */}
+              <button type="button" onClick={() => setListaPlegada(!listaPlegada)} aria-expanded={!listaPlegada}
+                className={`-mx-1 -mt-1 flex w-[calc(100%+0.5rem)] flex-col items-center rounded-lg px-1 pt-0.5 ${listaPlegada ? '' : 'pb-1.5'}`}>
+                <span className="mb-1.5 h-1 w-10 rounded-full bg-slate-600" aria-hidden="true" />
+                <span className="flex w-full items-center gap-2 text-sm text-slate-200">
+                  <span className="font-semibold">{tramos.length} tramos</span>
+                  <span className="ml-auto text-xs text-sky-300">{listaPlegada ? 'Ver lista ▴' : 'Plegar ▾'}</span>
+                </span>
+              </button>
+              {!listaPlegada && <>
               {/* Una fila por tramo, legible, y la lista se desplaza dentro de la
                   hoja: con veinte tramos, en pastillas apretadas no se leía nada. */}
-              <ul className="-mx-1 max-h-[40vh] overflow-y-auto overscroll-contain">
+              <ul className="-mx-1 max-h-[40vh] overflow-y-auto overscroll-contain border-t border-slate-800">
                 {tramos.map((t, k) => (
                   <li key={`${t.i0}`}>
                     <button type="button" onClick={() => eligeTramo(k)}
@@ -3049,6 +3075,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   ))}
                 </div>
               )}
+              </>}
               {errorTramos && <p className="mt-1.5 text-center text-[11px] text-red-400">{errorTramos}</p>}
             </>
           ) : (
