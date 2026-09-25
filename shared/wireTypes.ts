@@ -162,7 +162,14 @@ export const MODOS_DE_TRAMO = ['pie', 'correr', 'bici', 'coche', 'tren', 'barco'
 export type ModoDeTramo = (typeof MODOS_DE_TRAMO)[number]
 
 /** Una corrección a mano: «de tal hora a tal hora iba en tren» (epoch ms). */
-export interface AjusteDeTramo { desde: number; hasta: number; modo: ModoDeTramo }
+export interface AjusteDeTramo {
+  desde: number
+  hasta: number
+  modo: ModoDeTramo
+  /** Solo en las de «parado»: el nombre y el emoji de una pausa («🍽️ Cena»). */
+  nombre?: string
+  emoji?: string
+}
 
 export interface CreateTrackResponse {
   id: string

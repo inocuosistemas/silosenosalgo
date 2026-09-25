@@ -4,6 +4,7 @@ import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { TOKEN_RE } from '../../../../shared/validate'
 import { MODOS_DE_TRAMO, type AjusteDeTramo } from '../../../../shared/wireTypes'
+import { emojiOk } from '../../../../shared/emoji'
 
 /**
  * POST /api/track/:id/tramos — su dueño corrige el medio de transporte de los
@@ -30,7 +31,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       return json({ error: 'bad_body' }, 400)
     }
     if (typeof modo !== 'string' || !(MODOS_DE_TRAMO as readonly string[]).includes(modo)) return json({ error: 'bad_body' }, 400)
-    ajustes.push({ desde: Math.round(desde), hasta: Math.round(hasta), modo: modo as AjusteDeTramo['modo'] })
+    const ajuste: AjusteDeTramo = { desde: Math.round(desde), hasta: Math.round(hasta), modo: modo as AjusteDeTramo['modo'] }
+    // Una pausa puede llevar nombre y emoji («🍽️ Cena»): cortos, y el emoji,
+    // uno de verdad (la misma regla que la marca de los eventos).
+    if (modo === 'parado') {
+      if (typeof a.nombre === 'string' && a.nombre.trim()) ajuste.nombre = a.nombre.trim().slice(0, 40)
+      if (typeof a.emoji === 'string' && a.emoji.trim()) {
+        if (!emojiOk(a.emoji.trim())) return json({ error: 'bad_emoji' }, 400)
+        ajuste.emoji = a.emoji.trim()
+      }
+    }
+    ajustes.push(ajuste)
   }
 
   const row = await env.DB.prepare('SELECT owner_user_id AS owner FROM tracking_sessions WHERE id=?')

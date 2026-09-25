@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, type Entorno } from '../src/lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, nombraPausa, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
 function traza(trozos: [number, number, TrailPoint['m']?][]): TrailPoint[] {
@@ -216,6 +216,30 @@ describe('tramos de transporte', () => {
     expect(corrige([], ts[1], 'pie')).toEqual([])
     expect(mueveCorte([], ts[0], ts[1], tr[10].t)).toEqual([])
     expect(margenDeCorte(ts, 0)).toBeNull()
+  })
+
+  it('una pausa con nombre: se queda en su pausa, se cambia, y corregir lo de alrededor no la borra', () => {
+    const tr = traza([[20, 4, 'w'], [45, 0, 'q'], [20, 4, 'w']])
+    const ts = tramosDeTransporte(tr)
+    let aj = nombraPausa([], ts[1], 'Cena', '🍽️')
+    let r = aplicaAjustes(tr, ts, aj)
+    expect(r[1]).toMatchObject({ modo: 'parado', nombre: 'Cena', emoji: '🍽️' })
+    // La detección la ve un minuto más larga: el nombre sigue ahí.
+    const otra = [ts[0], { ...ts[1], desde: ts[1].desde - 60_000 }, ts[2]]
+    expect(aplicaAjustes(tr, otra, aj)[1].nombre).toBe('Cena')
+    // Corregir el paseo de antes (y todo de una vez) no quita el nombre.
+    aj = corrige(aj, { ...ts[0], hasta: ts[2].hasta }, 'coche')
+    r = aplicaAjustes(tr, ts, aj)
+    expect(modos(r)).toEqual(['coche', 'parado', 'coche'])
+    expect(r[1].nombre).toBe('Cena')
+    // Cambiarlo sustituye; vacío, se quita.
+    aj = nombraPausa(aj, r[1], 'Cena en Üsküdar', '🍽️')
+    expect(aplicaAjustes(tr, ts, aj)[1].nombre).toBe('Cena en Üsküdar')
+    expect(aj.filter((a) => a.nombre)).toHaveLength(1)
+    aj = nombraPausa(aj, r[1], '', '')
+    expect(aplicaAjustes(tr, ts, aj)[1].nombre).toBeUndefined()
+    // A un tramo en movimiento no se le pone nombre de pausa.
+    expect(nombraPausa([], ts[0], 'X', '')).toEqual([])
   })
 
   it('un tramo «en vehículo» (sin mapa aún) se fija como coche', () => {

@@ -40,6 +40,9 @@ export interface Tramo {
   /** Una pausa es un SITIO, no un trozo de recorrido: dónde fue (el centro de
    *  sus lecturas). Solo en las de «parado». */
   punto?: [number, number]
+  /** El nombre y el emoji que le puso su dueño a una pausa, si se lo puso. */
+  nombre?: string
+  emoji?: string
 }
 
 // ── Las pausas ───────────────────────────────────────────────────────────────
@@ -388,7 +391,16 @@ export function refinaVehiculos(
  * y parte uno en dos, llegan posiciones nuevas…) y la hora no cambia. Espejo
  * de `AjusteDeTramo` en shared/wireTypes.ts.
  */
-export interface AjusteDeTramo { desde: number; hasta: number; modo: Modo }
+export interface AjusteDeTramo {
+  desde: number
+  hasta: number
+  modo: Modo
+  /** Solo en las de «parado»: el nombre y el emoji que su dueño le puso a una
+   *  pausa («🍽️ Cena»). No cambian nada del trazado: la pausa la sigue
+   *  marcando el desplazamiento (ver `nombraPausa`). */
+  nombre?: string
+  emoji?: string
+}
 
 /** Los medios que se pueden poner a mano («en vehículo» es no saber cuál). Sin
  *  «parado»: una pausa no es un medio, es no haberse movido, y eso lo dice el
@@ -404,6 +416,37 @@ export const MODOS_A_MANO: Modo[] = ['pie', 'correr', 'bici', 'coche', 'tren', '
  */
 export function aplicaAjustes(trail: TrailPoint[], tramos: Tramo[], ajustes: AjusteDeTramo[]): Tramo[] {
   if (ajustes.length === 0 || tramos.length === 0) return tramos
+  return conNombres(aplicaMedios(trail, tramos, ajustes), ajustes)
+}
+
+/** El nombre de la pausa, si alguna corrección con nombre cae sobre ella: la
+ *  mitad de la una dentro de la otra. Por horas, como todo lo corregido: si la
+ *  pausa se detecta un minuto más larga o más corta, el nombre sigue. */
+export function nombreDePausa(t: Tramo, ajustes: AjusteDeTramo[]): AjusteDeTramo | undefined {
+  if (t.modo !== 'parado') return undefined
+  const mitad = (t.desde + t.hasta) / 2
+  return ajustes.find((a) => a.modo === 'parado' && (a.nombre || a.emoji) &&
+    ((mitad >= a.desde && mitad <= a.hasta) || ((a.desde + a.hasta) / 2 >= t.desde && (a.desde + a.hasta) / 2 <= t.hasta)))
+}
+
+function conNombres(tramos: Tramo[], ajustes: AjusteDeTramo[]): Tramo[] {
+  return tramos.map((t) => {
+    const n = nombreDePausa(t, ajustes)
+    return n ? { ...t, nombre: n.nombre || undefined, emoji: n.emoji || undefined } : t
+  })
+}
+
+/** Las correcciones tras ponerle nombre y emoji a la pausa `t` (vacíos: se
+ *  quita). Sustituye al nombre que tuviera. */
+export function nombraPausa(ajustes: AjusteDeTramo[], t: Tramo, nombre: string, emoji: string): AjusteDeTramo[] {
+  if (t.modo !== 'parado') return ajustes
+  const previo = nombreDePausa(t, ajustes)
+  const resto = ajustes.filter((a) => a !== previo)
+  const n = nombre.trim().slice(0, 40), e = emoji.trim()
+  return n || e ? [...resto, { desde: t.desde, hasta: t.hasta, modo: 'parado', ...(n ? { nombre: n } : {}), ...(e ? { emoji: e } : {}) }] : resto
+}
+
+function aplicaMedios(trail: TrailPoint[], tramos: Tramo[], ajustes: AjusteDeTramo[]): Tramo[] {
   // El medio y si está corregido de cada trocito i (del punto i-1 al i).
   const modo: Modo[] = []
   const corregido: boolean[] = []
@@ -438,6 +481,8 @@ export function aplicaAjustes(trail: TrailPoint[], tramos: Tramo[], ajustes: Aju
 function recorta(ajustes: AjusteDeTramo[], desde: number, hasta: number): AjusteDeTramo[] {
   const out: AjusteDeTramo[] = []
   for (const x of ajustes) {
+    // El nombre de una pausa no es un medio: corregir lo de alrededor no lo toca.
+    if (x.modo === 'parado' && (x.nombre || x.emoji)) { out.push(x); continue }
     if (x.hasta <= desde || x.desde >= hasta) { out.push(x); continue }
     if (x.desde < desde) out.push({ ...x, hasta: desde })
     if (x.hasta > hasta) out.push({ ...x, desde: hasta })
