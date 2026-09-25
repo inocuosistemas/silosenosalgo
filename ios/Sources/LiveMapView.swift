@@ -31,6 +31,9 @@ struct LiveMapView: View {
         NavigationStack {
             WebView(source: source, barraApp: Self.altoBarra)
                 .ignoresSafeArea()
+                // Si se está bajando una versión nueva, por encima de la pastilla
+                // de estado del mapa.
+                .overlay(alignment: .bottom) { AvisoDeWebNueva().padding(.bottom, 64) }
                 // Sin título en la sesión que emite: lo que decía lo dice la
                 // pastilla de abajo del mapa.
                 .navigationTitle(esLaDeAhora ? "" : title)

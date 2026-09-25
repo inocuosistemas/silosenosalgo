@@ -16,6 +16,19 @@ import CryptoKit
 ///
 /// Y nunca se actualiza con el visor abierto: se cambiarian los assets bajo los
 /// pies de un WKWebView vivo. El build nuevo entra en la siguiente apertura.
+/// Lo que se está bajando de la web nueva, para enseñarlo (ver
+/// `AvisoDeWebNueva`): con una conexión lenta, sin esto el mapa se abría con la
+/// versión de antes sin que nada dijera que la nueva venía de camino.
+@MainActor
+final class ProgresoDeWeb: ObservableObject {
+    static let shared = ProgresoDeWeb()
+    /// 0…1 mientras se baja; nil si no se está bajando nada (o todo estaba ya
+    /// en el móvil).
+    @Published var fraccion: Double?
+    /// Bajada, pero esperando a que se cierre el mapa para activarse.
+    @Published var lista = false
+}
+
 actor WebOTAUpdater {
     static let shared = WebOTAUpdater()
 
@@ -48,7 +61,10 @@ actor WebOTAUpdater {
         do {
             try promote(buildId: p.buildId, builtAt: p.builtAt)
             pendiente = nil
-            await MainActor.run { WebAssetStore.shared.reloadActive() }
+            await MainActor.run {
+                WebAssetStore.shared.reloadActive()
+                ProgresoDeWeb.shared.lista = false
+            }
         } catch {
             pendiente = nil
             try? FileManager.default.removeItem(at: WebAssetStore.stagingURL)
@@ -85,12 +101,18 @@ actor WebOTAUpdater {
             guard manifest.totalBytes <= Self.maxTotalBytes else { return nil }
 
             pendiente = nil
-            try await download(manifest)
+            await MainActor.run { ProgresoDeWeb.shared.lista = false }
+            do { try await download(manifest) } catch {
+                await MainActor.run { ProgresoDeWeb.shared.fraccion = nil }
+                throw error
+            }
+            await MainActor.run { ProgresoDeWeb.shared.fraccion = nil }
             // Con un visor abierto no se cambia bajo él: queda preparada y se
             // activa al cerrarlo (antes se tiraba, y si se abría el mapa
             // mientras se bajaba, nunca llegaba a entrar).
             if WebAssetStore.shared.hayVisorAbierto {
                 pendiente = (manifest.buildId, manifest.builtAt)
+                await MainActor.run { ProgresoDeWeb.shared.lista = true }
                 return nil
             }
             try promote(buildId: manifest.buildId, builtAt: manifest.builtAt)
@@ -138,9 +160,16 @@ actor WebOTAUpdater {
             return nil
         }
 
+        // Primero, qué hay ya en el móvil y qué hay que bajar: el progreso cuenta
+        // solo lo que viaja por la red.
+        let yaAqui = Dictionary(uniqueKeysWithValues: manifest.files.compactMap { e in local(e).map { (e.path, $0) } })
+        let total = manifest.files.filter { yaAqui[$0.path] == nil }.reduce(0) { $0 + $1.bytes }
+        var bajado = 0
+        await MainActor.run { ProgresoDeWeb.shared.fraccion = total > 0 ? 0 : nil }
+
         for entry in manifest.files {
             guard !entry.path.contains("..") else { throw OTAError.badPath }
-            if let d = local(entry) {
+            if let d = yaAqui[entry.path] {
                 let dest = staging.appendingPathComponent(entry.path)
                 try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try d.write(to: dest, options: .atomic)
@@ -167,6 +196,11 @@ actor WebOTAUpdater {
             let dest = staging.appendingPathComponent(entry.path)
             try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: dest, options: .atomic)
+            if total > 0 {
+                bajado += data.count
+                let f = min(1, Double(bajado) / Double(total))
+                await MainActor.run { ProgresoDeWeb.shared.fraccion = f }
+            }
         }
 
         // Sin index.html no hay visor: mejor descartar que activar algo inservible.

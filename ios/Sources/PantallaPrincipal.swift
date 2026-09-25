@@ -51,5 +51,7 @@ struct PantallaPrincipal: View {
                 .tag(PestanaPrincipal.archivo)
         }
         .tint(Theme.sky500)
+        // Si se está bajando una versión nueva de la web, encima de las pestañas.
+        .overlay(alignment: .bottom) { AvisoDeWebNueva().padding(.bottom, 64) }
     }
 }

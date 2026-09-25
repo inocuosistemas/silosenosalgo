@@ -55,6 +55,8 @@ struct SiLoSeNoSalgoTrackerApp: App {
                     .environmentObject(auth)
                     .preferredColorScheme(.dark)
                     .onAppear {
+                        // `-WebBajando`: la pastilla de la web nueva, a medias.
+                        if ProcessInfo.processInfo.arguments.contains("-WebBajando") { ProgresoDeWeb.shared.fraccion = 0.45 }
                         PruebaDePantallaPrincipal.siembra()
                         auth.siembraDePrueba(usuario: "laia", perfil: ProcessInfo.processInfo.arguments.contains("-SinMarca")
                             ? PerfilDeCuenta() : PerfilDeCuenta(favEmoji: "🦊", favColor: "orange"))

@@ -651,6 +651,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // Los bordes ya los guarda quien aloja la pantalla (`safeDrawingPadding`).
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
+            Column {
+            // Si se está bajando una versión nueva de la web, encima de las pestañas.
+            AvisoDeWebNueva()
             NavigationBar(containerColor = Paleta.slate900, windowInsets = WindowInsets(0, 0, 0, 0)) {
                 Pestana.entries.forEach { p ->
                     NavigationBarItem(
@@ -668,6 +671,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                         ),
                     )
                 }
+            }
             }
         },
     ) { relleno ->

@@ -85,7 +85,22 @@ class WebOtaUpdater(
      */
     private fun descargaFicheros(m: OtaRules.Manifest): Map<String, ByteArray>? {
         val recogidos = HashMap<String, ByteArray>(m.files.size)
+        // Los que ya están en el móvil (copia activa o la del APK) con el mismo
+        // hash no se bajan: de una versión a otra cambian pocos, y bajar los
+        // 10 MB enteros cada vez era lento con poca cobertura.
+        val yaAqui = HashMap<String, ByteArray>()
         for (entrada in m.files) {
+            if (entrada.path.endsWith(".html")) continue
+            val local = runCatching { assets.carga(entrada.path)?.first }.getOrNull() ?: continue
+            if (OtaRules.verificaFichero(entrada, local)) yaAqui[entrada.path] = local
+        }
+        val total = m.files.filter { it.path !in yaAqui }.sumOf { it.bytes.toLong() }
+        var bajado = 0L
+        ProgresoDeWeb.fraccion.value = if (total > 0) 0f else null
+        try {
+        for (entrada in m.files) {
+            val local = yaAqui[entrada.path]
+            if (local != null) { recogidos[entrada.path] = local; continue }
             val bytes = runCatching {
                 val req = Request.Builder().url("${Config.BASE_URL}/${entrada.path}").build()
                 cliente.newCall(req).execute().use { resp ->
@@ -95,8 +110,15 @@ class WebOtaUpdater(
 
             if (!OtaRules.verificaFichero(entrada, bytes)) return null
             recogidos[entrada.path] = bytes
+            if (total > 0) {
+                bajado += bytes.size
+                ProgresoDeWeb.fraccion.value = (bajado.toFloat() / total).coerceAtMost(1f)
+            }
         }
         return recogidos
+        } finally {
+            ProgresoDeWeb.fraccion.value = null
+        }
     }
 
     private fun escribeStaging(m: OtaRules.Manifest, datos: Map<String, ByteArray>) {
@@ -130,4 +152,10 @@ class WebOtaUpdater(
             assets.dirStaging.deleteRecursively()
         }
     }
+}
+
+/** Lo que se está bajando de la web nueva (0…1), para enseñarlo; null si nada.
+ *  Espejo de `ProgresoDeWeb` en iOS. */
+object ProgresoDeWeb {
+    val fraccion = kotlinx.coroutines.flow.MutableStateFlow<Float?>(null)
 }
