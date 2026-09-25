@@ -28,6 +28,19 @@ describe('tramos de transporte', () => {
     expect(modos(tramosDeTransporte(traza([[10, 5], [30, 70], [8, 11]])))).toEqual(['pie', 'vehiculo', 'correr'])
   })
 
+  it('andando despacio con la posición anclada (0 m, 0 m, 26 m…) es a pie, no parado ni corriendo', () => {
+    // Cada 10 s: dos veces la misma posición y luego un salto de 26 m, que es
+    // como graba la baliza cuando el paso no supera el ruido del GPS (≈3 km/h).
+    const tr: TrailPoint[] = [{ t: 0, lat: 40, lon: 0, a: 14 }]
+    for (let k = 1; k <= 180; k++) {
+      const u = tr[tr.length - 1]
+      tr.push({ t: u.t + 10_000, lat: u.lat + (k % 3 === 0 ? 0.026 / 111.2 : 0), lon: 0, a: 14 })
+    }
+    const ts = tramosDeTransporte(tr)
+    expect(modos(ts)).toEqual(['pie'])
+    expect(ts[0].km).toBeCloseTo(1.56, 1)
+  })
+
   it('un titubeo de un minuto no es un cambio de medio', () => {
     expect(modos(tramosDeTransporte(traza([[10, 5, 'w'], [1, 30, 'v'], [10, 5, 'w']])))).toEqual(['pie'])
   })
@@ -79,6 +92,22 @@ describe('tramos de transporte', () => {
     const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
     const m = mapa([[km(0.5), km(21), { via: true }], [km(5), km(10), { agua: true, via: true }]])
     expect(modos(refinaVehiculos(tr, tramosDeTransporte(tr), (lat) => m(lat)))).toEqual(['pie', 'tren', 'pie'])
+  })
+
+  it('sin sensor, un barco lento (13 km/h, «correr» por velocidad) se ve en el mapa', () => {
+    const tr = traza([[10, 5], [60, 13], [10, 5]])
+    const ts = tramosDeTransporte(tr)
+    expect(modos(ts)).toEqual(['pie', 'correr', 'pie'])
+    const agua = mapa([[km(0.9), km(14), { agua: true }]])
+    expect(modos(refinaVehiculos(tr, ts, (lat) => agua(lat)))).toEqual(['pie', 'barco', 'pie'])
+    // Por tierra, sigue siendo correr.
+    expect(modos(refinaVehiculos(tr, ts, sinNada))).toEqual(['pie', 'correr', 'pie'])
+  })
+
+  it('con sensor, correr es correr aunque sea junto al agua', () => {
+    const tr = traza([[10, 5, 'w'], [60, 13, 'r'], [10, 5, 'w']])
+    const agua = mapa([[km(0.9), km(14), { agua: true }]])
+    expect(modos(refinaVehiculos(tr, tramosDeTransporte(tr), (lat) => agua(lat)))).toEqual(['pie', 'correr', 'pie'])
   })
 
   it('sin el mapa de algún punto, se queda «en vehículo»', () => {

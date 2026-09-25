@@ -30,7 +30,7 @@ import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
 import { inferActivity } from '../lib/activityInference'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, esAPie, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, pideMapa, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, esAPie, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
 import { cargaEntornos, entornoSiEsta } from '../lib/entornoDelMapa'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
@@ -1282,7 +1282,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const tramosBase = useMemo(() => (modoInteligente ? tramosDeTransporte(trail) : []), [modoInteligente, trail])
   const [versionMapa, setVersionMapa] = useState(0)
   useEffect(() => {
-    const enVehiculo = tramosBase.filter((t) => t.modo === 'vehiculo')
+    const enVehiculo = tramosBase.filter(pideMapa)
     if (enVehiculo.length === 0) return
     let vivo = true
     void cargaEntornos(enVehiculo.flatMap((t) => muestrasDe(trail, t)))

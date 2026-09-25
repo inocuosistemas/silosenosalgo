@@ -35,6 +35,8 @@ export interface Tramo {
   kmh: number
   /** Si el medio lo ha puesto a mano su dueño (ver `aplicaAjustes`). */
   corregido?: boolean
+  /** Si lo decidió el sensor del móvil (y no la velocidad sola). */
+  sensor?: boolean
 }
 
 export const MODOS: Record<Modo, { emoji: string; nombre: string; color: string }> = {
@@ -103,9 +105,13 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   if (trail.length < 2) return []
 
   // 1. Cada segmento, con su etiqueta: la del sensor si lo hay; si no, por la
-  //    velocidad mediana del minuto que lo rodea (un punto suelto rápido es el
-  //    GPS, no un cambio de medio). La de velocidad es provisional: al final se
-  //    decide por el tramo entero.
+  //    velocidad del minuto que lo rodea, medida por lo RECORRIDO en ese
+  //    minuto (metros entre segundos) y no trocito a trocito. Andando despacio
+  //    con el GPS a 15 m, la baliza repite la posición anclada mientras no se
+  //    ha movido más que el ruido y luego salta: 0 m, 0 m, 26 m… Trocito a
+  //    trocito eso es «parado, parado, 9 km/h»; en el minuto, 3 km/h, que es lo
+  //    que se iba. La de velocidad es provisional: al final se decide por el
+  //    tramo entero, con estas mismas velocidades del minuto.
   const base: { ms: number; km: number; kmh: number; t: number }[] = []
   for (let i = 1; i < trail.length; i++) {
     const a = trail[i - 1], b = trail[i]
@@ -114,15 +120,17 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
     base.push({ ms, km, kmh: ms > 0 ? km / (ms / 3_600_000) : 0, t: b.t })
   }
   const seg: { modo: Modo | 'movil'; ms: number; km: number; kmh: number; sensor: boolean }[] = []
-  let lo = 0, hi = 0
+  let lo = 0, hi = 0, kmVentana = 0, msVentana = 0
   base.forEach((s, k) => {
+    // Ventana deslizante [t - 1 min, t + 1 min], con sumas que entran y salen.
+    while (hi < base.length && base[hi].t <= s.t + VENTANA_MS) { kmVentana += base[hi].km; msVentana += base[hi].ms; hi++ }
+    while (lo < hi && base[lo].t < s.t - VENTANA_MS) { kmVentana -= base[lo].km; msVentana -= base[lo].ms; lo++ }
+    const enVentana = msVentana > 0 ? kmVentana / (msVentana / 3_600_000) : s.kmh
+    // Un trocito largo (sin señal un rato) lleva su propia media.
+    const kmh = s.ms > VENTANA_MS ? s.kmh : enVentana
     const sensor = porSensor(trail[k + 1].m, s.kmh)
-    if (sensor) { seg.push({ ...s, modo: sensor, sensor: true }); return }
-    while (base[lo].t < s.t - VENTANA_MS) lo++
-    while (hi + 1 < base.length && base[hi + 1].t <= s.t + VENTANA_MS) hi++
-    const v = base.slice(lo, Math.max(hi, k) + 1).map((x) => x.kmh).sort((x, y) => x - y)
-    const mediana = v[Math.floor(v.length / 2)]
-    seg.push({ ...s, modo: mediana < PARADO_KMH ? 'parado' : banda(mediana), sensor: false })
+    if (sensor) { seg.push({ ...s, kmh, modo: sensor, sensor: true }); return }
+    seg.push({ ...s, kmh, modo: kmh < PARADO_KMH ? 'parado' : banda(kmh), sensor: false })
   })
 
   // 2. En rachas del mismo modo.
@@ -185,7 +193,7 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
     const movMs = r.kmhs.length ? r.ms : 0
     const t: Tramo = {
       modo, i0: r.i0, i1: r.i1, desde: trail[r.i0].t, hasta: trail[r.i1].t, km: r.km,
-      kmh: movMs > 0 ? r.km / (movMs / 3_600_000) : 0,
+      kmh: movMs > 0 ? r.km / (movMs / 3_600_000) : 0, sensor: !sinSensor,
     }
     const u = tramos[tramos.length - 1]
     if (u && u.modo === t.modo) {
@@ -204,6 +212,14 @@ export interface Entorno { agua: boolean; via: boolean; ferry: boolean }
 /** Cada cuánto se mira el mapa dentro de un tramo en vehículo, y hasta cuántas veces. */
 const CADA_KM = 0.3
 const MUESTRAS_MAX = 120
+
+/**
+ * Si un tramo se mira en el mapa: los «en vehículo», y los de correr o bici
+ * que salieron solo por la velocidad. Sin sensor, un barco a 13 km/h o un
+ * tranvía a 20 caen en esas bandas; sobre el agua o por la vía, el mapa lo
+ * dice. Con sensor no: el sensor sí distingue correr de ir en algo.
+ */
+export const pideMapa = (t: Tramo) => t.modo === 'vehiculo' || (!t.sensor && (t.modo === 'correr' || t.modo === 'bici'))
 
 /** Los puntos de un tramo en los que mirar el mapa: repartidos por distancia,
  *  con el índice del punto del trazado al que corresponden. */
@@ -249,7 +265,7 @@ export function refinaVehiculos(
 ): Tramo[] {
   const out: Tramo[] = []
   for (const t of tramos) {
-    if (t.modo !== 'vehiculo') { out.push(t); continue }
+    if (!pideMapa(t)) { out.push(t); continue }
     const m = muestrasDe(trail, t)
     const e = m.map((p) => entornoDe(p.lat, p.lon))
     if (e.some((x) => !x)) { out.push(t); continue }
@@ -285,10 +301,13 @@ export function refinaVehiculos(
       (r.modo === 'tren' && r.km < TREN_MIN_KM) || (r.modo === 'barco' && r.km < BARCO_MIN_KM)
     rachas = junta(rachas.map((r) => (corto(r) ? { ...r, modo: 'coche' as Modo } : r)))
     // A tramos: cada racha empieza donde acaba la anterior.
+    // Lo que no va por el agua ni por la vía: coche si era «en vehículo»; si
+    // era correr o bici por la velocidad, se queda como estaba.
+    const resto: Modo = t.modo === 'vehiculo' ? 'coche' : t.modo
     rachas.forEach((r, k) => {
       const i0 = k === 0 ? t.i0 : m[r.k0].i - 1
       const i1 = k === rachas.length - 1 ? t.i1 : m[rachas[k + 1].k0].i - 1
-      if (i1 > i0) out.push(trozo(trail, r.modo, i0, i1))
+      if (i1 > i0) out.push({ ...trozo(trail, r.modo === 'coche' ? resto : r.modo, i0, i1), sensor: t.sensor })
     })
   }
   return out
