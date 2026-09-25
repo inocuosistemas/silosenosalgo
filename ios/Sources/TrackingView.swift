@@ -1958,6 +1958,15 @@ struct TrackingView: View {
                     Label("Añadir fotos", systemImage: "photo.badge.plus")
                 }
             }
+            // Se salió con un solo medio y al final hubo más: pasarla a
+            // «Automático» la parte en tramos (a pie, tren, barco…) que se
+            // pueden corregir en su mapa. Sin ruta ni evento, como la detección.
+            if !store.isActive(session) && !purged && session.activity != nil
+                && session.eventId == nil && session.planName == nil {
+                Button { detectaTramos(session) } label: {
+                    Label("Detectar tramos", systemImage: "arrow.triangle.branch")
+                }
+            }
             // Una caducada no se puede conservar (sus datos ya no están), así
             // que la chincheta no significaría nada.
             if !purged {
@@ -2007,6 +2016,16 @@ struct TrackingView: View {
         .buttonStyle(.borderless)
         .foregroundStyle(Theme.slate400)
         .accessibilityLabel("Más opciones")
+    }
+
+    /// Pasa una salida terminada a «Automático» y abre su mapa, ya en tramos.
+    private func detectaTramos(_ session: TrackSessionSummary) {
+        Task {
+            await API.setActivity(token: store.token, id: session.id, activity: nil)
+            await store.loadSessions()
+            let s = store.sessions.first { $0.id == session.id } ?? session
+            openSessionMap(s, hasLocal: LocalStore.hasTrail(s.id), purged: store.isPurged(s))
+        }
     }
 
     /// "Ver mapa" for a finished session: offline (from the local trail) when

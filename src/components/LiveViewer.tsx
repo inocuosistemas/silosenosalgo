@@ -1227,7 +1227,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // (null) — one inferred from the trail's speeds. Drives the speed unit
   // (walk/run → min/km pace; bike/transport → km/h), the header icon, and the
   // realistic max-speed used to hide impossible GPS jumps.
-  const declaredActivity = state?.activity ?? null
+  // Lo que su dueño acaba de cambiar aquí (activar la detección de tramos, o
+  // volver a un solo medio), mientras el servidor lo confirma.
+  const [actividadLocal, setActividadLocal] = useState<BeaconActivity | null | undefined>(undefined)
+  const declaredActivity = actividadLocal !== undefined ? actividadLocal : (state?.activity ?? null)
   const inferredActivity = useMemo(
     () => (declaredActivity ? null : inferActivity(rawTrail)),
     [declaredActivity, rawTrail],
@@ -1285,6 +1288,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   useEffect(() => { if (state?.mio !== undefined) setEsMio(state.mio) }, [state?.mio])
   const [tramoEditado, setTramoEditado] = useState<number | null>(null)
   const [errorTramos, setErrorTramos] = useState<string | null>(null)
+  /** Su dueño cambia la actividad de una salida terminada: null = «Automático»,
+   *  que es activar los tramos por medio de transporte. */
+  const cambiaActividad = async (a: BeaconActivity | null) => {
+    const antes = actividadLocal
+    setActividadLocal(a)
+    setTramoEditado(null)
+    setErrorTramos(null)
+    try {
+      const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/activity?activity=${a ?? 'auto'}`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activity: a }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+    } catch {
+      setActividadLocal(antes)
+      setErrorTramos('No se ha podido guardar. Comprueba la conexión.')
+    }
+  }
   const corrigeTramo = async (t: Tramo, modo: Modo | null) => {
     const antes = ajustes
     const nuevos = corrige(ajustes, t, modo)
@@ -1292,7 +1314,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     setTramoEditado(null)
     setErrorTramos(null)
     try {
-      const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/tramos`, {
+      // También en la URL: el visor de las apps no ve el cuerpo de un POST (su
+      // WebView se lo come) y lo reenvía al servidor desde ahí.
+      const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/tramos?a=${encodeURIComponent(JSON.stringify(nuevos))}`, {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ajustes: nuevos }),
@@ -3936,6 +3960,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       </div>
                     </div>
                   )}
+                  {/* Terminada con un solo medio, y resulta que hubo más: su dueño
+                      activa la detección de tramos a toro pasado. Solo sin ruta
+                      ni evento, como la detección automática. */}
+                  {esMio && ended && !modoInteligente && !state.planShareId && !state.marca && (
+                    <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5">
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-slate-200"><Route size={12} />Tramos por medio de transporte</p>
+                      <p className="mt-0.5 text-[10px] text-slate-400">
+                        Si al final cambiaste de medio (andando, luego en tren o en barco…), la salida se parte en tramos que puedes corregir.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void cambiaActividad(null)}
+                        className="mt-2 w-full rounded-lg bg-sky-600 py-1.5 text-xs font-semibold text-white hover:bg-sky-500"
+                      >
+                        Detectar tramos
+                      </button>
+                      {errorTramos && <p className="mt-1 text-[10px] text-red-400">{errorTramos}</p>}
+                    </div>
+                  )}
                   {modoInteligente && tramos.some((t) => t.modo !== 'parado') && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
@@ -4009,6 +4052,22 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                         <p className="mt-1 text-[10px] text-slate-500">Toca un tramo para cambiar el medio si no es el que era.</p>
                       )}
                       {errorTramos && <p className="mt-1 text-[10px] text-red-400">{errorTramos}</p>}
+                      {/* Y al revés: fue todo con uno solo. */}
+                      {esMio && ended && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                          <span className="text-[10px] text-slate-500">¿Todo con un solo medio?</span>
+                          {(['walk', 'run', 'bike', 'transport'] as const).map((a) => (
+                            <button
+                              key={a}
+                              type="button"
+                              onClick={() => void cambiaActividad(a)}
+                              className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-400"
+                            >
+                              {ACTIVITY_LABEL[a].emoji} {ACTIVITY_LABEL[a].label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   <MetricSection icon={<Gauge size={12} />} title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>

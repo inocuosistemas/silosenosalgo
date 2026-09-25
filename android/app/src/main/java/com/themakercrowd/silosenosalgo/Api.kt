@@ -320,6 +320,17 @@ class Api(
         }
     }.getOrNull()
 
+    /** Un POST con cuerpo JSON, bloqueante (desde el interceptor del visor). */
+    fun postJsonBloqueante(ruta: String, cuerpo: String, token: String?): Boolean = runCatching {
+        val req = Request.Builder()
+            .url("$baseUrl/${ruta.removePrefix("/")}")
+            .post(cuerpo.toRequestBody(JSON_MEDIA))
+            .header("X-Auth-Mode", "token")
+            .apply { if (token != null) header("Authorization", "Bearer $token") }
+            .build()
+        client.newCall(req).execute().use { ok(it.code) }
+    }.getOrDefault(false)
+
     // ── Almacenamiento ───────────────────────────────────────────────────────
 
     suspend fun storage(token: String): StorageInfo {

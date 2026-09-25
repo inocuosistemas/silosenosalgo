@@ -889,6 +889,9 @@ final class TrackingStore: ObservableObject {
         ViewerDataProvider.shared.setActivity(token: session.id, activity: session.activity)
         ViewerDataProvider.shared.update(token: session.id, fix: fix, reportedFix: nil, trail: localTrail)
         ViewerDataProvider.shared.setNotes(token: session.id, notes: localNotes)
+        // Lo que haya cambiado en el servidor desde otro sitio (correcciones de
+        // los tramos, la actividad, ánimos).
+        ViewerDataProvider.shared.traeDelServidor(token: session.id)
     }
 
     /// Empezar a compartir. `force` salta el aviso de relevo: lo pone la vista

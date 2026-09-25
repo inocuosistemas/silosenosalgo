@@ -180,6 +180,10 @@ final class ViewerDataProvider {
     private var formLog: [FormLogWire] = []
     private var notes: [Note] = []
     private var emision: String?
+    /// Las correcciones a mano de los tramos por medio de transporte, tal cual
+    /// las guarda el servidor (ver `tramosAjustes` en shared/wireTypes.ts). Sin
+    /// modelarlas, como los ánimos: su forma la deciden el backend y el visor.
+    private var tramosAjustesJSON: Data?
 
     /// Follower display name — set by the view layer (which holds the auth user).
     func setUsername(_ name: String?) { lock.lock(); username = name; lock.unlock() }
@@ -196,6 +200,7 @@ final class ViewerDataProvider {
         self.activity = nil   // the store pushes it via setActivity() after registering
         self.notes = []   // the store pushes the loaded notes via setNotes() after registering
         loadCheers(token)   // los ánimos ya recibidos, para poder releerlos sin cobertura
+        tramosAjustesJSON = try? Data(contentsOf: Self.tramosURL(token))
         // Re-hydrate any confirmed form factor/log for this session (survives relaunch).
         if let data = try? Data(contentsOf: LocalStore.formURL(token)),
            let saved = try? JSONDecoder().decode(SavedForm.self, from: data) {
@@ -292,6 +297,51 @@ final class ViewerDataProvider {
     /// desincronicen.
     private var cheersJSON: Data?
 
+    private static func tramosURL(_ token: String) -> URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("tramos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(token).json")
+    }
+
+    /// Su dueño corrigió los tramos desde el visor (lo reenvía el manejador al
+    /// servidor): aquí, para que se vea sin esperar y sin cobertura.
+    func setTramosAjustes(token: String, json: Data?) {
+        lock.lock()
+        let clave = esLaDeAhora(token) ? (self.token ?? token) : nil
+        if clave != nil { tramosAjustesJSON = json }
+        lock.unlock()
+        guard let clave else { return }
+        if let json { try? json.write(to: Self.tramosURL(clave), options: .atomic) }
+        else { try? FileManager.default.removeItem(at: Self.tramosURL(clave)) }
+    }
+
+    /// Una salida terminada abierta desde «Archivo»: lo que puede haber cambiado
+    /// en el servidor desde otro sitio (la web, otro móvil): los ánimos, las
+    /// correcciones de los tramos y la actividad. Una vez, al abrirla.
+    func traeDelServidor(token: String) {
+        let url = Config.baseURL.appendingPathComponent("api/track/\(token)")
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
+            guard let self, let data,
+                  (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            self.aplicaDelServidor(obj, token: token)
+        }.resume()
+    }
+
+    /// Lo que se toma del estado del servidor: los ánimos siempre; las
+    /// correcciones de los tramos y, en una salida terminada, la actividad.
+    private func aplicaDelServidor(_ obj: [String: Any], token: String) {
+        let ajustes = (obj["tramosAjustes"] as? [Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        lock.lock()
+        let esta = self.token == token
+        if esta, status == "ended" {
+            activity = obj["activity"] as? String
+        }
+        lock.unlock()
+        if esta { setTramosAjustes(token: token, json: ajustes) }
+    }
+
     private static func cheersURL(_ token: String) -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("cheers", isDirectory: true)
@@ -320,8 +370,9 @@ final class ViewerDataProvider {
             guard let self,
                   let data,
                   (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let cheers = obj["cheers"],
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            self.aplicaDelServidor(obj, token: token)
+            guard let cheers = obj["cheers"],
                   let encoded = try? JSONSerialization.data(withJSONObject: cheers) else { return }
             self.lock.lock()
             if self.token == token { self.cheersJSON = encoded }
@@ -362,15 +413,15 @@ final class ViewerDataProvider {
         )
         guard let encoded = try? JSONEncoder().encode(state) else { return nil }
 
-        // Los ánimos se INJERTAN en el JSON ya codificado en vez de modelarse en
-        // `TrackStateWire`: así su forma sigue siendo la que decidan el backend y
-        // el visor, sin una copia aquí que se desincronice a la primera.
-        guard let cheersJSON,
-              let cheers = try? JSONSerialization.jsonObject(with: cheersJSON),
-              var obj = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
-            return encoded
-        }
-        obj["cheers"] = cheers
+        // Los ánimos y las correcciones de los tramos se INJERTAN en el JSON ya
+        // codificado en vez de modelarse en `TrackStateWire`: así su forma sigue
+        // siendo la que decidan el backend y el visor, sin una copia aquí que se
+        // desincronice a la primera.
+        guard var obj = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { return encoded }
+        if let cheersJSON, let cheers = try? JSONSerialization.jsonObject(with: cheersJSON) { obj["cheers"] = cheers }
+        if let tramosAjustesJSON, let a = try? JSONSerialization.jsonObject(with: tramosAjustesJSON) { obj["tramosAjustes"] = a }
+        // Lo que se ve aquí es siempre de quien lleva el móvil: puede corregir.
+        obj["mio"] = true
         return (try? JSONSerialization.data(withJSONObject: obj)) ?? encoded
     }
 

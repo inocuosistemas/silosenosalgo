@@ -103,6 +103,7 @@ fun SeccionSesiones(
     onRenombrar: (String, String?) -> Unit,
     onBorrar: (String) -> Unit,
     onAnadirFotos: (TrackSessionSummary) -> Unit = {},
+    onDetectarTramos: (TrackSessionSummary) -> Unit = {},
 ) {
     if (sesiones.isEmpty()) return
     var renombrando by remember { mutableStateOf<TrackSessionSummary?>(null) }
@@ -156,6 +157,7 @@ fun SeccionSesiones(
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
             onAnadirFotos = { onAnadirFotos(s) },
+            onDetectarTramos = { onDetectarTramos(s) },
         )
     }
 
@@ -236,6 +238,7 @@ private fun FilaSesion(
     onRenombrar: () -> Unit,
     onBorrar: () -> Unit,
     onAnadirFotos: () -> Unit,
+    onDetectarTramos: () -> Unit,
 ) {
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
     // Las fotos se suben al volver, con la salida ya cerrada (ver
@@ -341,6 +344,12 @@ private fun FilaSesion(
                     }
                     if (admiteFotos) {
                         Opcion("Añadir fotos") { menuAbierto = false; onAnadirFotos() }
+                    }
+                    // Se salió con un solo medio y al final hubo más: pasarla a
+                    // «Automático» la parte en tramos que se corrigen en su mapa.
+                    // Sin ruta ni evento, como la detección automática.
+                    if (admiteFotos && sesion.activity != null && sesion.eventId == null && sesion.planName == null) {
+                        Opcion("Detectar tramos") { menuAbierto = false; onDetectarTramos() }
                     }
                     Opcion(
                         if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",

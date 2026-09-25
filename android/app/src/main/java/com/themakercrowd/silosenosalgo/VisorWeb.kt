@@ -239,6 +239,28 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
             return respuesta("{}".toByteArray(), "application/json", sinCache = true)
         }
 
+        // Su dueño corrige los tramos o activa la detección desde el visor. El
+        // cuerpo del POST no llega aquí (WebView no lo da), así que el visor lo
+        // manda también en la URL (`?a=` / `?activity=`): se aplica en local y
+        // se reenvía al servidor con la sesión del móvil.
+        if (ruta.startsWith("/api/track/") && (ruta.endsWith("/tramos") || ruta.endsWith("/activity"))) {
+            val id = ruta.removePrefix("/api/track/").substringBefore('/')
+            val cuerpo = if (ruta.endsWith("/tramos")) {
+                val a = url.getQueryParameter("a") ?: return noEncontrado()
+                val lista = runCatching { Api.json.parseToJsonElement(a) }.getOrNull()
+                    as? kotlinx.serialization.json.JsonArray ?: return noEncontrado()
+                TrackingStore.guardaAjustesTramos(id, if (lista.isEmpty()) null else lista.toString())
+                """{"ajustes":$lista}"""
+            } else {
+                val v = url.getQueryParameter("activity") ?: return noEncontrado()
+                val actividad = BeaconActivity.entries.firstOrNull { it.wire == v }?.wire
+                ViewerData.ponActividad(id, actividad)
+                if (actividad == null) """{"activity":null}""" else """{"activity":"$actividad"}"""
+            }
+            if (!TrackingStore.pasarelaJson(ruta, cuerpo)) return noEncontrado()
+            return respuesta("{}".toByteArray(), "application/json", sinCache = true)
+        }
+
         // La ruta planificada, servida desde el móvil. Va comprimida tal cual
         // llegó del backend: el visor la descomprime él mismo, igual que online.
         if (ruta.startsWith("/api/share/")) {

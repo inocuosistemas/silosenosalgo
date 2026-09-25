@@ -91,6 +91,32 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        // Su dueño corrige los tramos o activa la detección desde el visor. El
+        // cuerpo de un POST no llega a este manejador, así que el visor lo manda
+        // también en la URL (`?a=` / `?activity=`): aquí se aplica en local y se
+        // reenvía al servidor con la sesión del móvil.
+        if path.hasPrefix("/api/track/"), path.hasSuffix("/tramos") || path.hasSuffix("/activity") {
+            let partes = path.dropFirst("/api/track/".count).split(separator: "/")
+            let token = String(partes.first ?? "")
+            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            var cuerpo: [String: Any]?
+            if path.hasSuffix("/tramos"), let a = q.first(where: { $0.name == "a" })?.value,
+               let datos = a.data(using: .utf8), let lista = try? JSONSerialization.jsonObject(with: datos) as? [Any] {
+                ViewerDataProvider.shared.setTramosAjustes(token: token, json: lista.isEmpty ? nil : datos)
+                cuerpo = ["ajustes": lista]
+            } else if path.hasSuffix("/activity"), let v = q.first(where: { $0.name == "activity" })?.value {
+                let actividad = BeaconActivity(rawValue: v)
+                ViewerDataProvider.shared.setActivity(token: token, activity: actividad)
+                cuerpo = ["activity": actividad?.rawValue ?? NSNull()]
+            }
+            guard let cuerpo else { return finish404(task, url: url) }
+            forwardJSON(path: path, body: cuerpo) { ok in
+                if ok { self.respond(task, url: url, data: Data("{}".utf8), mime: "application/json", noStore: true) }
+                else { self.finish404(task, url: url) }
+            }
+            return
+        }
+
         // Local API routes (synchronous).
         if path.hasPrefix("/api/track/") {
             let token = String(path.dropFirst("/api/track/".count))
@@ -190,6 +216,26 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
                 .trimmingCharacters(in: .whitespaces) ?? "application/json"
             let ok = (200...299).contains(http?.statusCode ?? 0)
             DispatchQueue.main.async { completion(ok ? data : nil, mime) }
+        }.resume()
+    }
+
+    /// Un POST con cuerpo JSON al servidor, con la sesión del móvil.
+    private func forwardJSON(path: String, body: [String: Any], completion: @escaping (Bool) -> Void) {
+        var base = URLComponents(url: Config.baseURL, resolvingAgainstBaseURL: false)
+        base?.path = path
+        guard let remote = base?.url, let datos = try? JSONSerialization.data(withJSONObject: body) else {
+            return completion(false)
+        }
+        var req = URLRequest(url: remote)
+        req.httpMethod = "POST"
+        req.httpBody = datos
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("token", forHTTPHeaderField: "X-Auth-Mode")
+        if let auth = Keychain.load() { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }
+        req.timeoutInterval = 12
+        URLSession.shared.dataTask(with: req) { _, response, _ in
+            let ok = (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0)
+            DispatchQueue.main.async { completion(ok) }
         }.resume()
     }
 

@@ -64,6 +64,12 @@ object ViewerData {
          *  llegaron del servidor: su forma la decide el backend y el visor, y
          *  copiarla aquí solo serviría para que se desincronicen. */
         val cheers: kotlinx.serialization.json.JsonElement? = null,
+        /** Las correcciones a mano de los tramos por medio de transporte, tal
+         *  cual las guarda el servidor (ver `tramosAjustes` en wireTypes.ts). */
+        val tramosAjustes: kotlinx.serialization.json.JsonElement? = null,
+        /** Lo que se ve aquí es siempre de quien lleva el móvil: puede
+         *  corregir. Explícito (true), que los valores por defecto no se escriben. */
+        val mio: Boolean? = null,
     )
 
     @Volatile private var token: String? = null
@@ -127,7 +133,23 @@ object ViewerData {
      */
     @Volatile private var enConsulta: String? = null
 
-    fun abreConsulta(id: String?) { enConsulta = id }
+    fun abreConsulta(id: String?) {
+        enConsulta = id
+        // Lo que haya cambiado en el servidor desde otro sitio (la web, otro
+        // móvil): las correcciones de los tramos y la actividad.
+        if (id != null) TrackingStore.traeDelServidor(id)
+    }
+
+    /** La actividad de una salida consultada, si su dueño la cambió desde aquí
+     *  o llegó del servidor (null dentro = «Automático»). */
+    private val actividadDe = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private const val AUTO = "auto"
+    fun ponActividad(id: String, actividad: String?) { actividadDe[id] = actividad ?: AUTO }
+    private fun actividadDeConsulta(id: String, deLaLista: String?): String? =
+        actividadDe[id]?.let { if (it == AUTO) null else it } ?: deLaLista
+
+    private fun ajustesDe(id: String): kotlinx.serialization.json.JsonElement? =
+        TrackingStore.leeAjustesTramos(id)?.let { runCatching { Api.json.parseToJsonElement(it) }.getOrNull() }
 
     /** Compatibilidad con el nombre anterior. */
     fun abreGuia(id: String?) = abreConsulta(id)
@@ -149,8 +171,10 @@ object ViewerData {
             // Lo consultado no caduca: ya está en el móvil y no depende de nadie.
             expiresAt = Double.MAX_VALUE,
             endedAt = guia?.endedAt ?: sesion?.endedAt ?: ultima?.t,
-            activity = sesion?.activity?.wire,
+            activity = actividadDeConsulta(id, sesion?.activity?.wire),
             planShareId = if (TrackingStore.hayPlanDe(id)) id else null,
+            tramosAjustes = ajustesDe(id),
+            mio = sesion != null,
             fix = ultima?.let {
                 FixWire(lat = it.lat, lon = it.lon, accuracy = it.a?.toDouble(), fixAt = it.t, updatedAt = it.t)
             },
@@ -202,6 +226,8 @@ object ViewerData {
             formFactor = factorForma,
             formLog = historialForma.ifEmpty { null },
             cheers = TrackingStore.animos(),
+            tramosAjustes = ajustesDe(id),
+            mio = true,
         )
         return Api.json.encodeToString(wire)
     }

@@ -1438,6 +1438,39 @@ object TrackingStore {
     fun pasarela(rutaConConsulta: String, metodo: String): Pair<ByteArray, String>? =
         api.pasarelaBloqueante(rutaConConsulta, metodo, token)
 
+    /** Un POST con cuerpo JSON al servidor, con la sesión del móvil (el visor
+     *  incrustado no puede mandar cuerpos: ver `VisorWeb`). */
+    fun pasarelaJson(ruta: String, cuerpo: String): Boolean = api.postJsonBloqueante(ruta, cuerpo, token)
+
+    // ── Tramos por medio de transporte ───────────────────────────────────────
+
+    private fun prefsTramos() = appCtx?.getSharedPreferences("tramos", Context.MODE_PRIVATE)
+    fun leeAjustesTramos(id: String): String? = prefsTramos()?.getString(id, null)
+    fun guardaAjustesTramos(id: String, json: String?) {
+        prefsTramos()?.edit()?.apply { if (json == null) remove(id) else putString(id, json) }?.apply()
+    }
+
+    /** Lo que ha cambiado en el servidor de una salida que se abre para
+     *  consultar: sus correcciones de tramos y su actividad. */
+    fun traeDelServidor(id: String) {
+        scope.launch {
+            val estado = runCatching { api.estadoPublico(id) }.getOrNull() ?: return@launch
+            val ajustes = estado["tramosAjustes"]
+            guardaAjustesTramos(id, ajustes?.takeIf { it is kotlinx.serialization.json.JsonArray }?.toString())
+            val act = estado["activity"]
+            ViewerData.ponActividad(id, (act as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content)
+        }
+    }
+
+    /** Pasar una salida terminada a otra actividad; null = «Automático», que
+     *  es lo que la parte en tramos por medio de transporte. */
+    suspend fun cambiaActividadDe(id: String, actividad: BeaconActivity?) {
+        val t = token ?: return
+        api.setActivity(t, id, actividad)
+        ViewerData.ponActividad(id, actividad?.wire)
+        cargaSesiones()
+    }
+
     /**
      * Los ánimos que han dejado quienes siguen la ruta.
      *

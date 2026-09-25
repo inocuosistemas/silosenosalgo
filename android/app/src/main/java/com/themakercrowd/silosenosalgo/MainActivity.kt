@@ -1400,6 +1400,20 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
             onAnadirFotos = { sesion -> fotosDe = FotosEnRutaEstado(sesion) },
+            onDetectarTramos = { sesion ->
+                scope.launch {
+                    // A «Automático», y su mapa ya partido en tramos.
+                    TrackingStore.cambiaActividadDe(sesion.id, null)
+                    if (TrackingStore.hayDatosLocales(sesion.id)) {
+                        ViewerData.abreConsulta(sesion.id)
+                        guiaEnMapa = sesion.id
+                    } else {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TrackingStore.enlaceDe(sesion.id))))
+                        }
+                    }
+                }
+            },
             )
         }
 
