@@ -174,6 +174,22 @@ describe('tramos de transporte', () => {
     expect(modos(aplicaAjustes(tr, ts, aj))).toEqual(['pie', 'tren', 'pie', 'tren'])
   })
 
+  it('las pausas no se corrigen: una corrección encima no las tapa ni las crea', () => {
+    // Paseo, 45 min de cena parados, paseo.
+    const tr = traza([[20, 4, 'w'], [45, 0, 'q'], [20, 4, 'w']])
+    const ts = tramosDeTransporte(tr)
+    expect(modos(ts)).toEqual(['pie', 'parado', 'pie'])
+    // «De principio a fin, a pie»: la cena sigue siendo pausa.
+    const todo = { ...ts[0], hasta: ts[2].hasta }
+    expect(modos(aplicaAjustes(tr, ts, corrige([], todo, 'coche')))).toEqual(['coche', 'parado', 'coche'])
+    // Una corrección vieja a «parado» sobre el paseo no crea una pausa.
+    expect(modos(aplicaAjustes(tr, ts, [{ desde: ts[0].desde, hasta: ts[0].hasta, modo: 'parado' }]))).toEqual(['pie', 'parado', 'pie'])
+    // A la pausa no se le cambia el medio, ni se mueven sus extremos.
+    expect(corrige([], ts[1], 'pie')).toEqual([])
+    expect(mueveCorte([], ts[0], ts[1], tr[10].t)).toEqual([])
+    expect(margenDeCorte(ts, 0)).toBeNull()
+  })
+
   it('un tramo «en vehículo» (sin mapa aún) se fija como coche', () => {
     const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
     const ts = tramosDeTransporte(tr)

@@ -1365,8 +1365,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const t = tramos[tramoSel]
     if (!t || !esMio) return [] as { lado: 'inicio' | 'fin'; pos: [number, number] }[]
     const out: { lado: 'inicio' | 'fin'; pos: [number, number] }[] = []
-    if (tramoSel > 0) out.push({ lado: 'inicio', pos: [trail[t.i0].lat, trail[t.i0].lon] })
-    if (tramoSel < tramos.length - 1) out.push({ lado: 'fin', pos: [trail[t.i1].lat, trail[t.i1].lon] })
+    // Donde empieza o acaba una pausa lo dice el trazado: esos no se mueven.
+    if (margenDeCorte(tramos, tramoSel - 1)) out.push({ lado: 'inicio', pos: [trail[t.i0].lat, trail[t.i0].lon] })
+    if (margenDeCorte(tramos, tramoSel)) out.push({ lado: 'fin', pos: [trail[t.i1].lat, trail[t.i1].lon] })
     return out
   })()
 
@@ -3065,10 +3066,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-600 text-slate-200 disabled:opacity-30">›</button>
               </div>
               {/* Los extremos: arrastrando el tirador en el mapa, o paso a paso aquí. */}
-              {esMio && (tramoSel > 0 || tramoSel < tramos.length - 1) && (
+              {tSel.modo === 'parado' && (
+                <p className="mt-2 text-center text-[11px] text-slate-400">
+                  Una pausa es no haberse movido: la marca el trazado, sea cual sea el medio, y no se cambia.
+                </p>
+              )}
+              {esMio && tSel.modo !== 'parado' && (margenDeCorte(tramos, tramoSel - 1) || margenDeCorte(tramos, tramoSel)) && (
                 <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-slate-300">
                   {(['inicio', 'fin'] as const).map((lado) => {
-                    const puede = lado === 'inicio' ? tramoSel > 0 : tramoSel < tramos.length - 1
+                    const puede = !!margenDeCorte(tramos, lado === 'inicio' ? tramoSel - 1 : tramoSel)
                     const hora = formatTime(new Date(lado === 'inicio' ? tSel.desde : tSel.hasta))
                     return (
                       <div key={lado} className={`flex items-center gap-1 ${puede ? '' : 'opacity-40'}`}>
@@ -3083,7 +3089,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   })}
                 </div>
               )}
-              {esMio && (
+              {esMio && tSel.modo !== 'parado' && (
                 <div className="mt-2.5 flex flex-wrap justify-center gap-1.5">
                   {MODOS_A_MANO.map((m) => (
                     <button key={m} type="button" onClick={() => void corrigeTramo(tSel, m)}

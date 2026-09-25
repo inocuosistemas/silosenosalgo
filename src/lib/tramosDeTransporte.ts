@@ -323,8 +323,10 @@ export function refinaVehiculos(
  */
 export interface AjusteDeTramo { desde: number; hasta: number; modo: Modo }
 
-/** Los medios que se pueden poner a mano («en vehículo» es no saber cuál). */
-export const MODOS_A_MANO: Modo[] = ['pie', 'correr', 'bici', 'coche', 'tren', 'barco', 'avion', 'parado']
+/** Los medios que se pueden poner a mano («en vehículo» es no saber cuál). Sin
+ *  «parado»: una pausa no es un medio, es no haberse movido, y eso lo dice el
+ *  trazado (ver `aplicaAjustes`). */
+export const MODOS_A_MANO: Modo[] = ['pie', 'correr', 'bici', 'coche', 'tren', 'barco', 'avion']
 
 /**
  * Los tramos con las correcciones puestas. Cada trocito del trazado (entre dos
@@ -339,10 +341,15 @@ export function aplicaAjustes(trail: TrailPoint[], tramos: Tramo[], ajustes: Aju
   const modo: Modo[] = []
   const corregido: boolean[] = []
   for (const t of tramos) for (let i = t.i0 + 1; i <= t.i1; i++) { modo[i] = t.modo; corregido[i] = false }
+  // Las pausas no se corrigen: si no hubo desplazamiento, fue una pausa, se
+  // fuera en lo que se fuera. Ni una corrección la tapa (la cena en medio de un
+  // «de 19 a 20, a pie») ni una corrección la crea donde hubo movimiento.
   for (let i = 1; i < trail.length; i++) {
-    if (modo[i] === undefined) continue
+    if (modo[i] === undefined || modo[i] === 'parado') continue
     const mitad = (trail[i - 1].t + trail[i].t) / 2
-    for (const a of ajustes) if (mitad >= a.desde && mitad <= a.hasta) { modo[i] = a.modo; corregido[i] = true }
+    for (const a of ajustes) {
+      if (a.modo !== 'parado' && mitad >= a.desde && mitad <= a.hasta) { modo[i] = a.modo; corregido[i] = true }
+    }
   }
   const out: Tramo[] = []
   let i0 = -1
@@ -377,6 +384,7 @@ const fijo = (m: Modo): Modo => (m === 'vehiculo' ? 'coche' : m)
 
 /** Las correcciones tras poner `modo` al tramo `t` (null: volver a lo detectado). */
 export function corrige(ajustes: AjusteDeTramo[], t: Tramo, modo: Modo | null): AjusteDeTramo[] {
+  if (t.modo === 'parado' || modo === 'parado') return ajustes
   const resto = recorta(ajustes, t.desde, t.hasta)
   return modo === null ? resto : [...resto, { desde: t.desde, hasta: t.hasta, modo: fijo(modo) }]
 }
@@ -388,6 +396,8 @@ export function corrige(ajustes: AjusteDeTramo[], t: Tramo, modo: Modo | null): 
  * de que acabe `b`); si no, no cambia nada.
  */
 export function mueveCorte(ajustes: AjusteDeTramo[], a: Tramo, b: Tramo, t: number): AjusteDeTramo[] {
+  // Donde empieza o acaba una pausa lo dice el trazado, no se mueve.
+  if (a.modo === 'parado' || b.modo === 'parado') return ajustes
   if (!(t > a.desde && t < b.hasta)) return ajustes
   return [
     ...recorta(ajustes, a.desde, b.hasta),
@@ -400,7 +410,7 @@ export function mueveCorte(ajustes: AjusteDeTramo[], a: Tramo, b: Tramo, t: numb
  *  punto, sin dejar a ninguno de los dos sin trazado. */
 export function margenDeCorte(tramos: Tramo[], k: number): [number, number] | null {
   const a = tramos[k], b = tramos[k + 1]
-  if (!a || !b) return null
+  if (!a || !b || a.modo === 'parado' || b.modo === 'parado') return null
   return [a.i0 + 1, b.i1 - 1]
 }
 
