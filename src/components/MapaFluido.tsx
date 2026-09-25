@@ -66,6 +66,20 @@ export interface MarcaConContenido {
 export interface ApiMapaFluido {
   /** Norte arriba y sin inclinar. */
   alNorte(): void
+  /** Encuadrar unos puntos, dejando libres los bordes que tapan la cabecera y
+   *  la hoja de abajo. */
+  encuadra(puntos: [number, number][], margen: { top: number; bottom: number; left: number; right: number }): void
+}
+
+/** Un tramo del «modo tramos» del visor: su línea, su color, su emoji y dónde
+ *  va la insignia (lo que se toca con el dedo). */
+export interface TramoDelMapa {
+  positions: [number, number][]
+  color: string
+  emoji: string
+  insignia: [number, number]
+  elegido: boolean
+  apagado: boolean
 }
 
 interface Props {
@@ -91,6 +105,10 @@ interface Props {
   seguir: { lat: number; lon: number; nudge: number } | null
   irA: { lat: number; lon: number; nudge: number } | null
   encuadrarPlan: boolean
+  /** «Modo tramos»: los tramos por separado, en lugar de la traza, para elegir
+   *  uno tocándolo. null fuera del modo. */
+  tramosMapa?: TramoDelMapa[] | null
+  onTramo?: (k: number) => void
   /** Hacia dónde cae el norte en pantalla (grados, horario) y si está inclinado. */
   onVista: (v: { rumbo: number; inclinado: boolean }) => void
   onListo: (api: ApiMapaFluido) => void
@@ -193,8 +211,8 @@ export default function MapaFluido(p: Props) {
   const [listo, setListo] = useState(false)
 
   // Los avisos hacia fuera, siempre los últimos, sin rehacer el mapa por ello.
-  const avisos = useRef({ onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo })
-  avisos.current = { onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo }
+  const avisos = useRef({ onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo })
+  avisos.current = { onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo }
 
   const ultimoToque = useRef(0)
   const [abierto, setAbierto] = useState<Abierto | null>(null)
@@ -261,7 +279,7 @@ export default function MapaFluido(p: Props) {
         layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
         ...extra,
       })
-      for (const id of ['sinSenal', 'planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'puntosRuta', 'hueco', 'huecoPunto']) {
+      for (const id of ['sinSenal', 'planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'tramos', 'tramosCortes', 'puntosRuta', 'hueco', 'huecoPunto']) {
         map.addSource(id, { type: 'geojson', data: VACIO })
       }
       // Mismo orden, grosores y colores que el clásico.
@@ -276,6 +294,23 @@ export default function MapaFluido(p: Props) {
       map.addLayer(linea('calor', { paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.9 } }))
       map.addLayer(linea('trazaBorde', { paint: { 'line-color': '#020617', 'line-width': 8, 'line-opacity': 0.55 } }))
       map.addLayer(linea('traza', { paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.85 } }))
+      // Modo tramos: halo blanco del elegido, filo, color y un trazo ancho
+      // invisible encima que es el blanco del dedo. Todo de la misma fuente.
+      map.addLayer({ ...linea('tramos'), id: 'tramosHalo', filter: ['==', ['get', 'elegido'], true],
+        paint: { 'line-color': '#ffffff', 'line-width': 14, 'line-opacity': 0.95 } })
+      map.addLayer({ ...linea('tramos'), id: 'tramosBorde',
+        paint: { 'line-color': '#020617', 'line-width': ['case', ['get', 'elegido'], 10, 8], 'line-opacity': ['case', ['get', 'apagado'], 0.2, 0.55] } })
+      map.addLayer({ ...linea('tramos'), id: 'tramosColor',
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['get', 'elegido'], 7, 5], 'line-opacity': ['case', ['get', 'apagado'], 0.3, 1] } })
+      map.addLayer({ ...linea('tramos'), id: 'tramosToque', paint: { 'line-color': '#000000', 'line-width': 26, 'line-opacity': 0 } })
+      map.addLayer({
+        id: 'tramosCortes', type: 'circle', source: 'tramosCortes',
+        paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#020617', 'circle-stroke-width': 2 },
+      })
+      map.on('click', 'tramosToque', (e) => {
+        const k = e.features?.[0]?.properties?.k
+        if (typeof k === 'number') avisos.current.onTramo?.(k)
+      })
       map.addLayer({
         id: 'puntosRuta', type: 'circle', source: 'puntosRuta',
         paint: { 'circle-radius': 5, 'circle-color': '#f59e0b', 'circle-opacity': 0.9, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1 },
@@ -302,7 +337,15 @@ export default function MapaFluido(p: Props) {
 
       setListo(true)
       vista()
-      avisos.current.onListo({ alNorte: () => map.easeTo({ bearing: 0, pitch: 0, duration: 500 }) })
+      avisos.current.onListo({
+        alNorte: () => map.easeTo({ bearing: 0, pitch: 0, duration: 500 }),
+        encuadra: (pts, margen) => {
+          if (pts.length === 0) return
+          const caja = new LngLatBounds()
+          for (const q of pts) caja.extend(lonLat(q))
+          map.fitBounds(caja, { padding: margen, maxZoom: 17, duration: 500 })
+        },
+      })
     })
 
     // Tocar el mapa fuera de un marcador cierra lo que haya abierto. No se usa
@@ -392,6 +435,44 @@ export default function MapaFluido(p: Props) {
     fuente('traza')?.setData(fc)
     fuente('trazaBorde')?.setData(fc)
   }, [listo, p.traza])
+
+  // ── Modo tramos ─────────────────────────────────────────────────────────
+  // Las líneas en su fuente (con lo que las distingue en sus propiedades), la
+  // traza normal apagada, y las insignias con el emoji como marcadores de la
+  // página: son lo que se toca con el dedo.
+  const insignias = useRef<Marker[]>([])
+  const firmaTramos = p.tramosMapa
+    ? p.tramosMapa.map((t) => `${t.positions.length}|${t.positions[0]?.join(',')}|${t.color}|${t.emoji}|${t.elegido ? 1 : 0}${t.apagado ? 1 : 0}`).join(';')
+    : ''
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map) return
+    const tm = p.tramosMapa
+    fuente('tramos')?.setData(tm ? {
+      type: 'FeatureCollection',
+      features: tm.filter((t) => t.positions.length > 1).map((t) => ({
+        type: 'Feature',
+        properties: { k: tm.indexOf(t), color: t.color, elegido: t.elegido, apagado: t.apagado },
+        geometry: { type: 'LineString', coordinates: t.positions.map(lonLat) },
+      })),
+    } : VACIO)
+    fuente('tramosCortes')?.setData(tm ? puntos(tm.slice(1).map((t) => t.positions[0]).filter(Boolean)) : VACIO)
+    for (const id of ['traza', 'trazaBorde']) map.setLayoutProperty(id, 'visibility', tm ? 'none' : 'visible')
+    for (const m of insignias.current) m.remove()
+    insignias.current = []
+    tm?.forEach((t, k) => {
+      const lado = t.elegido ? 38 : 30
+      const el = document.createElement('div')
+      el.style.cssText = `width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;`
+        + `background:${t.color};border:${t.elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);`
+        + `font-size:${t.elegido ? 19 : 15}px;opacity:${t.apagado ? 0.45 : 1};cursor:pointer;z-index:${t.elegido ? 6 : 1}`
+      el.textContent = t.emoji
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); avisos.current.onTramo?.(k) })
+      insignias.current.push(new Marker({ element: el, anchor: 'center' }).setLngLat(lonLat(t.insignia)).addTo(map))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, firmaTramos])
+  useEffect(() => () => { for (const m of insignias.current) m.remove() }, [])
 
   useEffect(() => {
     if (!listo) return

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CargandoMarca } from './CargandoMarca'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
@@ -303,6 +303,17 @@ if (typeof document !== 'undefined' && !document.getElementById('slsns-pause-css
   el.id = 'slsns-pause-css'
   el.textContent = PAUSE_PULSE_CSS
   document.head.appendChild(el)
+}
+
+/** El emoji de un tramo en el mapa del modo tramos, en un círculo de su color. */
+function insigniaDeTramo(modo: Modo, elegido: boolean, apagado: boolean): L.DivIcon {
+  const lado = elegido ? 38 : 30
+  return L.divIcon({
+    className: '',
+    iconSize: [lado, lado],
+    iconAnchor: [lado / 2, lado / 2],
+    html: `<div style="width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;background:${MODOS[modo].color};border:${elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);font-size:${elegido ? 19 : 15}px;opacity:${apagado ? 0.45 : 1}">${MODOS[modo].emoji}</div>`,
+  })
 }
 
 const pauseIconCache = new Map<string, L.DivIcon>()
@@ -1287,6 +1298,33 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [esMio, setEsMio] = useState(false)
   useEffect(() => { if (state?.mio !== undefined) setEsMio(state.mio) }, [state?.mio])
   const [tramoEditado, setTramoEditado] = useState<number | null>(null)
+  // «Modo tramos»: el mapa enseña los tramos por separado y se elige uno
+  // tocándolo. La selección va por HORA y no por posición en la lista: al
+  // corregir, dos tramos pueden juntarse y la lista cambia de largo.
+  const [modoTramos, setModoTramos] = useState(false)
+  const [selMs, setSelMs] = useState<number | null>(null)
+  const tramoSel = selMs == null ? -1 : tramos.findIndex((t) => selMs >= t.desde && selMs <= t.hasta)
+  const eligeTramo = (k: number) => {
+    const t = tramos[k]
+    if (!t) return
+    setSelMs((t.desde + t.hasta) / 2)
+    // Encuadrado entre la cabecera del modo y la hoja de abajo.
+    const pts = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
+    encuadra(pts, 300)
+  }
+  /** Encuadrar en el mapa que se esté usando, entre la cabecera del modo y
+   *  la hoja de abajo (`abajo` px). */
+  const encuadra = (pts: [number, number][], abajo: number) => {
+    if (pts.length === 0) return
+    if (apiFluido.current) apiFluido.current.encuadra(pts, { top: 110, bottom: abajo, left: 40, right: 40 })
+    else mapa?.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [40, 110], paddingBottomRight: [40, abajo], maxZoom: 17 })
+  }
+  const entraEnModoTramos = () => {
+    setShowAdvanced(false)
+    setModoTramos(true)
+    setSelMs(null)
+    encuadra(trail.map((p) => [p.lat, p.lon] as [number, number]), 220)
+  }
   const [errorTramos, setErrorTramos] = useState<string | null>(null)
   /** Su dueño cambia la actividad de una salida terminada: null = «Automático»,
    *  que es activar los tramos por medio de transporte. */
@@ -2900,6 +2938,80 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
   /** La tarjeta mínima: ver `mini`. Tocarla la devuelve a su tamaño normal. */
   const margenMini = nextCutoff && !preStart && !reachedGoal && !ended ? nextCutoff : null
+  /** La hoja de abajo del modo tramos: qué tramo es, ir al anterior o al
+   *  siguiente, y —si es suya— cambiarle el medio. */
+  const tSel = tramoSel >= 0 ? tramos[tramoSel] : null
+  const hojaDeTramos = (
+    <>
+      <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + var(--barra-app, 0px) + 0.75rem)' }}>
+        <div className="pointer-events-auto mx-auto flex max-w-md items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/90 px-3 py-2 shadow-lg backdrop-blur">
+          <Route size={14} className="shrink-0 text-sky-400" />
+          <p className="min-w-0 flex-1 text-xs text-slate-200">
+            <span className="font-semibold">Tramos</span>
+            <span className="text-slate-400"> · {tSel ? `${tramoSel + 1} de ${tramos.length}` : 'toca uno en el mapa'}</span>
+          </p>
+          <button type="button" onClick={() => { setModoTramos(false); setSelMs(null) }}
+            className="shrink-0 rounded-lg bg-sky-600 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-500">
+            Listo
+          </button>
+        </div>
+      </div>
+      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
+        <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl backdrop-blur">
+          {!tSel ? (
+            <div className="flex flex-wrap gap-1.5">
+              {tramos.map((t, k) => (
+                <button key={`${t.i0}`} type="button" onClick={() => eligeTramo(k)}
+                  className="flex items-center gap-1 rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-400">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
+                  {resumenDeTramo(t)}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <button type="button" aria-label="Tramo anterior" disabled={tramoSel <= 0} onClick={() => eligeTramo(tramoSel - 1)}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-600 text-slate-200 disabled:opacity-30">‹</button>
+                <div className="min-w-0 flex-1 text-center">
+                  <p className="text-sm font-semibold text-slate-100">
+                    <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: MODOS[tSel.modo].color }} />
+                    {MODOS[tSel.modo].emoji} {MODOS[tSel.modo].nombre}
+                    {tSel.corregido && <span className="ml-1 text-[11px] font-normal text-slate-400">✎ corregido</span>}
+                  </p>
+                  <p className="text-[11px] text-slate-400 tabular-nums">
+                    {kmYTiempo(tSel.modo, tSel.km, tSel.hasta - tSel.desde)} · {formatTime(new Date(tSel.desde))}–{formatTime(new Date(tSel.hasta))}
+                  </p>
+                </div>
+                <button type="button" aria-label="Tramo siguiente" disabled={tramoSel >= tramos.length - 1} onClick={() => eligeTramo(tramoSel + 1)}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-600 text-slate-200 disabled:opacity-30">›</button>
+              </div>
+              {esMio && (
+                <div className="mt-2.5 flex flex-wrap justify-center gap-1.5">
+                  {MODOS_A_MANO.map((m) => (
+                    <button key={m} type="button" onClick={() => void corrigeTramo(tSel, m)}
+                      className={`rounded-full border px-2.5 py-1 text-xs ${m === tSel.modo ? 'border-sky-500 bg-sky-900/50 text-sky-200' : 'border-slate-600 text-slate-200 hover:border-slate-400'}`}>
+                      {MODOS[m].emoji} {MODOS[m].nombre}
+                    </button>
+                  ))}
+                  {tSel.corregido && (
+                    <button type="button" onClick={() => void corrigeTramo(tSel, null)}
+                      className="rounded-full border border-slate-600 px-2.5 py-1 text-xs text-slate-400 hover:border-slate-400">
+                      ↺ Lo detectado
+                    </button>
+                  )}
+                </div>
+              )}
+              {errorTramos && <p className="mt-1.5 text-center text-[11px] text-red-400">{errorTramos}</p>}
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  )
+
   const tarjetaMini = (
     <button
       type="button"
@@ -3382,6 +3494,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             seguir={fix ? { lat: fix.lat, lon: fix.lon, nudge: recentre } : null}
             irA={focus ? { lat: focus.lat, lon: focus.lon, nudge: focus.n } : null}
             encuadrarPlan={!fix && !!plan && planLatLng.length > 1}
+            tramosMapa={modoTramos ? tramos.map((t, k) => ({
+              positions: trail.slice(t.i0, t.i1 + 1).map((q) => [q.lat, q.lon] as [number, number]),
+              color: MODOS[t.modo].color,
+              emoji: MODOS[t.modo].emoji,
+              insignia: [trail[Math.round((t.i0 + t.i1) / 2)].lat, trail[Math.round((t.i0 + t.i1) / 2)].lon] as [number, number],
+              elegido: k === tramoSel,
+              apagado: tramoSel >= 0 && k !== tramoSel,
+            })) : null}
+            onTramo={eligeTramo}
             onVista={onVistaFluido}
             onListo={onListoFluido}
             onFallo={onFalloFluido}
@@ -3434,10 +3555,41 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             tramo: si no, el filo de un tramo taparía el color del anterior en
             cada junta. Con el calor puesto no hay filo, porque ahí la traza se
             apaga a propósito para no competir con los colores del ritmo. */}
-        {!heatRange && trailSegments.map((s, i) => (
+        {/* Modo tramos: cada tramo por su lado, con su color; un punto blanco
+            en cada corte y su emoji en medio, que es lo fácil de tocar con el
+            dedo (una línea de 5 px no lo es). El elegido, con halo blanco y
+            grueso; los demás, apagados. */}
+        {modoTramos && tramos.map((t, k) => {
+          const pos = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
+          if (pos.length < 2) return null
+          const elegido = k === tramoSel
+          const apagado = tramoSel >= 0 && !elegido
+          return (
+            <Fragment key={`tramo-${t.i0}`}>
+              {elegido && <Polyline positions={pos} pathOptions={{ color: '#ffffff', weight: 14, opacity: 0.95 }} interactive={false} />}
+              <Polyline positions={pos} pathOptions={{ color: '#020617', weight: elegido ? 10 : 8, opacity: apagado ? 0.2 : 0.55 }} interactive={false} />
+              <Polyline positions={pos} pathOptions={{ color: MODOS[t.modo].color, weight: elegido ? 7 : 5, opacity: apagado ? 0.3 : 1 }} interactive={false} />
+              {/* Un trazo ancho e invisible encima: el blanco del dedo. */}
+              <Polyline positions={pos} pathOptions={{ color: '#000', weight: 26, opacity: 0 }} eventHandlers={{ click: () => eligeTramo(k) }} />
+            </Fragment>
+          )
+        })}
+        {modoTramos && tramos.slice(1).map((t) => (
+          <CircleMarker key={`corte-${t.i0}`} center={[trail[t.i0].lat, trail[t.i0].lon]} radius={5}
+            pathOptions={{ color: '#020617', weight: 2, fillColor: '#ffffff', fillOpacity: 1 }} interactive={false} />
+        ))}
+        {modoTramos && tramos.map((t, k) => {
+          const mitad = trail[Math.round((t.i0 + t.i1) / 2)]
+          if (!mitad || t.i1 - t.i0 < 1) return null
+          return (
+            <Marker key={`insignia-${t.i0}`} position={[mitad.lat, mitad.lon]} icon={insigniaDeTramo(t.modo, k === tramoSel, tramoSel >= 0 && k !== tramoSel)}
+              eventHandlers={{ click: () => eligeTramo(k) }} zIndexOffset={k === tramoSel ? 1000 : 0} />
+          )
+        })}
+        {!modoTramos && !heatRange && trailSegments.map((s, i) => (
           <Polyline key={`trail-borde-${i}`} positions={s.positions} pathOptions={{ color: '#020617', weight: 8, opacity: 0.55 }} />
         ))}
-        {trailSegments.map((s, i) => (
+        {!modoTramos && trailSegments.map((s, i) => (
           // Con el calor puesto la traza se apaga: sigue diciendo por donde se
           // fue de verdad, pero sin competir con los colores del ritmo.
           <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: heatRange ? 2 : 4, opacity: heatRange ? 0.3 : 0.85 }} />
@@ -3550,7 +3702,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           hasta arriba y la tarjeta se aparta de la muesca y de la barra de
           botones de la app, que flota encima. Fuera de ese caso las dos
           medidas valen cero y todo queda como siempre. */}
-      <div className="absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none"
+      <div className={`absolute top-0 inset-x-0 z-[1000] p-3 pointer-events-none ${modoTramos ? 'hidden' : ''}`}
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + var(--barra-app, 0px) + 0.75rem)' }}>
         {/* `relative` para que el tirador pueda colgar por debajo del borde: el
             cuadro lleva overflow-hidden (lo necesitan las esquinas redondeadas),
@@ -3983,6 +4135,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
                         <Route size={12} />Tramos{tramos.some((t) => t.corregido) ? '' : ' · detectados'}
+                        <button
+                          type="button"
+                          onClick={entraEnModoTramos}
+                          className="ml-auto rounded-full border border-sky-700 px-2 py-0.5 text-[10px] normal-case tracking-normal text-sky-300 hover:bg-sky-900/40"
+                        >
+                          {esMio ? 'Ver y cambiar en el mapa' : 'Ver en el mapa'}
+                        </button>
                       </p>
                       {/* Los totales por medio primero: es lo que se viene a mirar
                           («¿cuánto anduve?, ¿cuánto en barco?»); la lista de
@@ -4382,7 +4541,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
       {/* Live status pill — status + (when there's data) the GPS-precision legend,
           in one bottom card so the trail colours read alongside "en directo". */}
-      <div className="absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center"
+      {modoTramos && hojaDeTramos}
+      <div className={`absolute bottom-0 inset-x-0 z-[1000] p-3 pointer-events-none flex justify-center ${modoTramos ? 'hidden' : ''}`}
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         {/* Plegada por defecto: solo "en directo · visto hace…", que es lo que
             se mira siempre. La hora del radar y la leyenda de colores aparecen
