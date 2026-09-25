@@ -308,32 +308,81 @@ export interface AjusteDeTramo { desde: number; hasta: number; modo: Modo }
 export const MODOS_A_MANO: Modo[] = ['pie', 'correr', 'bici', 'coche', 'tren', 'barco', 'avion', 'parado']
 
 /**
- * Los tramos con las correcciones puestas: un tramo toma el medio de la
- * corrección que cubre su mitad. Y los que quedan seguidos con el mismo medio,
- * juntos (corregir el tramo de en medio de «tren · coche · tren» a tren deja
- * un solo tren).
+ * Los tramos con las correcciones puestas. Cada trocito del trazado (entre dos
+ * puntos) toma el medio de la corrección que cubre su hora, la última que se
+ * hizo si hay varias; y luego se vuelve a juntar en tramos. Por trocitos y no
+ * por tramos enteros: así una corrección puede cortar por donde sea, que es lo
+ * que hace falta para mover un extremo que la detección puso mal.
  */
 export function aplicaAjustes(trail: TrailPoint[], tramos: Tramo[], ajustes: AjusteDeTramo[]): Tramo[] {
-  if (ajustes.length === 0) return tramos
+  if (ajustes.length === 0 || tramos.length === 0) return tramos
+  // El medio y si está corregido de cada trocito i (del punto i-1 al i).
+  const modo: Modo[] = []
+  const corregido: boolean[] = []
+  for (const t of tramos) for (let i = t.i0 + 1; i <= t.i1; i++) { modo[i] = t.modo; corregido[i] = false }
+  for (let i = 1; i < trail.length; i++) {
+    if (modo[i] === undefined) continue
+    const mitad = (trail[i - 1].t + trail[i].t) / 2
+    for (const a of ajustes) if (mitad >= a.desde && mitad <= a.hasta) { modo[i] = a.modo; corregido[i] = true }
+  }
   const out: Tramo[] = []
-  for (const t0 of tramos) {
-    const mitad = (t0.desde + t0.hasta) / 2
-    const a = ajustes.find((x) => mitad >= x.desde && mitad <= x.hasta)
-    const t = a ? { ...t0, modo: a.modo, corregido: true } : t0
-    const u = out[out.length - 1]
-    if (u && u.modo === t.modo) out[out.length - 1] = { ...trozo(trail, t.modo, u.i0, t.i1), corregido: u.corregido || t.corregido }
-    else out.push(t)
+  let i0 = -1
+  for (let i = 1; i <= trail.length; i++) {
+    const cambia = i === trail.length || modo[i] === undefined || (i0 >= 0 && modo[i] !== modo[i0 + 1])
+    if (i0 >= 0 && cambia) {
+      const t = trozo(trail, modo[i0 + 1], i0, i - 1)
+      if (corregido.slice(i0 + 1, i).some(Boolean)) t.corregido = true
+      out.push(t)
+      i0 = -1
+    }
+    if (i < trail.length && modo[i] !== undefined && i0 < 0) i0 = i - 1
   }
   return out
 }
 
+/** Las correcciones sin nada entre `desde` y `hasta`: lo que caía dentro se
+ *  recorta, no se tira (lo de fuera sigue corregido). */
+function recorta(ajustes: AjusteDeTramo[], desde: number, hasta: number): AjusteDeTramo[] {
+  const out: AjusteDeTramo[] = []
+  for (const x of ajustes) {
+    if (x.hasta <= desde || x.desde >= hasta) { out.push(x); continue }
+    if (x.desde < desde) out.push({ ...x, hasta: desde })
+    if (x.hasta > hasta) out.push({ ...x, desde: hasta })
+  }
+  return out
+}
+
+/** «En vehículo» no es un medio que se pueda poner: es no saber cuál. Si se
+ *  fija a mano un tramo que aún está así (el mapa no ha llegado), coche. */
+const fijo = (m: Modo): Modo => (m === 'vehiculo' ? 'coche' : m)
+
 /** Las correcciones tras poner `modo` al tramo `t` (null: volver a lo detectado). */
 export function corrige(ajustes: AjusteDeTramo[], t: Tramo, modo: Modo | null): AjusteDeTramo[] {
-  // Fuera las que tocan este tramo: la nueva manda en todo él, y sin ella
-  // vuelve lo detectado.
-  // (Dos tramos seguidos comparten la hora de la frontera: tocarse no es pisarse.)
-  const resto = ajustes.filter((x) => x.hasta <= t.desde || x.desde >= t.hasta)
-  return modo === null ? resto : [...resto, { desde: t.desde, hasta: t.hasta, modo }].sort((x, y) => x.desde - y.desde)
+  const resto = recorta(ajustes, t.desde, t.hasta)
+  return modo === null ? resto : [...resto, { desde: t.desde, hasta: t.hasta, modo: fijo(modo) }]
+}
+
+/**
+ * Las correcciones tras mover el corte entre el tramo `a` y el siguiente `b`
+ * a la hora `t`: `a` llega hasta ahí y `b` empieza ahí, cada uno con su medio.
+ * `t` tiene que caer dentro de los dos (ni antes de que empiece `a` ni después
+ * de que acabe `b`); si no, no cambia nada.
+ */
+export function mueveCorte(ajustes: AjusteDeTramo[], a: Tramo, b: Tramo, t: number): AjusteDeTramo[] {
+  if (!(t > a.desde && t < b.hasta)) return ajustes
+  return [
+    ...recorta(ajustes, a.desde, b.hasta),
+    { desde: a.desde, hasta: t, modo: fijo(a.modo) },
+    { desde: t, hasta: b.hasta, modo: fijo(b.modo) },
+  ]
+}
+
+/** Hasta dónde se puede mover el corte entre el tramo k y el k+1: índices de
+ *  punto, sin dejar a ninguno de los dos sin trazado. */
+export function margenDeCorte(tramos: Tramo[], k: number): [number, number] | null {
+  const a = tramos[k], b = tramos[k + 1]
+  if (!a || !b) return null
+  return [a.i0 + 1, b.i1 - 1]
 }
 
 /** Los totales por medio: km y tiempo de cada uno, del que más se hizo al que

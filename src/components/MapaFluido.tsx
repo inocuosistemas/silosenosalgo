@@ -109,6 +109,11 @@ interface Props {
    *  uno tocándolo. null fuera del modo. */
   tramosMapa?: TramoDelMapa[] | null
   onTramo?: (k: number) => void
+  /** Los extremos del tramo elegido que se pueden mover: tiradores que se
+   *  arrastran. Mientras se arrastran, el visor dice dónde pegarlos al trazado. */
+  extremos?: { lado: 'inicio' | 'fin'; pos: [number, number] }[]
+  onArrastraExtremo?: (lado: 'inicio' | 'fin', lat: number, lon: number) => [number, number] | null
+  onSueltaExtremo?: (lado: 'inicio' | 'fin', lat: number, lon: number) => void
   /** Hacia dónde cae el norte en pantalla (grados, horario) y si está inclinado. */
   onVista: (v: { rumbo: number; inclinado: boolean }) => void
   onListo: (api: ApiMapaFluido) => void
@@ -211,8 +216,8 @@ export default function MapaFluido(p: Props) {
   const [listo, setListo] = useState(false)
 
   // Los avisos hacia fuera, siempre los últimos, sin rehacer el mapa por ello.
-  const avisos = useRef({ onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo })
-  avisos.current = { onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo }
+  const avisos = useRef({ onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo, onArrastraExtremo: p.onArrastraExtremo, onSueltaExtremo: p.onSueltaExtremo })
+  avisos.current = { onVista: p.onVista, onListo: p.onListo, onFallo: p.onFallo, onTramo: p.onTramo, onArrastraExtremo: p.onArrastraExtremo, onSueltaExtremo: p.onSueltaExtremo }
 
   const ultimoToque = useRef(0)
   const [abierto, setAbierto] = useState<Abierto | null>(null)
@@ -473,6 +478,38 @@ export default function MapaFluido(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listo, firmaTramos])
   useEffect(() => () => { for (const m of insignias.current) m.remove() }, [])
+
+  // Los tiradores de los extremos del tramo elegido: se arrastran y se pegan al
+  // trazado a cada paso (el visor dice dónde); al soltar, el visor mueve el corte.
+  const tiradores = useRef<Marker[]>([])
+  const firmaExtremos = (p.extremos ?? []).map((x) => `${x.lado}:${x.pos.join(',')}`).join(';')
+  useEffect(() => {
+    const map = mapaRef.current
+    for (const m of tiradores.current) m.remove()
+    tiradores.current = []
+    if (!listo || !map) return
+    for (const x of p.extremos ?? []) {
+      const el = document.createElement('div')
+      el.style.cssText = 'width:26px;height:26px;border-radius:9999px;background:#fff;border:3px solid #0ea5e9;'
+        + 'box-shadow:0 1px 5px rgba(0,0,0,.5);display:grid;place-items:center;font:700 12px/1 system-ui;color:#0ea5e9;'
+        + 'cursor:grab;z-index:8'
+      el.textContent = '⇔'
+      el.setAttribute('aria-label', x.lado === 'inicio' ? 'Mover el inicio del tramo' : 'Mover el final del tramo')
+      const m = new Marker({ element: el, anchor: 'center', draggable: true }).setLngLat(lonLat(x.pos)).addTo(map)
+      m.on('drag', () => {
+        const ll = m.getLngLat()
+        const pegado = avisos.current.onArrastraExtremo?.(x.lado, ll.lat, ll.lng)
+        if (pegado) m.setLngLat(lonLat(pegado))
+      })
+      m.on('dragend', () => {
+        const ll = m.getLngLat()
+        avisos.current.onSueltaExtremo?.(x.lado, ll.lat, ll.lng)
+      })
+      tiradores.current.push(m)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, firmaExtremos])
+  useEffect(() => () => { for (const m of tiradores.current) m.remove() }, [])
 
   useEffect(() => {
     if (!listo) return

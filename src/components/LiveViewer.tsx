@@ -30,7 +30,7 @@ import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
 import { inferActivity } from '../lib/activityInference'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, totalesPorModo, kmYTiempo, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
 import { cargaEntornos, entornoSiEsta } from '../lib/entornoDelMapa'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
@@ -304,6 +304,14 @@ if (typeof document !== 'undefined' && !document.getElementById('slsns-pause-css
   el.textContent = PAUSE_PULSE_CSS
   document.head.appendChild(el)
 }
+
+/** El tirador de un extremo del tramo elegido: se arrastra por el trazado. */
+const tiradorDeExtremo = L.divIcon({
+  className: '',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+  html: '<div style="width:26px;height:26px;border-radius:9999px;background:#fff;border:3px solid #0ea5e9;box-shadow:0 1px 5px rgba(0,0,0,.5);display:grid;place-items:center;font:700 12px/1 system-ui;color:#0ea5e9">⇔</div>',
+})
 
 /** El emoji de un tramo en el mapa del modo tramos, en un círculo de su color. */
 function insigniaDeTramo(modo: Modo, elegido: boolean, apagado: boolean): L.DivIcon {
@@ -1297,7 +1305,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // que se recuerda entre una y otra.
   const [esMio, setEsMio] = useState(false)
   useEffect(() => { if (state?.mio !== undefined) setEsMio(state.mio) }, [state?.mio])
-  const [tramoEditado, setTramoEditado] = useState<number | null>(null)
   // «Modo tramos»: el mapa enseña los tramos por separado y se elige uno
   // tocándolo. La selección va por HORA y no por posición en la lista: al
   // corregir, dos tramos pueden juntarse y la lista cambia de largo.
@@ -1319,6 +1326,50 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     if (apiFluido.current) apiFluido.current.encuadra(pts, { top: 110, bottom: abajo, left: 40, right: 40 })
     else mapa?.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [40, 110], paddingBottomRight: [40, abajo], maxZoom: 17 })
   }
+  /** Mover el extremo `lado` del tramo elegido al punto `idx` del trazado. */
+  const mueveExtremo = (lado: 'inicio' | 'fin', idx: number) => {
+    const t = tramos[tramoSel]
+    if (!t || !trail[idx]) return
+    const k = lado === 'inicio' ? tramoSel - 1 : tramoSel
+    const a = tramos[k], b = tramos[k + 1]
+    if (!a || !b) return
+    const hora = trail[idx].t
+    guardaAjustes(mueveCorte(ajustes, a, b, hora))
+    // Sigue elegido el mismo tramo, con su nuevo tramo de horas.
+    setSelMs(lado === 'inicio' ? (hora + t.hasta) / 2 : (t.desde + hora) / 2)
+  }
+  /** El punto del trazado más cercano a donde se suelta un extremo, sin salir
+   *  de los dos tramos que separa. */
+  const pegaExtremo = (lado: 'inicio' | 'fin', lat: number, lon: number): number | null => {
+    const m = margenDeCorte(tramos, lado === 'inicio' ? tramoSel - 1 : tramoSel)
+    if (!m) return null
+    let mejor = -1, dMin = Infinity
+    for (let i = m[0]; i <= m[1]; i++) {
+      const d = haversineKm(lat, lon, trail[i].lat, trail[i].lon)
+      if (d < dMin) { dMin = d; mejor = i }
+    }
+    return mejor >= 0 ? mejor : null
+  }
+  /** Un paso del extremo (unos 30 s del trazado), hacia atrás o hacia delante. */
+  const pasoExtremo = (lado: 'inicio' | 'fin', dir: -1 | 1) => {
+    const t = tramos[tramoSel]
+    const m = margenDeCorte(tramos, lado === 'inicio' ? tramoSel - 1 : tramoSel)
+    if (!t || !m) return
+    let i = lado === 'inicio' ? t.i0 : t.i1
+    const desde = trail[i].t
+    do { i += dir } while (i > m[0] && i < m[1] && Math.abs(trail[i].t - desde) < 30_000)
+    mueveExtremo(lado, Math.min(m[1], Math.max(m[0], i)))
+  }
+  /** Los extremos del tramo elegido que se pueden mover (los que tienen vecino). */
+  const extremosDelElegido = (() => {
+    const t = tramos[tramoSel]
+    if (!t || !esMio) return [] as { lado: 'inicio' | 'fin'; pos: [number, number] }[]
+    const out: { lado: 'inicio' | 'fin'; pos: [number, number] }[] = []
+    if (tramoSel > 0) out.push({ lado: 'inicio', pos: [trail[t.i0].lat, trail[t.i0].lon] })
+    if (tramoSel < tramos.length - 1) out.push({ lado: 'fin', pos: [trail[t.i1].lat, trail[t.i1].lon] })
+    return out
+  })()
+
   const entraEnModoTramos = () => {
     setShowAdvanced(false)
     setModoTramos(true)
@@ -1331,7 +1382,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const cambiaActividad = async (a: BeaconActivity | null) => {
     const antes = actividadLocal
     setActividadLocal(a)
-    setTramoEditado(null)
     setErrorTramos(null)
     try {
       const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/activity?activity=${a ?? 'auto'}`, {
@@ -1345,26 +1395,37 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       setErrorTramos('No se ha podido guardar. Comprueba la conexión.')
     }
   }
-  const corrigeTramo = async (t: Tramo, modo: Modo | null) => {
-    const antes = ajustes
-    const nuevos = corrige(ajustes, t, modo)
+  // Las correcciones se ven al momento y se guardan un poco después del último
+  // toque: mover un extremo paso a paso no debe ser una petición por paso.
+  const confirmados = useRef<AjusteDeTramo[] | null>(null)
+  const guardadoPendiente = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const guardaAjustes = (nuevos: AjusteDeTramo[]) => {
+    if (confirmados.current === null) confirmados.current = ajustes
     setAjustesLocales(nuevos)
-    setTramoEditado(null)
     setErrorTramos(null)
-    try {
-      // También en la URL: el visor de las apps no ve el cuerpo de un POST (su
-      // WebView se lo come) y lo reenvía al servidor desde ahí.
-      const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/tramos?a=${encodeURIComponent(JSON.stringify(nuevos))}`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ajustes: nuevos }),
-      })
-      if (!res.ok) throw new Error(String(res.status))
-    } catch {
-      setAjustesLocales(antes)
-      setErrorTramos('No se ha podido guardar. Comprueba la conexión.')
-    }
+    if (guardadoPendiente.current) clearTimeout(guardadoPendiente.current)
+    guardadoPendiente.current = setTimeout(async () => {
+      try {
+        // También en la URL: el visor de las apps no ve el cuerpo de un POST
+        // (su WebView se lo come) y lo reenvía al servidor desde ahí.
+        const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/tramos?a=${encodeURIComponent(JSON.stringify(nuevos))}`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ajustes: nuevos }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        confirmados.current = null
+      } catch {
+        setAjustesLocales(confirmados.current)
+        confirmados.current = null
+        setErrorTramos('No se ha podido guardar. Comprueba la conexión.')
+      }
+    }, 600)
   }
+  const corrigeTramo = (t: Tramo, modo: Modo | null) => {
+    guardaAjustes(corrige(ajustes, t, modo))
+  }
+
   /** Más de un medio: entonces el trazado se colorea por tramo, no por precisión. */
   const porTramos = useMemo(
     () => new Set(tramos.filter((t) => t.modo !== 'parado').map((t) => t.modo)).size >= 2,
@@ -2961,15 +3022,30 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl backdrop-blur">
           {!tSel ? (
-            <div className="flex flex-wrap gap-1.5">
-              {tramos.map((t, k) => (
-                <button key={`${t.i0}`} type="button" onClick={() => eligeTramo(k)}
-                  className="flex items-center gap-1 rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-400">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
-                  {resumenDeTramo(t)}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {tramos.map((t, k) => (
+                  <button key={`${t.i0}`} type="button" onClick={() => eligeTramo(k)}
+                    className="flex items-center gap-1 rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-400">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
+                    {resumenDeTramo(t)}
+                  </button>
+                ))}
+              </div>
+              {/* Y al revés: fue todo con uno solo. */}
+              {esMio && ended && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-1 border-t border-slate-800 pt-2">
+                  <span className="text-[10px] text-slate-500">¿Todo con un solo medio?</span>
+                  {(['walk', 'run', 'bike', 'transport'] as const).map((a) => (
+                    <button key={a} type="button" onClick={() => { setModoTramos(false); void cambiaActividad(a) }}
+                      className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-400">
+                      {ACTIVITY_LABEL[a].emoji} {ACTIVITY_LABEL[a].label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {errorTramos && <p className="mt-1.5 text-center text-[11px] text-red-400">{errorTramos}</p>}
+            </>
           ) : (
             <>
               <div className="flex items-center gap-2">
@@ -2988,6 +3064,25 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <button type="button" aria-label="Tramo siguiente" disabled={tramoSel >= tramos.length - 1} onClick={() => eligeTramo(tramoSel + 1)}
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-600 text-slate-200 disabled:opacity-30">›</button>
               </div>
+              {/* Los extremos: arrastrando el tirador en el mapa, o paso a paso aquí. */}
+              {esMio && (tramoSel > 0 || tramoSel < tramos.length - 1) && (
+                <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-slate-300">
+                  {(['inicio', 'fin'] as const).map((lado) => {
+                    const puede = lado === 'inicio' ? tramoSel > 0 : tramoSel < tramos.length - 1
+                    const hora = formatTime(new Date(lado === 'inicio' ? tSel.desde : tSel.hasta))
+                    return (
+                      <div key={lado} className={`flex items-center gap-1 ${puede ? '' : 'opacity-40'}`}>
+                        <span className="text-slate-400">{lado === 'inicio' ? 'Empieza' : 'Acaba'}</span>
+                        <button type="button" disabled={!puede} onClick={() => pasoExtremo(lado, -1)} aria-label={`${lado === 'inicio' ? 'Empezar' : 'Acabar'} antes`}
+                          className="grid h-7 w-7 place-items-center rounded-full border border-slate-600 hover:border-slate-400">‹</button>
+                        <span className="w-11 text-center font-semibold tabular-nums text-slate-100">{hora}</span>
+                        <button type="button" disabled={!puede} onClick={() => pasoExtremo(lado, 1)} aria-label={`${lado === 'inicio' ? 'Empezar' : 'Acabar'} después`}
+                          className="grid h-7 w-7 place-items-center rounded-full border border-slate-600 hover:border-slate-400">›</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
               {esMio && (
                 <div className="mt-2.5 flex flex-wrap justify-center gap-1.5">
                   {MODOS_A_MANO.map((m) => (
@@ -3503,6 +3598,15 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               apagado: tramoSel >= 0 && k !== tramoSel,
             })) : null}
             onTramo={eligeTramo}
+            extremos={modoTramos ? extremosDelElegido : []}
+            onArrastraExtremo={(lado, lat, lon) => {
+              const i = pegaExtremo(lado, lat, lon)
+              return i == null ? null : [trail[i].lat, trail[i].lon]
+            }}
+            onSueltaExtremo={(lado, lat, lon) => {
+              const i = pegaExtremo(lado, lat, lon)
+              if (i != null) mueveExtremo(lado, i)
+            }}
             onVista={onVistaFluido}
             onListo={onListoFluido}
             onFallo={onFalloFluido}
@@ -3586,6 +3690,21 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
               eventHandlers={{ click: () => eligeTramo(k) }} zIndexOffset={k === tramoSel ? 1000 : 0} />
           )
         })}
+        {modoTramos && extremosDelElegido.map((x) => (
+          <Marker key={`extremo-${x.lado}-${x.pos.join(',')}`} position={x.pos} icon={tiradorDeExtremo} draggable zIndexOffset={2000}
+            eventHandlers={{
+              drag: (e) => {
+                const m = e.target as L.Marker, ll = m.getLatLng()
+                const i = pegaExtremo(x.lado, ll.lat, ll.lng)
+                if (i != null) m.setLatLng([trail[i].lat, trail[i].lon])
+              },
+              dragend: (e) => {
+                const ll = (e.target as L.Marker).getLatLng()
+                const i = pegaExtremo(x.lado, ll.lat, ll.lng)
+                if (i != null) mueveExtremo(x.lado, i)
+              },
+            }} />
+        ))}
         {!modoTramos && !heatRange && trailSegments.map((s, i) => (
           <Polyline key={`trail-borde-${i}`} positions={s.positions} pathOptions={{ color: '#020617', weight: 8, opacity: 0.55 }} />
         ))}
@@ -4131,6 +4250,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       {errorTramos && <p className="mt-1 text-[10px] text-red-400">{errorTramos}</p>}
                     </div>
                   )}
+                  {/* Los tramos, en la tarjeta, solo en resumen: lo que se hizo con
+                      cada medio. Verlos uno a uno y cambiarlos es cosa del modo
+                      tramos, en el mapa, que es donde se entiende cuál es cuál. */}
                   {modoInteligente && tramos.some((t) => t.modo !== 'parado') && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
@@ -4143,90 +4265,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           {esMio ? 'Ver y cambiar en el mapa' : 'Ver en el mapa'}
                         </button>
                       </p>
-                      {/* Los totales por medio primero: es lo que se viene a mirar
-                          («¿cuánto anduve?, ¿cuánto en barco?»); la lista de
-                          tramos, debajo, para ver el orden y corregir. */}
-                      {porTramos && (
-                        <div className="mb-2 grid grid-cols-2 gap-1.5">
-                          {totalesPorModo(tramos).map((x) => (
-                            <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
-                              <p className="flex items-center gap-1 text-[10px] text-slate-400">
-                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
-                                {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
-                                {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
-                              </p>
-                              <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <ul className="space-y-0.5">
-                        {tramos.map((t, k) => (
-                          <li key={`${t.i0}-${t.modo}`}>
-                            {/* Su dueño lo toca y le cambia el medio: lo detectado se equivoca
-                                (una autovía pegada a la vía, un tramo sin sensor). */}
-                            <button
-                              type="button"
-                              disabled={!esMio}
-                              onClick={() => setTramoEditado(tramoEditado === k ? null : k)}
-                              aria-expanded={esMio ? tramoEditado === k : undefined}
-                              className={`flex w-full items-center gap-2 rounded-md text-left text-xs text-slate-200 ${esMio ? 'px-1 py-0.5 hover:bg-slate-800' : ''} ${tramoEditado === k ? 'bg-slate-800' : ''}`}
-                            >
-                              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
-                              <span className="min-w-0 flex-1 truncate">
-                                {resumenDeTramo(t)}
-                                {t.corregido && <span className="ml-1 text-[10px] text-slate-400" title="Corregido a mano">✎</span>}
-                              </span>
-                              <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
-                                {formatTime(new Date(t.desde))}–{formatTime(new Date(t.hasta))}
-                              </span>
-                            </button>
-                            {tramoEditado === k && (
-                              <div className="mt-1 mb-1.5 flex flex-wrap gap-1 pl-4">
-                                {MODOS_A_MANO.map((m) => (
-                                  <button
-                                    key={m}
-                                    type="button"
-                                    onClick={() => void corrigeTramo(t, m)}
-                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${m === t.modo ? 'border-sky-500 bg-sky-900/50 text-sky-200' : 'border-slate-600 text-slate-200 hover:border-slate-400'}`}
-                                  >
-                                    {MODOS[m].emoji} {MODOS[m].nombre}
-                                  </button>
-                                ))}
-                                {t.corregido && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void corrigeTramo(t, null)}
-                                    className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-400 hover:border-slate-400"
-                                  >
-                                    ↺ Lo detectado
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </li>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {totalesPorModo(tramos).map((x) => (
+                          <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
+                            <p className="flex items-center gap-1 text-[10px] text-slate-400">
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
+                              {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
+                              {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
+                            </p>
+                            <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>
+                          </div>
                         ))}
-                      </ul>
-                      {esMio && tramoEditado === null && (
-                        <p className="mt-1 text-[10px] text-slate-500">Toca un tramo para cambiar el medio si no es el que era.</p>
-                      )}
-                      {errorTramos && <p className="mt-1 text-[10px] text-red-400">{errorTramos}</p>}
-                      {/* Y al revés: fue todo con uno solo. */}
-                      {esMio && ended && (
-                        <div className="mt-2 flex flex-wrap items-center gap-1">
-                          <span className="text-[10px] text-slate-500">¿Todo con un solo medio?</span>
-                          {(['walk', 'run', 'bike', 'transport'] as const).map((a) => (
-                            <button
-                              key={a}
-                              type="button"
-                              onClick={() => void cambiaActividad(a)}
-                              className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-400"
-                            >
-                              {ACTIVITY_LABEL[a].emoji} {ACTIVITY_LABEL[a].label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      </div>
                     </div>
                   )}
                   <MetricSection icon={<Gauge size={12} />} title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>

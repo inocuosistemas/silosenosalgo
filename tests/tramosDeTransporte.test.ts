@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, totalesPorModo, type Entorno } from '../src/lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
 function traza(trozos: [number, number, TrailPoint['m']?][]): TrailPoint[] {
@@ -111,6 +111,46 @@ describe('tramos de transporte', () => {
     const m = muestrasDe(tr, ts[1])
     expect(m.length).toBeGreaterThan(50)   // 30 km, una cada 300 m
     expect(m.length).toBeLessThanOrEqual(121)
+  })
+
+  const sinNada = () => ({ agua: false, via: false, ferry: false })
+
+  it('mover el corte entre dos tramos, hacia atrás y hacia delante', () => {
+    // 10 min andando (puntos 0–20), 20 en coche (20–60), 10 andando.
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
+    const ts = refinaVehiculos(tr, tramosDeTransporte(tr), sinNada)
+    expect(modos(ts)).toEqual(['pie', 'coche', 'pie'])
+    expect(ts[0].i1).toBe(20)
+    // Subió al coche dos minutos antes de lo detectado.
+    const r = aplicaAjustes(tr, ts, mueveCorte([], ts[0], ts[1], tr[16].t))
+    expect(modos(r)).toEqual(['pie', 'coche', 'pie'])
+    expect([r[0].i1, r[1].i0, r[1].i1]).toEqual([16, 16, 60])
+    // O más tarde.
+    const r2 = aplicaAjustes(tr, ts, mueveCorte([], ts[0], ts[1], tr[26].t))
+    expect([r2[0].i1, r2[1].i0]).toEqual([26, 26])
+    // Fuera de los dos tramos, no cambia nada.
+    expect(mueveCorte([], ts[0], ts[1], tr[70].t)).toEqual([])
+    expect(margenDeCorte(ts, 0)).toEqual([1, 59])
+    expect(margenDeCorte(ts, 2)).toBeNull()
+  })
+
+  it('corregir un trozo no tira lo corregido de alrededor', () => {
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w'], [20, 60, 'v']])
+    const ts = refinaVehiculos(tr, tramosDeTransporte(tr), sinNada)
+    // Todo del primer coche al segundo, en tren (una corrección grande)…
+    let aj = corrige([], { ...ts[1], hasta: ts[3].hasta }, 'tren')
+    expect(modos(aplicaAjustes(tr, ts, aj))).toEqual(['pie', 'tren'])
+    // …y luego el paseo de en medio, que sí fue a pie: el tren sigue a los lados.
+    aj = corrige(aj, ts[2], 'pie')
+    expect(modos(aplicaAjustes(tr, ts, aj))).toEqual(['pie', 'tren', 'pie', 'tren'])
+  })
+
+  it('un tramo «en vehículo» (sin mapa aún) se fija como coche', () => {
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
+    const ts = tramosDeTransporte(tr)
+    expect(ts[1].modo).toBe('vehiculo')
+    const aj = mueveCorte([], ts[0], ts[1], tr[16].t)
+    expect(aj.map((a) => a.modo)).toEqual(['pie', 'coche'])
   })
 
   it('los totales por medio suman los tramos del mismo, del que más al que menos', () => {
