@@ -55,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -124,6 +125,11 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
     /** Las halladas marcadas para añadir, y si se está eligiendo entre ellas. */
     var elegidasDeLaRuta by mutableStateOf(setOf<Uri>())
     var eligiendoDeLaRuta by mutableStateOf(false)
+    /** Las halladas que ya están en alguna nota de la salida (ver
+     *  `ColocaFotos.yaAnadidas`): se enseñan, pero marcadas. */
+    var yaEstan by mutableStateOf(setOf<Uri>())
+    /** Las notas con foto que ya tiene la salida: createdAt y fixAt. */
+    var notasConFoto: List<Pair<Double, Double?>> = emptyList()
     var sinPermiso by mutableStateOf(false)
     var preparando by mutableIntStateOf(0)
     val subidas = mutableStateListOf<String>()
@@ -149,8 +155,13 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
 
     /** Todas las que quepan, o ninguna. */
     fun eligeTodasLasHalladas(todas: Boolean) {
-        elegidasDeLaRuta = if (todas) halladas.orEmpty().take(huecos).map { it.uri }.toSet() else emptySet()
+        // «Todas» son las que faltan: las que ya están no se repiten.
+        val nuevas = halladas.orEmpty().filter { it.uri !in yaEstan }
+        elegidasDeLaRuta = if (todas) nuevas.take(huecos).map { it.uri }.toSet() else emptySet()
     }
+
+    /** Las halladas que aún no están en la salida. */
+    val halladasNuevas get() = halladas.orEmpty().count { it.uri !in yaEstan }
 
     /** Saca las marcadas (en orden) y deja las demás por si se quieren luego. */
     fun tomaElegidas(): List<Uri> {
@@ -218,7 +229,9 @@ class FotosEnRutaEstado(val sesion: TrackSessionSummary) {
         // la puso ahí; si no, la del trazado en ese punto.
         val cuando = if (s.modo == ColocaFotos.Modo.POR_HORA) f.fecha ?: s.t else s.t
         val nota = Note(
-            id = f.notaId, createdAt = cuando, lat = s.lat, lon = s.lon,
+            // La hora exacta de la foto: es lo que permite reconocerla luego como
+            // ya añadida (ver `ColocaFotos.yaAnadidas`).
+            id = f.notaId, createdAt = cuando, fixAt = f.fecha, lat = s.lat, lon = s.lon,
             distM = s.distM, poiType = PoiTypes.DEFAULT_SLUG,
         )
         TrackingStore.subeFotoASalida(sesion.id, nota, f.datos)
@@ -325,7 +338,11 @@ fun PantallaFotosEnRuta(estado: FotosEnRutaEstado, onCerrar: () -> Unit) {
     LaunchedEffect(Unit) {
         if (estado.fase == FotosEnRutaEstado.Fase.CARGANDO) {
             runCatching { TrackingStore.trazaDeSalida(estado.sesion.id) }
-                .onSuccess { estado.ponTrazado(it) }
+                .onSuccess {
+                    estado.ponTrazado(it)
+                    estado.notasConFoto = TrackingStore.notasDeSalida(estado.sesion.id)
+                        .filter { n -> n.photoKey != null }.map { n -> n.createdAt to n.fixAt }
+                }
                 .onFailure {
                     estado.motivo = "No se ha podido traer el recorrido de esta salida. Comprueba la conexión."
                     estado.fase = FotosEnRutaEstado.Fase.SIN_TRAZADO
@@ -352,7 +369,9 @@ fun PantallaFotosEnRuta(estado: FotosEnRutaEstado, onCerrar: () -> Unit) {
             val lista = withContext(Dispatchers.IO) {
                 FotosDelMovil.deLasHoras(context, t.first().t - ColocaFotos.MARGEN_MS, t.last().t + ColocaFotos.MARGEN_MS)
             }
-            estado.halladas = lista.filter { h -> estado.fotos.none { it.origen == h.uri.toString() } }
+            val resto = lista.filter { h -> estado.fotos.none { it.origen == h.uri.toString() } }
+            estado.yaEstan = ColocaFotos.yaAnadidas(resto.map { it.uri to it.tomada.toDouble() }, estado.notasConFoto)
+            estado.halladas = resto
         }
     }
 
@@ -459,6 +478,7 @@ private fun Eligiendo(
                         color = Paleta.slate400, style = MaterialTheme.typography.bodySmall,
                     )
                     else -> {
+                        val ya = halladas.size - estado.halladasNuevas
                         Text(
                             when {
                                 estado.fotos.any { it.origen != null } ->
@@ -466,6 +486,10 @@ private fun Eligiendo(
                                     else "Quedan ${halladas.size} de esas horas sin añadir."
                                 halladas.size == 1 -> "Hay una foto hecha durante la salida."
                                 else -> "Hay ${halladas.size} fotos hechas durante la salida."
+                            } + when (ya) {
+                                0 -> ""
+                                1 -> " Una ya está en la salida."
+                                else -> " $ya ya están en la salida."
                             },
                             color = Paleta.slate400, style = MaterialTheme.typography.bodySmall,
                         )
@@ -739,6 +763,9 @@ private fun ElegirDeLaRuta(estado: FotosEnRutaEstado, onAnadir: () -> Unit) {
                 fotos.forEach { h ->
                     item(key = h.uri.toString()) {
                         val elegida = h.uri in estado.elegidasDeLaRuta
+                        // Ya en la salida: apagada y dicho, pero se puede elegir
+                        // igual (lo de las hechas en marcha es por cercanía).
+                        val yaEsta = h.uri in estado.yaEstan && !elegida
                         Box(
                             Modifier.aspectRatio(1f)
                                 .border(3.dp, if (elegida) Paleta.sky500 else Color.Transparent)
@@ -747,8 +774,15 @@ private fun ElegirDeLaRuta(estado: FotosEnRutaEstado, onAnadir: () -> Unit) {
                                     onLongClick = { enGrande = h.uri },
                                 ),
                         ) {
-                            MiniaturaDeUri(h.uri, 240, Modifier.fillMaxSize())
+                            MiniaturaDeUri(h.uri, 240, Modifier.fillMaxSize().alpha(if (yaEsta) 0.4f else 1f))
                             if (elegida) Box(Modifier.fillMaxSize().background(Paleta.sky500.copy(alpha = 0.18f)))
+                            if (yaEsta) {
+                                Text(
+                                    "✓ Ya está", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(50))
+                                        .background(Paleta.verde.copy(alpha = 0.9f)).padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
                             Box(
                                 Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp).clip(CircleShape)
                                     .background(if (elegida) Paleta.sky500 else Color.Black.copy(alpha = 0.3f))

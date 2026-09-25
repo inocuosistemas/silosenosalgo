@@ -124,6 +124,41 @@ enum ColocaFotos {
         return nil
     }
 
+    // MARK: Las que ya están
+
+    /// Cuánto puede pasar entre hacer la foto con la cámara de la app y
+    /// guardar la nota: el tiempo de escribir dos líneas, o de dictarlas.
+    static let ventanaDeNotaMs: Double = 3 * 60_000
+
+    /**
+     Cuáles de las fotos del carrete (`fotos`: id y hora) están ya en alguna
+     nota con foto de la salida (`notas`: su `createdAt` y su `fixAt`).
+
+     - EXACTAS: las que se añadieron desde aquí llevan la hora de la foto (en
+       `fixAt`, y en `createdAt` si se colocaron por la hora). Un segundo de
+       margen por el redondeo.
+     - Las hechas EN MARCHA con la cámara de la app: la foto va al carrete al
+       dispararla y la nota se guarda un rato después. Para cada nota que no
+       casó exacta, la última foto hecha en los tres minutos antes de guardarla.
+       Una por nota como mucho: con una ráfaga de fotos, marcar todas las de esos
+       minutos sería decir que ya está lo que no está.
+     */
+    static func yaAnadidas(_ fotos: [(id: String, t: Double)], notas: [(createdAt: Double, fixAt: Double?)]) -> Set<String> {
+        var hechas = Set<String>()
+        var sinCasar: [Double] = []
+        for n in notas {
+            let exacta = fotos.first { f in
+                abs(f.t - n.createdAt) <= 1000 || n.fixAt.map { abs(f.t - $0) <= 1000 } == true
+            }
+            if let exacta { hechas.insert(exacta.id) } else { sinCasar.append(n.createdAt) }
+        }
+        for guardada in sinCasar {
+            let antes = fotos.filter { !hechas.contains($0.id) && $0.t <= guardada && $0.t >= guardada - ventanaDeNotaMs }
+            if let ultima = antes.max(by: { $0.t < $1.t }) { hechas.insert(ultima.id) }
+        }
+        return hechas
+    }
+
     // MARK: Lo que trae la foto
 
     /// La hora y el GPS que lleva dentro el fichero (EXIF). Sirve para las que

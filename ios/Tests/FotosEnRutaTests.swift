@@ -74,6 +74,25 @@ final class FotosEnRutaTests: XCTestCase {
         XCTAssertEqual(acum.last ?? 0, TrackingRules.trailDistanceMeters(trail), accuracy: 0.01)
     }
 
+    func testLasYaAnadidasSeReconocen() {
+        let m: Double = 60_000
+        let fotos: [(id: String, t: Double)] = [
+            ("a", 0), ("b", 10 * m), ("c", 20 * m), ("d", 20 * m + 30_000), ("e", 40 * m), ("f", 50 * m),
+        ]
+        let notas: [(createdAt: Double, fixAt: Double?)] = [
+            // Añadida desde aquí, por la hora: su createdAt es la hora de la foto.
+            (10 * m + 400, nil),
+            // Añadida desde aquí por el GPS: createdAt del trazado, fixAt la de la foto.
+            (33 * m, 40 * m),
+            // Hecha en marcha: guardada 50 s después de la foto «d»; «c» también
+            // cae en la ventana, pero solo cuenta la última.
+            (21 * m + 20_000, nil),
+            // Guardada sin foto reciente en el carrete (se eligió una vieja): nada.
+            (70 * m, nil),
+        ]
+        XCTAssertEqual(ColocaFotos.yaAnadidas(fotos, notas: notas), ["b", "e", "d"])
+    }
+
     func testLaFechaDelEXIFConYSinDesfase() throws {
         let conDesfase = try XCTUnwrap(ColocaFotos.fechaExif("2026:09:20 10:42:07", desfase: "+02:00"))
         XCTAssertEqual(conDesfase.timeIntervalSince1970, 1_789_893_727, accuracy: 0.5)

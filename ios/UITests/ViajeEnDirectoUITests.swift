@@ -507,24 +507,26 @@ final class ViajeEnDirectoUITests: XCTestCase {
             let b = sistema.buttons[boton]
             if b.waitForExistence(timeout: 3) { b.tap(); break }
         }
-        XCTAssertTrue(app.staticTexts["Hay 3 fotos hechas durante la salida."].waitForExistence(timeout: 10),
-                      app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Hay 3 fotos hechas durante la salida. Una ya está en la salida."]
+            .waitForExistence(timeout: 10), app.debugDescription)
         guarda("carrete-1-halladas")
 
         app.buttons["elegirHalladas"].tap()
         let celdas = app.descendants(matching: .any).matching(identifier: "hallada")
         XCTAssertTrue(celdas.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(celdas.count, 3)
+        XCTAssertTrue(app.staticTexts["Ya está"].exists, "la que ya tiene nota sale marcada")
         XCTAssertFalse(app.buttons["anadirElegidas"].isEnabled, "sin elegir nada no se añade nada")
-        celdas.element(boundBy: 0).tap()
-        celdas.element(boundBy: 1).tap()
+        // «Todas» son las que faltan: la que ya está no se elige.
+        app.buttons["Todas"].tap()
+        XCTAssertTrue(app.staticTexts["2 elegidas"].waitForExistence(timeout: 3))
         sleep(1)
         guarda("carrete-2-eligiendo")
         app.buttons["anadirElegidas"].tap()
 
         XCTAssertTrue(app.staticTexts["2 fotos"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["GPS"].exists, "la del GPS lejos de su hora va por el GPS")
-        XCTAssertTrue(app.staticTexts["Queda una de esas horas sin añadir."].exists)
+        XCTAssertTrue(app.staticTexts["Queda una de esas horas sin añadir. Una ya está en la salida."].exists)
         guarda("carrete-3-anadidas")
     }
 

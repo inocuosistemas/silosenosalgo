@@ -525,6 +525,14 @@ class Api(
             .getOrDefault(emptyList())
     }
 
+    /** Las notas de una salida, las del enlace público. */
+    suspend fun notasDe(sessionId: String): List<Note> {
+        val (body, status) = request("api/track/$sessionId", "GET", null)
+        if (!ok(status)) throw decodeError(body, status)
+        val arr = json.parseToJsonElement(body).jsonObject["notes"] ?: return emptyList()
+        return runCatching { json.decodeFromJsonElement(ListSerializer(Note.serializer()), arr) }.getOrDefault(emptyList())
+    }
+
     suspend fun createNote(token: String, sessionId: String, note: Note) {
         val (body, status) = request(
             "api/track/$sessionId/notes", "POST", token,

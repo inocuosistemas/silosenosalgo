@@ -38,6 +38,11 @@ final class FotosEnRutaModelo: ObservableObject {
     @Published var halladas: [PHAsset]?
     /// Las halladas que se han marcado para añadir (por su id de la fototeca).
     @Published var elegidasDeLaRuta: Set<String> = []
+    /// Las halladas que ya están en alguna nota de la salida (ver
+    /// `ColocaFotos.yaAnadidas`): se enseñan, pero marcadas.
+    @Published var yaEstan: Set<String> = []
+    /// Las notas con foto que ya tiene la salida: su `createdAt` y su `fixAt`.
+    var notasConFoto: [(createdAt: Double, fixAt: Double?)] = []
     @Published var sinPermiso = false
     @Published var preparando = 0
     @Published var subidas: Set<UUID> = []
@@ -79,6 +84,14 @@ final class FotosEnRutaModelo: ObservableObject {
             }
         }
         ponTrazado(t.sorted { $0.t < $1.t })
+        // Las que ya tiene, para no ofrecer otra vez lo que ya está. Del
+        // servidor, que las tiene todas (también las de otro móvil); sin red,
+        // las que guarde este.
+        var notas = (try? await API.notasDe(sessionId: sesion.id)) ?? []
+        if notas.isEmpty, let d = try? Data(contentsOf: LocalStore.notesURL(sesion.id)) {
+            notas = (try? JSONDecoder().decode([Note].self, from: d)) ?? []
+        }
+        notasConFoto = notas.filter { $0.photoKey != nil }.map { ($0.createdAt, $0.fixAt) }
     }
 
     func ponTrazado(_ t: [TrailPoint]) {
@@ -111,8 +124,16 @@ final class FotosEnRutaModelo: ObservableObject {
         var lista: [PHAsset] = []
         r.enumerateObjects { a, _, _ in lista.append(a) }
         let ya = Set(fotos.compactMap(\.assetId))
-        halladas = lista.filter { !ya.contains($0.localIdentifier) }
+        let resto = lista.filter { !ya.contains($0.localIdentifier) }
+        yaEstan = ColocaFotos.yaAnadidas(
+            resto.compactMap { a in a.creationDate.map { (a.localIdentifier, $0.timeIntervalSince1970 * 1000) } },
+            notas: notasConFoto
+        )
+        halladas = resto
     }
+
+    /// Las halladas que aún no están en la salida.
+    var halladasNuevas: Int { (halladas ?? []).filter { !yaEstan.contains($0.localIdentifier) }.count }
 
     /// Cuántas caben todavía.
     var huecos: Int { max(0, Self.tope - fotos.count) }
@@ -124,7 +145,9 @@ final class FotosEnRutaModelo: ObservableObject {
 
     /// Todas las que quepan, o ninguna.
     func eligeTodasLasHalladas(_ todas: Bool) {
-        elegidasDeLaRuta = todas ? Set((halladas ?? []).prefix(huecos).map(\.localIdentifier)) : []
+        // «Todas» son las que faltan: las que ya están no se repiten.
+        let nuevas = (halladas ?? []).filter { !yaEstan.contains($0.localIdentifier) }
+        elegidasDeLaRuta = todas ? Set(nuevas.prefix(huecos).map(\.localIdentifier)) : []
     }
 
     /// Añade las marcadas; las demás siguen ahí por si se quieren luego.
@@ -236,7 +259,9 @@ final class FotosEnRutaModelo: ObservableObject {
         // la puso ahí; si no, la del trazado en ese punto.
         let cuando = s.modo == .porHora ? (f.fecha.map { $0.timeIntervalSince1970 * 1000 } ?? s.t) : s.t
         var nota = Note(
-            id: f.notaId, createdAt: cuando, fixAt: nil,
+            // La hora exacta de la foto: es lo que permite reconocerla luego
+            // como ya añadida (ver `ColocaFotos.yaAnadidas`).
+            id: f.notaId, createdAt: cuando, fixAt: f.fecha.map { $0.timeIntervalSince1970 * 1000 },
             lat: s.lat, lon: s.lon, accuracy: nil, altitude: nil,
             trackKm: nil, distM: s.distM, title: nil, body: nil,
             poiType: PoiTypes.defaultSlug, poiSym: nil, audioKey: nil, photoKey: nil
@@ -379,9 +404,11 @@ struct PantallaFotosEnRuta: View {
                          : "En tu galería no hay fotos de esas horas. Si las hizo otra cámara, elígelas abajo: se colocan por su GPS.")
                         .font(.footnote).foregroundStyle(Theme.slate400)
                 } else {
-                    Text(modelo.fotos.contains { $0.assetId != nil }
-                         ? (halladas.count == 1 ? "Queda una de esas horas sin añadir." : "Quedan \(halladas.count) de esas horas sin añadir.")
-                         : "Hay \(halladas.count == 1 ? "una foto hecha" : "\(halladas.count) fotos hechas") durante la salida.")
+                    let ya = halladas.count - modelo.halladasNuevas
+                    Text((modelo.fotos.contains { $0.assetId != nil }
+                          ? (halladas.count == 1 ? "Queda una de esas horas sin añadir." : "Quedan \(halladas.count) de esas horas sin añadir.")
+                          : "Hay \(halladas.count == 1 ? "una foto hecha" : "\(halladas.count) fotos hechas") durante la salida.")
+                         + (ya == 0 ? "" : ya == 1 ? " Una ya está en la salida." : " \(ya) ya están en la salida."))
                         .font(.footnote).foregroundStyle(Theme.slate400)
                     // Elegir primero: un día de ruta son fácilmente cien fotos,
                     // y no todas van al mapa.
@@ -660,9 +687,21 @@ private struct ElegirDeLaRuta: View {
 
     private func celda(_ a: PHAsset) -> some View {
         let elegida = modelo.elegidasDeLaRuta.contains(a.localIdentifier)
+        // Ya en la salida: apagada y dicho, pero se puede elegir igual (el
+        // reconocimiento de las hechas en marcha es por cercanía, y puede fallar).
+        let yaEsta = modelo.yaEstan.contains(a.localIdentifier) && !elegida
         return MiniaturaDeAsset(asset: a)
             .frame(minWidth: 0, maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
             .clipped()
+            .opacity(yaEsta ? 0.4 : 1)
+            .overlay {
+                if yaEsta {
+                    Label("Ya está", systemImage: "checkmark")
+                        .font(.caption2.weight(.bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Color.green.opacity(0.85)).clipShape(Capsule())
+                }
+            }
             .overlay(elegida ? Theme.sky500.opacity(0.18) : .clear)
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(elegida ? Theme.sky500 : .clear, lineWidth: 3))
             .overlay(alignment: .topTrailing) {
@@ -689,7 +728,8 @@ private struct ElegirDeLaRuta: View {
                 MiniaturaDeAsset(asset: a, lado: 700).frame(width: 340, height: 340)
             }
             .accessibilityElement()
-            .accessibilityLabel(a.creationDate?.formatted(date: .omitted, time: .shortened) ?? "Foto")
+            .accessibilityLabel((a.creationDate?.formatted(date: .omitted, time: .shortened) ?? "Foto")
+                                + (modelo.yaEstan.contains(a.localIdentifier) ? ", ya está" : ""))
             .accessibilityAddTraits(elegida ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier("hallada")
     }

@@ -60,7 +60,12 @@ object PruebaDePantalla {
             TrailPoint(inicio + i * 60_000.0, 41.77 + 0.02 * kotlin.math.sin(a), 2.43 + 0.03 * (1 - kotlin.math.cos(a)), 5)
         })
         e.subidor = { _, _ -> kotlinx.coroutines.delay(300) }
-        if (sinFotos) return e
+        if (sinFotos) {
+            // Una nota con foto ya subida, con la hora de la primera foto del
+            // carrete de prueba (20 min después de salir): debe salir «Ya está».
+            e.notasConFoto = listOf(inicio + 20 * 60_000 to inicio + 20 * 60_000)
+            return e
+        }
         val colores = listOf(0xFF14B8A6, 0xFFF97316, 0xFF22C55E, 0xFFEC4899, 0xFF6366F1, 0xFFEAB308)
         val minutos = listOf(8.0, 31.0, 55.0, 94.0, null, null)
         colores.forEachIndexed { i, color ->

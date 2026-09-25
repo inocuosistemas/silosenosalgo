@@ -619,6 +619,14 @@ enum API {
         return try JSONDecoder().decode(R.self, from: data).trail ?? []
     }
 
+    /// Las notas de una salida, las del enlace público.
+    static func notasDe(sessionId: String) async throws -> [Note] {
+        struct R: Decodable { let notes: [Note]? }
+        let (data, http) = try await request("api/track/\(sessionId)", method: "GET", token: nil)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(R.self, from: data).notes ?? []
+    }
+
     static func createNote(token: String, sessionId: String, note: Note) async throws {
         var body: [String: Any] = [
             "id": note.id,

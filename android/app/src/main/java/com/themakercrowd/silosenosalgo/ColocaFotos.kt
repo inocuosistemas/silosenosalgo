@@ -110,6 +110,35 @@ object ColocaFotos {
         return null
     }
 
+    /** Cuánto puede pasar entre hacer la foto con la cámara de la app y guardar la nota. */
+    const val VENTANA_DE_NOTA_MS = 3 * 60_000.0
+
+    /**
+     * Cuáles de las fotos de la galería (`fotos`: id y hora) están ya en alguna
+     * nota con foto de la salida (`notas`: su createdAt y su fixAt). Espejo de
+     * `ColocaFotos.yaAnadidas` en iOS:
+     * - EXACTAS: las añadidas desde aquí llevan la hora de la foto (en fixAt, y
+     *   en createdAt si se colocaron por la hora), con un segundo de margen.
+     * - Las hechas EN MARCHA con la cámara de la app: para cada nota que no casó
+     *   exacta, la última foto hecha en los tres minutos antes de guardarla. Una
+     *   por nota como mucho.
+     */
+    fun <K> yaAnadidas(fotos: List<Pair<K, Double>>, notas: List<Pair<Double, Double?>>): Set<K> {
+        val hechas = mutableSetOf<K>()
+        val sinCasar = mutableListOf<Double>()
+        for ((creada, fix) in notas) {
+            val exacta = fotos.firstOrNull { (_, t) ->
+                kotlin.math.abs(t - creada) <= 1000 || (fix != null && kotlin.math.abs(t - fix) <= 1000)
+            }
+            if (exacta != null) hechas.add(exacta.first) else sinCasar.add(creada)
+        }
+        for (guardada in sinCasar) {
+            fotos.filter { (k, t) -> k !in hechas && t <= guardada && t >= guardada - VENTANA_DE_NOTA_MS }
+                .maxByOrNull { it.second }?.let { hechas.add(it.first) }
+        }
+        return hechas
+    }
+
     /** "2026:09:20 10:42:07" con su desfase ("+02:00") si lo trae; sin él, la
      *  zona del móvil. En epoch ms. */
     fun fechaExif(s: String, desfase: String?, zona: TimeZone = TimeZone.getDefault()): Double? {

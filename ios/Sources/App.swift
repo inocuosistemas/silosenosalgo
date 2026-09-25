@@ -400,6 +400,9 @@ enum PruebaDeFotosEnRuta {
         // Con `-SinFotos`, vacía: para probar «Buscar las fotos de la ruta» con
         // las del carrete del simulador.
         if ProcessInfo.processInfo.arguments.contains("-SinFotos") {
+            // Una nota con foto ya subida, con la hora de la primera foto del
+            // carrete de prueba (20 min después de salir): debe salir «Ya está».
+            m.notasConFoto = [(inicio + 20 * 60_000, inicio + 20 * 60_000)]
             m.subidor = { _, _ in try await Task.sleep(for: .milliseconds(300)) }
             return m
         }

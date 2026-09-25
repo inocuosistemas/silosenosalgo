@@ -1209,6 +1209,11 @@ object TrackingStore {
         return api.trazado(id)
     }
 
+    /** Las notas que ya tiene una salida: del servidor (también las de otro
+     *  móvil); sin red, las que guarde este. */
+    suspend fun notasDeSalida(id: String): List<Note> =
+        runCatching { api.notasDe(id) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: almacen.leeNotas(id)
+
     /**
      * Una foto añadida a una salida YA TERMINADA (ver `PantallaFotosEnRuta`):
      * la nota y su foto, directamente al servidor. Si el móvil guarda la
