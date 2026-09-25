@@ -609,6 +609,16 @@ enum API {
     /// client-generated `id`, so a retry after a lost response is idempotent
     /// (the server's INSERT OR IGNORE de-dupes) — a note taken offline can't be
     /// duplicated when the backlog flushes.
+    /// El trazado de una salida, con la hora de cada punto: el del enlace
+    /// público, sin el historial (`h=0`). Vacío si ya caducó.
+    static func trazado(sessionId: String) async throws -> [TrailPoint] {
+        struct R: Decodable { let trail: [TrailPoint]? }
+        let (data, http) = try await request("api/track/\(sessionId)", method: "GET", token: nil,
+                                             consulta: [URLQueryItem(name: "h", value: "0")])
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return try JSONDecoder().decode(R.self, from: data).trail ?? []
+    }
+
     static func createNote(token: String, sessionId: String, note: Note) async throws {
         var body: [String: Any] = [
             "id": note.id,

@@ -119,6 +119,8 @@ struct TrackingView: View {
     @State private var resolvingRoute = false
     /// «Mi cuenta», al tocar la marca de arriba a la derecha.
     @State private var viendoCuenta = false
+    /// «Añadir fotos» a una salida terminada.
+    @State private var fotosDe: TrackSessionSummary?
     /// Cuántas salidas se enseñan sin tener que pedir más.
     private let salidasVisibles = 4
     @State private var verTodasLasSalidas = false
@@ -1608,6 +1610,9 @@ struct TrackingView: View {
         .sheet(isPresented: $viendoCuenta) {
             PantallaMiCuenta().environmentObject(auth)
         }
+        .sheet(item: $fotosDe) { sesion in
+            PantallaFotosEnRuta(modelo: FotosEnRutaModelo(sesion: sesion))
+        }
     }
 
     /// Status header: state (armed / live / stopped), selected route, battery.
@@ -1915,6 +1920,17 @@ struct TrackingView: View {
                     .font(.caption)
                     .foregroundStyle(Theme.sky500)
                     .padding(.top, 2)
+            } else if !purged {
+                // Las fotos se suben al volver, con la salida ya cerrada: a la
+                // vista, que es lo que se viene a hacer aquí después de una ruta.
+                Button { fotosDe = session } label: {
+                    Label("Añadir fotos", systemImage: "photo.badge.plus")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .foregroundStyle(Theme.sky500)
+                .padding(.top, 2)
+                .accessibilityIdentifier("anadirFotos")
             }
         }
     }
@@ -1935,6 +1951,11 @@ struct TrackingView: View {
             if !store.isActive(session) && !purged {
                 Button { store.resumeSession(session.id) } label: {
                     Label("Reanudar", systemImage: "play.circle")
+                }
+            }
+            if !store.isActive(session) && !purged {
+                Button { fotosDe = session } label: {
+                    Label("Añadir fotos", systemImage: "photo.badge.plus")
                 }
             }
             // Una caducada no se puede conservar (sus datos ya no están), así

@@ -2,6 +2,7 @@ package com.themakercrowd.silosenosalgo
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -514,6 +515,16 @@ class Api(
      * de-duplica con INSERT OR IGNORE): una nota tomada sin cobertura no se
      * puede duplicar al vaciar el atasco.
      */
+    /** El trazado de una salida, con la hora de cada punto: el del enlace
+     *  público, sin el historial (`h=0`). Vacío si ya caducó. */
+    suspend fun trazado(sessionId: String): List<TrailPoint> {
+        val (body, status) = request("api/track/$sessionId?h=0", "GET", null)
+        if (!ok(status)) throw decodeError(body, status)
+        val arr = json.parseToJsonElement(body).jsonObject["trail"] ?: return emptyList()
+        return runCatching { json.decodeFromJsonElement(ListSerializer(TrailPoint.serializer()), arr) }
+            .getOrDefault(emptyList())
+    }
+
     suspend fun createNote(token: String, sessionId: String, note: Note) {
         val (body, status) = request(
             "api/track/$sessionId/notes", "POST", token,

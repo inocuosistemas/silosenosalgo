@@ -457,6 +457,67 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("cuenta-6-colores")
     }
 
+    /// Fotos en una salida terminada: la cuadrícula con cómo se colocó cada
+    /// una, el repaso en el mapa, poner a mano la que no tiene sitio, y subir.
+    func testFotosEnUnaSalidaTerminada() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeFotosEnRuta"]
+        app.launch()
+        let alMapa = app.buttons["verEnElMapa"]
+        XCTAssertTrue(alMapa.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["6 fotos · 1 sin sitio (se ponen en el mapa)"].exists)
+        sleep(1)
+        guarda("fotos-1-elegidas")
+
+        alMapa.tap()
+        let subir = app.buttons["subirFotos"]
+        XCTAssertTrue(subir.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 sin sitio: toca en el mapa dónde va, o no se subirá."].exists)
+        sleep(2)
+        guarda("fotos-2-repaso")
+
+        // La que no tiene sitio ya está elegida: se toca el mapa y va ahí.
+        app.maps.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'puesta a mano'")).firstMatch
+            .waitForExistence(timeout: 5), "no se ha colocado a mano")
+        XCTAssertFalse(app.staticTexts["1 sin sitio: toca en el mapa dónde va, o no se subirá."].exists)
+        guarda("fotos-3-a-mano")
+
+        subir.tap()
+        XCTAssertTrue(app.staticTexts["6 fotos añadidas"].waitForExistence(timeout: 15))
+        guarda("fotos-4-hecho")
+    }
+
+    /// «Buscar las fotos de la ruta» con fotos de verdad en el carrete: tres
+    /// hechas durante la salida (una con GPS lejos de donde dice su hora) y una
+    /// de antes, que no debe salir. Las pone quien lanza la prueba
+    /// (`xcrun simctl addmedia`), con el permiso de fotos ya dado.
+    func testBuscarLasFotosDeLaRuta() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-PruebaDeFotosEnRuta", "-SinFotos"]
+        app.launch()
+        let buscar = app.buttons["buscarFotos"]
+        XCTAssertTrue(buscar.waitForExistence(timeout: 20))
+        buscar.tap()
+        // El permiso de la fototeca, la primera vez.
+        let sistema = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for boton in ["Allow Full Access", "Permitir acceso total", "Allow Access to All Photos"] {
+            let b = sistema.buttons[boton]
+            if b.waitForExistence(timeout: 3) { b.tap(); break }
+        }
+        XCTAssertTrue(app.staticTexts["Hay 3 fotos hechas durante la salida."].waitForExistence(timeout: 10),
+                      app.debugDescription)
+        guarda("carrete-1-halladas")
+        app.buttons["anadirHalladas"].tap()
+        XCTAssertTrue(app.staticTexts["3 fotos"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["GPS"].exists, "la del GPS lejos de su hora va por el GPS")
+        guarda("carrete-2-anadidas")
+        app.buttons["verEnElMapa"].tap()
+        XCTAssertTrue(app.buttons["subirFotos"].waitForExistence(timeout: 5))
+        sleep(2)
+        guarda("carrete-3-mapa")
+    }
+
     /// El enlace del widget de la cuenta atrás abre esa sección, no la
     /// pantalla principal.
     func testElWidgetAbreLasCuentasAtras() {

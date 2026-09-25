@@ -193,6 +193,11 @@ private fun App() {
         HojaAnadirNota(onGuardar = { _, _, _, _ -> }, onCerrar = {})
         return
     }
+    if (BuildConfig.DEBUG && PruebaDePantalla.fotos) {
+        val estado = remember { PruebaDePantalla.fotosEnRuta() }
+        PantallaFotosEnRuta(estado, onCerrar = {})
+        return
+    }
     if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
         LaunchedEffect(Unit) { PruebaDePantalla.siembra() }
         PantallaSeguimiento(usuario = "prueba", onSalir = {})
@@ -369,6 +374,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     // «Mi cuenta», al tocar la marca de arriba a la derecha.
     var cuentaAbierta by remember { mutableStateOf(false) }
     var confirmandoSalida by remember { mutableStateOf(false) }
+    // «Añadir fotos» a una salida terminada.
+    var fotosDe by remember { mutableStateOf<FotosEnRutaEstado?>(null) }
     val viajeEstado by ViajeEnDirecto.estado.collectAsState()
     val enDirecto by CarreraConTrazado.estado.collectAsState()
     /** La carrera que se está preparando para mañana (ver `PreparacionDeCarrera`). */
@@ -505,6 +512,16 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         if (hayRed && TrackingStore.cargaDeCarreras.value == TrackingStore.CargaDeCarreras.FALLO) {
             TrackingStore.cargaEventos()
         }
+    }
+
+    // «Añadir fotos» a una salida terminada, a pantalla completa. Al cerrar se
+    // recarga la lista: puede haberse fijado con la chincheta.
+    fotosDe?.let { e ->
+        PantallaFotosEnRuta(e, onCerrar = {
+            fotosDe = null
+            scope.launch { TrackingStore.cargaSesiones() }
+        })
+        return
     }
 
     // «Mi cuenta», a pantalla completa. Salir se sigue preguntando antes, en
@@ -1370,6 +1387,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             onChincheta = { id, fijada -> scope.launch { TrackingStore.fijaSesion(id, fijada) } },
             onRenombrar = { id, titulo -> scope.launch { TrackingStore.renombraSesion(id, titulo) } },
             onBorrar = { id -> scope.launch { TrackingStore.borraSesion(id) } },
+            onAnadirFotos = { sesion -> fotosDe = FotosEnRutaEstado(sesion) },
             )
         }
 

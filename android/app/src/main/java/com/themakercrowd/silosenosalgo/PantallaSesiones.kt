@@ -102,6 +102,7 @@ fun SeccionSesiones(
     onChincheta: (String, Boolean) -> Unit,
     onRenombrar: (String, String?) -> Unit,
     onBorrar: (String) -> Unit,
+    onAnadirFotos: (TrackSessionSummary) -> Unit = {},
 ) {
     if (sesiones.isEmpty()) return
     var renombrando by remember { mutableStateOf<TrackSessionSummary?>(null) }
@@ -154,6 +155,7 @@ fun SeccionSesiones(
             onChincheta = { onChincheta(s.id, !s.isPinned) },
             onRenombrar = { renombrando = s },
             onBorrar = { borrando = s },
+            onAnadirFotos = { onAnadirFotos(s) },
         )
     }
 
@@ -233,8 +235,12 @@ private fun FilaSesion(
     onChincheta: () -> Unit,
     onRenombrar: () -> Unit,
     onBorrar: () -> Unit,
+    onAnadirFotos: () -> Unit,
 ) {
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
+    // Las fotos se suben al volver, con la salida ya cerrada (ver
+    // `PantallaFotosEnRuta`). Una caducada ya no tiene recorrido donde ponerlas.
+    val admiteFotos = !esLaActual && !sesion.isActive && !caducada
     val hayDatosLocales = remember(sesion.id) { TrackingStore.hayDatosLocales(sesion.id) }
     var menuAbierto by remember { mutableStateOf(false) }
 
@@ -301,6 +307,15 @@ private fun FilaSesion(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (admiteFotos) {
+                    // A la vista: es lo que se viene a hacer aquí después de una ruta.
+                    Text(
+                        "📷 Añadir fotos",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Paleta.sky500,
+                        modifier = Modifier.padding(top = 4.dp).clickable(onClick = onAnadirFotos).padding(vertical = 4.dp),
+                    )
+                }
             }
 
             Box {
@@ -323,6 +338,9 @@ private fun FilaSesion(
                     // (que solo existe mientras la ruta no haya caducado).
                     if (hayDatosLocales || !caducada) {
                         Opcion("Ver mapa") { menuAbierto = false; onVerMapa(hayDatosLocales) }
+                    }
+                    if (admiteFotos) {
+                        Opcion("Añadir fotos") { menuAbierto = false; onAnadirFotos() }
                     }
                     Opcion(
                         if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",

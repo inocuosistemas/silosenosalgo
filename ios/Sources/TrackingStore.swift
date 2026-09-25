@@ -1426,7 +1426,7 @@ final class TrackingStore: ObservableObject {
     /// URL-safe random id (mirrors shared `genId`): 16 random bytes as base64url.
     /// Client-generated so the note id passes the server regex and the create is
     /// idempotent across offline retries.
-    private static func genId(_ bytes: Int = 16) -> String {
+    nonisolated static func genId(_ bytes: Int = 16) -> String {
         let raw = Data((0..<bytes).map { _ in UInt8.random(in: 0...255) })
         return raw.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

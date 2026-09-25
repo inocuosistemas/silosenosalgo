@@ -1201,6 +1201,31 @@ object TrackingStore {
     }
 
     /** La chincheta: una sesión fijada se conserva indefinidamente. */
+    /** El trazado de una salida terminada, para ponerle fotos: el del móvil
+     *  si lo guarda (entero), si no el del servidor. */
+    suspend fun trazaDeSalida(id: String): List<TrailPoint> {
+        val local = almacen.leeTraza(id)
+        if (local.size >= 2) return local
+        return api.trazado(id)
+    }
+
+    /**
+     * Una foto añadida a una salida YA TERMINADA (ver `PantallaFotosEnRuta`):
+     * la nota y su foto, directamente al servidor. Si el móvil guarda la
+     * salida, también aquí, para que su mapa sin conexión y la guía la tengan.
+     * El id de la nota es fijo: reintentar no la duplica.
+     */
+    suspend fun subeFotoASalida(sessionId: String, nota: Note, jpeg: ByteArray) {
+        val t = token ?: throw ApiException(401, "unauthorized")
+        api.createNote(t, sessionId, nota)
+        api.uploadNoteMedia(t, sessionId, nota.id, "photo", jpeg, "image/jpeg")
+        if (hayDatosLocales(sessionId)) {
+            val clave = almacen.guardaMedio(sessionId, nota.id, "photo", jpeg)
+            val notas = almacen.leeNotas(sessionId).filter { it.id != nota.id } + nota.copy(photoKey = clave)
+            almacen.guardaNotas(sessionId, notas.sortedByDescending { it.createdAt })
+        }
+    }
+
     suspend fun fijaSesion(id: String, fijada: Boolean) {
         val t = token ?: return
         api.setPinned(t, id, fijada)

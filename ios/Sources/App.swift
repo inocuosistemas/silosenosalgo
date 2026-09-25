@@ -1,6 +1,7 @@
 import SwiftUI
 import ActivityKit
 import UIKit
+import CoreLocation
 import UserNotifications
 
 @main
@@ -40,6 +41,13 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 // La hoja de añadir nota, sin entrar (para probar la foto).
                 Color.black.sheet(isPresented: .constant(true)) { AddNoteView() }
                     .preferredColorScheme(.dark)
+            } else if PruebaDeFotosEnRuta.pedida {
+                // Añadir fotos a una salida terminada, con un recorrido y
+                // unas fotos de muestra; la subida es de mentira.
+                Color.black.sheet(isPresented: .constant(true)) {
+                    PantallaFotosEnRuta(modelo: PruebaDeFotosEnRuta.modelo())
+                }
+                .preferredColorScheme(.dark)
             } else if PruebaDePantallaPrincipal.pedida {
                 // La pantalla principal de verdad, sin entrar: con carreras y
                 // rutas de muestra, para verla en pruebas.
@@ -363,6 +371,50 @@ enum PruebaDeCarreraConTrazado {
     }
 }
 
+
+/// «Añadir fotos» a una salida terminada, sin entrar: `-PruebaDeFotosEnRuta`.
+/// Un recorrido de dos horas en el Montseny y seis fotos: cuatro con la hora de
+/// la salida, una con solo GPS y una sin nada (va a mano).
+enum PruebaDeFotosEnRuta {
+    static var pedida: Bool { ProcessInfo.processInfo.arguments.contains("-PruebaDeFotosEnRuta") }
+
+    @MainActor
+    static func modelo() -> FotosEnRutaModelo {
+        let inicio = (Date().timeIntervalSince1970 - 86_400) * 1000
+        let sesion = TrackSessionSummary(
+            id: "pruebafotos0001", title: "Vuelta al Montseny", planName: nil, status: "ended",
+            startedAt: inicio, expiresAt: inicio + 30 * 86_400_000, updatedAt: nil,
+            endedAt: inicio + 7_200_000, pinned: false, activity: .run, eventId: nil, device: nil)
+        let m = FotosEnRutaModelo(sesion: sesion)
+        // Un bucle: 120 puntos, uno por minuto.
+        let trail = (0...120).map { i -> TrailPoint in
+            let a = Double(i) / 120 * 2 * .pi
+            return TrailPoint(t: inicio + Double(i) * 60_000,
+                              lat: 41.77 + 0.02 * sin(a), lon: 2.43 + 0.03 * (1 - cos(a)), a: 5)
+        }
+        m.ponTrazado(trail)
+        // Con `-SinFotos`, vacía: para probar «Buscar las fotos de la ruta» con
+        // las del carrete del simulador.
+        if ProcessInfo.processInfo.arguments.contains("-SinFotos") {
+            m.subidor = { _, _ in try await Task.sleep(for: .milliseconds(300)) }
+            return m
+        }
+        let colores: [UIColor] = [.systemTeal, .systemOrange, .systemGreen, .systemPink, .systemIndigo, .systemYellow]
+        let minutos: [Double?] = [8, 31, 55, 94, nil, nil]
+        for (i, color) in colores.enumerated() {
+            let img = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 180)).image { c in
+                color.setFill(); c.fill(CGRect(x: 0, y: 0, width: 180, height: 180))
+                ("\(i + 1)" as NSString).draw(at: CGPoint(x: 70, y: 55), withAttributes: [
+                    .font: UIFont.boldSystemFont(ofSize: 60), .foregroundColor: UIColor.white])
+            }
+            let fecha = minutos[i].map { Date(timeIntervalSince1970: (inicio + $0 * 60_000) / 1000) }
+            let gps = i == 4 ? CLLocationCoordinate2D(latitude: 41.757, longitude: 2.475) : nil
+            m.anade(.init(miniatura: img, datos: img.jpegData(compressionQuality: 0.6)!, fecha: fecha, gps: gps, sitio: nil, assetId: nil))
+        }
+        m.subidor = { _, _ in try await Task.sleep(for: .milliseconds(300)) }
+        return m
+    }
+}
 
 /// La pantalla principal sin entrar, con datos de muestra: `-PruebaDePantallaPrincipal`.
 enum PruebaDePantallaPrincipal {
