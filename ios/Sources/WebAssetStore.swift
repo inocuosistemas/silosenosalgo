@@ -26,6 +26,15 @@ final class WebAssetStore {
     /// Raiz de la copia OTA activa, o nil si aun no se ha instalado ninguna.
     private(set) var activeRoot: URL?
 
+    /// Cuántos visores hay abiertos ahora. Con alguno abierto no se cambia la
+    /// copia activa: el visor carga trozos a demanda y se le quedarían a medias
+    /// (ver `WebOTAUpdater`).
+    private var visores = 0
+    private let cerrojoVisores = NSLock()
+    func abreVisor() { cerrojoVisores.lock(); visores += 1; cerrojoVisores.unlock() }
+    func cierraVisor() { cerrojoVisores.lock(); visores = max(0, visores - 1); cerrojoVisores.unlock() }
+    var hayVisorAbierto: Bool { cerrojoVisores.lock(); defer { cerrojoVisores.unlock() }; return visores > 0 }
+
     private init() {
         activeRoot = nil
         activeRoot = elegirActiva()

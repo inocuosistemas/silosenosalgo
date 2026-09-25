@@ -25,6 +25,20 @@ actor WebOTAUpdater {
     private static let requestTimeout: TimeInterval = 20
 
     private var running = false
+    private var ultimaVez: Date?
+    /// Al volver al primer plano, como mucho una vez cada media hora: es un
+    /// manifiesto pequeño, pero en el monte cada petición cuenta.
+    private static let cadaCuanto: TimeInterval = 30 * 60
+
+    /// Al volver la app al primer plano: la app se queda abierta días, y sin
+    /// esto solo se enteraba de un visor nuevo al arrancar de cero. Nunca con
+    /// un visor abierto; si lo hay, a la próxima.
+    @discardableResult
+    func refreshAlVolver() async -> String? {
+        if let u = ultimaVez, Date().timeIntervalSince(u) < Self.cadaCuanto { return nil }
+        if await MainActor.run(body: { WebAssetStore.shared.hayVisorAbierto }) { return nil }
+        return await refresh()
+    }
 
     private struct Manifest: Decodable {
         struct Entry: Decodable { let path: String; let sha256: String; let bytes: Int }
@@ -43,6 +57,7 @@ actor WebOTAUpdater {
         guard !running else { return nil }
         running = true
         defer { running = false }
+        ultimaVez = Date()
 
         do {
             let manifest = try await fetchManifest()
@@ -55,6 +70,13 @@ actor WebOTAUpdater {
             guard manifest.totalBytes <= Self.maxTotalBytes else { return nil }
 
             try await download(manifest)
+            // Si mientras se bajaba se abrió un visor, no se cambia bajo él: se
+            // deja para la próxima vez.
+            if WebAssetStore.shared.hayVisorAbierto {
+                try? FileManager.default.removeItem(at: WebAssetStore.stagingURL)
+                ultimaVez = nil
+                return nil
+            }
             try promote(buildId: manifest.buildId, builtAt: manifest.builtAt)
             await MainActor.run { WebAssetStore.shared.reloadActive() }
             return manifest.buildId

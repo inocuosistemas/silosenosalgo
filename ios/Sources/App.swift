@@ -103,6 +103,9 @@ struct SiLoSeNoSalgoTrackerApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: UIApplication.didBecomeActiveNotification)) { _ in
+                    // Visor web nuevo también al volver, no solo al arrancar
+                    // (ver `WebOTAUpdater.refreshAlVolver`).
+                    Task { await WebOTAUpdater.shared.refreshAlVolver() }
                     ViajeEnDirecto.shared.alVolver()
                     CarreraConTrazado.shared.reanuda()
                 }

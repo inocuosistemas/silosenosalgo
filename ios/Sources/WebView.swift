@@ -69,8 +69,11 @@ struct WebView: UIViewRepresentable {
         }
     }
 
-    /// Retains the scheme handler for the web view's lifetime.
+    /// Retains the scheme handler for the web view's lifetime, and tells the
+    /// web copy that a viewer is open (so it isn't swapped under it).
     final class Coordinator {
         let handler = AppWebSchemeHandler()
+        init() { WebAssetStore.shared.abreVisor() }
+        deinit { WebAssetStore.shared.cierraVisor() }
     }
 }
