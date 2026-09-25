@@ -147,7 +147,22 @@ export interface TrailPoint {
    *  tiempo. Es lo que dibuja el mapa de cobertura del recorrido; ver
    *  `functions/lib/rastro.ts`. */
   r?: number
+  /** Lo que decía el sensor de movimiento del móvil en ese punto, si lo mandó:
+   *  q quieto · w a pie · r corriendo · b bici · v en vehículo. Solo en las
+   *  salidas en «Automático» sin ruta ni evento; es lo que parte el recorrido
+   *  en tramos por transporte (ver `src/lib/tramosDeTransporte.ts`). */
+  m?: MovimientoSensor
 }
+
+export type MovimientoSensor = 'q' | 'w' | 'r' | 'b' | 'v'
+export const MOVIMIENTOS_SENSOR: readonly MovimientoSensor[] = ['q', 'w', 'r', 'b', 'v']
+
+/** Los medios que su dueño puede poner a mano a un tramo (ver `AjusteDeTramo`). */
+export const MODOS_DE_TRAMO = ['pie', 'correr', 'bici', 'coche', 'tren', 'barco', 'avion', 'parado'] as const
+export type ModoDeTramo = (typeof MODOS_DE_TRAMO)[number]
+
+/** Una corrección a mano: «de tal hora a tal hora iba en tren» (epoch ms). */
+export interface AjusteDeTramo { desde: number; hasta: number; modo: ModoDeTramo }
 
 export interface CreateTrackResponse {
   id: string
@@ -380,6 +395,12 @@ export interface TrackStateResponse {
   /** Lo que quien organiza ha cambiado de los puntos del recorrido en el
    *  evento (qué es cada uno, cuánto se para). */
   puntosAjustes?: PuntosAjustes | null
+  /** Las correcciones a mano de los tramos por transporte (salidas en
+   *  «Automático» sin ruta ni evento). */
+  tramosAjustes?: AjusteDeTramo[] | null
+  /** Si quien lo mira es su dueño (solo en las lecturas con historial): es
+   *  quien puede corregir los tramos. */
+  mio?: boolean
 }
 
 /** Response to a broadcaster's ping, so the beacon can surface live presence. */

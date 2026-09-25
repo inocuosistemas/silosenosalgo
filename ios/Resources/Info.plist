@@ -63,6 +63,8 @@
 	<string>SiLoSeNoSalgo usa tu ubicación para compartir tu posición en directo durante la carrera.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SiLoSeNoSalgo usa el micrófono para grabar notas de voz ancladas a tu posición.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Para saber, en las salidas en automático, qué tramos hiciste andando, corriendo, en bici o en vehículo.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Para encontrar las fotos que hiciste durante una salida y ponerlas en su sitio del mapa.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

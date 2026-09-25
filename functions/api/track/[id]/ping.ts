@@ -5,7 +5,8 @@ import { json, csrfOk, readJson } from '../../../lib/http'
 import { getSessionUser } from '../../../lib/session'
 import { countViewers } from '../../../lib/presence'
 import { TOKEN_RE } from '../../../../shared/validate'
-import type { TrailPoint, PingResponse } from '../../../../shared/wireTypes'
+import type { TrailPoint, PingResponse, MovimientoSensor } from '../../../../shared/wireTypes'
+import { MOVIMIENTOS_SENSOR } from '../../../../shared/wireTypes'
 import { puntoDelRastro } from '../../../lib/rastro'
 import { leeCadencia, escribeCadencia } from '../../../../shared/cadencia'
 
@@ -43,11 +44,13 @@ interface InFix {
   lat: number; lon: number
   trackKm?: number | null; speed?: number | null; heading?: number | null
   accuracy?: number | null; altitude?: number | null; fixAt?: number | null
+  /** Lo que decía el sensor de movimiento (ver `TrailPoint.m`). */
+  m?: unknown
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
-interface NormFix { t: number; lat: number; lon: number; trackKm: number | null; speed: number | null; heading: number | null; accuracy: number | null; altitude: number | null }
+interface NormFix { t: number; lat: number; lon: number; trackKm: number | null; speed: number | null; heading: number | null; accuracy: number | null; altitude: number | null; m: MovimientoSensor | null }
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, waitUntil }) => {
   if (!csrfOk(request)) return json({ error: 'forbidden' }, 403)
@@ -123,6 +126,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params, 
     incoming.push({
       t, lat, lon, trackKm: num(f.trackKm), speed: num(f.speed), heading: num(f.heading),
       accuracy: num(f.accuracy), altitude: num(f.altitude),
+      m: typeof f.m === 'string' && (MOVIMIENTOS_SENSOR as readonly string[]).includes(f.m) ? f.m as MovimientoSensor : null,
     })
   }
   if (incoming.length === 0) return json({ error: 'invalid_coords' }, 400)

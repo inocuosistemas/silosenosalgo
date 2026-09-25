@@ -1,4 +1,4 @@
-import type { TrailPoint } from '../../shared/wireTypes'
+import type { TrailPoint, MovimientoSensor } from '../../shared/wireTypes'
 
 /**
  * Cuánto retraso entre grabar un punto y recibirlo delata que el móvil no tenía
@@ -25,11 +25,12 @@ export const LLEGADA_TARDIA_MS = 60_000
  * pasa lo dibuja para los de detrás.
  */
 export function puntoDelRastro(
-  f: { t: number; lat: number; lon: number; accuracy: number | null },
+  f: { t: number; lat: number; lon: number; accuracy: number | null; m?: MovimientoSensor | null },
   recibidoMs: number,
 ): TrailPoint {
   const p: TrailPoint = { t: f.t, lat: f.lat, lon: f.lon }
   if (f.accuracy != null) p.a = Math.round(f.accuracy)
+  if (f.m) p.m = f.m
   if (recibidoMs - f.t >= LLEGADA_TARDIA_MS) p.r = recibidoMs
   return p
 }

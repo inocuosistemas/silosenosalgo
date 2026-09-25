@@ -40,6 +40,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    <!-- A pie, en bici o en vehículo, para partir en tramos las salidas en
+         «Automático» (ver SensorDeMovimiento). -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -69,6 +72,9 @@
              desde Android 14 y tiene que coincidir con el permiso declarado
              arriba, o el sistema rechaza el arranque. -->
         <!-- La cuenta atrás en la pantalla de inicio. -->
+        <receiver
+            android:name=".SensorDeMovimiento$Receptor"
+            android:exported="false" />
         <receiver
             android:name=".WidgetCuentaAtras"
             android:exported="false">

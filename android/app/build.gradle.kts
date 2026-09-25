@@ -217,6 +217,9 @@ dependencies {
     // Las fotos de las notas llegan con la rotación en el EXIF, no aplicada:
     // sin leerlo se suben tumbadas las tomadas en vertical.
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // Reconocimiento de actividad (a pie, en vehículo…), para los tramos por
+    // medio de transporte. Sin los servicios de Google en el móvil, no se usa.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

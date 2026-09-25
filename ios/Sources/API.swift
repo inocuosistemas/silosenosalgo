@@ -168,6 +168,9 @@ struct Fix: Codable {
     var accuracy: Double?
     var altitude: Double?
     var fixAt: Double? // epoch ms
+    /// Lo que decía el sensor de movimiento (ver `SensorDeMovimiento`); solo en
+    /// las salidas en «Automático» sin ruta ni evento.
+    var m: String? = nil
 }
 
 /// One breadcrumb of the retained local trail, mirroring the server's `TrailPoint`
@@ -179,6 +182,8 @@ struct TrailPoint: Codable {
     var lat: Double
     var lon: Double
     var a: Int?
+    /// El sensor de movimiento en ese punto (ver `Fix.m`).
+    var m: String? = nil
 }
 
 /// A field note anchored to a GPS fix (mirrors shared `TrackNote`). Codable both
@@ -563,6 +568,7 @@ enum API {
         if let v = fix.accuracy { body["accuracy"] = v }
         if let v = fix.altitude { body["altitude"] = v }
         if let v = fix.fixAt { body["fixAt"] = v }
+        if let v = fix.m { body["m"] = v }
         let (data, http) = try await request("api/track/\(id)/ping", method: "POST", token: token, body: body)
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
@@ -581,6 +587,7 @@ enum API {
             if let v = f.accuracy { d["accuracy"] = v }
             if let v = f.altitude { d["altitude"] = v }
             if let v = f.fixAt { d["fixAt"] = v }
+            if let v = f.m { d["m"] = v }
             return d
         }
         var body: [String: Any] = ["fixes": arr, "appVersion": appVersion]

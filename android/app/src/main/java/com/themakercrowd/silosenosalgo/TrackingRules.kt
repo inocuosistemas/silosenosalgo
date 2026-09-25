@@ -859,6 +859,7 @@ object TrackingRules {
         lat = fix.lat,
         lon = fix.lon,
         a = fix.accuracy?.roundToInt(),
+        m = fix.m,
     )
 
     /**

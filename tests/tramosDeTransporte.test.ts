@@ -1,0 +1,133 @@
+import { describe, expect, it } from 'vitest'
+import type { TrailPoint } from '../shared/wireTypes'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, totalesPorModo, type Entorno } from '../src/lib/tramosDeTransporte'
+
+/** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
+function traza(trozos: [number, number, TrailPoint['m']?][]): TrailPoint[] {
+  const out: TrailPoint[] = [{ t: 0, lat: 40, lon: 0 }]
+  for (const [min, kmh, m] of trozos) {
+    for (let k = 0; k < min * 2; k++) {
+      const u = out[out.length - 1]
+      const p: TrailPoint = { t: u.t + 30_000, lat: u.lat + (kmh * (30 / 3600)) / 111.2, lon: 0, a: 5 }
+      if (m) p.m = m
+      out.push(p)
+    }
+  }
+  return out
+}
+const modos = (ts: Tramo[]) => ts.map((t) => t.modo)
+
+describe('tramos de transporte', () => {
+  it('con sensor: andando, coche (con un semáforo) y andando', () => {
+    const ts = tramosDeTransporte(traza([[10, 5, 'w'], [15, 60, 'v'], [1, 0, 'v'], [15, 60, 'v'], [6, 5, 'w']]))
+    expect(modos(ts)).toEqual(['pie', 'vehiculo', 'pie'])
+    expect(ts[1].km).toBeCloseTo(30, 0)
+  })
+
+  it('sin sensor, por la velocidad de cada tramo entero', () => {
+    expect(modos(tramosDeTransporte(traza([[10, 5], [30, 70], [8, 11]])))).toEqual(['pie', 'vehiculo', 'correr'])
+  })
+
+  it('un titubeo de un minuto no es un cambio de medio', () => {
+    expect(modos(tramosDeTransporte(traza([[10, 5, 'w'], [1, 30, 'v'], [10, 5, 'w']])))).toEqual(['pie'])
+  })
+
+  it('una parada larga se queda; una corta, no', () => {
+    expect(modos(tramosDeTransporte(traza([[10, 5, 'w'], [12, 0, 'q'], [10, 5, 'w']])))).toEqual(['pie', 'parado', 'pie'])
+    expect(modos(tramosDeTransporte(traza([[10, 5, 'w'], [3, 0, 'q'], [10, 5, 'w']])))).toEqual(['pie'])
+  })
+
+  it('a más de 250 km/h es avión, diga lo que diga el sensor', () => {
+    expect(modos(tramosDeTransporte(traza([[10, 5, 'w'], [60, 780, 'v'], [10, 5, 'w']])))).toEqual(['pie', 'avion', 'pie'])
+  })
+
+  it('el sensor distingue la bici de un coche lento', () => {
+    expect(modos(tramosDeTransporte(traza([[20, 22, 'b'], [20, 22, 'v']])))).toEqual(['bici', 'vehiculo'])
+  })
+
+  // El trazado va hacia el norte desde 40°: el mapa de mentira dice qué hay
+  // por latitud (1 km ≈ 0,009°).
+  const mapa = (zonas: [number, number, Partial<Entorno>][]) => (lat: number): Entorno => {
+    const z = zonas.find(([a, b]) => lat >= a && lat < b)
+    return { agua: false, via: false, ferry: false, ...(z?.[2] ?? {}) }
+  }
+  const km = (k: number) => 40 + k / 111.2
+
+  it('el mapa decide coche, tren o barco, y un puente no es un barco', () => {
+    // 10 min andando (0,8 km), 12 km en barco, 10 min andando, 15 km en coche con un puente de 1 km.
+    const tr = traza([[10, 5, 'w'], [18, 40, 'v'], [10, 5, 'w'], [15, 60, 'v']])
+    const ts = tramosDeTransporte(tr)
+    expect(modos(ts)).toEqual(['pie', 'vehiculo', 'pie', 'vehiculo'])
+    const m = mapa([[km(1.2), km(12.5), { agua: true }], [km(20), km(21), { agua: true }]])
+    expect(modos(refinaVehiculos(tr, ts, (lat) => m(lat)))).toEqual(['pie', 'barco', 'pie', 'coche'])
+  })
+
+  it('del tren al coche sin bajarse a andar: el mapa lo parte', () => {
+    // 20 min en vehículo: 10 km por la vía y 10 por carretera.
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
+    const ts = tramosDeTransporte(tr)
+    const m = mapa([[km(0.5), km(11), { via: true }]])
+    const r = refinaVehiculos(tr, ts, (lat) => m(lat))
+    expect(modos(r)).toEqual(['pie', 'tren', 'coche', 'pie'])
+    expect(r[1].km).toBeGreaterThan(8)
+    expect(r[2].km).toBeGreaterThan(8)
+    // Continuos: cada uno empieza donde acaba el anterior.
+    for (let k = 1; k < r.length; k++) expect(r[k].i0).toBe(r[k - 1].i1)
+  })
+
+  it('por la vía y sobre el agua a la vez es tren (un puente, o el Marmaray bajo el Bósforo)', () => {
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
+    const m = mapa([[km(0.5), km(21), { via: true }], [km(5), km(10), { agua: true, via: true }]])
+    expect(modos(refinaVehiculos(tr, tramosDeTransporte(tr), (lat) => m(lat)))).toEqual(['pie', 'tren', 'pie'])
+  })
+
+  it('sin el mapa de algún punto, se queda «en vehículo»', () => {
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v']])
+    expect(modos(refinaVehiculos(tr, tramosDeTransporte(tr), () => undefined))).toEqual(['pie', 'vehiculo'])
+  })
+
+  it('las correcciones a mano mandan, y juntan lo que queda igual', () => {
+    const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w'], [20, 60, 'v']])
+    const ts = refinaVehiculos(tr, tramosDeTransporte(tr), () => ({ agua: false, via: false, ferry: false }))
+    expect(modos(ts)).toEqual(['pie', 'coche', 'pie', 'coche'])
+    // El primer coche era un tren.
+    let aj = corrige([], ts[1], 'tren')
+    expect(modos(aplicaAjustes(tr, ts, aj))).toEqual(['pie', 'tren', 'pie', 'coche'])
+    expect(aplicaAjustes(tr, ts, aj)[1].corregido).toBe(true)
+    // El paseo de en medio era también tren (no se bajó): un solo tren.
+    aj = corrige(aj, ts[2], 'tren')
+    const r = aplicaAjustes(tr, ts, aj)
+    expect(modos(r)).toEqual(['pie', 'tren', 'coche'])
+    expect(r[1].i0).toBe(ts[1].i0)
+    expect(r[1].i1).toBe(ts[2].i1)
+    // Volver a lo detectado.
+    aj = corrige(aj, ts[1], null)
+    expect(modos(aplicaAjustes(tr, ts, aj))).toEqual(['pie', 'coche', 'tren', 'coche'])
+  })
+
+  it('las muestras del mapa se reparten por distancia', () => {
+    const tr = traza([[10, 5, 'w'], [30, 60, 'v']])
+    const ts = tramosDeTransporte(tr)
+    const m = muestrasDe(tr, ts[1])
+    expect(m.length).toBeGreaterThan(50)   // 30 km, una cada 300 m
+    expect(m.length).toBeLessThanOrEqual(121)
+  })
+
+  it('los totales por medio suman los tramos del mismo, del que más al que menos', () => {
+    const tr = traza([[10, 5, 'w'], [30, 60, 'v'], [20, 5, 'w'], [12, 0, 'q'], [15, 60, 'v']])
+    const ts = refinaVehiculos(tr, tramosDeTransporte(tr), () => ({ agua: false, via: false, ferry: false }))
+    expect(modos(ts)).toEqual(['pie', 'coche', 'pie', 'parado', 'coche'])
+    const tot = totalesPorModo(ts)
+    expect(tot.map((x) => x.modo)).toEqual(['coche', 'pie', 'parado'])
+    expect(tot[0].km).toBeCloseTo(45, 0)
+    expect(tot[0].tramos).toBe(2)
+    expect(tot[1].ms).toBe(30 * 60_000)
+  })
+
+  it('el resumen de un tramo', () => {
+    const [t] = tramosDeTransporte(traza([[45, 4.3, 'w']]))
+    expect(resumenDeTramo(t)).toBe('🚶 3,2 km · 45 min')
+    const [c] = tramosDeTransporte(traza([[80, 90, 'v']]))
+    expect(resumenDeTramo({ ...c, modo: 'tren' })).toBe('🚆 120 km · 1 h 20')
+  })
+})

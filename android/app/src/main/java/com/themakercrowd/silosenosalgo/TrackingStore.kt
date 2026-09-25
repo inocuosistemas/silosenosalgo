@@ -551,6 +551,7 @@ object TrackingStore {
         val id = _estado.value.sessionId
         val t = token
         motor.para()
+        appCtx?.let { SensorDeMovimiento.apaga(it) }
         if (id != null && t != null && !_estado.value.pendienteDeAlta) {
             if (pendientes.isNotEmpty()) {
                 runCatching { api.pingBatch(t, id, pendientes) }
@@ -1719,8 +1720,25 @@ object TrackingStore {
         return fix.copy(trackKm = km)
     }
 
+    /** Salida en «Automático» sin ruta ni evento: la que se parte en tramos por
+     *  medio de transporte, y la única que lleva el sensor de movimiento. Con
+     *  ruta o evento manda lo que se eligió. */
+    private val modoInteligente: Boolean
+        get() = _estado.value.let { it.actividad == null && it.planId == null && it.eventoId == null }
+
     /** Registra en local (y persiste) antes de intentar subir nada. */
-    private fun registra(fix: Fix) {
+    private fun registra(fix0: Fix) {
+        // El sensor, en cuanto hay posiciones de una salida inteligente (y fuera
+        // si se le pone actividad a mano a media salida).
+        val fix = appCtx?.let { ctx ->
+            if (modoInteligente) {
+                SensorDeMovimiento.enciende(ctx)
+                fix0.copy(m = SensorDeMovimiento.actual)
+            } else {
+                SensorDeMovimiento.apaga(ctx)
+                fix0
+            }
+        } ?: fix0
         ultimoIntentoMs = ahoraMs
         val id = _estado.value.sessionId ?: return
         // Escribir en disco y subir vienen justo detrás: que el móvil no se

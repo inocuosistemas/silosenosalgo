@@ -1177,6 +1177,7 @@ final class TrackingStore: ObservableObject {
     }
 
     func stopSharing() async {
+        SensorDeMovimiento.shared.apaga()
         // Se acabó: los avisos de una salida que ya no va a ocurrir sobran.
         AvisosDeCarrera.borra()
         // Y la tarjeta del tramo, fuera de la pantalla de bloqueo.
@@ -1290,6 +1291,9 @@ final class TrackingStore: ObservableObject {
     private func ingest(_ loc: CLLocation) {
         let accuracy = loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : nil
         guard TrackingRules.acceptableAccuracy(accuracy, hasAny: !trail.isEmpty) else { return }
+        // El sensor, en cuanto hay posiciones de una salida inteligente (y fuera
+        // si se le pone actividad a mano a media salida).
+        if modoInteligente { SensorDeMovimiento.shared.enciende() } else { SensorDeMovimiento.shared.apaga() }
         let fix = makeFix(from: loc)
         if TrackingRules.isRepeated(previous: lastRecordedFix, new: fix) { return }
         if TrackingRules.impossibleJump(previous: lastRecordedFix, new: fix,
@@ -1342,9 +1346,15 @@ final class TrackingStore: ObservableObject {
             heading: loc.course >= 0 ? loc.course : nil,
             accuracy: loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : nil,
             altitude: loc.verticalAccuracy >= 0 ? loc.altitude : nil,
-            fixAt: loc.timestamp.timeIntervalSince1970 * 1000
+            fixAt: loc.timestamp.timeIntervalSince1970 * 1000,
+            m: modoInteligente ? SensorDeMovimiento.shared.actual : nil
         )
     }
+
+    /// Salida en «Automático» sin ruta ni evento: la que se parte en tramos por
+    /// medio de transporte, y la única que lleva el sensor de movimiento. Con
+    /// ruta o evento manda lo que se eligió.
+    var modoInteligente: Bool { activity == nil && selectedPlanId == nil && selectedEventId == nil }
 
     /// Queue a (already quality-gated) fix: recorded locally first; the upload
     /// is a separate, retried step so nothing is lost without coverage.
@@ -1363,7 +1373,8 @@ final class TrackingStore: ObservableObject {
         trail.append(TrailPoint(
             t: fix.fixAt ?? Date().timeIntervalSince1970 * 1000,
             lat: fix.lat, lon: fix.lon,
-            a: fix.accuracy.map { Int($0.rounded()) }
+            a: fix.accuracy.map { Int($0.rounded()) },
+            m: fix.m
         ))
         downsampleTrail()
         persistTrail()

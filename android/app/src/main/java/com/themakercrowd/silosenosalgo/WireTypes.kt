@@ -168,6 +168,9 @@ data class Fix(
     val accuracy: Double? = null,
     val altitude: Double? = null,
     val fixAt: Double? = null,
+    /** Lo que decía el sensor de movimiento (ver `SensorDeMovimiento`); solo en
+     *  las salidas en «Automático» sin ruta ni evento. */
+    val m: String? = null,
 )
 
 /** Una miga de pan de la traza local retenida (espejo de `TrailPoint`): `t` es
@@ -178,6 +181,8 @@ data class TrailPoint(
     val lat: Double,
     val lon: Double,
     val a: Int? = null,
+    /** El sensor de movimiento en ese punto (ver `Fix.m`). */
+    val m: String? = null,
 )
 
 /** Una nota de campo anclada a una posición (espejo de `TrackNote`). Las claves

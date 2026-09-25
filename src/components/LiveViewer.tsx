@@ -4,7 +4,7 @@ import { CargandoMarca } from './CargandoMarca'
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
 import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag } from 'lucide-react'
-import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge } from 'lucide-react'
+import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge, Route } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -30,6 +30,8 @@ import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
 import { inferActivity } from '../lib/activityInference'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, totalesPorModo, kmYTiempo, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
+import { cargaEntornos, entornoSiEsta } from '../lib/entornoDelMapa'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
 import { fetchPoiWeather, weatherAt, type PoiHourly } from '../lib/poiWeather'
@@ -1232,19 +1234,82 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   )
   const effectiveActivity: BeaconActivity | null = declaredActivity ?? inferredActivity
   const activityIsAuto = declaredActivity == null
+  // Una salida en «Automático» SIN ruta ni evento se parte en tramos por medio
+  // de transporte (a pie, coche, tren, barco…; ver `lib/tramosDeTransporte`).
+  // Con ruta o evento manda lo que se eligió: allí la actividad es una.
+  const modoInteligente = activityIsAuto && !state?.planShareId && !state?.marca
 
   // Everything downstream (segments, distance, km anchor, stats) runs on the
   // smoothed trail when smoothing is on, so both the drawn line and the numbers
   // stop being distorted by bad-signal spikes. The activity's realistic max speed
   // tightens the teleport filter so an impossible jump FOR THAT ACTIVITY is cut.
   const sanitized = useMemo(
-    () => sanitizeTrail(rawTrail, effectiveActivity ? ACTIVITY_MAX_SPEED_KMH[effectiveActivity] : undefined),
-    [rawTrail, effectiveActivity],
+    // Por tramos, el tope de una actividad no vale: el tramo en tren iría
+    // «demasiado rápido» para quien empezó andando.
+    () => sanitizeTrail(rawTrail, effectiveActivity && !modoInteligente ? ACTIVITY_MAX_SPEED_KMH[effectiveActivity] : undefined),
+    [rawTrail, effectiveActivity, modoInteligente],
   )
   const trail = smooth ? sanitized.points : rawTrail
   // Points hidden as impossible-speed excursions (only meaningful while smoothing).
   const hiddenForSpeed = smooth ? sanitized.droppedForSpeed : 0
   const hasAccuracyData = useMemo(() => trail.some((p) => p.a != null), [trail])
+
+  // ── Tramos por medio de transporte (solo en modo inteligente) ─────────────
+  // Primero con el sensor y la velocidad; los tramos «en vehículo» esperan al
+  // mapa (coche, tren o barco), que llega aparte y se queda en memoria.
+  const tramosBase = useMemo(() => (modoInteligente ? tramosDeTransporte(trail) : []), [modoInteligente, trail])
+  const [versionMapa, setVersionMapa] = useState(0)
+  useEffect(() => {
+    const enVehiculo = tramosBase.filter((t) => t.modo === 'vehiculo')
+    if (enVehiculo.length === 0) return
+    let vivo = true
+    void cargaEntornos(enVehiculo.flatMap((t) => muestrasDe(trail, t)))
+      .then((nuevo) => { if (vivo && nuevo) setVersionMapa((v) => v + 1) })
+    return () => { vivo = false }
+  }, [tramosBase, trail])
+  // `versionMapa`: el mapa llega aparte (ver el efecto de arriba) y hay que
+  // volver a mirar cuando llega.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tramosDetectados = useMemo(() => refinaVehiculos(trail, tramosBase, entornoSiEsta), [tramosBase, trail, versionMapa])
+  // Las correcciones a mano de su dueño: las del servidor, o las recién
+  // puestas aquí mientras se guardan.
+  const [ajustesLocales, setAjustesLocales] = useState<AjusteDeTramo[] | null>(null)
+  const ajustes = useMemo(
+    () => ajustesLocales ?? (state?.tramosAjustes ?? []) as AjusteDeTramo[],
+    [ajustesLocales, state?.tramosAjustes],
+  )
+  const tramos = useMemo(() => aplicaAjustes(trail, tramosDetectados, ajustes), [trail, tramosDetectados, ajustes])
+  // Si quien mira es su dueño: solo viene en las lecturas con historial, así
+  // que se recuerda entre una y otra.
+  const [esMio, setEsMio] = useState(false)
+  useEffect(() => { if (state?.mio !== undefined) setEsMio(state.mio) }, [state?.mio])
+  const [tramoEditado, setTramoEditado] = useState<number | null>(null)
+  const [errorTramos, setErrorTramos] = useState<string | null>(null)
+  const corrigeTramo = async (t: Tramo, modo: Modo | null) => {
+    const antes = ajustes
+    const nuevos = corrige(ajustes, t, modo)
+    setAjustesLocales(nuevos)
+    setTramoEditado(null)
+    setErrorTramos(null)
+    try {
+      const res = await fetch(`/api/track/${encodeURIComponent(token ?? '')}/tramos`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ajustes: nuevos }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+    } catch {
+      setAjustesLocales(antes)
+      setErrorTramos('No se ha podido guardar. Comprueba la conexión.')
+    }
+  }
+  /** Más de un medio: entonces el trazado se colorea por tramo, no por precisión. */
+  const porTramos = useMemo(
+    () => new Set(tramos.filter((t) => t.modo !== 'parado').map((t) => t.modo)).size >= 2,
+    [tramos],
+  )
+  /** El medio de ahora: el del último tramo en movimiento. */
+  const modoActual: Modo | null = [...tramos].reverse().find((t) => t.modo !== 'parado')?.modo ?? null
 
   // Map-match every trail point onto the planned route, temporally (seeded at the
   // start, each step constrained to a plausibility window) so the out-and-back
@@ -1326,13 +1391,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       onRoute(i) && planPts ? [planPts[trailSnaps![i].idx].lat, planPts[trailSnaps![i].idx].lon]
                             : [trail[i].lat, trail[i].lon]
 
+    // Por tramos: cada segmento, del color de su medio de transporte.
+    const colorDeTramo: string[] = []
+    if (porTramos) for (const t of tramos) for (let k = t.i0 + 1; k <= t.i1; k++) colorDeTramo[k] = MODOS[t.modo].color
     const runs: { color: string; positions: [number, number][] }[] = []
     let cur: { color: string; positions: [number, number][] } | null = null
     let prev = posAt(0)
     for (let i = 1; i < trail.length; i++) {
       const a = trail[i - 1].a, b = trail[i].a
       const acc = a == null ? (b ?? null) : b == null ? a : Math.max(a, b)
-      const color = accuracyToColor(acc)
+      const color = colorDeTramo[i] ?? accuracyToColor(acc)
       // Intermediate route vertices when both ends are on-route, unless the route
       // slice is an implausible jump vs the chord (turn-around / bad match).
       let mids: [number, number][] = []
@@ -1355,7 +1423,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       prev = posAt(i)
     }
     return runs
-  }, [trail, plan, planPts, trailSnaps])
+  }, [trail, plan, planPts, trailSnaps, porTramos, tramos])
   // ── Paradas ────────────────────────────────────────────────────────────────
   // Donde alguien se quedo quieto un buen rato. Es la pregunta que se hace quien
   // espera --"por que lleva ahi parado?"-- y sin marcarla en el mapa hay que
@@ -1872,13 +1940,18 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // How to render a speed for the follower: pace (min/km) for walk/run, else
   // km/h (bike, transport, or unknown activity → generic). A pace only reads
   // right while actually moving, so a near-zero speed shows "—".
-  const showPace = effectiveActivity != null && !usesSpeedUnit(effectiveActivity)
-  const speedUnitLabel = showPace ? paceUnitLabel(effectiveActivity ?? undefined) : 'km/h'
+  // Por tramos, la unidad es la del medio de ahora: ritmo andando, km/h en el tren.
+  const actividadMostrada: BeaconActivity | null = modoActual
+    ? (modoActual === 'pie' ? 'walk' : modoActual === 'correr' ? 'run' : modoActual === 'bici' ? 'bike' : 'transport')
+    : effectiveActivity
+  const showPace = actividadMostrada != null && !usesSpeedUnit(actividadMostrada)
+  const speedUnitLabel = showPace ? paceUnitLabel(actividadMostrada ?? undefined) : 'km/h'
+  const fmtKmh = (kmh: number | null): string => (kmh == null || !Number.isFinite(kmh) ? '—' : `${kmh.toFixed(1)} km/h`)
   const fmtSpeed = (kmh: number | null): string => {
     if (kmh == null || !Number.isFinite(kmh)) return '—'
     if (!showPace) return `${kmh.toFixed(1)} km/h`
     if (kmh < 0.5) return '—'
-    return formatPace(60 / kmh, effectiveActivity ?? undefined)
+    return formatPace(60 / kmh, actividadMostrada ?? undefined)
   }
 
   const totalKm = plan?.track.totalDistanceKm ?? 0
@@ -2442,7 +2515,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           demo · {new Date(refNow).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
         </span>
       )}
-      {effectiveActivity && (
+      {modoActual ? (
+        <span
+          title={`${MODOS[modoActual].nombre} · detectado automáticamente`}
+          className="shrink-0 inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5"
+        >
+          <span aria-hidden="true" className="text-sm leading-none">{MODOS[modoActual].emoji}</span>
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">auto</span>
+          <span className="sr-only">{MODOS[modoActual].nombre}</span>
+        </span>
+      ) : effectiveActivity && (
         <span
           title={`${ACTIVITY_LABEL[effectiveActivity].label}${activityIsAuto ? ' · detectado automáticamente' : ''}`}
           className="shrink-0 inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5"
@@ -3854,10 +3936,88 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       </div>
                     </div>
                   )}
+                  {modoInteligente && tramos.some((t) => t.modo !== 'parado') && (
+                    <div>
+                      <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
+                        <Route size={12} />Tramos{tramos.some((t) => t.corregido) ? '' : ' · detectados'}
+                      </p>
+                      {/* Los totales por medio primero: es lo que se viene a mirar
+                          («¿cuánto anduve?, ¿cuánto en barco?»); la lista de
+                          tramos, debajo, para ver el orden y corregir. */}
+                      {porTramos && (
+                        <div className="mb-2 grid grid-cols-2 gap-1.5">
+                          {totalesPorModo(tramos).map((x) => (
+                            <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
+                              <p className="flex items-center gap-1 text-[10px] text-slate-400">
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
+                                {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
+                                {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
+                              </p>
+                              <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <ul className="space-y-0.5">
+                        {tramos.map((t, k) => (
+                          <li key={`${t.i0}-${t.modo}`}>
+                            {/* Su dueño lo toca y le cambia el medio: lo detectado se equivoca
+                                (una autovía pegada a la vía, un tramo sin sensor). */}
+                            <button
+                              type="button"
+                              disabled={!esMio}
+                              onClick={() => setTramoEditado(tramoEditado === k ? null : k)}
+                              aria-expanded={esMio ? tramoEditado === k : undefined}
+                              className={`flex w-full items-center gap-2 rounded-md text-left text-xs text-slate-200 ${esMio ? 'px-1 py-0.5 hover:bg-slate-800' : ''} ${tramoEditado === k ? 'bg-slate-800' : ''}`}
+                            >
+                              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
+                              <span className="min-w-0 flex-1 truncate">
+                                {resumenDeTramo(t)}
+                                {t.corregido && <span className="ml-1 text-[10px] text-slate-400" title="Corregido a mano">✎</span>}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
+                                {formatTime(new Date(t.desde))}–{formatTime(new Date(t.hasta))}
+                              </span>
+                            </button>
+                            {tramoEditado === k && (
+                              <div className="mt-1 mb-1.5 flex flex-wrap gap-1 pl-4">
+                                {MODOS_A_MANO.map((m) => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => void corrigeTramo(t, m)}
+                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${m === t.modo ? 'border-sky-500 bg-sky-900/50 text-sky-200' : 'border-slate-600 text-slate-200 hover:border-slate-400'}`}
+                                  >
+                                    {MODOS[m].emoji} {MODOS[m].nombre}
+                                  </button>
+                                ))}
+                                {t.corregido && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void corrigeTramo(t, null)}
+                                    className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-400 hover:border-slate-400"
+                                  >
+                                    ↺ Lo detectado
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {esMio && tramoEditado === null && (
+                        <p className="mt-1 text-[10px] text-slate-500">Toca un tramo para cambiar el medio si no es el que era.</p>
+                      )}
+                      {errorTramos && <p className="mt-1 text-[10px] text-red-400">{errorTramos}</p>}
+                    </div>
+                  )}
                   <MetricSection icon={<Gauge size={12} />} title={showPace ? `Ritmo · ${speedUnitLabel}` : 'Velocidad'} cols={3}>
                     <Stat label="Actual" value={fmtSpeed(speedKmh)} />
-                    <Stat label="Media total" value={fmtSpeed(avgSpeedKmh)} />
-                    <Stat label="Media en mov." value={fmtSpeed(movingAvgKmh)} />
+                    {/* Con varios medios, la media de toda la salida mezcla andar y
+                        tren: en km/h, que es lo único que se lee; el ritmo, solo en
+                        «Actual» y si ahora se va a pie. */}
+                    <Stat label="Media total" value={porTramos ? fmtKmh(avgSpeedKmh) : fmtSpeed(avgSpeedKmh)} />
+                    <Stat label="Media en mov." value={porTramos ? fmtKmh(movingAvgKmh) : fmtSpeed(movingAvgKmh)} />
                   </MetricSection>
                   {/* Solo en directo. Los tres valores describen la ÚLTIMA lectura
                       y los últimos treinta puntos, así que sirven para decidir si
@@ -4176,10 +4336,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onClick={() => cambiaPastilla(!pastillaAbierta)}
           aria-expanded={pastillaAbierta}
           aria-label={pastillaAbierta ? 'Ocultar la leyenda' : 'Ver la leyenda y el radar'}
-          className={`${pastillaAbierta && (hasAccuracyData || heatLegendItems || radar) ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
+          className={`${pastillaAbierta && (hasAccuracyData || heatLegendItems || radar || porTramos) ? 'rounded-2xl' : 'rounded-full'} max-w-[calc(100vw-1.5rem)] bg-slate-900/85 backdrop-blur border border-slate-700 shadow-lg px-3.5 py-1.5 text-xs text-slate-300 pointer-events-auto text-center`}>
           <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
             {statusLine}
-            {!pastillaAbierta && (hasAccuracyData || heatLegendItems || radar) && (
+            {!pastillaAbierta && (hasAccuracyData || heatLegendItems || radar || porTramos) && (
               <span className="text-[10px] text-slate-500" aria-hidden="true">▴</span>
             )}
           </div>
@@ -4203,6 +4363,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <span key={b.color} className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.color }} />
                   {fmtSpeed(b.speedKmh)}
+                </span>
+              ))}
+            </div>
+          ) : porTramos ? (
+            <div className="mt-1 pt-1 border-t border-slate-700/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+              <span className="uppercase tracking-wide text-slate-400">Tramos</span>
+              {[...new Set(tramos.map((t) => t.modo))].filter((m) => m !== 'parado').map((m) => (
+                <span key={m} className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[m].color }} />
+                  {MODOS[m].emoji} {MODOS[m].nombre.toLowerCase()}
                 </span>
               ))}
             </div>

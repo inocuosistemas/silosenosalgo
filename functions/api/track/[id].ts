@@ -6,7 +6,7 @@ import { getSessionUser } from '../../lib/session'
 import { recordViewer, countViewers } from '../../lib/presence'
 import { leeStats } from '../../lib/eventStats'
 import { TOKEN_RE, isBeaconActivity } from '../../../shared/validate'
-import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote, TrackCheer } from '../../../shared/wireTypes'
+import type { TrackStateResponse, TrackFix, TrailPoint, TrackNote, TrackCheer, AjusteDeTramo } from '../../../shared/wireTypes'
 
 /**
  * GET /api/track/:id — public, no auth. Returns the last known fix + short
@@ -49,7 +49,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
             ts.pinned AS pinned, ts.form_factor AS formFactor, ts.form_log AS formLog,
             ts.activity AS activity, u.username AS username,
             ts.event_id AS eventId, ts.battery_pct AS bateria, ts.battery_log AS bateriaLog,
-            m.emoji AS marcaEmoji, m.color AS marcaColor, ev.puntos_ajustes AS puntosAjustes
+            m.emoji AS marcaEmoji, m.color AS marcaColor, ev.puntos_ajustes AS puntosAjustes,
+            ts.tramos_ajustes AS tramosAjustes, ts.owner_user_id AS owner
        FROM tracking_sessions ts LEFT JOIN users u ON u.id = ts.owner_user_id
        LEFT JOIN event_members m ON m.event_id = ts.event_id AND m.user_id = ts.owner_user_id
        LEFT JOIN events ev ON ev.id = ts.event_id
@@ -64,6 +65,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     activity: string | null; username: string | null; eventId: string | null
     bateria: number | null; bateriaLog: string | null
     marcaEmoji: string | null; marcaColor: string | null; puntosAjustes: string | null
+    tramosAjustes: string | null; owner: string
   }>()
   if (!row) return json({ error: 'not_found' }, 404)
 
@@ -238,6 +240,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
     bateriaLog: leeBateriaLog(row.bateriaLog),
     marca: row.eventId ? { emoji: row.marcaEmoji, color: row.marcaColor } : null,
     puntosAjustes: leeAjustes(row.puntosAjustes),
+    tramosAjustes: leeTramosAjustes(row.tramosAjustes),
+  }
+  // Si quien mira es su dueño: solo en las lecturas con historial, que son las
+  // pocas —las de cada segundo no pagan la consulta de la sesión—.
+  if (conHistorial) {
+    const quien = await getSessionUser(request, env).catch(() => null)
+    body.mio = !!quien && quien.id === row.owner
   }
   return json(body, 200, { 'Cache-Control': 'no-store' })
 }
@@ -278,4 +287,12 @@ function leeBateriaLog(crudo: string | null): [number, number][] | undefined {
     return Array.isArray(v) ? v.filter((e): e is [number, number] =>
       Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number') : undefined
   } catch { return undefined }
+}
+
+function leeTramosAjustes(s: string | null): AjusteDeTramo[] | null {
+  if (!s) return null
+  try {
+    const v = JSON.parse(s)
+    return Array.isArray(v) ? (v as AjusteDeTramo[]) : null
+  } catch { return null }
 }

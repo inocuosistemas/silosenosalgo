@@ -448,6 +448,7 @@ class Api(
         f.accuracy?.let { put("accuracy", JsonPrimitive(it)) }
         f.altitude?.let { put("altitude", JsonPrimitive(it)) }
         f.fixAt?.let { put("fixAt", JsonPrimitive(it)) }
+        f.m?.let { put("m", JsonPrimitive(it)) }
     }
 
     /**

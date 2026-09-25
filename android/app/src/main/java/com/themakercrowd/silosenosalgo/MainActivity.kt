@@ -473,6 +473,18 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         ActivityResultContracts.RequestPermission(),
     ) { ubicacionAlEntrar() }
 
+    // El permiso de actividad física, al empezar una salida en «Automático» sin
+    // ruta ni evento: es la que se parte en tramos por medio de transporte, y
+    // sin él los tramos salen solo por velocidad y mapa (ver `SensorDeMovimiento`).
+    val pideMovimiento = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val estadoParaSensor by TrackingStore.estado.collectAsState()
+    LaunchedEffect(estadoParaSensor.compartiendo) {
+        val e = estadoParaSensor
+        if (e.compartiendo && e.actividad == null && e.planId == null && e.eventoId == null &&
+            !SensorDeMovimiento.tienePermiso(context)
+        ) pideMovimiento.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+    }
+
     // Sin permiso de notificaciones (Android 13+) el servicio arranca igual,
     // pero su notificación no se ve: el usuario pierde el único indicador de que
     // sigue transmitiendo. Se pide al abrir, no al empezar a compartir.
