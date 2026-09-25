@@ -30,7 +30,7 @@ import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
 import { inferActivity } from '../lib/activityInference'
-import { tramosDeTransporte, refinaVehiculos, pideMapa, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, esAPie, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, pideMapa, pausasDe, svgPausa, muestrasDe, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, esAPie, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
 import { cargaEntornos, entornoSiEsta } from '../lib/entornoDelMapa'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
@@ -313,6 +313,16 @@ const tiradorDeExtremo = L.divIcon({
   html: '<div style="width:26px;height:26px;border-radius:9999px;background:#fff;border:3px solid #0ea5e9;box-shadow:0 1px 5px rgba(0,0,0,.5);display:grid;place-items:center;font:700 12px/1 system-ui;color:#0ea5e9">⇔</div>',
 })
 
+/** El icono de un medio en el texto: su emoji, y la pausa, dibujada en ámbar. */
+function IconoModo({ modo }: { modo: Modo }) {
+  if (modo !== 'parado') return <span aria-hidden="true">{MODOS[modo].emoji}</span>
+  return (
+    <span aria-hidden="true" className="inline-grid h-[1.1em] w-[1.1em] place-items-center rounded-full bg-amber-500 align-[-0.15em]">
+      <svg viewBox="0 0 24 24" className="h-[0.7em] w-[0.7em]"><rect x="6" y="5" width="4.5" height="14" rx="1.2" fill="#0f172a" /><rect x="13.5" y="5" width="4.5" height="14" rx="1.2" fill="#0f172a" /></svg>
+    </span>
+  )
+}
+
 /** El emoji de un tramo en el mapa del modo tramos, en un círculo de su color. */
 function insigniaDeTramo(modo: Modo, elegido: boolean, apagado: boolean): L.DivIcon {
   const lado = elegido ? 38 : 30
@@ -320,7 +330,7 @@ function insigniaDeTramo(modo: Modo, elegido: boolean, apagado: boolean): L.DivI
     className: '',
     iconSize: [lado, lado],
     iconAnchor: [lado / 2, lado / 2],
-    html: `<div style="width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;background:${MODOS[modo].color};border:${elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);font-size:${elegido ? 19 : 15}px;opacity:${apagado ? 0.45 : 1}">${MODOS[modo].emoji}</div>`,
+    html: `<div style="width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;background:${MODOS[modo].color};border:${elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);font-size:${elegido ? 19 : 15}px;opacity:${apagado ? 0.45 : 1}">${modo === 'parado' ? svgPausa(elegido ? 20 : 16, '#0f172a') : MODOS[modo].emoji}</div>`,
   })
 }
 
@@ -329,11 +339,12 @@ function pauseDivIcon(open: boolean): L.DivIcon {
   const key = open ? 'open' : 'done'
   let icon = pauseIconCache.get(key)
   if (!icon) {
-    const border = open ? '#f59e0b' : '#94a3b8'
+    // Ámbar con dos barras, como las pausas del modo tramos; la que sigue en
+    // curso, latiendo.
     const pulse = open ? 'animation:slsns-pause-pulse 1.8s ease-in-out infinite;' : ''
     icon = L.divIcon({
       className: '',
-      html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;background:#0f172a;border:2px solid ${border};border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.55);${pulse}">⏸</div>`,
+      html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:#f59e0b;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.55);${pulse}">${svgPausa(12, '#0f172a')}</div>`,
       iconSize: [22, 22],
       iconAnchor: [11, 11],
       popupAnchor: [0, -12],
@@ -1315,8 +1326,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const t = tramos[k]
     if (!t) return
     setSelMs((t.desde + t.hasta) / 2)
-    // Encuadrado entre la cabecera del modo y la hoja de abajo.
-    const pts = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
+    // Encuadrado entre la cabecera del modo y la hoja de abajo; una pausa, en su sitio.
+    const pts = t.punto ? [t.punto] : trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
     encuadra(pts, 300)
   }
   /** Encuadrar en el mapa que se esté usando, entre la cabecera del modo y
@@ -1517,7 +1528,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
 
     // Por tramos: cada segmento, del color de su medio de transporte.
     const colorDeTramo: string[] = []
-    if (porTramos) for (const t of tramos) for (let k = t.i0 + 1; k <= t.i1; k++) colorDeTramo[k] = MODOS[t.modo].color
+    // Una pausa es un sitio, no un trozo: sus lecturas (el temblor del GPS en
+    // el sitio) van del color de lo que se venía haciendo.
+    if (porTramos) tramos.forEach((t, j) => {
+      const vecino = t.modo === 'parado' ? (tramos[j - 1] ?? tramos[j + 1]) : t
+      const color = vecino && vecino.modo !== 'parado' ? MODOS[vecino.modo].color : MODOS.parado.color
+      for (let k = t.i0 + 1; k <= t.i1; k++) colorDeTramo[k] = color
+    })
     const runs: { color: string; positions: [number, number][] }[] = []
     let cur: { color: string; positions: [number, number][] } | null = null
     let prev = posAt(0)
@@ -1558,41 +1575,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // el GPS sigue moviendose unos metros, y sin margen cada parada se partiria en
   // trozos. Y el minimo de 5 min deja fuera los semaforos y los ratos de mirar
   // el mapa, que no le interesan a nadie.
-  const stops = useMemo(() => {
-    const PAUSE_MIN_MS = 5 * 60_000
-    const PAUSE_RADIUS_M = 25
-    const out: { lat: number; lon: number; from: number; to: number; open: boolean }[] = []
-    let i = 0
-    while (i < trail.length) {
-      let j = i + 1
-      while (j < trail.length &&
-             haversineKm(trail[i].lat, trail[i].lon, trail[j].lat, trail[j].lon) * 1000 <= PAUSE_RADIUS_M) {
-        j++
-      }
-      const last = j - 1
-      if (last > i && trail[last].t - trail[i].t >= PAUSE_MIN_MS) {
-        // El punto se pone en el centro de la tanda, no en el primero: parado,
-        // las lecturas rodean el sitio real y el centro se acerca mas.
-        let lat = 0, lon = 0
-        for (let k = i; k <= last; k++) { lat += trail[k].lat; lon += trail[k].lon }
-        const n = last - i + 1
-        out.push({
-          lat: lat / n,
-          lon: lon / n,
-          from: trail[i].t,
-          to: trail[last].t,
-          // Sigue parado si la tanda llega hasta el final de la traza y la ruta
-          // no ha terminado: entonces lo que se enseña es lo que LLEVA, no lo
-          // que duro.
-          open: last === trail.length - 1 && state?.status !== 'ended',
-        })
-        i = j
-      } else {
-        i++
-      }
-    }
-    return out
-  }, [trail, state?.status])
+  const stops = useMemo(() => pausasDe(trail).map((p) => ({
+    lat: p.lat, lon: p.lon, from: p.desde, to: p.hasta,
+    // Sigue parado si la tanda llega hasta el final de la traza y la ruta
+    // no ha terminado: entonces lo que se enseña es lo que LLEVA, no lo
+    // que duró.
+    open: p.i1 === trail.length - 1 && state?.status !== 'ended',
+  })), [trail, state?.status])
 
   // Distancia recorrida, descartando el ruido del GPS: un tramo solo cuenta si
   // es mas largo que la suma de los errores que declaran sus dos lecturas.
@@ -3029,7 +3018,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   <button key={`${t.i0}`} type="button" onClick={() => eligeTramo(k)}
                     className="flex items-center gap-1 rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-400">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
-                    {resumenDeTramo(t)}
+                    <IconoModo modo={t.modo} /> {kmYTiempo(t.modo, t.km, t.hasta - t.desde)}
                   </button>
                 ))}
               </div>
@@ -3055,7 +3044,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 <div className="min-w-0 flex-1 text-center">
                   <p className="text-sm font-semibold text-slate-100">
                     <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: MODOS[tSel.modo].color }} />
-                    {MODOS[tSel.modo].emoji} {MODOS[tSel.modo].nombre}
+                    <IconoModo modo={tSel.modo} /> {MODOS[tSel.modo].nombre}
                     {tSel.corregido && <span className="ml-1 text-[11px] font-normal text-slate-400">✎ corregido</span>}
                   </p>
                   <p className="text-[11px] text-slate-400 tabular-nums">
@@ -3596,10 +3585,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             irA={focus ? { lat: focus.lat, lon: focus.lon, nudge: focus.n } : null}
             encuadrarPlan={!fix && !!plan && planLatLng.length > 1}
             tramosMapa={modoTramos ? tramos.map((t, k) => ({
-              positions: trail.slice(t.i0, t.i1 + 1).map((q) => [q.lat, q.lon] as [number, number]),
+              // Una pausa es un punto: sin línea, solo su insignia en el sitio.
+              positions: t.modo === 'parado' ? [] : trail.slice(t.i0, t.i1 + 1).map((q) => [q.lat, q.lon] as [number, number]),
               color: MODOS[t.modo].color,
               emoji: MODOS[t.modo].emoji,
-              insignia: [trail[Math.round((t.i0 + t.i1) / 2)].lat, trail[Math.round((t.i0 + t.i1) / 2)].lon] as [number, number],
+              pausa: t.modo === 'parado',
+              insignia: t.punto ?? [trail[Math.round((t.i0 + t.i1) / 2)].lat, trail[Math.round((t.i0 + t.i1) / 2)].lon] as [number, number],
               elegido: k === tramoSel,
               apagado: tramoSel >= 0 && k !== tramoSel,
             })) : null}
@@ -3670,6 +3661,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             dedo (una línea de 5 px no lo es). El elegido, con halo blanco y
             grueso; los demás, apagados. */}
         {modoTramos && tramos.map((t, k) => {
+          // Una pausa es un punto: sin línea, solo su insignia.
+          if (t.modo === 'parado') return null
           const pos = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
           if (pos.length < 2) return null
           const elegido = k === tramoSel
@@ -3684,7 +3677,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </Fragment>
           )
         })}
-        {modoTramos && tramos.slice(1).map((t) => (
+        {modoTramos && tramos.slice(1).filter((t) => t.modo !== 'parado').map((t) => (
           <CircleMarker key={`corte-${t.i0}`} center={[trail[t.i0].lat, trail[t.i0].lon]} radius={5}
             pathOptions={{ color: '#020617', weight: 2, fillColor: '#ffffff', fillOpacity: 1 }} interactive={false} />
         ))}
@@ -3692,7 +3685,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           const mitad = trail[Math.round((t.i0 + t.i1) / 2)]
           if (!mitad || t.i1 - t.i0 < 1) return null
           return (
-            <Marker key={`insignia-${t.i0}`} position={[mitad.lat, mitad.lon]} icon={insigniaDeTramo(t.modo, k === tramoSel, tramoSel >= 0 && k !== tramoSel)}
+            <Marker key={`insignia-${t.i0}`} position={t.punto ?? [mitad.lat, mitad.lon]} icon={insigniaDeTramo(t.modo, k === tramoSel, tramoSel >= 0 && k !== tramoSel)}
               eventHandlers={{ click: () => eligeTramo(k) }} zIndexOffset={k === tramoSel ? 1000 : 0} />
           )
         })}
@@ -4291,7 +4284,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                             <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
                               <p className="flex items-center gap-1 text-[10px] text-slate-400">
                                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
-                                {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
+                                <IconoModo modo={x.modo} /> {MODOS[x.modo].nombre}
                                 {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
                               </p>
                               <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>

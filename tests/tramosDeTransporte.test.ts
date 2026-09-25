@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, type Entorno } from '../src/lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
 function traza(trozos: [number, number, TrailPoint['m']?][]): TrailPoint[] {
@@ -39,6 +39,34 @@ describe('tramos de transporte', () => {
     const ts = tramosDeTransporte(tr)
     expect(modos(ts)).toEqual(['pie'])
     expect(ts[0].km).toBeCloseTo(1.56, 1)
+  })
+
+  it('una pausa es un punto: solo la espera, no el paseo lento hasta el muelle ni el barco que zarpa', () => {
+    const tr: TrailPoint[] = [{ t: 0, lat: 41, lon: 29, a: 10 }]
+    const paso = (kmh: number, min: number, temblor = 0) => {
+      for (let k = 0; k < min * 6; k++) {
+        const u = tr[tr.length - 1]
+        const dLat = (kmh * (10 / 3600)) / 111.2
+        tr.push({ t: u.t + 10_000, lat: u.lat + dLat + (temblor ? ((k % 2) ? 1 : -1) * temblor / 111_200 : 0), lon: 29, a: 10 })
+      }
+    }
+    paso(3, 10)          // hacia el muelle, despacio
+    paso(0, 14, 8)       // la espera: 14 min temblando ±8 m
+    paso(3, 3)           // el barco sale despacio
+    paso(15, 20)         // y navega
+    const pausas = pausasDe(tr)
+    expect(pausas).toHaveLength(1)
+    expect((pausas[0].hasta - pausas[0].desde) / 60_000).toBeGreaterThan(13)
+    expect((pausas[0].hasta - pausas[0].desde) / 60_000).toBeLessThan(15.5)
+    const ts = tramosDeTransporte(tr)
+    // Lo de después (el barco, sin sensor ni mapa aquí) va por velocidad;
+    // lo que importa es que la pausa es solo la espera.
+    expect(modos(ts).slice(0, 2)).toEqual(['pie', 'parado'])
+    expect(ts[1].desde).toBe(pausas[0].desde)
+    expect(ts[1].hasta).toBe(pausas[0].hasta)
+    // La pausa, un sitio: sin kilómetros, con su punto.
+    expect(ts[1].km).toBe(0)
+    expect(ts[1].punto).toBeDefined()
   })
 
   it('un titubeo de un minuto no es un cambio de medio', () => {

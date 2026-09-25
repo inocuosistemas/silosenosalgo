@@ -37,10 +37,59 @@ export interface Tramo {
   corregido?: boolean
   /** Si lo decidió el sensor del móvil (y no la velocidad sola). */
   sensor?: boolean
+  /** Una pausa es un SITIO, no un trozo de recorrido: dónde fue (el centro de
+   *  sus lecturas). Solo en las de «parado». */
+  punto?: [number, number]
+}
+
+// ── Las pausas ───────────────────────────────────────────────────────────────
+
+/** Una pausa: posiciones que no se alejan de su primera más que el ruido del
+ *  GPS durante un rato. Lo que cuenta es el desplazamiento, no la velocidad. */
+export interface Pausa { i0: number; i1: number; desde: number; hasta: number; lat: number; lon: number }
+
+export const PAUSA_MIN_MS = 5 * 60_000
+export const PAUSA_RADIO_M = 25
+
+/**
+ * Las pausas del trazado: tandas de lecturas que no se alejan más de
+ * PAUSA_RADIO_M de la primera durante PAUSA_MIN_MS o más. Es la misma regla
+ * con la que el visor marca sus paradas, y la ÚNICA que hace una pausa: si no
+ * hubo desplazamiento fue una pausa, se fuera en lo que se fuera; y si lo hubo,
+ * por despacio que fuera (salir andando hacia el muelle, el barco que zarpa),
+ * no lo es. El punto, en el centro de la tanda: parado, las lecturas rodean el
+ * sitio real.
+ */
+export function pausasDe(trail: TrailPoint[]): Pausa[] {
+  const out: Pausa[] = []
+  let i = 0
+  while (i < trail.length) {
+    let j = i + 1
+    while (j < trail.length && haversineKm(trail[i].lat, trail[i].lon, trail[j].lat, trail[j].lon) * 1000 <= PAUSA_RADIO_M) j++
+    const ult = j - 1
+    if (ult > i && trail[ult].t - trail[i].t >= PAUSA_MIN_MS) {
+      let lat = 0, lon = 0
+      for (let k = i; k <= ult; k++) { lat += trail[k].lat; lon += trail[k].lon }
+      const n = ult - i + 1
+      out.push({ i0: i, i1: ult, desde: trail[i].t, hasta: trail[ult].t, lat: lat / n, lon: lon / n })
+      i = j
+    } else {
+      i++
+    }
+  }
+  return out
+}
+
+/** El centro de las lecturas [i0, i1]: dónde fue una pausa. */
+function centro(trail: TrailPoint[], i0: number, i1: number): [number, number] {
+  let lat = 0, lon = 0
+  for (let k = i0; k <= i1; k++) { lat += trail[k].lat; lon += trail[k].lon }
+  const n = i1 - i0 + 1
+  return [lat / n, lon / n]
 }
 
 export const MODOS: Record<Modo, { emoji: string; nombre: string; color: string }> = {
-  parado: { emoji: '⏸', nombre: 'Parado', color: '#94a3b8' },
+  parado: { emoji: '⏸', nombre: 'Parado', color: '#f59e0b' },
   pie: { emoji: '🚶', nombre: 'A pie', color: '#22c55e' },
   correr: { emoji: '🏃', nombre: 'Corriendo', color: '#eab308' },
   bici: { emoji: '🚴', nombre: 'En bici', color: '#14b8a6' },
@@ -51,18 +100,24 @@ export const MODOS: Record<Modo, { emoji: string; nombre: string; color: string 
   avion: { emoji: '✈️', nombre: 'En avión', color: '#f43f5e' },
 }
 
+/** El icono de pausa, dibujado (dos barras): el emoji ⏸ sale distinto en
+ *  cada móvil y no casa con lo demás. Para los marcadores del mapa, en HTML. */
+export function svgPausa(px: number, color: string): string {
+  return `<svg viewBox="0 0 24 24" width="${px}" height="${px}" aria-hidden="true">`
+    + `<rect x="6" y="5" width="4.5" height="14" rx="1.2" fill="${color}"/>`
+    + `<rect x="13.5" y="5" width="4.5" height="14" rx="1.2" fill="${color}"/></svg>`
+}
+
 /** Los que se miden en ritmo (min/km) y no en km/h. */
 export const esAPie = (m: Modo) => m === 'pie' || m === 'correr'
 
 /** Más rápido que esto, en cualquier medio, es avión. */
 const AVION_KMH = 250
-/** Por debajo, parado (o el GPS temblando). */
+/** Por debajo, el trocito no cuenta para la velocidad de su tramo (el GPS
+ *  temblando). No hace pausa: eso es `pausasDe`, por desplazamiento. */
 const PARADO_KMH = 1.5
 /** Un tramo que dura menos que esto no es un cambio de medio. */
 const TRAMO_MIN_MS = 2 * 60_000
-/** Una parada más corta que esto es parte de lo que se iba haciendo
- *  (semáforo, estación, cola del ferry). */
-const PARADA_MIN_MS = 5 * 60_000
 
 /** Las bandas de velocidad, las mismas que `inferActivity`. */
 function banda(kmh: number): Modo {
@@ -76,7 +131,7 @@ function banda(kmh: number): Modo {
 /** Por velocidad sola, sobre un tramo entero: su percentil 85 —un ciclista
  *  parado en un semáforo sigue siendo ciclista—. */
 function porVelocidad(kmhs: number[]): Modo {
-  if (kmhs.length === 0) return 'parado'
+  if (kmhs.length === 0) return 'pie'
   const s = [...kmhs].sort((a, b) => a - b)
   return banda(s[Math.min(s.length - 1, Math.floor(s.length * 0.85))])
 }
@@ -94,7 +149,8 @@ function porSensor(m: TrailPoint['m'], kmh: number): Modo | 'movil' | null {
     // A pie, pero a 30 por hora: el sensor tarda en darse cuenta de que se ha
     // subido a algo.
     case 'w': return kmh > 25 ? 'vehiculo' : 'pie'
-    case 'q': return kmh < 3 ? 'parado' : 'movil'
+    // Quieto según el sensor: si de verdad no se movió, lo dirá `pausasDe`.
+    case 'q': return 'movil'
     default: return null
   }
 }
@@ -119,6 +175,9 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
     const km = haversineKm(a.lat, a.lon, b.lat, b.lon)
     base.push({ ms, km, kmh: ms > 0 ? km / (ms / 3_600_000) : 0, t: b.t })
   }
+  // Los trocitos dentro de una pausa (ver `pausasDe`).
+  const enPausa: boolean[] = []
+  for (const p of pausasDe(trail)) for (let i = p.i0 + 1; i <= p.i1; i++) enPausa[i - 1] = true
   const seg: { modo: Modo | 'movil'; ms: number; km: number; kmh: number; sensor: boolean }[] = []
   let lo = 0, hi = 0, kmVentana = 0, msVentana = 0
   base.forEach((s, k) => {
@@ -128,9 +187,11 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
     const enVentana = msVentana > 0 ? kmVentana / (msVentana / 3_600_000) : s.kmh
     // Un trocito largo (sin señal un rato) lleva su propia media.
     const kmh = s.ms > VENTANA_MS ? s.kmh : enVentana
+    if (enPausa[k]) { seg.push({ ...s, kmh: 0, modo: 'parado', sensor: false }); return }
     const sensor = porSensor(trail[k + 1].m, s.kmh)
     if (sensor) { seg.push({ ...s, kmh, modo: sensor, sensor: true }); return }
-    seg.push({ ...s, kmh, modo: kmh < PARADO_KMH ? 'parado' : banda(kmh), sensor: false })
+    // Despacio no es parado: parado es solo la pausa, por desplazamiento.
+    seg.push({ ...s, kmh, modo: banda(kmh), sensor: false })
   })
 
   // 2. En rachas del mismo modo.
@@ -152,7 +213,11 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   // 3. Lo que no es un cambio se funde con lo de al lado: primero las paradas
   //    cortas, luego los tramos cortos, siempre el más corto primero y con el
   //    vecino más largo (que es el que se estaba haciendo).
-  const corto = (r: Crudo) => r.modo === 'parado' ? r.ms < PARADA_MIN_MS : r.ms < TRAMO_MIN_MS
+  // Las pausas son hechos: ni se funden con nada ni se tragan lo de al lado.
+  // Un movimiento corto entre dos pausas (cambiar de mesa, cruzar la calle)
+  // se queda: fue movimiento.
+  const corto = (r: Crudo, k: number) => r.modo !== 'parado' && r.ms < TRAMO_MIN_MS &&
+    ((rachas[k - 1] && rachas[k - 1].modo !== 'parado') || (rachas[k + 1] && rachas[k + 1].modo !== 'parado'))
   const funde = (lista: Crudo[], k: number, con: number) => {
     const a = lista[Math.min(k, con)], b = lista[Math.max(k, con)]
     const destino = lista[con]
@@ -165,11 +230,11 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   for (;;) {
     let peor = -1
     rachas.forEach((r, k) => {
-      if (rachas.length > 1 && corto(r) && (peor < 0 || r.ms < rachas[peor].ms)) peor = k
+      if (rachas.length > 1 && corto(r, k) && (peor < 0 || r.ms < rachas[peor].ms)) peor = k
     })
     if (peor < 0) break
-    const izq = peor > 0 ? rachas[peor - 1] : null
-    const der = peor < rachas.length - 1 ? rachas[peor + 1] : null
+    const izq = peor > 0 && rachas[peor - 1].modo !== 'parado' ? rachas[peor - 1] : null
+    const der = peor < rachas.length - 1 && rachas[peor + 1].modo !== 'parado' ? rachas[peor + 1] : null
     const con = !der || (izq && izq.ms >= der.ms) ? peor - 1 : peor + 1
     funde(rachas, peor, con)
     // Dos vecinos que han quedado juntos con el mismo modo, uno.
@@ -195,6 +260,7 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
       modo, i0: r.i0, i1: r.i1, desde: trail[r.i0].t, hasta: trail[r.i1].t, km: r.km,
       kmh: movMs > 0 ? r.km / (movMs / 3_600_000) : 0, sensor: !sinSensor,
     }
+    if (modo === 'parado') { t.punto = centro(trail, r.i0, r.i1); t.km = 0; t.kmh = 0 }
     const u = tramos[tramos.length - 1]
     if (u && u.modo === t.modo) {
       const ms = t.hasta - u.desde
@@ -248,6 +314,7 @@ function trozo(trail: TrailPoint[], modo: Modo, i0: number, i1: number): Tramo {
   let km = 0
   for (let i = i0 + 1; i <= i1; i++) km += haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon)
   const ms = trail[i1].t - trail[i0].t
+  if (modo === 'parado') return { modo, i0, i1, desde: trail[i0].t, hasta: trail[i1].t, km: 0, kmh: 0, punto: centro(trail, i0, i1) }
   return { modo, i0, i1, desde: trail[i0].t, hasta: trail[i1].t, km, kmh: ms > 0 ? km / (ms / 3_600_000) : 0 }
 }
 

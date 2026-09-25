@@ -4,6 +4,7 @@ import { LngLatBounds, Map as MapaGL, Marker, Popup, addProtocol, setWorkerUrl, 
 import 'maplibre-gl/dist/maplibre-gl.css'
 import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type L from 'leaflet'
+import { svgPausa } from '../lib/tramosDeTransporte'
 
 /**
  * El mapa de la baliza en la GPU: la misma información que el mapa clásico,
@@ -77,6 +78,8 @@ export interface TramoDelMapa {
   positions: [number, number][]
   color: string
   emoji: string
+  /** Una pausa: su insignia es el icono de pausa dibujado, no un emoji. */
+  pausa?: boolean
   insignia: [number, number]
   elegido: boolean
   apagado: boolean
@@ -461,7 +464,8 @@ export default function MapaFluido(p: Props) {
         geometry: { type: 'LineString', coordinates: t.positions.map(lonLat) },
       })),
     } : VACIO)
-    fuente('tramosCortes')?.setData(tm ? puntos(tm.slice(1).map((t) => t.positions[0]).filter(Boolean)) : VACIO)
+    // Los cortes, al empezar cada tramo en movimiento (una pausa ya es su insignia).
+    fuente('tramosCortes')?.setData(tm ? puntos(tm.slice(1).filter((t) => t.positions.length > 1).map((t) => t.positions[0])) : VACIO)
     for (const id of ['traza', 'trazaBorde']) map.setLayoutProperty(id, 'visibility', tm ? 'none' : 'visible')
     for (const m of insignias.current) m.remove()
     insignias.current = []
@@ -471,7 +475,8 @@ export default function MapaFluido(p: Props) {
       el.style.cssText = `width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;`
         + `background:${t.color};border:${t.elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);`
         + `font-size:${t.elegido ? 19 : 15}px;opacity:${t.apagado ? 0.45 : 1};cursor:pointer;z-index:${t.elegido ? 6 : 1}`
-      el.textContent = t.emoji
+      if (t.pausa) el.innerHTML = svgPausa(t.elegido ? 20 : 16, '#0f172a')
+      else el.textContent = t.emoji
       el.addEventListener('click', (ev) => { ev.stopPropagation(); avisos.current.onTramo?.(k) })
       insignias.current.push(new Marker({ element: el, anchor: 'center' }).setLngLat(lonLat(t.insignia)).addTo(map))
     })
