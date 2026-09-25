@@ -30,7 +30,7 @@ import { fetchShare, gunzipToString } from '../lib/shareTransport'
 import { reviveSharePayload, type RevivedShare } from '../lib/sharePayload'
 import { expectedKmAtElapsed, estimateArrivalTimeAtKm, expectedMinutesForSegment, elevationStatsForSegment, formatTime, formatPace, paceUnitLabel, usesSpeedUnit, ACTIVITY_MAX_SPEED_KMH, ACTIVITY_LABEL, type PausePoint } from '../lib/timing'
 import { inferActivity } from '../lib/activityInference'
-import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
+import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, kmYTiempo, esAPie, MODOS, MODOS_A_MANO, type Modo, type Tramo, type AjusteDeTramo } from '../lib/tramosDeTransporte'
 import { cargaEntornos, entornoSiEsta } from '../lib/entornoDelMapa'
 import { inferCutoffDatesFromWaypoints, cutoffWptKey } from '../lib/cutoffInference'
 import { bandAt, type DaylightBand } from '../lib/daylight'
@@ -4265,17 +4265,34 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                           {esMio ? 'Ver y cambiar en el mapa' : 'Ver en el mapa'}
                         </button>
                       </p>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {totalesPorModo(tramos).map((x) => (
-                          <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
-                            <p className="flex items-center gap-1 text-[10px] text-slate-400">
-                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
-                              {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
-                              {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
-                            </p>
-                            <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>
-                          </div>
+                      {/* El reparto del tiempo de la salida entre medios, de un vistazo:
+                          una barra fina en el orden en que se hicieron. */}
+                      <div className="mb-2 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-800" role="img"
+                        aria-label={totalesPorModo(tramos).map((x) => `${MODOS[x.modo].nombre} ${Math.round((x.ms / Math.max(1, tramos[tramos.length - 1].hasta - tramos[0].desde)) * 100)} %`).join(', ')}>
+                        {tramos.map((t) => (
+                          <span key={`barra-${t.i0}`} style={{ flexGrow: Math.max(1, t.hasta - t.desde), backgroundColor: MODOS[t.modo].color }}
+                            title={`${MODOS[t.modo].nombre} · ${formatTime(new Date(t.desde))}–${formatTime(new Date(t.hasta))}`} />
                         ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {totalesPorModo(tramos).map((x) => {
+                          // A pie, en ritmo (min/km); en lo demás, km/h. Parado, nada.
+                          const kmh = x.ms > 0 ? x.km / (x.ms / 3_600_000) : 0
+                          const velocidad = x.modo === 'parado' || kmh < 0.5 ? null
+                            : esAPie(x.modo) ? formatPace(60 / kmh, x.modo === 'correr' ? 'run' : 'walk')
+                            : `${kmh.toFixed(kmh >= 100 ? 0 : 1).replace('.', ',')} km/h`
+                          return (
+                            <div key={x.modo} className="rounded-lg bg-slate-800/60 px-2 py-1.5">
+                              <p className="flex items-center gap-1 text-[10px] text-slate-400">
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[x.modo].color }} />
+                                {MODOS[x.modo].emoji} {MODOS[x.modo].nombre}
+                                {x.tramos > 1 && <span className="text-slate-500">· {x.tramos} tramos</span>}
+                              </p>
+                              <p className="text-sm font-semibold text-slate-100 tabular-nums">{kmYTiempo(x.modo, x.km, x.ms)}</p>
+                              {velocidad && <p className="text-[10px] text-slate-400 tabular-nums">{velocidad}</p>}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
