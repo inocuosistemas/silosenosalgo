@@ -1386,7 +1386,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     setShowAdvanced(false)
     setModoTramos(true)
     setSelMs(null)
-    encuadra(trail.map((p) => [p.lat, p.lon] as [number, number]), 220)
+    encuadra(trail.map((p) => [p.lat, p.lon] as [number, number]), Math.round(window.innerHeight * 0.45) + 60)
   }
   const [errorTramos, setErrorTramos] = useState<string | null>(null)
   /** Su dueño cambia la actividad de una salida terminada: null = «Automático»,
@@ -3013,22 +3013,37 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl backdrop-blur">
           {!tSel ? (
             <>
-              <div className="flex flex-wrap gap-1.5">
+              {/* Una fila por tramo, legible, y la lista se desplaza dentro de la
+                  hoja: con veinte tramos, en pastillas apretadas no se leía nada. */}
+              <ul className="-mx-1 max-h-[40vh] overflow-y-auto overscroll-contain">
                 {tramos.map((t, k) => (
-                  <button key={`${t.i0}`} type="button" onClick={() => eligeTramo(k)}
-                    className="flex items-center gap-1 rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-400">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
-                    <IconoModo modo={t.modo} /> {kmYTiempo(t.modo, t.km, t.hasta - t.desde)}
-                  </button>
+                  <li key={`${t.i0}`}>
+                    <button type="button" onClick={() => eligeTramo(k)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-1 py-2 text-left hover:bg-slate-800 active:bg-slate-800">
+                      <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: MODOS[t.modo].color }} />
+                      <span className="text-lg leading-none"><IconoModo modo={t.modo} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-100">
+                          {MODOS[t.modo].nombre}
+                          {t.corregido && <span className="ml-1 text-xs font-normal text-slate-400">✎</span>}
+                        </span>
+                        <span className="block text-xs text-slate-400 tabular-nums">{kmYTiempo(t.modo, t.km, t.hasta - t.desde)}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+                        {formatTime(new Date(t.desde))}–{formatTime(new Date(t.hasta))}
+                      </span>
+                      <span className="shrink-0 text-slate-500" aria-hidden="true">›</span>
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
               {/* Y al revés: fue todo con uno solo. */}
               {esMio && ended && (
-                <div className="mt-2.5 flex flex-wrap items-center gap-1 border-t border-slate-800 pt-2">
-                  <span className="text-[10px] text-slate-500">¿Todo con un solo medio?</span>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-800 pt-2.5">
+                  <span className="w-full text-xs text-slate-400">¿Todo con un solo medio?</span>
                   {(['walk', 'run', 'bike', 'transport'] as const).map((a) => (
                     <button key={a} type="button" onClick={() => { setModoTramos(false); void cambiaActividad(a) }}
-                      className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-400">
+                      className="rounded-full border border-slate-600 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-400">
                       {ACTIVITY_LABEL[a].emoji} {ACTIVITY_LABEL[a].label}
                     </button>
                   ))}
