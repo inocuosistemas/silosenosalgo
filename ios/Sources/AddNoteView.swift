@@ -110,9 +110,9 @@ struct AddNoteView: View {
             }
             .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
             .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { image in
+                CameraPicker { image, metadatos in
                     showCamera = false
-                    if let image { handleCameraCapture(image) }
+                    if let image { handleCameraCapture(image, metadatos: metadatos) }
                 }
                 .ignoresSafeArea()
             }
@@ -123,7 +123,7 @@ struct AddNoteView: View {
     /// camera roll (the user asked to preserve original quality there). Saving to
     /// the roll needs "add" permission; if refused we still keep the app copy and
     /// surface a hint.
-    private func handleCameraCapture(_ image: UIImage) {
+    private func handleCameraCapture(_ image: UIImage, metadatos: [String: Any]?) {
         // Reducirla, fuera del hilo de la pantalla: una foto de 48 MP tardaba
         // lo bastante en el principal como para que todo pareciera colgado.
         preparandoFoto = true
@@ -136,7 +136,9 @@ struct AddNoteView: View {
                 preparandoFoto = false
             }
         }
-        PhotoLibrarySaver.saveToCameraRoll(image) { granted in
+        // Al carrete, a tamaño completo y con la ubicación de la baliza: en
+        // Fotos sale en su sitio del mapa (ver `PhotoLibrarySaver`).
+        PhotoLibrarySaver.saveToCameraRoll(image, metadata: metadatos, location: store.lastLocation) { granted in
             rollSaveDenied = !granted
         }
     }
