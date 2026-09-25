@@ -207,7 +207,18 @@ export function marcadorDeIcono(icon: L.DivIcon, capa: number, tocable: boolean)
 
 /** Orden de apilado de los marcadores: lo de abajo, primero. Mismo orden que
  *  los paneles del clásico (notas 600, corredor 640). */
-const CAPA = { nota: 1, etiqueta: 2, fantasma: 3, corredor: 4, destello: 5 } as const
+const CAPA = {
+  nota: 1,
+  // Las insignias del modo tramos, encima de las notas (son lo que se toca en
+  // ese modo); la elegida, encima de las demás.
+  tramo: 2, tramoElegido: 3,
+  etiqueta: 4, fantasma: 5, corredor: 6, destello: 7,
+  // Los tiradores de los extremos, encima de todo lo que se arrastra.
+  tirador: 8,
+  // El bocadillo (una nota con su foto, una pausa…), SIEMPRE encima de todo:
+  // es lo que se está leyendo.
+  bocadillo: 20,
+} as const
 
 type Abierto =
   | { tipo: 'nota' | 'pausa'; clave: string; donde: [number, number]; alto: number }
@@ -474,7 +485,7 @@ export default function MapaFluido(p: Props) {
       const el = document.createElement('div')
       el.style.cssText = `width:${lado}px;height:${lado}px;border-radius:9999px;display:grid;place-items:center;`
         + `background:${t.color};border:${t.elegido ? 3 : 2}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);`
-        + `font-size:${t.elegido ? 19 : 15}px;opacity:${t.apagado ? 0.45 : 1};cursor:pointer;z-index:${t.elegido ? 6 : 1}`
+        + `font-size:${t.elegido ? 19 : 15}px;opacity:${t.apagado ? 0.45 : 1};cursor:pointer;z-index:${t.elegido ? CAPA.tramoElegido : CAPA.tramo}`
       if (t.pausa) el.innerHTML = svgPausa(t.elegido ? 20 : 16, '#0f172a')
       else el.textContent = t.emoji
       el.addEventListener('click', (ev) => { ev.stopPropagation(); avisos.current.onTramo?.(k) })
@@ -497,7 +508,7 @@ export default function MapaFluido(p: Props) {
       const el = document.createElement('div')
       el.style.cssText = 'width:26px;height:26px;border-radius:9999px;background:#fff;border:3px solid #0ea5e9;'
         + 'box-shadow:0 1px 5px rgba(0,0,0,.5);display:grid;place-items:center;font:700 12px/1 system-ui;color:#0ea5e9;'
-        + 'cursor:grab;z-index:8'
+        + `cursor:grab;z-index:${CAPA.tirador}`
       el.textContent = '⇔'
       el.setAttribute('aria-label', x.lado === 'inicio' ? 'Mover el inicio del tramo' : 'Mover el final del tramo')
       const m = new Marker({ element: el, anchor: 'center', draggable: true }).setLngLat(lonLat(x.pos)).addTo(map)
@@ -752,6 +763,9 @@ export default function MapaFluido(p: Props) {
       .setLngLat(lonLat(abierto.donde))
       .setDOMContent(nodoBocadillo)
       .addTo(map)
+    // Por encima de todos los marcadores (llevan su orden explícito y el
+    // bocadillo no traía ninguno: la insignia de un tramo le tapaba la foto).
+    bocadilloRef.current.getElement().style.zIndex = String(CAPA.bocadillo)
     bocadilloRef.current.on('close', () => setAbierto((a) => (a && `${a.donde.join(',')}|${a.alto}` === dondeAbierto ? null : a)))
     // Que quepa entero: el clásico desplaza el mapa lo justo para que el
     // bocadillo no quede cortado contra un borde, y MapLibre no lo hace solo.

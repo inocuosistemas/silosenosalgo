@@ -3607,7 +3607,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                 })
               : null}
             traza={trailSegments}
-            pausas={showPauses
+            // En el modo tramos las pausas ya son sus insignias: no dos veces.
+            pausas={showPauses && !modoTramos
               ? stops.map((st, i) => ({ clave: `${i}|${st.from}|${st.open}`, lat: st.lat, lon: st.lon, icon: pauseDivIcon(st.open), contenido: () => contenidoParada(st) }))
               : []}
             puntosRuta={plan?.track.namedWaypoints ?? SIN_PUNTOS}
@@ -3754,7 +3755,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           // fue de verdad, pero sin competir con los colores del ritmo.
           <Polyline key={`trail-${i}`} positions={s.positions} pathOptions={{ color: s.color, weight: heatRange ? 2 : 4, opacity: heatRange ? 0.3 : 0.85 }} />
         ))}
-        {showPauses && stops.map((p, i) => (
+        {showPauses && !modoTramos && stops.map((p, i) => (
           <Marker key={`pause-${i}`} position={[p.lat, p.lon]} icon={pauseDivIcon(p.open)}>
             <Popup>{contenidoParada(p)}</Popup>
           </Marker>
