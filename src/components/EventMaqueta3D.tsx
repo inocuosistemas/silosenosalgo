@@ -27,6 +27,7 @@ import { LOGO_APP, NOMBRE_APP } from '../lib/marcaApp'
 import { BotonRedondo } from './BotonRedondo'
 import { CargandoMarca } from './CargandoMarca'
 import { MUSICAS, creditoMusica, type MusicaVideo } from '../lib/musicaVideo'
+import { creaVida, lineasDeTransporte, type Vida } from './VidaMaqueta'
 import type { EncodedPacket } from 'mediabunny'
 
 /**
@@ -293,6 +294,8 @@ interface Escena {
   limites: THREE.Box3
   /** A quién sigue la cámara, si sigue a alguien (ver `sigueCorredor`). */
   seguir: Seguimiento | null
+  /** Gaviotas, barcos, trenes y coches (ver `VidaMaqueta`). */
+  vida: Vida | null
   /** El sol y la luz de cielo: se guardan porque la carrerita los mueve para
    *  que amanezca y anochezca (ver `poneLaLuz`). */
   sol: THREE.DirectionalLight
@@ -1628,6 +1631,12 @@ export interface VideoReplay {
   antetitulo?: string
   /** A quién sigue la cámara si no se elige otra cosa. */
   seguirDeSerie?: string
+  /**
+   * Siguiendo a alguien, cuánto se acerca la cámara en cada instante (1, lo de
+   * siempre; menos, más cerca). Andando por calles hace falta verlo de cerca;
+   * en barco, de lejos.
+   */
+  zoomEn?: (instante: number) => number
 }
 
 /** Una foto de la salida, clavada donde se hizo como una miniatura. */
@@ -1876,6 +1885,8 @@ async function grabaVideo(
   alProgreso: (fraccion: number) => void, cancelado: () => boolean,
   /** La luz real: el sol de cada instante en este sitio (ver `poneLaLuz`). */
   luz: { lat: number; lon: number } | null = null,
+  /** Con gaviotas, barcos, trenes y coches (ver `VidaMaqueta`). */
+  conVida = true,
 ): Promise<Blob | null> {
   const t = e.terreno
   if (!t) return null
@@ -1954,10 +1965,11 @@ async function grabaVideo(
     ))
   }
 
+  const distanciaSeguir = formato === 'vertical' ? 1.25 : 1.05
   // Siguiendo a alguien: arranca desde el plano general en cuanto está en la
   // loseta, y en los últimos segundos vuelve a él.
   const s: Seguimiento | null = seguir
-    ? { key: seguir, distancia: formato === 'vertical' ? 1.25 : 1.05, ultimo: null, rumbo: null, azimut: AZIMUT_INICIAL, revisado: -Infinity }
+    ? { key: seguir, distancia: distanciaSeguir, ultimo: null, rumbo: null, azimut: AZIMUT_INICIAL, revisado: -Infinity }
     : null
   const camSeguir = new THREE.PerspectiveCamera()
   const objSeguir = new THREE.Vector3()
@@ -2008,11 +2020,18 @@ async function grabaVideo(
       const corredores = video.corredoresEn(instante)
       colocaFichas(e, corredores, seguir)
       lateHuellas(e, f * dt)
+      if (e.vida) {
+        e.vida.grupo.visible = conVida
+        if (conVida) e.vida.mueve(1 / VIDEO_FPS)
+      }
 
       planoGeneral(f)
       camara.position.copy(posGeneral)
       objetivo.copy(centro)
       const ficha = s ? e.fichas.get(s.key) : undefined
+      // Más cerca o más lejos según vaya (ver `zoomEn`); `sigueCorredor` ya
+      // lleva la cámara a la distancia nueva poco a poco.
+      if (s && video.zoomEn) s.distancia = distanciaSeguir * video.zoomEn(instante)
       if (s && ficha && f >= intro) {
         if (!siguiendoYa) { camSeguir.position.copy(posGeneral); objSeguir.copy(centro); siguiendoYa = true }
         if (f < total - outro) sigueCorredor(s, t, camSeguir, objSeguir, ficha.sprite.position, dt, f * dt)
@@ -2074,6 +2093,7 @@ async function grabaVideo(
     for (const ch of fotosClavadas) ch.userData.oculta = false
     // La pantalla vuelve a su luz de siempre, como al acabar la carrerita.
     if (luz) luzDeSiempre(e)
+    if (e.vida) e.vida.grupo.visible = true
     renderer.dispose()
     renderer.forceContextLoss()
   }
@@ -2145,6 +2165,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [progresoVideo, setProgresoVideo] = useState<number | null>(null)
   /** La luz real en el vídeo: amanece, atardece y anochece a su hora. */
   const [luzReal, setLuzReal] = useState(false)
+  /** Las gaviotas, los barcos, los trenes y los coches, en el vídeo. */
+  const [conVida, setConVida] = useState(true)
   const [errorVideo, setErrorVideo] = useState<string | null>(null)
   const cancelaVideo = useRef(false)
   /** La música elegida (su `id`, o null sin música) y la que suena de muestra. */
@@ -2195,7 +2217,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     let hecho: Blob | null = null
     try {
       hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, musicaElegida, setProgresoVideo, () => cancelaVideo.current,
-        luzReal && ruta.length > 0 ? { lat: ruta[0][0], lon: ruta[0][1] } : null)
+        luzReal && ruta.length > 0 ? { lat: ruta[0][0], lon: ruta[0][1] } : null, conVida)
     } catch (err) {
       const motivo = err instanceof Error ? err.message : ''
       setErrorVideo(motivo === 'sin-codificador'
@@ -2338,6 +2360,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       sol, cielo, carrerita,
       caidaSombra: new THREE.Vector2(-SOL.x / SOL.y, -SOL.z / SOL.y),
       limites: new THREE.Box3(new THREE.Vector3(-1.1, -0.5, -1.1), new THREE.Vector3(1.1, 1, 1.1)),
+      vida: null,
     }
     escena.current = e
 
@@ -2390,6 +2413,9 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         if (!mueveCarrerita(e, carrera, (ahora - carrera.t0) / 1000)) paraCarrerita(e, carrera)
         e.sucio = true
       }
+      // La vida de la maqueta se mueve siempre que se esté mirando. Ella sola
+      // no mueve las chinchetas: basta con volver a pintar, sin prepararlas.
+      if (e.vida) e.vida.mueve(dt / 1000)
       const movio = controls.update()
       // El paneo no saca el centro de la loseta: si se pasa, se recorta y la
       // cámara se corre lo mismo, que el encuadre no salte.
@@ -2402,7 +2428,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
         preparaChinchetas(e, camera, rotulosRef.current)
         renderer.render(scene, camera)
         e.sucio = false
-      }
+      } else if (e.vida) renderer.render(scene, camera)
     }
     bucle()
     const alMover = () => setDesdeArriba(controls.getPolarAngle() < 0.35)
@@ -2777,6 +2803,26 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       e.sucio = true
     }
   }, [puntos, estado])
+
+  // La vida: nace con la loseta y se va con ella. Los trenes y los coches
+  // llegan después, cuando llegan las vías y las carreteras.
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno) return
+    const { rejilla, alturas, mascara, escala } = e.terreno
+    const semilla = Math.round((ruta[0]?.[0] ?? 0) * 1e4) ^ Math.round((ruta[0]?.[1] ?? 0) * 1e4)
+    const vida = creaVida({ rejilla, alturas, mascara, escala }, semilla)
+    e.scene.add(vida.grupo)
+    e.vida = vida
+    let vigente = true
+    void lineasDeTransporte(rejilla).then((l) => { if (vigente) vida.ponLineas(l) })
+    return () => {
+      vigente = false
+      if (e.vida === vida) e.vida = null
+      vida.tira()
+      e.sucio = true
+    }
+  }, [ruta, estado])
 
   // Las fotos de una salida, clavadas donde se hicieron. Llegan cuando llegan
   // sus imágenes; el vídeo las va enseñando según se alcanzan (`oculta`).
@@ -3336,6 +3382,23 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
                     El sol de ese día y ese sitio: amanece, atardece y se hace de noche cuando tocó.
                   </p>
                 )}
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Vida</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setConVida(true)}
+                    aria-pressed={conVida}
+                    className={`rounded-full border px-3 py-1 text-xs ${conVida ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    🕊️ Gaviotas, barcos, trenes…
+                  </button>
+                  <button
+                    onClick={() => setConVida(false)}
+                    aria-pressed={!conVida}
+                    className={`rounded-full border px-3 py-1 text-xs ${!conVida ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    Sin
+                  </button>
+                </div>
                 <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Música</p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   <button

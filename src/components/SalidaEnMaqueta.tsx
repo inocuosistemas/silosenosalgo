@@ -27,6 +27,17 @@ export interface DatosSalidaMaqueta {
 
 const YO = 'yo'
 
+/** Lo rápido que iba en `instante` (km/h), con los dos minutos de alrededor. */
+function velocidadEn(trail: TrailPoint[], instante: number): number {
+  const a = posicionEn(trail, instante - 60_000)
+  const b = posicionEn(trail, instante + 60_000)
+  if (!a || !b) return 0
+  const dLat = ((b[0] - a[0]) * Math.PI) / 180
+  const dLon = ((b[1] - a[1]) * Math.PI) / 180
+  const m = Math.cos((a[0] * Math.PI) / 180)
+  return (6371 * Math.hypot(dLat, dLon * m)) / (2 / 60)
+}
+
 /**
  * Una salida de la baliza en la maqueta del evento, con su vídeo: el mismo
  * terreno, un solo corredor —quien la hizo— y un guion que salta las pausas y
@@ -74,6 +85,16 @@ export function SalidaEnMaqueta({ datos, onCerrar }: { datos: DatosSalidaMaqueta
       },
       antetitulo: fecha,
       seguirDeSerie: YO,
+      zoomEn: (instante) => {
+        // Por el medio del tramo si los hay; si no, por lo rápido que iba.
+        const tramo = enMovimiento.find((t) => instante >= t.desde && instante <= t.hasta)
+        const kmh = tramo ? null : velocidadEn(trail, instante)
+        const modo = tramo?.modo
+        if (modo === 'pie' || (kmh !== null && kmh < 7)) return 0.42
+        if (modo === 'correr' || (kmh !== null && kmh < 16)) return 0.55
+        if (modo === 'bici' || (kmh !== null && kmh < 30)) return 0.72
+        return 1
+      },
     }
   }, [trail, enMovimiento, ficha, desde, hasta, guion, fecha])
   // En pantalla, donde terminó.
