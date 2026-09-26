@@ -10,6 +10,7 @@ import WebKit
 ///    (copia OTA activa si la hay, si no el `WebDist/` empaquetado)
 ///  - `/api/track/<token>`  → `ViewerDataProvider` synthesized state (local trail)
 ///  - `/api/share/<id>`     → cached gzipped plan bytes
+///  - `/api/yo`             → dónde está quien mira (`MiPosicion`)
 ///  - `/_tile/<z>/<x>/<y>.png` → `TileCache` (disk → network → placeholder)
 ///
 /// The base document is loaded as `appweb://viewer/index.html?t=<token>&embedded=1`
@@ -44,6 +45,13 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
                 await MainActor.run { self.respond(task, url: url, data: data, mime: "image/png") }
             }
             return
+        }
+
+        // Dónde está quien mira, para su punto azul (ver `MiPosicion`).
+        if path == "/api/yo" {
+            let pedir = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.contains(where: { $0.name == "pedir" }) ?? false
+            return respond(task, url: url, data: MiPosicion.shared.responde(pedir: pedir), mime: "application/json", noStore: true)
         }
 
         // Runner confirms a form change: update the local synthesized state AND

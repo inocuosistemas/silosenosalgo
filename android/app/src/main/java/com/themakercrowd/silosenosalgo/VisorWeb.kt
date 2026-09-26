@@ -108,6 +108,7 @@ fun VisorIncrustado(
  * (salvo las teselas, que sí se bajan y se guardan).
  */
 internal class ClienteVisor(context: Context) : WebViewClient() {
+    private val contexto = context.applicationContext
 
     private val assets = WebAssetStore(context.applicationContext)
     private val teselas = TileCache(context.applicationContext)
@@ -195,6 +196,11 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
         TileCache.parseaRuta(ruta)?.let { (z, x, y) ->
             val bytes = runBlocking { teselas.tesela(z, x, y) }
             return respuesta(bytes, "image/png")
+        }
+
+        // Dónde está quien mira, para su punto azul (ver `MiPosicion`).
+        if (ruta == "/api/yo") {
+            return respuesta(MiPosicion.responde(contexto), "application/json", sinCache = true)
         }
 
         // Medios de las notas, servidos desde el móvil: la foto ya está aquí, no

@@ -1,12 +1,14 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CargandoMarca } from './CargandoMarca'
 import { SalidaEnMaqueta, type DatosSalidaMaqueta } from './SalidaEnMaqueta'
+import { useMiPosicion, pidePermisoBrujula } from '../lib/miPosicion'
+import { snapFixToTrack } from '../lib/useLivePosition'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
-import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal, Clapperboard } from 'lucide-react'
+import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal, Clapperboard, Navigation } from 'lucide-react'
 import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge, Route } from 'lucide-react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
@@ -186,6 +188,27 @@ function Follow({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }
  * ser tuyo otra vez. Acerca a zoom 16 si estabas más lejos, pero no aleja: si
  * ya venías mirando de cerca, no tiene por qué cambiarte la escala.
  */
+/** El punto azul de quien mira, para el mapa clásico: el cono gira con la
+ *  brújula más lo que esté girado el mapa (`giro`, en grados): el icono no
+ *  gira con él. */
+function yoDivIcon(giro: number | null, etiqueta: string | null): L.DivIcon {
+  const cono = giro === null ? '' : '<svg viewBox="0 0 96 96" width="96" height="96" style="position:absolute;left:0;top:0;'
+    + `transform:rotate(${Math.round(giro)}deg)"><defs><radialGradient id="yoConoL" cx="48" cy="48" r="48" gradientUnits="userSpaceOnUse">`
+    + '<stop offset="0.15" stop-color="#0a84ff" stop-opacity="0.75"/><stop offset="1" stop-color="#0a84ff" stop-opacity="0"/></radialGradient></defs>'
+    + '<path d="M48 48 L27 4 A48 48 0 0 1 69 4 Z" fill="url(#yoConoL)"/></svg>'
+  const texto = etiqueta
+    ? `<div style="position:absolute;top:62px;left:48px;transform:translateX(-50%);background:rgba(2,6,23,.82);color:#f8fafc;font:600 10px/1.3 system-ui,sans-serif;padding:2px 6px;border-radius:6px;white-space:nowrap">${etiqueta.replace(/</g, '&lt;')}</div>`
+    : ''
+  return L.divIcon({
+    className: '',
+    iconSize: [96, 96],
+    iconAnchor: [48, 48],
+    html: `<div style="position:relative;width:96px;height:96px;pointer-events:none">${cono}`
+      + '<div style="position:absolute;left:36px;top:36px;width:18px;height:18px;border-radius:50%;background:#0a84ff;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)"></div>'
+      + `${texto}</div>`,
+  })
+}
+
 function FlyTo({ lat, lon, nudge }: { lat: number; lon: number; nudge: number }) {
   const map = useMap()
   const pos = useRef({ lat, lon })
@@ -1660,6 +1683,73 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     // que duró.
     open: p.i1 === trail.length - 1 && state?.status !== 'ended',
   })), [trail, state?.status, ajustes])
+
+  // ── Mi posición: el punto azul de quien mira ──────────────────────────────
+  // En las apps se enciende sola (la app ya tiene permiso) y se queda si estás
+  // cerca de la ruta; en un navegador, solo con el botón, salvo que ya hubiera
+  // permiso: si no, a cualquiera que abriese un enlace le saltaría el aviso.
+  const [modoYo, setModoYo] = useState<'apagado' | 'auto' | 'encendido'>(embedded ? 'auto' : 'apagado')
+  const [pideYo, setPideYo] = useState(false)
+  const [sinYo, setSinYo] = useState(false)
+  useEffect(() => {
+    if (embedded || !navigator.permissions) return
+    navigator.permissions.query({ name: 'geolocation' as PermissionName })
+      .then((r) => { if (r.state === 'granted') setModoYo((m) => (m === 'apagado' ? 'auto' : m)) })
+      .catch(() => undefined)
+  }, [embedded])
+  // En tu propia salida en directo, tu posición ya es el punto de la baliza.
+  const directoMio = esMio && state?.status !== 'ended'
+  useEffect(() => {
+    if (directoMio) setModoYo((m) => (m === 'auto' ? 'apagado' : m))
+  }, [directoMio])
+  const yo = useMiPosicion(modoYo !== 'apagado', embedded, pideYo)
+  useEffect(() => {
+    if (yo.error === 'no-disponible') { setSinYo(true); setModoYo('apagado') }
+  }, [yo.error])
+  /** A cuánto está de la ruta (o del recorrido hecho) y, encima de ella, en qué km. */
+  const yoEnRuta = useMemo(() => {
+    const p = yo.pos
+    if (!p) return null
+    if (plan) {
+      const s = snapFixToTrack(plan.track, p.lat, p.lon)
+      return { km: s.distanceFromTrackKm, texto: s.distanceFromTrackKm < 0.05 ? `Estás en el km ${s.trackKm.toFixed(1)}` : `A ${formatDist(s.distanceFromTrackKm)} de la ruta` }
+    }
+    if (trail.length === 0) return null
+    let d = Infinity
+    for (const q of trail) d = Math.min(d, haversineKm(p.lat, p.lon, q.lat, q.lon))
+    return { km: d, texto: d < 0.05 ? 'Estás en el recorrido' : `A ${formatDist(d)} del recorrido` }
+  }, [yo.pos, plan, trail])
+  /** Sola, solo si estás cerca: en una ruta de otra ciudad, el punto no dice nada. */
+  const yoCerca = !!yoEnRuta && yoEnRuta.km <= 20
+  useEffect(() => {
+    if (modoYo === 'auto' && yoEnRuta && !yoCerca) setModoYo('apagado')
+  }, [modoYo, yoEnRuta, yoCerca])
+  const yoVisible = yo.pos && (modoYo === 'encendido' || (modoYo === 'auto' && yoCerca)) ? yo.pos : null
+  const centrarYo = useRef(false)
+  const yoCentrado = useRef(0)
+  const centraEnYo = useCallback((p: { lat: number; lon: number }) => {
+    yoCentrado.current = Date.now()
+    setFocus((f) => ({ lat: p.lat, lon: p.lon, n: (f?.n ?? 0) + 1 }))
+  }, [])
+  useEffect(() => {
+    if (!centrarYo.current || !yo.pos) return
+    centrarYo.current = false
+    centraEnYo(yo.pos)
+  }, [yo.pos, centraEnYo])
+  /** El botón: enciende y centra; encendido, vuelve a centrar; tocado otra vez
+   *  justo después de centrar, apaga. */
+  const tocaYo = () => {
+    if (modoYo !== 'encendido') {
+      void pidePermisoBrujula()
+      setPideYo(true)
+      setModoYo('encendido')
+      if (yo.pos) centraEnYo(yo.pos)
+      else centrarYo.current = true
+      return
+    }
+    if (Date.now() - yoCentrado.current < 6_000) { setModoYo('apagado'); setPideYo(false); return }
+    if (yo.pos) centraEnYo(yo.pos)
+  }
 
   // Distancia recorrida, descartando el ruido del GPS: un tramo solo cuenta si
   // es mas largo que la suma de los errores que declaran sus dos lecturas.
@@ -3697,6 +3787,10 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   }
 
   // ── Map view (default) ─────────────────────────────────────────────────────
+  /** Los botones de la derecha, apilados de abajo arriba según cuáles haya. */
+  const hueco = (n: number): CSSProperties => ({ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${6 + 3 * n}rem)` })
+  const pilaYo = fix ? (plan ? 2 : 1) : 0
+
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-100">
       {/* `rotate` + `touchRotate`: girar el mapa con dos dedos. El control de
@@ -3737,6 +3831,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             sinSenal={sinSenalPos && sinSenalTexto ? { banda: sinSenalBanda, pos: sinSenalPos, etiqueta: sinSenalTexto } : null}
             corredor={fix && posicionPintada ? { pos: posicionPintada, icon: pulseDivIcon(fixColor, !ended && !fr?.stale) } : null}
             destello={focus && ping > 0 ? { clave: ping, pos: [focus.lat, focus.lon], icon: notePingIcon } : null}
+            yo={yoVisible ? { pos: [yoVisible.lat, yoVisible.lon], rumbo: yoVisible.rumbo, precision: yoVisible.precision, etiqueta: yoEnRuta?.texto ?? null } : null}
             seguir={fix ? { lat: fix.lat, lon: fix.lon, nudge: recentre } : null}
             irA={focus ? { lat: focus.lat, lon: focus.lon, nudge: focus.n } : null}
             encuadrarPlan={!fix && !!plan && planLatLng.length > 1}
@@ -3963,6 +4058,14 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         </Pane>
         {fix && <Follow lat={fix.lat} lon={fix.lon} nudge={recentre} />}
         {focus && <FlyTo lat={focus.lat} lon={focus.lon} nudge={focus.n} />}
+        {yoVisible && (yoVisible.precision ?? 0) > 8 && (
+          <Circle center={[yoVisible.lat, yoVisible.lon]} radius={yoVisible.precision!} interactive={false}
+            pathOptions={{ color: '#0a84ff', weight: 1, opacity: 0.35, fillColor: '#0a84ff', fillOpacity: 0.14 }} />
+        )}
+        {yoVisible && (
+          <Marker position={[yoVisible.lat, yoVisible.lon]} interactive={false} zIndexOffset={900}
+            icon={yoDivIcon(yoVisible.rumbo === null ? null : yoVisible.rumbo + rumbo, yoEnRuta?.texto ?? null)} />
+        )}
         {!fix && plan && planLatLng.length > 1 && <FitPlan positions={planLatLng} />}
       </MapContainer>
       )}
@@ -4715,7 +4818,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onClick={() => setRecentre((n) => n + 1)}
           aria-label="Centrar en el corredor"
           title="Centrar en el corredor"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
+          style={hueco(0)}
           className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center text-slate-900 [filter:drop-shadow(0_0_2px_white)_drop-shadow(0_1px_2px_rgba(0,0,0,.4))] active:scale-95"
         >
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
@@ -4739,10 +4842,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             : anclado
               ? 'Pegado al recorrido; toca para ver la posición del GPS'
               : 'Posición del GPS; toca para pegarlo al recorrido'}
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9rem)' }}
+          style={hueco(1)}
           className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 text-lg backdrop-blur active:scale-95"
         >
           {offRoute ? '↯' : anclado ? <Magnet size={16} /> : <MapPin size={16} />}
+        </button>
+      )}
+
+      {/* Mi posición: el punto azul de quien mira, con hacia dónde mira. En
+          directo en tu propia salida no hace falta: el punto de la baliza eres tú. */}
+      {!sinYo && !directoMio && (
+        <button
+          type="button"
+          onClick={tocaYo}
+          aria-label={modoYo === 'encendido' ? 'Centrar en mi posición' : 'Ver mi posición'}
+          title={yo.error === 'sin-permiso' ? 'Sin permiso de ubicación' : modoYo === 'encendido' ? 'Centrar en mi posición (otra vez: quitarla)' : 'Ver mi posición'}
+          style={hueco(pilaYo)}
+          className={`absolute right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border backdrop-blur active:scale-95 ${
+            yoVisible ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-700 bg-slate-900/90 text-sky-300'}`}
+        >
+          <Navigation size={16} className={yoVisible ? 'fill-current' : ''} />
         </button>
       )}
 
@@ -4756,7 +4875,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onClick={() => (usaFluido ? apiFluido.current?.alNorte() : mapa?.setBearing(0))}
           aria-label="Volver a orientar el mapa al norte"
           title="Volver a orientar el mapa al norte"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)' }}
+          style={hueco(pilaYo + (!sinYo && !directoMio ? 1 : 0))}
           className="absolute right-3 z-[1000] grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-900/90 backdrop-blur active:scale-95"
         >
           <svg

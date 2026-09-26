@@ -119,6 +119,9 @@ interface Props {
   extremos?: { lado: 'inicio' | 'fin'; pos: [number, number] }[]
   onArrastraExtremo?: (lado: 'inicio' | 'fin', lat: number, lon: number) => [number, number] | null
   onSueltaExtremo?: (lado: 'inicio' | 'fin', lat: number, lon: number) => void
+  /** Quien mira el mapa: su punto azul, el cono de hacia dónde mira y lo
+   *  que le separa de la ruta (ver `lib/miPosicion`). */
+  yo?: { pos: [number, number]; rumbo: number | null; precision: number | null; etiqueta: string | null } | null
   /** Hacia dónde cae el norte en pantalla (grados, horario) y si está inclinado. */
   onVista: (v: { rumbo: number; inclinado: boolean }) => void
   onListo: (api: ApiMapaFluido) => void
@@ -300,7 +303,7 @@ export default function MapaFluido(p: Props) {
         layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
         ...extra,
       })
-      for (const id of ['sinSenal', 'planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'tramos', 'tramosCortes', 'puntosRuta', 'hueco', 'huecoPunto']) {
+      for (const id of ['sinSenal', 'planHalo', 'plan', 'planBorde', 'calor', 'trazaBorde', 'traza', 'tramos', 'tramosCortes', 'puntosRuta', 'hueco', 'huecoPunto', 'yoPrecision']) {
         map.addSource(id, { type: 'geojson', data: VACIO })
       }
       // Mismo orden, grosores y colores que el clásico.
@@ -340,6 +343,12 @@ export default function MapaFluido(p: Props) {
       map.addLayer({
         id: 'huecoPunto', type: 'circle', source: 'huecoPunto',
         paint: { 'circle-radius': 7, 'circle-color': '#0f172a', 'circle-opacity': 0.95, 'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 2 },
+      })
+      // Lo que puede fallar el GPS de quien mira: un círculo en metros de
+      // verdad, que crece y mengua con el zoom (ver el efecto de `yo`).
+      map.addLayer({
+        id: 'yoPrecision', type: 'circle', source: 'yoPrecision',
+        paint: { 'circle-radius': 0, 'circle-color': '#0a84ff', 'circle-opacity': 0.14, 'circle-stroke-color': '#0a84ff', 'circle-stroke-opacity': 0.35, 'circle-stroke-width': 1, 'circle-pitch-alignment': 'map' },
       })
 
       // El nombre de un punto de la ruta, al tocarlo.
@@ -693,6 +702,59 @@ export default function MapaFluido(p: Props) {
     suelto('destello', d ? String(d.clave) : null, () => marcadorDeIcono(d!.icon, CAPA.destello, false), d ? d.pos : null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listo, p.destello?.clave])
+
+  // Quien mira: el punto azul con su etiqueta, y debajo el cono de hacia dónde
+  // mira, tendido en el mapa —gira y se inclina con él— y orientado al norte
+  // de verdad. El punto va aparte para que la etiqueta no gire.
+  const yoRef = useRef<{ punto: Marker; texto: HTMLDivElement; cono: Marker; conoEl: HTMLDivElement } | null>(null)
+  useEffect(() => {
+    const map = mapaRef.current
+    if (!listo || !map) return
+    const y = p.yo
+    if (!y) {
+      yoRef.current?.punto.remove()
+      yoRef.current?.cono.remove()
+      yoRef.current = null
+      fuente('yoPrecision')?.setData(VACIO)
+      return
+    }
+    if (!yoRef.current) {
+      const el = document.createElement('div')
+      el.style.cssText = `display:flex;flex-direction:column;align-items:center;pointer-events:none;z-index:${CAPA.corredor}`
+      el.innerHTML = '<div style="width:18px;height:18px;border-radius:50%;background:#0a84ff;border:3px solid #fff;'
+        + 'box-shadow:0 1px 4px rgba(0,0,0,.45)"></div>'
+      const texto = document.createElement('div')
+      texto.style.cssText = 'margin-top:4px;background:rgba(2,6,23,.82);color:#f8fafc;font:600 10px/1.3 system-ui,sans-serif;'
+        + 'padding:2px 6px;border-radius:6px;white-space:nowrap'
+      el.appendChild(texto)
+      const conoEl = document.createElement('div')
+      conoEl.style.cssText = `width:96px;height:96px;pointer-events:none;z-index:${CAPA.corredor}`
+      conoEl.innerHTML = '<svg viewBox="0 0 96 96" width="96" height="96"><defs><radialGradient id="yoCono" cx="48" cy="48" r="48" gradientUnits="userSpaceOnUse">'
+        + '<stop offset="0.15" stop-color="#0a84ff" stop-opacity="0.75"/><stop offset="1" stop-color="#0a84ff" stop-opacity="0"/></radialGradient></defs>'
+        + '<path d="M48 48 L27 4 A48 48 0 0 1 69 4 Z" fill="url(#yoCono)"/></svg>'
+      yoRef.current = {
+        // El punto, con su centro en la posición aunque lleve la etiqueta debajo.
+        punto: new Marker({ element: el, anchor: 'top', offset: [0, -12] }).setLngLat(lonLat(y.pos)).addTo(map),
+        texto,
+        cono: new Marker({ element: conoEl, anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(lonLat(y.pos)).addTo(map),
+        conoEl,
+      }
+    }
+    const r = yoRef.current
+    r.punto.setLngLat(lonLat(y.pos))
+    r.cono.setLngLat(lonLat(y.pos))
+    r.texto.textContent = y.etiqueta ?? ''
+    r.texto.style.display = y.etiqueta ? 'block' : 'none'
+    r.conoEl.style.visibility = y.rumbo === null ? 'hidden' : 'visible'
+    if (y.rumbo !== null) r.cono.setRotation(y.rumbo)
+    // El radio en metros, pasado a píxeles para cada zoom: a zoom z un píxel
+    // mide 156543·cos(lat)/2^z metros.
+    const m = y.precision && y.precision > 8 ? y.precision : 0
+    const k = m / (156543.03 * Math.cos((y.pos[0] * Math.PI) / 180))
+    fuente('yoPrecision')?.setData(puntos([y.pos]))
+    map.setPaintProperty('yoPrecision', 'circle-radius', ['interpolate', ['exponential', 2], ['zoom'], 0, k, 22, k * 2 ** 22])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listo, p.yo?.pos[0], p.yo?.pos[1], p.yo?.rumbo, p.yo?.precision, p.yo?.etiqueta, !p.yo])
 
   // ── La cámara ───────────────────────────────────────────────────────────
   // Seguir al corredor sin robar el mando: la primera posición encuadra; las
