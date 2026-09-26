@@ -1165,8 +1165,9 @@ struct TrackingView: View {
                         // Y en la MISMA sección, debajo, las salidas: son la
                         // respuesta a la misma pregunta —"¿qué tengo grabado?"—
                         // y en dos apartados obligaban a mirar en dos sitios lo
-                        // que se busca de una vez.
-                        Divider().overlay(Theme.slate800).padding(.vertical, 2)
+                        // que se busca de una vez. Sin `Divider`: en una
+                        // lista cada vista es una fila, y salía una fila vacía;
+                        // la separación ya la ponen las filas.
                         Text("SALIDAS")
                             .font(.caption2.weight(.bold)).kerning(0.6)
                             .foregroundStyle(Theme.slate400)
