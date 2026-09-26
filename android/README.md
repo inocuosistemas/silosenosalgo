@@ -129,19 +129,21 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### El icono
 
-Sale del mismo favicon del visor web que el de iOS, para que la marca sea una
-sola en los tres sitios. Se regenera cuando cambie `public/favicon.svg`:
+Sale del mismo dibujo que el de iOS y el favicon del visor, para que la marca
+sea una sola en los tres sitios. Se regenera con:
 
 ```sh
-node android/scripts/genera-icono.mjs
+node scripts/genera-marca.mjs
 ```
 
-Deja los PNG del primer plano en `res/mipmap-*dpi/` (el fondo es un color plano
-en `res/drawable/ic_launcher_background.xml`) y, aparte, el de 512×512 de la
-ficha de Google Play en `app/src/main/ic_launcher-playstore.png`, que se sube a
-mano a la consola y no entra en el APK.
+Deja las capas del icono adaptativo en `res/mipmap-*dpi/` (el primer plano y
+la silueta monocroma de los iconos temáticos; el fondo es un degradado en
+`res/drawable/ic_launcher_background.xml`), la marca de las pantallas en
+`res/drawable-nodpi/marca_app.png` y, aparte, el de 512×512 de la ficha de
+Google Play en `app/src/main/ic_launcher-playstore.png`, que se sube a mano a
+la consola y no entra en el APK.
 
-No es un VectorDrawable a propósito: el favicon lleva máscaras y desenfoques
+No es un VectorDrawable a propósito: el cristal lleva máscaras y desenfoques
 gaussianos, que un vector de Android no sabe dibujar.
 
 ## Firmar y repartir

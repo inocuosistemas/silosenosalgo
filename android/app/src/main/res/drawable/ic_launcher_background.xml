@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- El fondo lila del icono, el mismo degradado que el de iOS
+     (scripts/genera-marca.mjs): claro arriba a la izquierda, hondo abajo. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- El mismo fondo del visor y del icono de iOS (public/404.html). -->
-    <solid android:color="#020617" />
+    <gradient
+        android:angle="315"
+        android:startColor="#B9A0FF"
+        android:centerColor="#7C42F4"
+        android:endColor="#5319D0"
+        android:type="linear" />
 </shape>

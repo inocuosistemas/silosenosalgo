@@ -49,7 +49,7 @@ targets:
       - path: WebDist
         type: folder
         buildPhase: resources
-      # El icono, generado desde el favicon del visor por scripts/genera-icono.mjs.
+      # El icono y la marca, generados por scripts/genera-marca.mjs.
       - path: Resources/Assets.xcassets
       # Manifiesto de privacidad: sin él la subida a TestFlight avisa (ITMS-91053).
       - path: Resources/PrivacyInfo.xcprivacy
