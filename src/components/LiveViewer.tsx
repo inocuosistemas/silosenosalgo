@@ -1390,6 +1390,19 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
     const pts = t.punto ? [t.punto] : trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
     encuadra(pts, 300)
   }
+  /** La línea de un tramo en el modo tramos. Si al lado hay una pausa, la
+   *  línea llega hasta su punto (y sale de él): la pausa es un sitio sin línea,
+   *  y sin esto el tramo acababa en la primera lectura de la pausa, a unos
+   *  metros de su insignia, y el recorrido salía roto. */
+  const lineaDeTramo = (k: number): [number, number][] => {
+    const t = tramos[k]
+    if (!t || t.modo === 'parado') return []
+    const pos = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
+    const antes = tramos[k - 1], despues = tramos[k + 1]
+    if (antes?.modo === 'parado' && antes.punto) pos.unshift(antes.punto)
+    if (despues?.modo === 'parado' && despues.punto) pos.push(despues.punto)
+    return pos
+  }
   /** Encuadrar en el mapa que se esté usando, entre la cabecera del modo y
    *  la hoja de abajo (`abajo` px). */
   const encuadra = (pts: [number, number][], abajo: number) => {
@@ -3694,11 +3707,12 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             encuadrarPlan={!fix && !!plan && planLatLng.length > 1}
             tramosMapa={modoTramos ? tramos.map((t, k) => ({
               // Una pausa es un punto: sin línea, solo su insignia en el sitio.
-              positions: t.modo === 'parado' ? [] : trail.slice(t.i0, t.i1 + 1).map((q) => [q.lat, q.lon] as [number, number]),
+              positions: lineaDeTramo(k),
               color: MODOS[t.modo].color,
               emoji: t.emoji ?? MODOS[t.modo].emoji,
               // Una pausa sin emoji propio lleva el icono dibujado.
               pausa: t.modo === 'parado' && !t.emoji,
+              pausaSinLinea: t.modo === 'parado',
               insignia: t.punto ?? [trail[Math.round((t.i0 + t.i1) / 2)].lat, trail[Math.round((t.i0 + t.i1) / 2)].lon] as [number, number],
               elegido: k === tramoSel,
               apagado: tramoSel >= 0 && k !== tramoSel,
@@ -3772,7 +3786,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {modoTramos && tramos.map((t, k) => {
           // Una pausa es un punto: sin línea, solo su insignia.
           if (t.modo === 'parado') return null
-          const pos = trail.slice(t.i0, t.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])
+          const pos = lineaDeTramo(k)
           if (pos.length < 2) return null
           const elegido = k === tramoSel
           const apagado = tramoSel >= 0 && !elegido
@@ -3786,7 +3800,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
             </Fragment>
           )
         })}
-        {modoTramos && tramos.slice(1).filter((t) => t.modo !== 'parado').map((t) => (
+        {modoTramos && tramos.filter((t, k) => k > 0 && t.modo !== 'parado' && tramos[k - 1].modo !== 'parado').map((t) => (
           <CircleMarker key={`corte-${t.i0}`} center={[trail[t.i0].lat, trail[t.i0].lon]} radius={5}
             pathOptions={{ color: '#020617', weight: 2, fillColor: '#ffffff', fillOpacity: 1 }} interactive={false} />
         ))}

@@ -80,6 +80,8 @@ export interface TramoDelMapa {
   emoji: string
   /** Una pausa: su insignia es el icono de pausa dibujado, no un emoji. */
   pausa?: boolean
+  /** Una pausa (con o sin emoji): un sitio, sin línea. */
+  pausaSinLinea?: boolean
   insignia: [number, number]
   elegido: boolean
   apagado: boolean
@@ -476,7 +478,8 @@ export default function MapaFluido(p: Props) {
       })),
     } : VACIO)
     // Los cortes, al empezar cada tramo en movimiento (una pausa ya es su insignia).
-    fuente('tramosCortes')?.setData(tm ? puntos(tm.slice(1).filter((t) => t.positions.length > 1).map((t) => t.positions[0])) : VACIO)
+    // (Tras una pausa no: la unión es su insignia.)
+    fuente('tramosCortes')?.setData(tm ? puntos(tm.filter((t, k) => k > 0 && t.positions.length > 1 && !tm[k - 1].pausaSinLinea).map((t) => t.positions[0])) : VACIO)
     for (const id of ['traza', 'trazaBorde']) map.setLayoutProperty(id, 'visibility', tm ? 'none' : 'visible')
     for (const m of insignias.current) m.remove()
     insignias.current = []
