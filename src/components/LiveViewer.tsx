@@ -3,7 +3,7 @@ import { CargandoMarca } from './CargandoMarca'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
-import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag } from 'lucide-react'
+import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal } from 'lucide-react'
 import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge, Route } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -4056,23 +4056,6 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                   {falloFluido && (
                     <p className="text-[10px] text-amber-400">Este dispositivo no puede con el mapa fluido: se usa el clásico.</p>
                   )}
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">Radar de lluvia</p>
-                        <p className="text-[10px] text-slate-400">La lluvia de ahora sobre el mapa, cada 10 min. Necesita cobertura</p>
-                      </div>
-                      <button
-                        role="switch"
-                        aria-checked={radar}
-                        aria-label="Radar de lluvia"
-                        onClick={() => cambiaRadar(!radar)}
-                        className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${radar ? 'bg-sky-600' : 'bg-slate-700'}`}
-                      >
-                        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${radar ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
-                    </div>
-                  </div>
                   {recalibrationCard}
                   {(canCheer || cheers.length > 0) && (
                     <div>
@@ -4267,83 +4250,110 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
                       )}
                     </div>
                   )}
-                  {canHeat && (
+                  {/* Los mandos del mapa, plegados: se tocan una vez y estorban
+                      el resto de la visita entre los datos y los tramos. */}
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400 [&::-webkit-details-marker]:hidden">
+                      <SlidersHorizontal size={13} />Opciones del mapa
+                      <ChevronRight size={13} className="ml-auto transition-transform group-open:rotate-90" />
+                    </summary>
+                    <div className="mt-3 space-y-3">
                     <div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-200">Mapa de calor · ritmo</p>
-                          <p className="text-[10px] text-slate-400">
-                            {lapInfo
-                              ? `Colorea la vuelta sumando las ${lapInfo.laps} pasadas`
-                              : 'Colorea el trazado por dónde se va rápido y dónde se atasca'}
+                          <p className="text-xs font-medium text-slate-200">Radar de lluvia</p>
+                          <p className="text-[10px] text-slate-400">La lluvia de ahora sobre el mapa, cada 10 min. Necesita cobertura</p>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={radar}
+                          aria-label="Radar de lluvia"
+                          onClick={() => cambiaRadar(!radar)}
+                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${radar ? 'bg-sky-600' : 'bg-slate-700'}`}
+                        >
+                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${radar ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    {canHeat && (
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-200">Mapa de calor · ritmo</p>
+                            <p className="text-[10px] text-slate-400">
+                              {lapInfo
+                                ? `Colorea la vuelta sumando las ${lapInfo.laps} pasadas`
+                                : 'Colorea el trazado por dónde se va rápido y dónde se atasca'}
+                            </p>
+                          </div>
+                          <button
+                            role="switch"
+                            aria-checked={heat}
+                            aria-label="Mapa de calor de ritmo"
+                            onClick={() => setHeat((v) => !v)}
+                            className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${heat ? 'bg-sky-600' : 'bg-slate-700'}`}
+                          >
+                            <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${heat ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+                        {/* La escala vive en la pastilla de abajo, con la velocidad
+                            real de cada color: repetirla aqui seria tener dos
+                            leyendas de lo mismo. */}
+                        {heat && !heatRange && (
+                          <p className="mt-1.5 text-[10px] text-slate-400">Aún no hay recorrido suficiente para comparar tramos.</p>
+                        )}
+                      </div>
+                    )}
+                    {stops.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-200">Mostrar pausas</p>
+                            <p className="text-[10px] text-slate-400">
+                              {stops.length === 1 ? '1 parada' : `${stops.length} paradas`} de mas de 5 min
+                            </p>
+                          </div>
+                          <button
+                            role="switch"
+                            aria-checked={showPauses}
+                            aria-label="Mostrar pausas"
+                            onClick={() => setShowPauses((v) => !v)}
+                            className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${showPauses ? 'bg-sky-600' : 'bg-slate-700'}`}
+                          >
+                            <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${showPauses ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {rawTrail.length >= 2 && (
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
+                            <p className="text-[10px] text-slate-400">Oculta saltos por mala señal GPS</p>
+                          </div>
+                          <button
+                            role="switch"
+                            aria-checked={smooth}
+                            aria-label="Suavizar traza"
+                            onClick={() => setSmooth((v) => !v)}
+                            className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
+                          >
+                            <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${smooth ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+                        {/* Impossible-speed notice: points hidden because they imply a
+                            speed unreachable for the (declared or detected) activity. */}
+                        {hiddenForSpeed > 0 && effectiveActivity && (
+                          <p className="mt-1.5 text-[10px] text-amber-400">
+                            <AlertTriangle size={11} className="inline-block -mt-0.5 align-middle" /> {hiddenForSpeed} {hiddenForSpeed === 1 ? 'punto oculto' : 'puntos ocultos'} por velocidad imposible para {ACTIVITY_LABEL[effectiveActivity].label.toLowerCase()}
+                            {activityIsAuto && ' (detectado)'}
                           </p>
-                        </div>
-                        <button
-                          role="switch"
-                          aria-checked={heat}
-                          aria-label="Mapa de calor de ritmo"
-                          onClick={() => setHeat((v) => !v)}
-                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${heat ? 'bg-sky-600' : 'bg-slate-700'}`}
-                        >
-                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${heat ? 'translate-x-5' : 'translate-x-0'}`} />
-                        </button>
+                        )}
                       </div>
-                      {/* La escala vive en la pastilla de abajo, con la velocidad
-                          real de cada color: repetirla aqui seria tener dos
-                          leyendas de lo mismo. */}
-                      {heat && !heatRange && (
-                        <p className="mt-1.5 text-[10px] text-slate-400">Aún no hay recorrido suficiente para comparar tramos.</p>
-                      )}
+                    )}
                     </div>
-                  )}
-                  {stops.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-200">Mostrar pausas</p>
-                          <p className="text-[10px] text-slate-400">
-                            {stops.length === 1 ? '1 parada' : `${stops.length} paradas`} de mas de 5 min
-                          </p>
-                        </div>
-                        <button
-                          role="switch"
-                          aria-checked={showPauses}
-                          aria-label="Mostrar pausas"
-                          onClick={() => setShowPauses((v) => !v)}
-                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${showPauses ? 'bg-sky-600' : 'bg-slate-700'}`}
-                        >
-                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${showPauses ? 'translate-x-5' : 'translate-x-0'}`} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {rawTrail.length >= 2 && (
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-200">Suavizar traza</p>
-                          <p className="text-[10px] text-slate-400">Oculta saltos por mala señal GPS</p>
-                        </div>
-                        <button
-                          role="switch"
-                          aria-checked={smooth}
-                          aria-label="Suavizar traza"
-                          onClick={() => setSmooth((v) => !v)}
-                          className={`h-6 w-11 shrink-0 appearance-none rounded-full p-0.5 transition-colors ${smooth ? 'bg-sky-600' : 'bg-slate-700'}`}
-                        >
-                          <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${smooth ? 'translate-x-5' : 'translate-x-0'}`} />
-                        </button>
-                      </div>
-                      {/* Impossible-speed notice: points hidden because they imply a
-                          speed unreachable for the (declared or detected) activity. */}
-                      {hiddenForSpeed > 0 && effectiveActivity && (
-                        <p className="mt-1.5 text-[10px] text-amber-400">
-                          <AlertTriangle size={11} className="inline-block -mt-0.5 align-middle" /> {hiddenForSpeed} {hiddenForSpeed === 1 ? 'punto oculto' : 'puntos ocultos'} por velocidad imposible para {ACTIVITY_LABEL[effectiveActivity].label.toLowerCase()}
-                          {activityIsAuto && ' (detectado)'}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  </details>
                   {hasPlan && fullProfile && (
                     <div>
                       <p className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400"><TrendingUp size={12} />Perfil del recorrido</p>
