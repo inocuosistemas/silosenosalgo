@@ -3351,9 +3351,13 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       aria-label="Agrandar la tarjeta"
       className="flex w-full items-center gap-2 px-3 py-2 text-left"
     >
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
-        {state.username ? `@${state.username}` : headline}
-      </span>
+      {/* Quién y qué ruta, en una línea: si no cabe, se desplaza sola
+          (`AutoScroll`) en vez de cortarse o de crecer a dos líneas. */}
+      <AutoScroll className="min-w-0 flex-1 text-sm font-semibold text-slate-100">
+        {state.username
+          ? <>@{state.username}<span className="font-normal text-slate-400"> · {headline}</span></>
+          : headline}
+      </AutoScroll>
       {margenMini && (
         <span className={`shrink-0 text-sm font-extrabold tabular-nums ${
           sinCobertura ? 'text-slate-300'
