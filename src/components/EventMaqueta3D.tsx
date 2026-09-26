@@ -277,7 +277,7 @@ interface Escena {
   palos: THREE.Group
   /** Las sombras de las agujas de la gente, en el suelo (ver `creaSombra`). */
   sombras: THREE.Group
-  fichas: Map<string, { sprite: THREE.Sprite; firma: string; sombra: THREE.Group }>
+  fichas: Map<string, { sprite: THREE.Sprite; firma: string; sombra: THREE.Group; huella: THREE.Group }>
   terreno: Terreno | null
   /** Mientras se genera un vídeo, el bucle de la pantalla no pinta: la
    *  escena la mueve el vídeo, fotograma a fotograma. */
@@ -972,6 +972,62 @@ function creaSombra(): THREE.Group {
   return g
 }
 
+/** Lo que mide la huella de un corredor en el suelo, de radio, en unidades de la loseta. */
+const HUELLA_R = 0.06
+
+/**
+ * La huella de un corredor en el suelo: un disco de su color con aro blanco y
+ * un halo, tendido bajo su chincheta. La chincheta dice QUIÉN es; desde lejos,
+ * con el palo en perspectiva, no decía bien DÓNDE está del trazado. La huella
+ * sí: marca el punto del cordón. Y una onda que sale de ella (ver
+ * `lateHuellas`), que en el vídeo late para que se vea de un vistazo.
+ */
+function creaHuella(color: string): THREE.Group {
+  const [c, ctx] = lienzo(128, 128)
+  const halo = ctx.createRadialGradient(64, 64, 30, 64, 64, 64)
+  halo.addColorStop(0, `${colorSeguro(color)}dd`)
+  halo.addColorStop(1, `${colorSeguro(color)}00`)
+  ctx.fillStyle = halo
+  ctx.beginPath(); ctx.arc(64, 64, 64, 0, Math.PI * 2); ctx.fill()
+  // Un filo oscuro por fuera: sobre el agua o sobre un cordón del mismo tono
+  // que el corredor, la huella se perdía.
+  ctx.fillStyle = '#0f172a'
+  ctx.beginPath(); ctx.arc(64, 64, 42, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath(); ctx.arc(64, 64, 38, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = colorSeguro(color)
+  ctx.beginPath(); ctx.arc(64, 64, 30, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath(); ctx.arc(64, 64, 9, 0, Math.PI * 2); ctx.fill()
+  const g = new THREE.Group()
+  const disco = new THREE.PlaneGeometry(2, 2)
+  disco.rotateX(-Math.PI / 2)
+  const base = new THREE.Mesh(disco, new THREE.MeshBasicMaterial({
+    map: texturaDe(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6,
+  }))
+  base.renderOrder = 1
+  const aro = new THREE.RingGeometry(0.74, 1, 48)
+  aro.rotateX(-Math.PI / 2)
+  const onda = new THREE.Mesh(aro, new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6,
+  }))
+  onda.renderOrder = 1
+  onda.userData.onda = true
+  g.add(base, onda)
+  return g
+}
+
+/** La onda de las huellas, a `ms` del reloj de quien pinta: sale, crece y se apaga. */
+function lateHuellas(e: Escena, ms: number) {
+  const fase = (ms % 1400) / 1400
+  for (const f of e.fichas.values()) {
+    const onda = f.huella.children.find((m) => m.userData.onda) as THREE.Mesh | undefined
+    if (!onda) continue
+    onda.scale.setScalar(0.9 + fase * 1.6)
+    ;(onda.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - fase)
+  }
+}
+
 /** Sin `tira`: la textura de la mancha es de todas, no se libera con una. */
 function tiraSombra(g: THREE.Group) {
   for (const m of g.children as THREE.Mesh[]) {
@@ -1429,15 +1485,35 @@ function colocaFichas(e: Escena, corredores: Corredor3D[], elegido: string | nul
       s.userData.sombra = sombra
       e.chinchetas.add(s)
       e.sombras.add(sombra)
-      f = { sprite: s, firma, sombra }
+      const huella = creaHuella(c.color)
+      e.sombras.add(huella)
+      f = { sprite: s, firma, sombra, huella }
       e.fichas.set(c.key, f)
     } else if (f.firma !== firma) {
       const mat = f.sprite.material
       mat.map?.dispose()
       mat.map = texturaDe(dibujaFicha(c, conEmoji, esElegido))
       mat.needsUpdate = true
+      if (f.firma.split('|')[0] !== c.color) {
+        e.sombras.remove(f.huella)
+        tira(f.huella)
+        f.huella = creaHuella(c.color)
+        e.sombras.add(f.huella)
+      }
       f.firma = firma
     }
+    // Tendida sobre lo más alto que pisa, un pelo por encima: en una ladera,
+    // a la altura del centro se hundiría por un lado.
+    let alto = sitio[1]
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = sitio[0] + dx * HUELLA_R
+      const z = sitio[2] + dz * HUELLA_R
+      alto = Math.max(alto, escala.y(alturaEn(rejilla, alturas, escala.px(x), escala.py(z))))
+    }
+    const r = HUELLA_R * (esElegido ? 1.2 : 1) * (conEmoji ? 1 : 0.7)
+    f.huella.position.set(sitio[0], alto + 0.003, sitio[2])
+    f.huella.scale.setScalar(r)
+    f.huella.visible = !c.apagado
     const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
     f.sprite.scale.set(tam, tam * 1.5, 1)
     f.sprite.userData.escalaBase = new THREE.Vector2(tam, tam * 1.5)
@@ -1456,6 +1532,8 @@ function colocaFichas(e: Escena, corredores: Corredor3D[], elegido: string | nul
     tira(f.sprite)
     e.sombras.remove(f.sombra)
     tiraSombra(f.sombra)
+    e.sombras.remove(f.huella)
+    tira(f.huella)
     e.fichas.delete(key)
   }
   e.sucio = true
@@ -1907,6 +1985,7 @@ async function grabaVideo(
       }
       const corredores = video.corredoresEn(instante)
       colocaFichas(e, corredores, seguir)
+      lateHuellas(e, f * dt)
 
       planoGeneral(f)
       camara.position.copy(posGeneral)

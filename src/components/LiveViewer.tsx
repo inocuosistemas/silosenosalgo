@@ -2830,7 +2830,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       tramos: modoInteligente ? tramos : [],
       nombre: headline,
       fecha: sessionStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', ''),
-      ficha: { texto: marcaCorredor.texto, color: marcaCorredor.color, nombre: state.username ? `@${state.username}` : headline },
+      // El color de su marca si es de un evento; si no, el lila de la app, que
+      // se distingue del agua, del cordón y del verde del monte.
+      ficha: { texto: marcaCorredor.texto, color: state.marca?.color ? marcaCorredor.color : '#8b5cf6', nombre: state.username ? `@${state.username}` : headline },
     })
   }
   const endedHero = ended && (
