@@ -1,9 +1,10 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CargandoMarca } from './CargandoMarca'
+import { SalidaEnMaqueta, type DatosSalidaMaqueta } from './SalidaEnMaqueta'
 // Iconos de trazo para los MANDOS y los estados de la pantalla. Los emojis se
 // quedan donde son contenido —el tiempo, el terreno, la marca de cada
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
-import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal } from 'lucide-react'
+import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal, Clapperboard } from 'lucide-react'
 import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge, Route } from 'lucide-react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -989,6 +990,8 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   const [smooth, setSmooth] = useState(true)
   const [heat, setHeat] = useState(false)
   const [showPauses, setShowPauses] = useState(true)
+  /** La salida en la maqueta 3D, con su vídeo: lo que se le pasó al abrirla. */
+  const [enMaqueta, setEnMaqueta] = useState<DatosSalidaMaqueta | null>(null)
   const [cheersReadAt, setCheersReadAt] = useState(() => loadCheersRead(storageToken))
   const [cheerNick, setCheerNick] = useState(() => { try { return localStorage.getItem('cheerNick') || '' } catch { return '' } })
   const [cheerBody, setCheerBody] = useState('')
@@ -2810,6 +2813,26 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
   // que parecían de ahora, y lo leía como alguien que sigue andando pero lleva
   // rato sin dar señal. Aquí se dice de frente y con el resumen de lo que fue.
   const endedAtMs = state.endedAt ?? fix?.updatedAt ?? null
+  /**
+   * Abre la salida en la maqueta, con lo que hay ahora: la traza, las pausas
+   * con su nombre, las notas con foto y los tramos. Se copia al abrir, que la
+   * maqueta rehace el terreno si le cambian los datos debajo.
+   */
+  const abreMaqueta = () => {
+    if (trail.length < 2) return
+    setEnMaqueta({
+      trail,
+      pausas: stops.map((p) => ({ desde: p.from, hasta: p.to, nombre: p.nombre?.nombre ?? null, emoji: p.nombre?.emoji ?? null })),
+      fotos: notes.filter((n) => n.photoKey).map((n) => ({
+        id: n.id, en: n.fixAt ?? n.createdAt, lat: n.lat, lon: n.lon,
+        url: localGuide?.mediaUrl(n.id, 'photo') ?? `/api/track/${token}/notes/${n.id}/media?kind=photo`,
+      })),
+      tramos: modoInteligente ? tramos : [],
+      nombre: headline,
+      fecha: sessionStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', ''),
+      ficha: { texto: marcaCorredor.texto, color: marcaCorredor.color, nombre: state.username ? `@${state.username}` : headline },
+    })
+  }
   const endedHero = ended && (
     <div className="rounded-xl border border-slate-600 bg-slate-800/70 p-3 text-center text-slate-100">
       <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide opacity-80"><Flag size={12} /> Seguimiento finalizado</p>
@@ -2827,6 +2850,16 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         {(progressKm ?? distanceKm).toFixed(1)} km
         {endedAtMs != null && <> · terminó {clockDay(new Date(endedAtMs), sessionStart)}</>}
       </p>
+      {/* La salida otra vez, en la maqueta 3D y en vídeo, con sus fotos. */}
+      {trail.length >= 2 && (
+        <button
+          type="button"
+          onClick={abreMaqueta}
+          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-violet-500/60 bg-violet-600/20 px-3 py-1 text-xs font-semibold text-violet-200 hover:bg-violet-600/30"
+        >
+          <Clapperboard size={13} />Maqueta y vídeo
+        </button>
+      )}
     </div>
   )
 
@@ -4819,6 +4852,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
           onSend={sendCheer} onClose={() => setComposing(false)}
         />
       )}
+      {enMaqueta && <SalidaEnMaqueta datos={enMaqueta} onCerrar={() => setEnMaqueta(null)} />}
     </div>
   )
 }

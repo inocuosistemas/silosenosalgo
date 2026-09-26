@@ -376,14 +376,20 @@ function sigueCorredor(
     const ideal = s.rumbo === null ? relativa.theta : s.rumbo + Math.PI + 0.6
     const cabeza = new THREE.Vector3(p.x, p.y + 0.05, p.z)
     const terreno = t
-    const libre = (theta: number) => !tapadaPorElMonte(
-      terreno, cabeza, new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza), 48,
-    )
-    const bastaElDeAhora = Math.abs(angulo(ideal - s.azimut)) < HOLGURA_LADO && libre(s.azimut)
+    // Mejor desde encima de la loseta: cerca del borde, desde fuera, lo que
+    // se ve es la pared de cartón y no el camino. Si ningún lado lo cumple,
+    // basta con que el monte no lo tape.
+    const ax = (terreno.rejilla.anchoPx * terreno.escala.u) / 2
+    const az = (terreno.rejilla.altoPx * terreno.escala.u) / 2
+    const libre = (theta: number, encima: boolean) => {
+      const desde = new THREE.Vector3().setFromSpherical(new THREE.Spherical(s.distancia, POLAR_SEGUIR, theta)).add(cabeza)
+      if (encima && (Math.abs(desde.x) > ax || Math.abs(desde.z) > az)) return false
+      return !tapadaPorElMonte(terreno, cabeza, desde, 48)
+    }
+    const bastaElDeAhora = Math.abs(angulo(ideal - s.azimut)) < HOLGURA_LADO && libre(s.azimut, true)
     if (!bastaElDeAhora) {
-      for (const desvio of DESVIOS_SEGUIR) {
-        if (libre(ideal + desvio)) { s.azimut = ideal + desvio; break }
-      }
+      const lado = DESVIOS_SEGUIR.find((d) => libre(ideal + d, true)) ?? DESVIOS_SEGUIR.find((d) => libre(ideal + d, false))
+      if (lado !== undefined) s.azimut = ideal + lado
     }
   }
 
@@ -1477,7 +1483,8 @@ function preparaChinchetas(e: Escena, camara: THREE.PerspectiveCamera, conRotulo
       ch.scale.set(base.x * k, base.y * k, 1)
     }
     cabeza.set(ch.position.x, ch.position.y + ch.scale.y * 0.75, ch.position.z)
-    const apagada = !!(ch.userData.rotulo && !conRotulos)
+    // `oculta`: en el vídeo, la foto a la que aún no se ha llegado.
+    const apagada = !!(ch.userData.rotulo && !conRotulos) || !!ch.userData.oculta
     ch.visible = !apagada && !tapadaPorElMonte(t, cabeza, camara.position, PASOS_TAPADO)
     const sombra = ch.userData.sombra as THREE.Group | undefined
     if (sombra) colocaSombra(sombra, t, ch.position, ch.scale.y * 0.8, k, e.caidaSombra)
@@ -1526,6 +1533,59 @@ export interface VideoReplay {
   participantes: { key: string; nombre: string; emoji: string | null; color: string }[]
   /** Al empezar a grabar: para parar el reloj de la pantalla. */
   alEmpezar?: () => void
+  /**
+   * Para una salida: el reloj no corre parejo sino por un guion, que salta
+   * las pausas, se para en las fotos y dura lo que haga falta (ver
+   * `lib/guionSalida`). Sin él, la carrera entera en su tiempo fijo.
+   */
+  guion?: {
+    segundos: number
+    en: (s: number) => { instante: number; rotulo: string | null; foto: { id: string; fase: number } | null }
+  }
+  /** Lo que va arriba, sobre el nombre. Sin él, «REPLAY». */
+  antetitulo?: string
+  /** A quién sigue la cámara si no se elige otra cosa. */
+  seguirDeSerie?: string
+}
+
+/** Una foto de la salida, clavada donde se hizo como una miniatura. */
+export interface FotoMaqueta { id: string; lat: number; lon: number; url: string; en: number }
+/** Un trozo del cordón con su color: los tramos de una salida (índices de `ruta`). */
+export interface TramoCordon { i0: number; i1: number; color: string }
+
+/** Las imágenes de las fotos, bajadas una vez: las usan las chinchetas y el vídeo. */
+const imagenes = new Map<string, Promise<HTMLImageElement | null>>()
+const cargaImagen = (url: string) => {
+  let p = imagenes.get(url)
+  if (!p) {
+    p = new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => { imagenes.delete(url); resolve(null) }
+      img.src = url
+    })
+    imagenes.set(url, p)
+  }
+  return p
+}
+
+/** Lo que mide la miniatura de una foto clavada, y su palo, en píxeles del dibujo. */
+const FOTO_LADO = 88
+const FOTO_PALO = 40
+
+/** La miniatura de una foto: recortada en cuadrado, con marco blanco, sobre un palo. */
+function dibujaFotoClavada(img: HTMLImageElement): HTMLCanvasElement {
+  const [c, ctx] = lienzo(FOTO_LADO, FOTO_LADO + FOTO_PALO)
+  const borde = 5
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath(); ctx.roundRect(2, 2, FOTO_LADO - 4, FOTO_LADO - 4, 10); ctx.fill()
+  const lado = Math.min(img.naturalWidth, img.naturalHeight)
+  ctx.save()
+  ctx.beginPath(); ctx.roundRect(2 + borde, 2 + borde, FOTO_LADO - 4 - 2 * borde, FOTO_LADO - 4 - 2 * borde, 6); ctx.clip()
+  ctx.drawImage(img, (img.naturalWidth - lado) / 2, (img.naturalHeight - lado) / 2, lado, lado,
+    2 + borde, 2 + borde, FOTO_LADO - 4 - 2 * borde, FOTO_LADO - 4 - 2 * borde)
+  ctx.restore()
+  return c
 }
 
 type FormatoVideo = 'vertical' | 'horizontal'
@@ -1549,6 +1609,11 @@ const nombreDeFichero = (nombre: string | null) =>
  * últimos segundos aparece la marca de la app (`marca`, de 0 a 1).
  */
 function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d: {
+  antetitulo?: string
+  /** El rótulo de una pausa, en una pastilla ámbar sobre el reloj. */
+  rotulo?: string | null
+  /** La foto que se enseña: sale de su chincheta (`desde`), se queda y vuelve. */
+  foto?: { img: HTMLImageElement; fase: number; desde: [number, number] | null } | null
   nombre: string | null
   instante: number
   desde: number
@@ -1572,7 +1637,10 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
   ctx.fillRect(0, 0, W, altoArriba)
   ctx.fillStyle = 'rgba(148,163,184,0.95)'
   ctx.font = fuente(700, 24 * u)
-  ctx.fillText('R E P L A Y', W / 2, 70 * u)
+  if (d.antetitulo) {
+    // Espaciado como el «R E P L A Y», pero sin partir las palabras.
+    ctx.fillText(d.antetitulo.toUpperCase().split(' ').map((p) => p.split('').join('\u2009')).join('   '), W / 2, 70 * u)
+  } else ctx.fillText('R E P L A Y', W / 2, 70 * u)
   if (d.nombre) {
     let tam = 60 * u
     ctx.font = fuente(800, tam)
@@ -1598,6 +1666,21 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
   const quien = d.seguido ? `${d.seguido.emoji ? `${d.seguido.emoji} ` : ''}${d.seguido.nombre}` : null
   ctx.fillText([`+${durationLabel(Math.max(0, d.instante - d.desde))}`, quien].filter(Boolean).join('  ·  '), W / 2, H - 62 * u)
 
+  if (d.rotulo) {
+    ctx.font = fuente(700, 38 * u)
+    const ancho = ctx.measureText(d.rotulo).width + 48 * u
+    const alto = 66 * u
+    const y = H - 250 * u
+    ctx.fillStyle = 'rgba(245,158,11,0.94)'
+    ctx.beginPath(); ctx.roundRect(W / 2 - ancho / 2, y - alto / 2, ancho, alto, alto / 2); ctx.fill()
+    ctx.fillStyle = '#1c1204'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(d.rotulo, W / 2, y + 2 * u)
+    ctx.textBaseline = 'alphabetic'
+  }
+
+  if (d.foto) dibujaFotoEnVideo(ctx, W, H, d.foto)
+
   if (d.marca > 0) {
     ctx.globalAlpha = d.marca
     ctx.font = fuente(800, 30 * u)
@@ -1620,6 +1703,42 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
       ctx.fillText(texto, W / 2, H - 22 * u)
     }
   }
+  ctx.restore()
+}
+
+/**
+ * La foto en el vídeo, como una copia en papel: sale pequeña de su chincheta,
+ * se planta en medio un momento, algo girada, y vuelve a su sitio encogiendo.
+ */
+function dibujaFotoEnVideo(ctx: CanvasRenderingContext2D, W: number, H: number, f: { img: HTMLImageElement; fase: number; desde: [number, number] | null }) {
+  const sale = suave(Math.min(1, f.fase / 0.16))
+  const vuelve = suave(Math.max(0, (f.fase - 0.82) / 0.18))
+  const { naturalWidth: iw, naturalHeight: ih } = f.img
+  if (!iw || !ih) return
+  const maxAncho = W * 0.8
+  const maxAlto = H * 0.5
+  const escalaImg = Math.min(maxAncho / iw, maxAlto / ih)
+  const ancho = iw * escalaImg
+  const alto = ih * escalaImg
+  const borde = Math.max(ancho, alto) * 0.035
+  const [ox, oy] = f.desde ?? [W / 2, H / 2]
+  const cx = W / 2
+  const cy = H * 0.46
+  const k = (0.1 + 0.9 * sale) * (1 - 0.9 * vuelve)
+  const x = ox + (cx - ox) * sale + (ox - cx) * vuelve
+  const y = oy + (cy - oy) * sale + (oy - cy) * vuelve
+  ctx.save()
+  ctx.globalAlpha = Math.min(1, sale * 1.6) * (1 - 0.4 * vuelve)
+  ctx.translate(x, y)
+  ctx.rotate((-2.5 * Math.PI) / 180)
+  ctx.scale(k, k)
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 40
+  ctx.shadowOffsetY = 14
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath(); ctx.roundRect(-ancho / 2 - borde, -alto / 2 - borde, ancho + 2 * borde, alto + 2 * borde, borde); ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.drawImage(f.img, -ancho / 2, -alto / 2, ancho, alto)
   ctx.restore()
 }
 
@@ -1721,9 +1840,11 @@ async function grabaVideo(
   /** El siguiente paquete de música por meter: van a la par que los fotogramas. */
   let paqueteMusica = 0
 
-  const total = VIDEO_FPS * VIDEO_SEGUNDOS
   const intro = VIDEO_FPS * VIDEO_INTRO_S
   const outro = VIDEO_FPS * VIDEO_OUTRO_S
+  const total = video.guion
+    ? intro + Math.max(1, Math.round(video.guion.segundos * VIDEO_FPS)) + outro
+    : VIDEO_FPS * VIDEO_SEGUNDOS
   const dt = 1000 / VIDEO_FPS
 
   // El plano general, encuadrado para este formato con sitio arriba para el
@@ -1756,13 +1877,34 @@ async function grabaVideo(
   let siguiendoYa = false
   const objetivo = new THREE.Vector3()
 
+  // Las fotos clavadas: cuáles hay y sus imágenes, ya bajadas.
+  const fotosClavadas = e.chinchetas.children.filter((ch) => ch.userData.foto)
+  const imagenesVideo = new Map<string, HTMLImageElement>()
+  for (const ch of fotosClavadas) {
+    const img = await cargaImagen(ch.userData.fotoUrl as string)
+    if (img) imagenesVideo.set(ch.userData.foto as string, img)
+  }
+  const enPantalla = new THREE.Vector3()
+
   e.grabando = true
   try {
     await output.start()
     for (let f = 0; f < total; f++) {
       if (cancelado()) { await output.cancel(); return null }
-      const carrera = Math.min(1, Math.max(0, (f - intro) / (total - intro - outro)))
-      const instante = video.desde + (video.hasta - video.desde) * carrera
+      let instante: number
+      let momento: ReturnType<NonNullable<VideoReplay['guion']>['en']> | null = null
+      if (video.guion) {
+        momento = video.guion.en(Math.min(video.guion.segundos, Math.max(0, (f - intro) / VIDEO_FPS)))
+        instante = momento.instante
+      } else {
+        const carrera = Math.min(1, Math.max(0, (f - intro) / (total - intro - outro)))
+        instante = video.desde + (video.hasta - video.desde) * carrera
+      }
+      // Cada foto aparece en la maqueta cuando se llega a ella, al volver a su sitio.
+      for (const ch of fotosClavadas) {
+        const esta = momento?.foto?.id === ch.userData.foto
+        ch.userData.oculta = !(instante > (ch.userData.fotoEn as number) || (esta && momento!.foto!.fase >= 0.92))
+      }
       const corredores = video.corredoresEn(instante)
       colocaFichas(e, corredores, seguir)
 
@@ -1787,7 +1929,19 @@ async function grabaVideo(
       // Copiado en el mismo turno que se pinta: sin `preserveDrawingBuffer`,
       // después el lienzo de WebGL ya estaría en blanco.
       ctx.drawImage(renderer.domElement, 0, 0, W, H)
+      let foto: { img: HTMLImageElement; fase: number; desde: [number, number] | null } | null = null
+      const img = momento?.foto ? imagenesVideo.get(momento.foto.id) : undefined
+      if (momento?.foto && img) {
+        const ch = fotosClavadas.find((c) => c.userData.foto === momento!.foto!.id)
+        let desde: [number, number] | null = null
+        if (ch) {
+          enPantalla.set(ch.position.x, ch.position.y + ch.scale.y * 0.7, ch.position.z).project(camara)
+          if (enPantalla.z < 1) desde = [((enPantalla.x + 1) / 2) * W, ((1 - enPantalla.y) / 2) * H]
+        }
+        foto = { img, fase: momento.foto.fase, desde }
+      }
       rotulaFotograma(ctx, W, H, {
+        antetitulo: video.antetitulo, rotulo: momento?.rotulo ?? null, foto,
         nombre, instante, desde: video.desde,
         seguido: s ? corredores.find((c) => c.key === s.key) ?? null : null,
         logo, marca: final, credito: musica ? creditoMusica(musica) : null,
@@ -1816,6 +1970,7 @@ async function grabaVideo(
     return buffer ? new Blob([buffer], { type: 'video/mp4' }) : null
   } finally {
     e.grabando = false
+    for (const ch of fotosClavadas) ch.userData.oculta = false
     renderer.dispose()
     renderer.forceContextLoss()
   }
@@ -1836,9 +1991,17 @@ interface Props {
   /** Cuándo sale la carrera (epoch ms). Es la hora a la que arranca el reloj
    *  de la carrerita decorativa, y con ella el sol: ver `src/lib/carrerita`. */
   salidaMs?: number | null
+  /** Las fotos de una salida, clavadas donde se hicieron. */
+  fotos?: FotoMaqueta[]
+  /** El cordón pintado por tramos, cada uno de su color. Sin ellos, violeta. */
+  tramosCordon?: TramoCordon[]
 }
 
-export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0, video, salidaMs = null }: Props) {
+/** Siempre los mismos: uno nuevo en cada render rehacía las chinchetas y el terreno. */
+const SIN_FOTOS: FotoMaqueta[] = []
+const SIN_TRAMOS: TramoCordon[] = []
+
+export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos, nombre, margenAbajo = 0, video, salidaMs = null, fotos = SIN_FOTOS, tramosCordon = SIN_TRAMOS }: Props) {
   const caja = useRef<HTMLDivElement>(null)
   const escena = useRef<Escena | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'lista' | 'error'>('cargando')
@@ -1875,7 +2038,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   /** El vídeo del replay: el panel, lo elegido y, mientras se genera, cuánto va. */
   const [panelVideo, setPanelVideo] = useState(false)
   const [formatoVideo, setFormatoVideo] = useState<FormatoVideo>('vertical')
-  const [seguirVideo, setSeguirVideo] = useState<string | null>(null)
+  const [seguirVideo, setSeguirVideo] = useState<string | null>(video?.seguirDeSerie ?? null)
   const [progresoVideo, setProgresoVideo] = useState<number | null>(null)
   const [errorVideo, setErrorVideo] = useState<string | null>(null)
   const cancelaVideo = useRef(false)
@@ -1944,7 +2107,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     }
     if (!hecho) return
     setPanelVideo(false)
-    await pideVideo(hecho, `replay-${nombreDeFichero(nombre)}.mp4`, nombre ? `${nombre} · replay` : 'Replay de la carrera', musicaElegida !== null)
+    const deSalida = !!video.guion
+    await pideVideo(hecho, `${deSalida ? 'salida' : 'replay'}-${nombreDeFichero(nombre)}.mp4`, nombre ? `${nombre} · ${deSalida ? 'vídeo' : 'replay'}` : 'Replay de la carrera', musicaElegida !== null)
   }
 
   // Empezar a seguir: la cámara se suelta de los mandos, que se pelearían con
@@ -2270,7 +2434,23 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           return m
         }
         e.loseta.add(cinta(CORDON_ANCHO * 1.7, CORDON_ALTO * 0.6, '#f8fafc'))
-        e.loseta.add(cinta(CORDON_ANCHO, CORDON_ALTO, '#6d28d9'))
+        if (tramosCordon.length === 0) e.loseta.add(cinta(CORDON_ANCHO, CORDON_ALTO, '#6d28d9'))
+      }
+      // Por tramos, cada uno de su color sobre la misma cinta blanca: los
+      // medios de una salida (a pie, en barco…), como en el mapa.
+      for (const tr of tramosCordon) {
+        const trozo = ruta.slice(Math.max(0, tr.i0), tr.i1 + 1)
+        if (trozo.length < 2) continue
+        const pts = cordonSobreTerreno(rejilla, alturas, escala, aligera(trozo, Math.max(60, Math.round((3000 * trozo.length) / ruta.length))), Math.max(rejilla.anchoPx, rejilla.altoPx) / 500)
+        if (pts.length < 2) continue
+        const c = cintaSobreTerreno(rejilla, alturas, escala, pts, CORDON_ANCHO, CORDON_ALTO)
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.BufferAttribute(c.posiciones, 3))
+        g.setIndex(new THREE.BufferAttribute(c.indices, 1))
+        g.computeVertexNormals()
+        const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: tr.color, side: THREE.DoubleSide }))
+        m.receiveShadow = true
+        e.loseta.add(m)
       }
 
       // Los árboles, en el bosque: pinos en lo alto y copas redondas abajo,
@@ -2403,7 +2583,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       setEstado('lista')
     })
     return () => { vigente = false }
-  }, [ruta, cotas, planId])
+  }, [ruta, cotas, planId, tramosCordon])
 
   // Las chinchetas fijas: salida, meta y los puntos del recorrido.
   useEffect(() => {
@@ -2491,6 +2671,38 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
       e.sucio = true
     }
   }, [puntos, estado])
+
+  // Las fotos de una salida, clavadas donde se hicieron. Llegan cuando llegan
+  // sus imágenes; el vídeo las va enseñando según se alcanzan (`oculta`).
+  useEffect(() => {
+    const e = escena.current
+    if (!e || estado !== 'lista' || !e.terreno || fotos.length === 0) return
+    const { rejilla, alturas, escala } = e.terreno
+    let vigente = true
+    const hechas: THREE.Sprite[] = []
+    void Promise.all(fotos.map((f) => cargaImagen(f.url))).then((imgs) => {
+      if (!vigente) return
+      fotos.forEach((f, i) => {
+        const img = imgs[i]
+        const sitio = img ? sitioEnMaqueta(rejilla, alturas, escala, f.lat, f.lon) : null
+        if (!img || !sitio) return
+        const ancho = 0.1
+        const s = chincheta(dibujaFotoClavada(img), ancho, (ancho * (FOTO_LADO + FOTO_PALO)) / FOTO_LADO, sitio, 0.5, FOTO_PALO / (FOTO_LADO + FOTO_PALO))
+        s.userData.key = `foto:${f.id}`
+        s.userData.foto = f.id
+        s.userData.fotoUrl = f.url
+        s.userData.fotoEn = f.en
+        e.chinchetas.add(s)
+        hechas.push(s)
+      })
+      e.sucio = true
+    })
+    return () => {
+      vigente = false
+      for (const s of hechas) { e.chinchetas.remove(s); tira(s) }
+      e.sucio = true
+    }
+  }, [fotos, estado])
 
   // Los corredores se mueven en cada refresco: se recolocan las chinchetas
   // que ya hay y solo se redibuja la que cambia.
@@ -2961,7 +3173,7 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
           style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${72 + margenAbajo}px)` }}
         >
           <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900/95 p-3 text-slate-200 shadow-xl backdrop-blur">
-            <p className="flex items-center gap-1.5 text-sm font-semibold"><Clapperboard size={15} /> Vídeo del replay · 30 s</p>
+            <p className="flex items-center gap-1.5 text-sm font-semibold"><Clapperboard size={15} /> Vídeo {video?.guion ? 'de la salida' : 'del replay'} · {video?.guion ? Math.round(VIDEO_INTRO_S + video.guion.segundos + VIDEO_OUTRO_S) : VIDEO_SEGUNDOS} s</p>
             {progresoVideo === null ? (
               <>
                 <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Formato</p>
