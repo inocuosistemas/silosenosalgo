@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { LngLatBounds, Map as MapaGL, Marker, Popup, addProtocol, setWorkerUrl, type GeoJSONSource, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -707,11 +707,36 @@ export default function MapaFluido(p: Props) {
   // mira, tendido en el mapa —gira y se inclina con él— y orientado al norte
   // de verdad. El punto va aparte para que la etiqueta no gire.
   const yoRef = useRef<{ punto: Marker; texto: HTMLDivElement; cono: Marker; conoEl: HTMLDivElement } | null>(null)
+  // El giro del cono, animado: la brújula llega a saltos (en las apps, unas
+  // pocas lecturas por segundo) y girarlo de golpe en cada una iba a
+  // trompicones. Cada fotograma se acerca un poco a la última lectura por el
+  // camino corto; llega algo más tarde, pero se mueve fluido. Quieto, para.
+  const giroCono = useRef<{ actual: number | null; objetivo: number | null; bucle: number; antes: number }>({ actual: null, objetivo: null, bucle: 0, antes: 0 })
+  const animaCono = useCallback(() => {
+    const g = giroCono.current
+    if (g.bucle) return
+    g.antes = performance.now()
+    const paso = (ahora: number) => {
+      const cono = yoRef.current?.cono
+      if (!cono || g.objetivo === null) { g.bucle = 0; return }
+      const dt = Math.min(100, ahora - g.antes)
+      g.antes = ahora
+      if (g.actual === null) g.actual = g.objetivo
+      const falta = ((g.objetivo - g.actual + 540) % 360) - 180
+      g.actual = (g.actual + falta * (1 - Math.exp(-dt / 280)) + 360) % 360
+      cono.setRotation(g.actual)
+      g.bucle = Math.abs(falta) > 0.2 ? requestAnimationFrame(paso) : 0
+    }
+    g.bucle = requestAnimationFrame(paso)
+  }, [])
+  useEffect(() => () => cancelAnimationFrame(giroCono.current.bucle), [])
   useEffect(() => {
     const map = mapaRef.current
     if (!listo || !map) return
     const y = p.yo
     if (!y) {
+      giroCono.current.objetivo = null
+      giroCono.current.actual = null
       yoRef.current?.punto.remove()
       yoRef.current?.cono.remove()
       yoRef.current = null
@@ -746,7 +771,9 @@ export default function MapaFluido(p: Props) {
     r.texto.textContent = y.etiqueta ?? ''
     r.texto.style.display = y.etiqueta ? 'block' : 'none'
     r.conoEl.style.visibility = y.rumbo === null ? 'hidden' : 'visible'
-    if (y.rumbo !== null) r.cono.setRotation(y.rumbo)
+    giroCono.current.objetivo = y.rumbo
+    if (y.rumbo === null) giroCono.current.actual = null
+    else animaCono()
     // El radio en metros, pasado a píxeles para cada zoom: a zoom z un píxel
     // mide 156543·cos(lat)/2^z metros.
     const m = y.precision && y.precision > 8 ? y.precision : 0

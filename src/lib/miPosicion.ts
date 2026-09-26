@@ -24,8 +24,9 @@ export interface MiPosicion {
 
 export type ErrorMiPosicion = 'sin-permiso' | 'sin-gps' | 'no-disponible'
 
-/** Cada cuánto se le pregunta a la app: la brújula tiene que ir fluida. */
-const PREGUNTA_MS = 400
+/** Cada cuánto se le pregunta a la app. El giro lo suaviza el mapa, que lo
+ *  anima entre lectura y lectura; esto solo dice cuánto tarda en enterarse. */
+const PREGUNTA_MS = 250
 
 /** Pide permiso para la brújula. En iOS Safari solo se puede desde un toque. */
 export async function pidePermisoBrujula(): Promise<void> {
@@ -64,7 +65,7 @@ export function useMiPosicion(activo: boolean, embebido: boolean, pedir: boolean
           const d = await res.json() as { estado: string; lat?: number; lon?: number; precision?: number | null; rumbo?: number | null }
           if (!vivo) return
           if (d.estado === 'ok' && typeof d.lat === 'number' && typeof d.lon === 'number') {
-            rumbo.current = typeof d.rumbo === 'number' ? suaviza(rumbo.current, d.rumbo, 0.5) : null
+            rumbo.current = typeof d.rumbo === 'number' ? suaviza(rumbo.current, d.rumbo, 0.8) : null
             setPos({ lat: d.lat, lon: d.lon, precision: d.precision ?? null, rumbo: rumbo.current })
             setError(null)
           } else if (d.estado === 'sin-permiso') setError('sin-permiso')
@@ -98,9 +99,15 @@ export function useMiPosicion(activo: boolean, embebido: boolean, pedir: boolean
       // Android: `alpha` absoluto va al revés (antihorario) desde el norte.
       else if (e.absolute && typeof e.alpha === 'number') r = (360 - e.alpha) % 360
       if (r === null) return
-      rumbo.current = suaviza(rumbo.current, (r + giro()) % 360, 0.35)
+      // Llegan a decenas por segundo: el visor se entera como mucho cada
+      // 150 ms, y el giro fluido lo pone el mapa animando hacia la última.
+      rumbo.current = (r + giro()) % 360
+      const ahora = performance.now()
+      if (ahora - ultimoAviso < 150) return
+      ultimoAviso = ahora
       setPos((p) => (p ? { ...p, rumbo: rumbo.current } : p))
     }
+    let ultimoAviso = 0
     const absoluto = 'ondeviceorientationabsolute' in window
     const evento = absoluto ? 'deviceorientationabsolute' : 'deviceorientation'
     window.addEventListener(evento, alGirar as EventListener)
