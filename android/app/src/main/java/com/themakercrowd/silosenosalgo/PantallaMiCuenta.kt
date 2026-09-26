@@ -24,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -107,6 +108,13 @@ object Cuenta {
         almacen.token = r.token ?: throw ApiException(0, "network")
     }
 
+    /** Borra la cuenta en el servidor. Lo de este móvil lo recoge quien llama,
+     *  como al salir (parar la baliza, olvidar la sesión). */
+    suspend fun borra(ctx: Context, contrasena: String) {
+        val t = TokenStore(ctx).token ?: throw ApiException(401, "unauthorized")
+        Api().borraCuenta(t, contrasena)
+    }
+
     fun olvida(ctx: Context) {
         prefs(ctx).edit().remove("perfil").apply()
         _perfil.value = PerfilDeCuenta()
@@ -164,7 +172,7 @@ fun BotonDeCuenta(usuario: String?, onClick: () -> Unit) {
  * `PantallaMiCuenta` en iOS.
  */
 @Composable
-fun PantallaMiCuenta(usuario: String?, onCerrar: () -> Unit, onSalir: () -> Unit) {
+fun PantallaMiCuenta(usuario: String?, onCerrar: () -> Unit, onSalir: () -> Unit, onBorrada: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val perfil by Cuenta.perfil.collectAsState()
@@ -360,6 +368,60 @@ fun PantallaMiCuenta(usuario: String?, onCerrar: () -> Unit, onSalir: () -> Unit
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Paleta.rojo.copy(alpha = 0.85f)),
         ) { Text("Salir de la cuenta") }
+
+        // Borrar la cuenta: lo último y plegado, con la contraseña y una
+        // pregunta más. Es lo único de aquí que no tiene vuelta atrás.
+        var borrarAbierto by remember { mutableStateOf(false) }
+        var claveBorrar by remember { mutableStateOf("") }
+        var confirmandoBorrar by remember { mutableStateOf(false) }
+        var borrando by remember { mutableStateOf(false) }
+        var errorBorrar by remember { mutableStateOf<String?>(null) }
+        Spacer(Modifier.height(12.dp))
+        TextButton(onClick = { borrarAbierto = !borrarAbierto }, modifier = Modifier.fillMaxWidth()) {
+            Text("Borrar la cuenta", color = Paleta.rojo.copy(alpha = 0.85f))
+        }
+        if (borrarAbierto) {
+            Seccion(
+                titulo = "Borrar la cuenta", icono = "🗑️",
+                pie = "Se borran tu cuenta, tus salidas con sus notas, fotos y audios, tus rutas y tus pronósticos. " +
+                    "Los eventos que creaste con más gente pasan a otro participante. No se puede deshacer.",
+            ) {
+                CampoDeClave(claveBorrar, { claveBorrar = it }, "Tu contraseña")
+                errorBorrar?.let { Text(it, color = Paleta.rojo, style = MaterialTheme.typography.bodySmall) }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    enabled = claveBorrar.isNotEmpty() && !borrando,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Paleta.rojo),
+                    onClick = { confirmandoBorrar = true },
+                ) { Text(if (borrando) "Borrando…" else "Borrar mi cuenta") }
+            }
+        }
+        if (confirmandoBorrar) {
+            AlertDialog(
+                onDismissRequest = { confirmandoBorrar = false },
+                title = { Text("¿Borrar tu cuenta para siempre?") },
+                text = { Text("Se borra todo lo tuyo y no se puede recuperar.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmandoBorrar = false
+                        borrando = true
+                        errorBorrar = null
+                        scope.launch {
+                            runCatching { Cuenta.borra(context, claveBorrar) }
+                                .onSuccess { onBorrada() }
+                                .onFailure { e ->
+                                    errorBorrar = if ((e as? ApiException)?.code == "invalid_credentials") {
+                                        "La contraseña no es esa."
+                                    } else e.message ?: "No se ha podido borrar."
+                                }
+                            borrando = false
+                        }
+                    }) { Text("Borrar", color = Paleta.rojo) }
+                },
+                dismissButton = { TextButton(onClick = { confirmandoBorrar = false }) { Text("Cancelar") } },
+            )
+        }
         Spacer(Modifier.height(20.dp))
         Text(
             "SiLoSeNoSalgo ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",

@@ -82,6 +82,14 @@ final class AuthStore: ObservableObject {
         try await apply(API.login(username: username, password: password))
     }
 
+    /// Borra la cuenta en el servidor y, después, todo lo de este móvil. Sin
+    /// logout: la sesión se ha ido con la cuenta.
+    func borraCuenta(contrasena: String) async throws {
+        guard let t = token else { throw APIError(status: 401, code: "unauthorized") }
+        try await API.borraCuenta(token: t, contrasena: contrasena)
+        clearLocal()
+    }
+
     func logout() async {
         if let t = token { await API.logout(token: t) }
         clearLocal()

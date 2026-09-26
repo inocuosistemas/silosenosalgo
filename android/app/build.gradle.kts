@@ -124,10 +124,27 @@ android {
             // El release NO se toca: su identificador es el publicado y ese no
             // puede cambiar nunca.
             applicationIdSuffix = ".debug"
+            buildConfigField("boolean", "TIENDA_PLAY", "false")
         }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
+            buildConfigField("boolean", "TIENDA_PLAY", "false")
+        }
+        // La de Google Play: la misma que la de release, pero sin lo que Play
+        // no permite en una app suya. `./gradlew bundlePlay` da el .aab que se
+        // sube a la consola; lo que cambia está en `src/play/` y en los sitios
+        // que miran `BuildConfig.TIENDA_PLAY`:
+        // - no avisa de APKs nuevas en GitHub: una app de Play solo se
+        //   actualiza por Play (política de abuso de dispositivos y redes);
+        // - sin REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: lleva a la lista de
+        //   ajustes de batería en vez de pedir la exención directamente;
+        // - sin permiso de galería (READ_MEDIA_IMAGES): las fotos de una ruta
+        //   se eligen con el selector de Android, que no necesita permiso.
+        create("play") {
+            initWith(getByName("release"))
+            buildConfigField("boolean", "TIENDA_PLAY", "true")
+            matchingFallbacks += listOf("release")
         }
     }
 
@@ -233,7 +250,7 @@ dependencies {
 gradle.taskGraph.whenReady {
     val pideRelease = allTasks.any { tarea ->
         (tarea.name.startsWith("assemble") || tarea.name.startsWith("bundle")) &&
-            tarea.name.contains("Release")
+            (tarea.name.contains("Release") || tarea.name.contains("Play"))
     }
     if (!pideRelease) return@whenReady
 

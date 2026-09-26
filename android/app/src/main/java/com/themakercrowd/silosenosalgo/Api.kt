@@ -198,6 +198,16 @@ class Api(
         return decode(b2)
     }
 
+    /**
+     * Borrar la cuenta para siempre, con la contraseña (ver
+     * `functions/api/auth/borrar.ts`). Se lleva sus salidas, notas y fotos; sus
+     * eventos con más gente pasan a otro participante.
+     */
+    suspend fun borraCuenta(token: String, contrasena: String) {
+        val (body, status) = request("api/auth/borrar", "POST", token, buildJsonObject { put("password", JsonPrimitive(contrasena)) })
+        if (!ok(status)) throw decodeError(body, status)
+    }
+
     // ── Rutas planificadas ───────────────────────────────────────────────────
 
     suspend fun listPlans(token: String): List<PlanSummary> {

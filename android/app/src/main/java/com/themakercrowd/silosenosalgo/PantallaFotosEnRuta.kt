@@ -462,6 +462,12 @@ private fun Eligiendo(
             Seccion(titulo = "Las de la ruta", icono = "🕒") {
                 val halladas = estado.halladas
                 when {
+                    // La de Google Play no lee la galería entera: se eligen
+                    // abajo, y cada una va igualmente donde estabas a su hora.
+                    BuildConfig.TIENDA_PLAY -> Text(
+                        "Elígelas abajo: cada una va donde estabas a la hora en que la hiciste.",
+                        color = Paleta.slate400, style = MaterialTheme.typography.bodySmall,
+                    )
                     estado.sinPermiso -> Text(
                         "Sin permiso para ver la galería no se pueden buscar. Elígelas abajo, o dale permiso en Ajustes.",
                         color = Paleta.slate400, style = MaterialTheme.typography.bodySmall,

@@ -459,6 +459,34 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
     }
 
+    // Antes de cualquier petición de ubicación, el aviso de la app: qué se
+    // recoge, para qué y que sigue con la app cerrada. Es la «divulgación
+    // destacada» que Google Play exige ANTES del diálogo del sistema para la
+    // ubicación en segundo plano; y se agradece igual fuera de Play. Solo al
+    // aceptarlo sale la petición de Android.
+    var avisoUbicacion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    avisoUbicacion?.let { accion ->
+        AlertDialog(
+            onDismissRequest = { avisoUbicacion = null },
+            title = { Text("Tu ubicación") },
+            text = {
+                Text(
+                    "SiLoSeNoSalgo usa la ubicación de tu móvil para compartir tu posición en directo " +
+                        "con quien tenga el enlace de tu baliza y para guardar el recorrido de tus salidas.\n\n" +
+                        "Mientras la baliza está armada, la ubicación se recoge también con la app cerrada, " +
+                        "sin usar o con la pantalla bloqueada: si no, el seguimiento se cortaría al guardar " +
+                        "el móvil. Con la baliza parada no se recoge nada en segundo plano.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { avisoUbicacion = null; accion() }) { Text("Aceptar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { avisoUbicacion = null }) { Text("Ahora no") }
+            },
+        )
+    }
+
     // La ubicación «todo el tiempo», al entrar por primera vez y no a mitad de
     // una carrera, como en iOS: después de contestar a los avisos (dos
     // peticiones a la vez y Android se queda con una).
@@ -466,7 +494,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     fun ubicacionAlEntrar() {
         if (prefsPermisos.getBoolean("ubicacionPedida", false) || TrackingStore.gps.hayPermisoSegundoPlano()) return
         prefsPermisos.edit().putBoolean("ubicacionPedida", true).apply()
-        pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        avisoUbicacion = { pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
     }
 
     val pideNotificaciones = rememberLauncherForActivityResult(
@@ -543,6 +571,19 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             usuario = usuario,
             onCerrar = { cuentaAbierta = false },
             onSalir = { cuentaAbierta = false; confirmandoSalida = true },
+            // Borrada en el servidor: aquí, lo mismo que al salir, sin preguntar
+            // otra vez (ya se preguntó) y sin logout, que la sesión ya no existe.
+            onBorrada = {
+                cuentaAbierta = false
+                scope.launch {
+                    if (TrackingStore.estado.value.compartiendo) {
+                        TrackingStore.para()
+                        TrackingService.para(context)
+                    }
+                    Cuenta.olvida(context)
+                    onSalir()
+                }
+            },
         )
         return
     }
@@ -569,7 +610,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     preparando?.let { ev ->
         PantallaPrepararCarrera(
             ev = ev,
-            onPideUbicacion = { pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
+            onPideUbicacion = { avisoUbicacion = { pideUbicacion.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) } },
             onArmarYa = { preparando = null; PreparacionDeCarrera.pideArmar() },
             onCerrar = { preparando = null; preparadasVersion++ },
         )
@@ -745,12 +786,14 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 cuerpo = "Sin él no se puede seguir la ruta.",
                 accion = "Conceder",
                 onAccion = {
-                    pideUbicacion.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                        ),
-                    )
+                    avisoUbicacion = {
+                        pideUbicacion.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                            ),
+                        )
+                    }
                 },
             )
         } else if (!permisoFondo) {
@@ -759,7 +802,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 cuerpo = "Con el permiso solo \"mientras se usa\", el seguimiento se corta " +
                     "al bloquear la pantalla. Hay que elegir \"Permitir siempre\".",
                 accion = "Ajustar",
-                onAccion = { pideFondo.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
+                onAccion = { avisoUbicacion = { pideFondo.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) } },
             )
         }
 
@@ -1431,7 +1474,10 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // más avisa. Ver `Actualizacion`.
         var nuevaVersion by remember { mutableStateOf<Int?>(null) }
         LaunchedEffect(Unit) {
-            nuevaVersion = Actualizacion.nuevaQue(BuildConfig.VERSION_CODE, Actualizacion.ultimaPublicada())
+            // La de Google Play se actualiza por Play, y solo por Play.
+            if (!BuildConfig.TIENDA_PLAY) {
+                nuevaVersion = Actualizacion.nuevaQue(BuildConfig.VERSION_CODE, Actualizacion.ultimaPublicada())
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2024,6 +2070,12 @@ internal fun sinRestriccionesDeBateria(context: Context): Boolean {
 }
 
 internal fun pideSinRestricciones(context: Context) {
+    // En la de Google Play, a la lista de ajustes: pedir la exención directa
+    // (el diálogo de un toque) necesita un permiso que Play reserva a otros usos.
+    if (BuildConfig.TIENDA_PLAY) {
+        runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        return
+    }
     runCatching {
         context.startActivity(
             Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)

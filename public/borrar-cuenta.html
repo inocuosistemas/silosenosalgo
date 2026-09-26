@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borrar tu cuenta · SiLoSeNoSalgo</title>
+<meta name="description" content="Cómo borrar tu cuenta de SiLoSeNoSalgo y qué datos se eliminan.">
+<meta name="robots" content="index, follow">
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root {
+    --fondo: #f8fafc;
+    --papel: #ffffff;
+    --texto: #1e293b;
+    --suave: #64748b;
+    --borde: #e2e8f0;
+    --acento: #0369a1;
+    --aviso-fondo: #fef9c3;
+    --aviso-borde: #eab308;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #020617;
+      --papel: #0f172a;
+      --texto: #e2e8f0;
+      --suave: #94a3b8;
+      --borde: #1e293b;
+      --acento: #38bdf8;
+      --aviso-fondo: #422006;
+      --aviso-borde: #a16207;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 5rem;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .35rem; }
+  h2 {
+    font-size: 1.2rem; margin: 2.5rem 0 .75rem;
+    padding-top: 1.25rem; border-top: 1px solid var(--borde);
+  }
+  h3 { font-size: 1rem; margin: 1.5rem 0 .4rem; }
+  p, li { margin: .6rem 0; }
+  ul { padding-left: 1.25rem; }
+  a { color: var(--acento); }
+  code { font-size: .9em; background: var(--papel); padding: .1em .35em; border-radius: 4px; }
+  .fecha { color: var(--suave); font-size: .9rem; margin: 0 0 2rem; }
+  .resumen {
+    background: var(--papel); border: 1px solid var(--borde);
+    border-radius: 12px; padding: 1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .resumen h2 { border: 0; padding: 0; margin: 0 0 .5rem; font-size: 1.05rem; }
+  .aviso {
+    background: var(--aviso-fondo); border-left: 4px solid var(--aviso-borde);
+    border-radius: 6px; padding: .85rem 1rem; margin: 1.25rem 0;
+  }
+  .tabla-envoltorio { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
+  th { color: var(--suave); font-weight: 600; }
+  footer { margin-top: 3rem; color: var(--suave); font-size: .85rem; }
+  form { background: var(--papel); border: 1px solid var(--borde); border-radius: 12px; padding: 1.1rem 1.25rem; margin: 1.5rem 0; }
+  label { display: block; font-weight: 600; margin: .8rem 0 .25rem; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: .6rem .75rem; border-radius: 8px; border: 1px solid var(--borde);
+    background: var(--fondo); color: var(--texto); font: inherit;
+  }
+  .confirma { display: flex; gap: .5rem; align-items: flex-start; font-weight: 400; margin-top: 1rem; }
+  button {
+    margin-top: 1rem; padding: .65rem 1.2rem; border: 0; border-radius: 999px;
+    background: #dc2626; color: #fff; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #resultado { margin-top: .9rem; font-weight: 600; }
+  .ok { color: #16a34a; } .error { color: #dc2626; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Borrar tu cuenta</h1>
+<p class="fecha">Aplicación y web <strong>SiLoSeNoSalgo</strong> · Inocuo Sistemas Informáticos SL</p>
+
+<div class="resumen">
+  <h2>Desde la app</h2>
+  <p>
+    En la app de Android o de iPhone: toca tu marca, arriba a la derecha, y elige
+    <strong>«Borrar la cuenta»</strong>. Te pedirá tu contraseña para confirmarlo.
+  </p>
+</div>
+
+<h2>Sin la app</h2>
+<p>
+  Si ya no tienes la app, puedes borrarla aquí con tu usuario y tu contraseña. No se puede deshacer.
+</p>
+
+<form id="borrar">
+  <label for="usuario">Usuario</label>
+  <input id="usuario" name="usuario" type="text" autocomplete="username" autocapitalize="none" required>
+  <label for="clave">Contraseña</label>
+  <input id="clave" name="clave" type="password" autocomplete="current-password" required>
+  <label class="confirma"><input id="seguro" type="checkbox" required> Entiendo que se borra todo y que no se puede recuperar.</label>
+  <button type="submit">Borrar mi cuenta para siempre</button>
+  <p id="resultado" role="status"></p>
+</form>
+
+<h2>Qué se borra</h2>
+<ul>
+  <li>Tu cuenta: usuario, contraseña, marca y sesiones abiertas en todos tus dispositivos.</li>
+  <li>Tus seguimientos y salidas, con su recorrido, notas, fotos y audios.</li>
+  <li>Tus planes de ruta, tus pronósticos y las fotos que subiste a eventos.</li>
+  <li>Tus avisos y los dispositivos registrados para notificaciones.</li>
+</ul>
+
+<h2>Qué se conserva</h2>
+<ul>
+  <li>
+    Los eventos que creaste en los que participan más personas siguen existiendo para ellas: pasan a
+    otro participante (a un organizador, si lo hay). Si nadie más participa, se borran contigo.
+  </li>
+  <li>
+    En las clasificaciones y los replays de eventos ya terminados, tu nombre se sustituye por
+    «Cuenta borrada»: tus tiempos siguen contando para el puesto de los demás, pero ya no llevan tu nombre.
+  </li>
+  <li>No guardamos copia de nada más, salvo lo que obligue a conservar la ley.</li>
+</ul>
+
+<p>
+  ¿Dudas? Escribe a <a href="mailto:dev@themakercrowd.com"><strong>dev@themakercrowd.com</strong></a>.
+  Más detalle en la <a href="/privacidad.html">política de privacidad</a>.
+</p>
+
+<footer>
+  <p>SiLoSeNoSalgo · Inocuo Sistemas Informáticos SL · <a href="/">Volver a la aplicación</a></p>
+</footer>
+
+</main>
+<script>
+  const f = document.getElementById('borrar')
+  const r = document.getElementById('resultado')
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const boton = f.querySelector('button')
+    boton.disabled = true
+    r.className = ''
+    r.textContent = 'Borrando…'
+    try {
+      const res = await fetch('/api/auth/borrar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: f.usuario.value.trim(), password: f.clave.value }),
+      })
+      if (res.ok) {
+        r.className = 'ok'
+        r.textContent = 'Tu cuenta y tus datos se han borrado.'
+        f.reset()
+        return
+      }
+      r.className = 'error'
+      r.textContent = res.status === 401 ? 'El usuario o la contraseña no son correctos.'
+        : res.status === 429 ? 'Demasiados intentos. Prueba de nuevo dentro de un rato.'
+        : 'No se ha podido borrar. Prueba de nuevo o escríbenos.'
+    } catch {
+      r.className = 'error'
+      r.textContent = 'Sin conexión. Prueba de nuevo.'
+    }
+    boton.disabled = false
+  })
+</script>
+</body>
+</html>

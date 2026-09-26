@@ -350,6 +350,13 @@ enum API {
         return try JSONDecoder().decode(AuthResponse.self, from: d2)
     }
 
+    /// Borrar la cuenta para siempre, con la contraseña (ver
+    /// `functions/api/auth/borrar.ts`).
+    static func borraCuenta(token: String, contrasena: String) async throws {
+        let (data, http) = try await request("api/auth/borrar", method: "POST", token: token, body: ["password": contrasena])
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+    }
+
     // MARK: Plans
 
     static func listPlans(token: String) async throws -> [PlanSummary] {

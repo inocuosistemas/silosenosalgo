@@ -53,6 +53,11 @@ struct PantallaMiCuenta: View {
 
     @State private var confirmandoSalida = false
 
+    @State private var claveBorrar = ""
+    @State private var confirmandoBorrar = false
+    @State private var borrando = false
+    @State private var errorBorrar: String?
+
     /// Los mismos sesenta de la web (`EMOJI_POOL` en shared/emoji.ts).
     static let emojis = [
         "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵",
@@ -85,6 +90,7 @@ struct PantallaMiCuenta: View {
                         .accessibilityIdentifier("salirDeLaCuenta")
                 }
                 .listRowBackground(Theme.slate900)
+                seccionBorrar
                 // La versión, al pie: lo primero que hay que preguntar cuando
                 // alguien dice que algo no le funciona.
                 Section {
@@ -128,8 +134,54 @@ struct PantallaMiCuenta: View {
                      ? "Estás compartiendo tu ubicación. Al salir se detiene el seguimiento y se cierra la sesión."
                      : "Se cerrará tu sesión en este dispositivo.")
             }
+            .alert("¿Borrar tu cuenta para siempre?", isPresented: $confirmandoBorrar) {
+                Button("Borrar", role: .destructive) { borraCuenta() }
+                Button("Cancelar", role: .cancel) { }
+            } message: {
+                Text("Se borra todo lo tuyo y no se puede recuperar.")
+            }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: Borrar la cuenta
+
+    /// Lo último, con la contraseña y una pregunta más: lo único de aquí que no
+    /// tiene vuelta atrás (y lo que la App Store y Google Play piden que exista).
+    private var seccionBorrar: some View {
+        Section {
+            SecureField("Tu contraseña", text: $claveBorrar)
+                .textContentType(.password)
+            if let errorBorrar {
+                Text(errorBorrar).font(.caption).foregroundStyle(Theme.rose300)
+            }
+            Button(borrando ? "Borrando…" : "Borrar mi cuenta") { confirmandoBorrar = true }
+                .disabled(claveBorrar.isEmpty || borrando)
+                .foregroundStyle(Theme.rose300)
+                .accessibilityIdentifier("borrarLaCuenta")
+        } header: {
+            Text("Borrar la cuenta")
+        } footer: {
+            Text("Se borran tu cuenta, tus salidas con sus notas, fotos y audios, tus rutas y tus pronósticos. Los eventos que creaste con más gente pasan a otro participante. No se puede deshacer.")
+        }
+        .listRowBackground(Theme.slate900)
+    }
+
+    private func borraCuenta() {
+        borrando = true
+        errorBorrar = nil
+        Task {
+            do {
+                await store.stopSharing()
+                await PushRegistrar.shared.daDeBaja()
+                try await auth.borraCuenta(contrasena: claveBorrar)
+            } catch let e as APIError where e.code == "invalid_credentials" {
+                errorBorrar = "La contraseña no es esa."
+            } catch {
+                errorBorrar = "No se ha podido borrar. Prueba de nuevo."
+            }
+            borrando = false
+        }
     }
 
     // MARK: Marca
