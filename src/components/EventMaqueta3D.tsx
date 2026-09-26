@@ -973,7 +973,7 @@ function creaSombra(): THREE.Group {
 }
 
 /** Lo que mide la huella de un corredor en el suelo, de radio, en unidades de la loseta. */
-const HUELLA_R = 0.06
+const HUELLA_R = 0.036
 
 /**
  * La huella de un corredor en el suelo: un disco de su color con aro blanco y
@@ -1502,16 +1502,20 @@ function colocaFichas(e: Escena, corredores: Corredor3D[], elegido: string | nul
       }
       f.firma = firma
     }
-    // Tendida sobre lo más alto que pisa, un pelo por encima: en una ladera,
-    // a la altura del centro se hundiría por un lado.
+    // Tendida sobre lo más alto que pisa y SIEMPRE por encima del cordón, que
+    // va levantado `CORDON_ALTO` del suelo: a la altura del suelo, en una
+    // ladera o sobre el propio cordón la huella quedaba por debajo de él.
     let alto = sitio[1]
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const x = sitio[0] + dx * HUELLA_R
-      const z = sitio[2] + dz * HUELLA_R
-      alto = Math.max(alto, escala.y(alturaEn(rejilla, alturas, escala.px(x), escala.py(z))))
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4
+      for (const d of [HUELLA_R * 0.5, HUELLA_R]) {
+        const x = sitio[0] + Math.cos(a) * d
+        const z = sitio[2] + Math.sin(a) * d
+        alto = Math.max(alto, escala.y(alturaEn(rejilla, alturas, escala.px(x), escala.py(z))))
+      }
     }
     const r = HUELLA_R * (esElegido ? 1.2 : 1) * (conEmoji ? 1 : 0.7)
-    f.huella.position.set(sitio[0], alto + 0.003, sitio[2])
+    f.huella.position.set(sitio[0], alto + CORDON_ALTO + 0.004, sitio[2])
     f.huella.scale.setScalar(r)
     f.huella.visible = !c.apagado
     const tam = (conEmoji ? 0.16 : 0.09) * (esElegido ? 1.25 : 1)
@@ -1700,6 +1704,8 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
   marca: number
   /** El crédito de la música, que la licencia pide a la vista: sale con la marca. */
   credito: string | null
+  /** Con la luz real: cómo está el cielo a esa hora, delante del reloj. */
+  cielo?: string | null
 }) {
   const u = Math.min(W, H) / 1080
   const fuente = (peso: number, px: number) => `${peso} ${Math.round(px)}px system-ui, -apple-system, "Segoe UI", sans-serif`
@@ -1738,7 +1744,8 @@ function rotulaFotograma(ctx: CanvasRenderingContext2D, W: number, H: number, d:
   ctx.fillRect(0, H - altoAbajo, W, altoAbajo)
   ctx.fillStyle = '#f8fafc'
   ctx.font = fuente(800, 84 * u)
-  ctx.fillText(new Date(d.instante).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), W / 2, H - 110 * u)
+  const hora = new Date(d.instante).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  ctx.fillText(d.cielo ? `${d.cielo} ${hora}` : hora, W / 2, H - 110 * u)
   ctx.fillStyle = 'rgba(203,213,225,0.95)'
   ctx.font = fuente(600, 30 * u)
   const quien = d.seguido ? `${d.seguido.emoji ? `${d.seguido.emoji} ` : ''}${d.seguido.nombre}` : null
@@ -1867,6 +1874,8 @@ async function grabaVideo(
   e: Escena, video: VideoReplay, formato: FormatoVideo, seguir: string | null, nombre: string | null,
   conRotulos: boolean, musica: MusicaVideo | null,
   alProgreso: (fraccion: number) => void, cancelado: () => boolean,
+  /** La luz real: el sol de cada instante en este sitio (ver `poneLaLuz`). */
+  luz: { lat: number; lon: number } | null = null,
 ): Promise<Blob | null> {
   const t = e.terreno
   if (!t) return null
@@ -1963,6 +1972,8 @@ async function grabaVideo(
     if (img) imagenesVideo.set(ch.userData.foto as string, img)
   }
   const enPantalla = new THREE.Vector3()
+  /** Dónde estaba el sol en el último mapa de sombras: se rehace si se mueve. */
+  const solAntes = new THREE.Vector3()
 
   e.grabando = true
   try {
@@ -1982,6 +1993,17 @@ async function grabaVideo(
       for (const ch of fotosClavadas) {
         const esta = momento?.foto?.id === ch.userData.foto
         ch.userData.oculta = !(instante > (ch.userData.fotoEn as number) || (esta && momento!.foto!.fase >= 0.92))
+      }
+      let cielo: string | null = null
+      if (luz) {
+        poneLaLuz(e, new Date(instante), luz.lat, luz.lon)
+        const altura = SunCalc.getPosition(new Date(instante), luz.lat, luz.lon).altitude
+        // Por encima de 6° es de día; entre −6° y 6°, amanece o anochece.
+        cielo = altura > 0.105 ? '☀️' : altura > -0.105 ? '🌅' : '🌙'
+        if (solAntes.angleTo(e.sol.position) > 0.01 || solAntes.lengthSq() === 0) {
+          solAntes.copy(e.sol.position)
+          renderer.shadowMap.needsUpdate = true
+        }
       }
       const corredores = video.corredoresEn(instante)
       colocaFichas(e, corredores, seguir)
@@ -2020,7 +2042,7 @@ async function grabaVideo(
         foto = { img, fase: momento.foto.fase, desde }
       }
       rotulaFotograma(ctx, W, H, {
-        antetitulo: video.antetitulo, rotulo: momento?.rotulo ?? null, foto,
+        antetitulo: video.antetitulo, rotulo: momento?.rotulo ?? null, foto, cielo,
         nombre, instante, desde: video.desde,
         seguido: s ? corredores.find((c) => c.key === s.key) ?? null : null,
         logo, marca: final, credito: musica ? creditoMusica(musica) : null,
@@ -2050,6 +2072,8 @@ async function grabaVideo(
   } finally {
     e.grabando = false
     for (const ch of fotosClavadas) ch.userData.oculta = false
+    // La pantalla vuelve a su luz de siempre, como al acabar la carrerita.
+    if (luz) luzDeSiempre(e)
     renderer.dispose()
     renderer.forceContextLoss()
   }
@@ -2119,6 +2143,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
   const [formatoVideo, setFormatoVideo] = useState<FormatoVideo>('vertical')
   const [seguirVideo, setSeguirVideo] = useState<string | null>(video?.seguirDeSerie ?? null)
   const [progresoVideo, setProgresoVideo] = useState<number | null>(null)
+  /** La luz real en el vídeo: amanece, atardece y anochece a su hora. */
+  const [luzReal, setLuzReal] = useState(false)
   const [errorVideo, setErrorVideo] = useState<string | null>(null)
   const cancelaVideo = useRef(false)
   /** La música elegida (su `id`, o null sin música) y la que suena de muestra. */
@@ -2168,7 +2194,8 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
     setProgresoVideo(0)
     let hecho: Blob | null = null
     try {
-      hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, musicaElegida, setProgresoVideo, () => cancelaVideo.current)
+      hecho = await grabaVideo(e, video, formatoVideo, seguirVideo, nombre, rotulosRef.current, musicaElegida, setProgresoVideo, () => cancelaVideo.current,
+        luzReal && ruta.length > 0 ? { lat: ruta[0][0], lon: ruta[0][1] } : null)
     } catch (err) {
       const motivo = err instanceof Error ? err.message : ''
       setErrorVideo(motivo === 'sin-codificador'
@@ -3287,6 +3314,28 @@ export default function EventMaqueta3D({ ruta, cotas, planId, corredores, puntos
                     </button>
                   ))}
                 </div>
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Luz</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setLuzReal(false)}
+                    aria-pressed={!luzReal}
+                    className={`rounded-full border px-3 py-1 text-xs ${!luzReal ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    De siempre
+                  </button>
+                  <button
+                    onClick={() => setLuzReal(true)}
+                    aria-pressed={luzReal}
+                    className={`rounded-full border px-3 py-1 text-xs ${luzReal ? 'border-sky-400 bg-sky-500/90 text-white' : 'border-slate-600 text-slate-300'}`}
+                  >
+                    🌅 Real, a su hora
+                  </button>
+                </div>
+                {luzReal && (
+                  <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                    El sol de ese día y ese sitio: amanece, atardece y se hace de noche cuando tocó.
+                  </p>
+                )}
                 <p className="mt-3 text-[11px] uppercase tracking-wider text-slate-500">Música</p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   <button
