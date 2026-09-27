@@ -319,7 +319,19 @@ object TrackingStore {
         salidaMs: Double = TrackingRules.salidaEfectiva(_estado.value.salidaMs, _estado.value.salidaTocada, ahoraMs),
         actividad: BeaconActivity? = _estado.value.actividad,
     ): Result<String> {
-        val t = token ?: return Result.failure(ApiException(401, "unauthorized"))
+        val t = token ?: run {
+            // Solo en la de depuración, en la prueba del emulador sin cuenta (ver
+            // `PruebaDePantalla`): se arma en local, como sin cobertura —GPS,
+            // servicio y notificación de verdad, sin servidor—. Es lo que hace
+            // falta para grabar el vídeo de la ubicación en segundo plano que
+            // pide Google Play.
+            if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
+                val id = "local-" + java.util.UUID.randomUUID().toString()
+                empiezaEnLocal(id, pendiente = true, titulo ?: nombrePorDefecto(salidaMs), planId, salidaMs, actividad)
+                return Result.success(id)
+            }
+            return Result.failure(ApiException(401, "unauthorized"))
+        }
         // Sin nombre puesto, uno con la marca y la hora: en la lista de
         // seguimientos y en el enlace, "Sin nombre" no distingue nada.
         val nombre = titulo ?: nombrePorDefecto(salidaMs)
