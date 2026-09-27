@@ -801,4 +801,12 @@ class TrackingRulesTest {
     @Test fun `armada manda sobre todo`() {
         assertEquals("armada", TrackingRules.estadoDeEmision(true, ahora - 600_000, 15.0, ahora))
     }
+
+    @Test fun `la clave provisional tiene la forma que abre el visor`() {
+        // La misma regla que TOKEN_RE en shared/validate.ts: 16-32 de base64url.
+        val forma = Regex("^[A-Za-z0-9_-]{16,32}$")
+        val claves = (1..200).map { TrackingRules.claveProvisional() }
+        claves.forEach { assertTrue(it, forma.matches(it)) }
+        assertEquals(claves.size, claves.toSet().size)
+    }
 }

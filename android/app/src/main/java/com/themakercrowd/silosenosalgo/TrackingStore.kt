@@ -328,7 +328,7 @@ object TrackingStore {
             // falta para grabar el vídeo de la ubicación en segundo plano que
             // pide Google Play.
             if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
-                val id = "local-" + java.util.UUID.randomUUID().toString()
+                val id = TrackingRules.claveProvisional()
                 empiezaEnLocal(id, pendiente = true, titulo ?: nombrePorDefecto(salidaMs), planId, salidaMs, actividad)
                 return Result.success(id)
             }
@@ -353,7 +353,7 @@ object TrackingStore {
         // de alta en cuanto haya red (ver `intentaAlta`). En la salida de una
         // carrera, sin cobertura, antes no se podía ni empezar.
         val res = alta.getOrNull()
-        val id = res?.id ?: ("local-" + java.util.UUID.randomUUID().toString())
+        val id = res?.id ?: TrackingRules.claveProvisional()
         empiezaEnLocal(id, pendiente = res == null, nombre, planId, salidaMs, actividad)
         if (res != null) cachePlan(res.id, planId)
         scope.launch { cargaSesiones() }

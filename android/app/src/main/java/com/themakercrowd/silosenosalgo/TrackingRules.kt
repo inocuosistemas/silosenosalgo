@@ -24,6 +24,18 @@ import kotlin.math.sqrt
  * de montaña es lo único que de verdad importa.
  */
 object TrackingRules {
+    /**
+     * La clave de una salida que aún no tiene alta en el servidor: 16 bytes al
+     * azar en base64url, 22 caracteres, con la misma forma que las del servidor
+     * y que la provisional de iOS (`genId`). Con la forma de antes («local-» y
+     * un UUID, 42) el visor la rechazaba —solo abre claves de 16 a 32— y «Ver mi
+     * ruta en el mapa» enseñaba la portada de la web en vez de la ruta.
+     */
+    fun claveProvisional(): String {
+        val bytes = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
 
     /** Cómo se marca el ritmo de las subidas. */
     enum class Modo { TIEMPO, DISTANCIA }

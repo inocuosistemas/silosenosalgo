@@ -152,4 +152,16 @@ final class TrackingRulesTests: XCTestCase {
         // sus primeras lecturas son las malas. Espejo de Android.
         XCTAssertEqual(TrackingRules.startLeadSeconds, 300)
     }
+
+    /// La clave provisional (sin cobertura) tiene que poder abrirse en el visor:
+    /// la misma regla que TOKEN_RE en shared/validate.ts. En Android no la
+    /// cumplía («local-» y un UUID) y el mapa offline enseñaba la portada.
+    func testLaClaveProvisionalTieneLaFormaQueAbreElVisor() throws {
+        let forma = try NSRegularExpression(pattern: "^[A-Za-z0-9_-]{16,32}$")
+        let claves = (0..<200).map { _ in TrackingStore.genId() }
+        for c in claves {
+            XCTAssertNotNil(forma.firstMatch(in: c, range: NSRange(c.startIndex..., in: c)), c)
+        }
+        XCTAssertEqual(Set(claves).count, claves.count)
+    }
 }
