@@ -1,7 +1,88 @@
-# Google Play: todo lo que pide la consola
+# Google Play: SiLoSeNoSalgo
 
-Cuenta de desarrollador de **empresa** (Inocuo Sistemas Informáticos SL): no hace
-falta la prueba cerrada de 14 días. Paquete `com.themakercrowd.silosenosalgo`.
+Todo lo de la publicación en Google Play: cuenta, decisiones, lo que se contestó en
+cada formulario y cómo sacar la siguiente versión. Paquete
+`com.themakercrowd.silosenosalgo`.
+
+## Estado
+
+| Fecha | Qué |
+|---|---|
+| 2026-09-27 | Paquete registrado y verificado en *Android developer verification* (clave de la APK de GitHub). |
+| 2026-09-27 | Versión **774 (1.0)** enviada a revisión en **Producción**, lanzamiento completo, solo **España**. |
+
+Pendiente:
+- Añadir **todos los países de la UE** (o todos) en *Production → Countries/regions*,
+  para no chocar con el Reglamento (UE) 2018/302 de geobloqueo. No pide nueva revisión.
+- La traducción **en-US** de la ficha (textos abajo), si no se llegó a añadir.
+- La App Store pedirá lo mismo: cuenta de revisión (`app-review`), borrar cuenta desde
+  la app (ya está en iOS) y motivos de la ubicación en segundo plano.
+
+## La cuenta
+
+- **Cuenta de desarrollador**: *TheMakerCrowd*, de **organización** (Inocuo Sistemas
+  Informáticos SL), ID 4797191313104859604. Se entra con la cuenta de Google
+  **maker@6996.es** (no con jm@jose.es). Al ser de organización, no hace falta la prueba
+  cerrada de 12 probadores y 14 días.
+- **Consola**: https://play.google.com/console . Si abre la página pública de «sign up»,
+  entrar por https://accounts.google.com/AccountChooser?continue=https://play.google.com/console/developers
+  y elegir maker@6996.es.
+- **Correo de avisos**: los de Google Play llegan a maker@6996.es.
+
+## Verificación de desarrollador de Android
+
+Desde septiembre de 2026 Android exige que las apps instaladas en móviles certificados
+(también las que se instalan fuera de Play) sean de un desarrollador verificado. En
+*Android developer verification* está registrado el paquete con la clave con la que se
+firma la **APK de GitHub**:
+
+    SHA-256  B7:3B:5A:AB:28:C7:D6:5C:E7:A7:7C:02:9C:94:3B:AB:E7:C5:64:07:F6:90:6C:F6:79:5D:62:03:7F:E4:86:CD
+    DN       CN=TheMakerCrowd, O=Inocuo Sistemas Informáticos SL, C=ES
+
+Para demostrar que la clave era nuestra se subió un APK de release firmado con ella que
+llevaba `android/app/src/main/assets/adi-registration.properties` con el código que dio
+la consola (`C3GKHMDH37IJEAAAAAAAAAAAAA`). El fichero se queda en el repositorio: no
+estorba y vale si hay que volver a demostrarlo. Si algún día se cambia la clave, hay que
+registrar la nueva («Add key»). La huella se lee sin contraseña:
+`apksigner verify --print-certs SiLoSeNoSalgo.apk`.
+
+## Decisiones
+
+- **Firma**: *Play App Signing* con clave generada por Google. Nuestra clave de release
+  (`keystore.properties`) es la **clave de subida**. Consecuencia: la app de Play y la APK
+  de GitHub tienen firmas distintas; quien tenga una tiene que desinstalarla para
+  instalar la otra.
+- **Variante `play`** (`./gradlew bundlePlay`, `app/src/play/`, `BuildConfig.TIENDA_PLAY`),
+  porque Play no deja a una app suya:
+  - avisar de APKs nuevas en GitHub (una app de Play solo se actualiza por Play);
+  - pedir la exención de batería directa (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`): lleva a
+    la lista de ajustes;
+  - leer la galería entera (`READ_MEDIA_IMAGES`) si no es su función principal: las fotos
+    de una ruta se eligen con el selector de Android, sin búsqueda automática por horas.
+    La APK de GitHub conserva la búsqueda.
+- **Aviso de ubicación** («Tu ubicación»), en todas las variantes: antes de cualquier
+  petición del sistema, dice qué se recoge, para qué y que sigue con la app cerrada. Es la
+  *divulgación destacada* que exige Play para la ubicación en segundo plano.
+- **Borrar la cuenta**: en la app (*Mi cuenta → Borrar la cuenta*, Android e iOS) y sin la
+  app en https://silosenosalgo.themakercrowd.com/borrar-cuenta (`public/borrar-cuenta.html`,
+  `functions/api/auth/borrar.ts`, `functions/lib/borrarCuenta.ts`). Los eventos creados
+  con más participantes pasan a otro; en clasificaciones guardadas el nombre queda como
+  «Cuenta borrada».
+- **Cuentas por invitación**: se permite en Play, pero hace falta una cuenta para los
+  revisores y decirlo en la ficha (lo dice la última línea de la descripción).
+- **Declaración de IA en los recursos**: «Don't label assets» (capturas reales, icono y
+  gráfico dibujados con código).
+- **Managed publishing**: desactivado; lo aprobado se publica solo.
+
+## Cuenta de revisión
+
+Usuario **`app-review`** (sirve también para Apple). La contraseña está solo en la
+consola (*App content → App access*) y en el gestor del dueño; no se escribe en ningún otro
+sitio. Se creó con una invitación de un solo uso.
+
+Tiene una salida **inventada** para que los revisores vean tramos, pausas y la maqueta:
+«Barcelona: Rambla, barco y Ciutadella» (id `7US_AA3rzIP_GTOk5GMV7A`, fijada con la
+chincheta). No se le copian datos reales de nadie.
 
 ## El paquete
 
@@ -173,3 +254,68 @@ En un Android con la app de Play (o la de GitHub) y una cuenta, grabando la pant
    «Permitir siempre».
 3. En Baliza, «Compartir · sin carrera» → la baliza en marcha y su notificación.
 4. Bloquear el móvil unos segundos, desbloquear y enseñar que la traza sigue.
+
+## Lo que se contestó en la consola (resumen)
+
+- **Acceso**: restringido, con la cuenta `app-review` y las instrucciones de la guía
+  (en inglés y en español).
+- **Anuncios**: no. **ID de publicidad**: no se usa (el manifiesto no lleva `AD_ID`).
+- **Clasificación de contenido**: interacción entre usuarios sí (ánimos, fotos), el
+  contenido de usuarios no es lo principal, sin desnudos ni violencia, comparte la
+  ubicación con otros sí, sin compras ni apuestas con dinero.
+- **Público**: 16-17 y 18+. No dirigida a niños.
+- **Seguridad de los datos**: recoge y no comparte; cifrado en tránsito; cuentas con
+  usuario y contraseña; URL de borrado de cuenta `…/borrar-cuenta` y de borrado de datos
+  `…/borrar-cuenta#datos`. Tipos: ubicación aproximada y precisa, ID de usuario, fotos,
+  grabaciones de voz, información de forma física, otros mensajes en la app (ánimos),
+  otro contenido generado por el usuario y *Device or other IDs* (el identificador
+  anónimo de quien mira una baliza). Todos recogidos, no compartidos, no efímeros;
+  obligatorios la ubicación, el ID de usuario y el de dispositivo; para qué: funcionalidad
+  (y gestión de la cuenta en el ID de usuario).
+- **Salud**: *Activity and fitness*; sin Health Connect.
+- **Categoría**: Deportes. **Contacto**: dev@themakercrowd.com, sitio web y sin teléfono.
+
+## Textos enviados en las declaraciones de permisos
+
+Vídeo (YouTube, oculto, canal «the Maker Crowd»):
+**https://www.youtube.com/watch?v=xUvBS2pLLOg** — también en `ubicacion-segundo-plano.mp4`.
+Se grabó en el emulador con la variante de depuración en modo de prueba, que arma la
+baliza en local sin cuenta (`PruebaDePantalla` + `TrackingStore.empieza`).
+
+**Ubicación en segundo plano · App purpose**
+
+> SiLoSeNoSalgo is a GPS beacon for hiking, running and races. The user arms the beacon before heading out and shares a link: anyone with the link sees their live position on a map, so family, friends or race organisers can follow them and raise the alarm if something goes wrong. The app also saves each outing (route, notes, photos) and splits it by mode of transport.
+
+**Ubicación en segundo plano · Location access**
+
+> Live beacon: while the user has manually armed the beacon, the app records GPS positions and sends them to our server, so the people with the link see where the user is in real time. Outings last hours with the phone in a pocket and the screen locked, so location must keep being collected in the background. A persistent notification is shown the whole time and collection stops when the user stops the beacon. This is explained in the in-app disclosure shown before the permission prompt.
+
+**Servicio en primer plano** (`FOREGROUND_SERVICE_LOCATION`) · tarea *User-initiated location sharing*
+
+> The user arms the beacon to share their live location with the people who have their link during outings and races that last hours, with the phone in a pocket and the screen locked. The foreground service shows a persistent notification the whole time and stops when the user stops the beacon.
+
+**Reconocimiento de actividad** (`ACTIVITY_RECOGNITION`)
+
+> Only in outings set to "Automatic" (no route or race): while the beacon is armed, the app reads Android's activity recognition (still, walking, running, cycling, in vehicle) to split the recorded route into legs by mode of transport, with distance, time and pace for each. Only that mode hint is stored with each GPS position. It is not used for ads, analytics or health tracking, and the user is asked for the permission when starting such an outing.
+
+## Avisos que se pueden ignorar
+
+- *No deobfuscation file*: el código no se ofusca (R8 apagado).
+- *Native code without debug symbols*: la única parte nativa es `libandroidx.graphics.path.so`
+  de Compose. Está alineada a 16 KB, como exige Play desde noviembre de 2025.
+
+## La siguiente versión
+
+```sh
+android/scripts/copy-webdist.sh
+cd android && ./gradlew bundlePlay        # app/build/outputs/bundle/play/app-play.aab
+```
+
+1. *Test and release → Production → Create new release*, subir el `.aab` y las notas en
+   `<es-ES>…</es-ES>`. El `versionCode` son los commits de git, así que siempre sube.
+2. *Publishing overview → Send changes for review*.
+3. Si la web cambia sin tocar lo nativo, no hace falta versión nueva: la app descarga la
+   web nueva sola (OTA).
+4. Si cambian permisos, sensores o datos que se recogen, revisar *App content* (seguridad
+   de los datos y declaraciones) antes de enviar.
+5. La APK de GitHub sigue su camino: `./gradlew assembleRelease` y `gh release create`.
