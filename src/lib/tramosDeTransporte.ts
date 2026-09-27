@@ -445,6 +445,40 @@ export function refinaVehiculos(
       if (i1 > i0) out.push({ ...trozo(trail, r.modo === 'coche' ? resto : r.modo, i0, i1), sensor: t.sensor })
     })
   }
+  return conSusArrimadas(trail, out)
+}
+
+/** Lo que dura como mucho un «a pie» entre el barco y lo que se le arrima. */
+const ARRIMADA_PIE_MS = 3 * 60_000
+
+/**
+ * El barco saliendo del muelle o llegando, y el tren arrancando: junto a la
+ * orilla el mapa ya no lo ve sobre el agua, y a 8-15 km/h la velocidad dice
+ * «corriendo». Así que lo que va pegado a un barco o a un tren sin parar entre
+ * medias —correr o bici solo por velocidad, y el ratito a pie que los separe—
+ * es ese barco o ese tren: nadie echa a correr y se sube en marcha. Con el
+ * coche no: terminar de correr y subirse enseguida sí pasa.
+ */
+function conSusArrimadas(trail: TrailPoint[], tramos: Tramo[]): Tramo[] {
+  const arrimable = (t: Tramo) => !t.sensor && (t.modo === 'correr' || t.modo === 'bici'
+    || (t.modo === 'pie' && t.hasta - t.desde <= ARRIMADA_PIE_MS))
+  const nuevo = tramos.map((t) => t.modo)
+  tramos.forEach((t, k) => {
+    if (t.modo !== 'barco' && t.modo !== 'tren') return
+    for (const paso of [-1, 1]) {
+      const junto: number[] = []
+      for (let j = k + paso; j >= 0 && j < tramos.length && arrimable(tramos[j]); j += paso) junto.push(j)
+      if (junto.some((j) => tramos[j].modo !== 'pie')) for (const j of junto) nuevo[j] = t.modo
+    }
+  })
+  if (nuevo.every((m, k) => m === tramos[k].modo)) return tramos
+  const out: Tramo[] = []
+  tramos.forEach((t, k) => {
+    const u = out[out.length - 1]
+    if (nuevo[k] === t.modo && !(u && u.modo === t.modo)) { out.push(t); return }
+    if (u && u.modo === nuevo[k]) out[out.length - 1] = { ...trozo(trail, u.modo, u.i0, t.i1), sensor: u.sensor }
+    else out.push({ ...trozo(trail, nuevo[k], t.i0, t.i1), sensor: t.sensor })
+  })
   return out
 }
 

@@ -171,6 +171,20 @@ describe('tramos de transporte', () => {
     expect(modos(refinaVehiculos(tr, ts, sinNada))).toEqual(['pie', 'correr', 'pie'])
   })
 
+  it('el barco saliendo del muelle (8-15 km/h, sin agua en el mapa) es barco, no «corriendo»', () => {
+    // 10 min parado, 5 min a 9 km/h junto a la orilla, 2 min a 7 km/h, 40 min de barco, 5 min a 14 km/h llegando.
+    const tr = traza([[10, 0], [5, 9], [2, 7], [40, 14], [5, 14.5], [10, 3]])
+    const ts = tramosDeTransporte(tr)
+    const inicio = 5 * 9 / 60 + 2 * 7 / 60
+    const agua = mapa([[km(inicio + 0.3), km(inicio + 9.3), { agua: true }]])
+    expect(modos(refinaVehiculos(tr, ts, (lat) => agua(lat))).filter((m) => m !== 'parado')).toEqual(['barco', 'pie'])
+  })
+
+  it('pero correr y subirse enseguida al coche sigue siendo correr', () => {
+    const tr = traza([[10, 0], [20, 11], [20, 60, 'v']])
+    expect(modos(refinaVehiculos(tr, tramosDeTransporte(tr), sinNada)).filter((m) => m !== 'parado')).toEqual(['correr', 'coche'])
+  })
+
   it('con sensor, correr es correr aunque sea junto al agua', () => {
     const tr = traza([[10, 5, 'w'], [60, 13, 'r'], [10, 5, 'w']])
     const agua = mapa([[km(0.9), km(14), { agua: true }]])
