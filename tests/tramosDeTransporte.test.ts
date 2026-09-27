@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
+import { picosDeRuido } from '../src/lib/trailSmoothing'
 import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, nombraPausa, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
@@ -18,6 +19,31 @@ function traza(trozos: [number, number, TrailPoint['m']?][]): TrailPoint[] {
 const modos = (ts: Tramo[]) => ts.map((t) => t.modo)
 
 describe('tramos de transporte', () => {
+  it('dentro de un edificio, con mala señal: los saltos del GPS no son «corriendo»', () => {
+    // Quieto una hora, con una lectura cada 1-3 minutos y ±40 m: cada una cae en
+    // un sitio de su círculo de error, a 150-200 m de la anterior.
+    const out: TrailPoint[] = []
+    let t = 0
+    for (let k = 0; k < 30; k++) {
+      const lado = k % 2 ? 1 : -1
+      out.push({ t, lat: 40 + lado * 0.0008, lon: (k % 3) * 0.0005, a: 40 })
+      t += (60 + (k % 3) * 60) * 1000
+    }
+    const ts = tramosDeTransporte(out)
+    expect(ts.some((x) => x.modo === 'correr')).toBe(false)
+  })
+
+  it('corriendo de verdad (±5 m, una lectura cada 30 s) sigue siendo correr', () => {
+    expect(modos(tramosDeTransporte(traza([[10, 5], [12, 11], [10, 5]])))).toEqual(['pie', 'correr', 'pie'])
+  })
+
+  it('«correr» sin sensor con lecturas muy separadas o imprecisas queda a pie', () => {
+    const lejos = traza([[20, 11]]).filter((_, i) => i % 5 === 0) // una cada 2,5 min
+    expect(modos(tramosDeTransporte(lejos))).toEqual(['pie'])
+    const mala = traza([[20, 11]]).map((p) => ({ ...p, a: 40 }))
+    expect(modos(tramosDeTransporte(mala))).toEqual(['pie'])
+  })
+
   it('con sensor: andando, coche (con un semáforo) y andando', () => {
     const ts = tramosDeTransporte(traza([[10, 5, 'w'], [15, 60, 'v'], [1, 0, 'v'], [15, 60, 'v'], [6, 5, 'w']]))
     expect(modos(ts)).toEqual(['pie', 'vehiculo', 'pie'])
@@ -266,5 +292,18 @@ describe('tramos de transporte', () => {
     expect(resumenDeTramo(t)).toBe('🚶 3,2 km · 45 min')
     const [c] = tramosDeTransporte(traza([[80, 90, 'v']]))
     expect(resumenDeTramo({ ...c, modo: 'tren' })).toBe('🚆 120 km · 1 h 20')
+  })
+})
+
+describe('picosDeRuido', () => {
+  it('quita el punto que sale y vuelve dentro del error del GPS, no el giro de verdad', () => {
+    // Pico de ruido: 100 m fuera con ±40 m y vuelta al sitio.
+    const ruido: TrailPoint[] = [
+      { t: 0, lat: 40, lon: 0, a: 30 }, { t: 60_000, lat: 40.0009, lon: 0, a: 40 }, { t: 120_000, lat: 40.0001, lon: 0, a: 30 },
+    ]
+    expect([...picosDeRuido(ruido)]).toEqual([1])
+    // Giro en una carrera: 110 m con ±5 m. Se queda.
+    const giro: TrailPoint[] = ruido.map((p) => ({ ...p, a: 5 }))
+    expect(picosDeRuido(giro).size).toBe(0)
   })
 })

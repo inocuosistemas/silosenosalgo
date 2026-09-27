@@ -1,3 +1,4 @@
+import { picosDeRuido } from './trailSmoothing'
 import type { TrailPoint } from '../../shared/wireTypes'
 import { haversineKm } from './liveTrack'
 
@@ -160,7 +161,36 @@ function porSensor(m: TrailPoint['m'], kmh: number): Modo | 'movil' | null {
 
 interface Crudo { modo: Modo | 'movil'; i0: number; i1: number; ms: number; km: number; kmhs: number[]; sensorMs: number }
 
-export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
+/** «Correr» sin que lo diga el sensor necesita pruebas: al menos esto seguido… */
+const CORRER_MIN_MS = 3 * 60_000
+/** …con lecturas frecuentes (intervalo mediano) y buenas (precisión mediana). Con
+ *  lecturas cada varios minutos y ±40 m, la «velocidad» es ruido: el aeropuerto
+ *  daba un tramo corriendo que nunca existió. */
+const CORRER_INTERVALO_MAX_MS = 90_000
+const CORRER_PRECISION_MAX_M = 25
+/** Un salto de 1-2 lecturas entre dos pausas más rápido que esto y más corto que
+ *  `SALTO_PAUSAS_KM` es el GPS saltando, no alguien que se mueve. */
+const SALTO_PAUSAS_KMH = 15
+const SALTO_PAUSAS_KM = 0.3
+
+/** Los metros que el GPS puede inventar entre dos lecturas: lo que pasa de 10 m
+ *  de su error medio. Con buena señal (±5 m), nada; con ±40 m, 30 m por salto. */
+const errorDeSalto = (a: TrailPoint, b: TrailPoint) =>
+  Math.max(0, ((a.a ?? 10) + (b.a ?? 10)) / 2 - 10) / 1000
+
+const mediana = (xs: number[]) => {
+  if (!xs.length) return 0
+  const s = [...xs].sort((a, b) => a - b)
+  return s[Math.floor(s.length / 2)]
+}
+
+export function tramosDeTransporte(trailCompleta: TrailPoint[]): Tramo[] {
+  if (trailCompleta.length < 2) return []
+  // Sin los picos de ruido (ver `picosDeRuido`): se decide sobre lo que queda y
+  // al final los índices vuelven a ser los de la traza entera.
+  const ruido = picosDeRuido(trailCompleta)
+  const indice = trailCompleta.map((_, i) => i).filter((i) => !ruido.has(i))
+  const trail = ruido.size ? indice.map((i) => trailCompleta[i]) : trailCompleta
   if (trail.length < 2) return []
 
   // 1. Cada segmento, con su etiqueta: la del sensor si lo hay; si no, por la
@@ -171,12 +201,15 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   //    trocito eso es «parado, parado, 9 km/h»; en el minuto, 3 km/h, que es lo
   //    que se iba. La de velocidad es provisional: al final se decide por el
   //    tramo entero, con estas mismas velocidades del minuto.
-  const base: { ms: number; km: number; kmh: number; t: number }[] = []
+  const base: { ms: number; km: number; kmNeto: number; kmh: number; t: number }[] = []
   for (let i = 1; i < trail.length; i++) {
     const a = trail[i - 1], b = trail[i]
     const ms = Math.max(0, b.t - a.t)
     const km = haversineKm(a.lat, a.lon, b.lat, b.lon)
-    base.push({ ms, km, kmh: ms > 0 ? km / (ms / 3_600_000) : 0, t: b.t })
+    // Para decidir el medio, la distancia neta: sin lo que puede ser error del
+    // GPS (ver `errorDeSalto`). Los kilómetros del tramo, en cambio, los de verdad.
+    const kmNeto = Math.max(0, km - errorDeSalto(a, b))
+    base.push({ ms, km, kmNeto, kmh: ms > 0 ? kmNeto / (ms / 3_600_000) : 0, t: b.t })
   }
   // Los trocitos dentro de una pausa (ver `pausasDe`).
   const enPausa: boolean[] = []
@@ -185,8 +218,8 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   let lo = 0, hi = 0, kmVentana = 0, msVentana = 0
   base.forEach((s, k) => {
     // Ventana deslizante [t - 1 min, t + 1 min], con sumas que entran y salen.
-    while (hi < base.length && base[hi].t <= s.t + VENTANA_MS) { kmVentana += base[hi].km; msVentana += base[hi].ms; hi++ }
-    while (lo < hi && base[lo].t < s.t - VENTANA_MS) { kmVentana -= base[lo].km; msVentana -= base[lo].ms; lo++ }
+    while (hi < base.length && base[hi].t <= s.t + VENTANA_MS) { kmVentana += base[hi].kmNeto; msVentana += base[hi].ms; hi++ }
+    while (lo < hi && base[lo].t < s.t - VENTANA_MS) { kmVentana -= base[lo].kmNeto; msVentana -= base[lo].ms; lo++ }
     const enVentana = msVentana > 0 ? kmVentana / (msVentana / 3_600_000) : s.kmh
     // Un trocito largo (sin señal un rato) lleva su propia media.
     const kmh = s.ms > VENTANA_MS ? s.kmh : enVentana
@@ -212,6 +245,24 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
       })
     }
   })
+
+  // 2b. Un salto de 1-2 lecturas entre dos pausas, rápido y corto, es el GPS
+  //     saltando de un sitio a otro con mala señal: parte de la pausa.
+  rachas.forEach((r, k) => {
+    const entrePausas = rachas[k - 1]?.modo === 'parado' && rachas[k + 1]?.modo === 'parado'
+    const kmhBruta = r.ms > 0 ? r.km / (r.ms / 3_600_000) : 0
+    if (r.modo !== 'parado' && entrePausas && r.i1 - r.i0 <= 2 && r.km < SALTO_PAUSAS_KM && kmhBruta > SALTO_PAUSAS_KMH) {
+      r.modo = 'parado'
+      r.kmhs = []
+    }
+  })
+  rachas = rachas.reduce<Crudo[]>((acc, r) => {
+    const u = acc[acc.length - 1]
+    if (u && u.modo === 'parado' && r.modo === 'parado') {
+      acc[acc.length - 1] = { ...u, i1: r.i1, ms: u.ms + r.ms, km: u.km + r.km, kmhs: [], sensorMs: u.sensorMs + r.sensorMs }
+    } else acc.push(r)
+    return acc
+  }, [])
 
   // 3. Lo que no es un cambio se funde con lo de al lado: primero las paradas
   //    cortas, luego los tramos cortos, siempre el más corto primero y con el
@@ -257,7 +308,14 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
   const tramos: Tramo[] = []
   for (const r of rachas) {
     const sinSensor = r.sensorMs < r.ms / 2
-    const modo: Modo = r.modo === 'movil' || (sinSensor && r.modo !== 'parado') ? porVelocidad(r.kmhs) : r.modo
+    let modo: Modo = r.modo === 'movil' || (sinSensor && r.modo !== 'parado') ? porVelocidad(r.kmhs) : r.modo
+    // «Correr» sin sensor, solo con pruebas (ver `CORRER_MIN_MS`): si no, a pie.
+    if (modo === 'correr' && sinSensor) {
+      const puntos = trail.slice(r.i0, r.i1 + 1)
+      const intervalo = mediana(puntos.slice(1).map((p, j) => p.t - puntos[j].t))
+      const precision = mediana(puntos.map((p) => p.a ?? 10))
+      if (r.ms < CORRER_MIN_MS || intervalo > CORRER_INTERVALO_MAX_MS || precision > CORRER_PRECISION_MAX_M) modo = 'pie'
+    }
     const movMs = r.kmhs.length ? r.ms : 0
     const t: Tramo = {
       modo, i0: r.i0, i1: r.i1, desde: trail[r.i0].t, hasta: trail[r.i1].t, km: r.km,
@@ -269,6 +327,9 @@ export function tramosDeTransporte(trail: TrailPoint[]): Tramo[] {
       const ms = t.hasta - u.desde
       Object.assign(u, { i1: t.i1, hasta: t.hasta, km: u.km + t.km, kmh: ms > 0 ? (u.km + t.km) / (ms / 3_600_000) : 0 })
     } else tramos.push(t)
+  }
+  if (ruido.size) {
+    for (const t of tramos) { t.i0 = indice[t.i0]; t.i1 = indice[t.i1] }
   }
   return tramos
 }
