@@ -54,6 +54,8 @@ export interface Pausa { i0: number; i1: number; desde: number; hasta: number; l
 
 export const PAUSA_MIN_MS = 5 * 60_000
 export const PAUSA_RADIO_M = 25
+/** Dos pausas con menos de esto entre ellas y en el mismo sitio son una. */
+const PAUSA_HUECO_MS = 2 * 60_000
 
 /**
  * Las pausas del trazado: tandas de lecturas que no se alejan más de
@@ -72,10 +74,14 @@ export function pausasDe(trail: TrailPoint[]): Pausa[] {
     while (j < trail.length && haversineKm(trail[i].lat, trail[i].lon, trail[j].lat, trail[j].lon) * 1000 <= PAUSA_RADIO_M) j++
     const ult = j - 1
     if (ult > i && trail[ult].t - trail[i].t >= PAUSA_MIN_MS) {
-      let lat = 0, lon = 0
-      for (let k = i; k <= ult; k++) { lat += trail[k].lat; lon += trail[k].lon }
-      const n = ult - i + 1
-      out.push({ i0: i, i1: ult, desde: trail[i].t, hasta: trail[ult].t, lat: lat / n, lon: lon / n })
+      const [lat, lon] = centro(trail, i, ult)
+      const u = out[out.length - 1]
+      // Dos pausas casi seguidas en el mismo sitio son una: lo de en medio era
+      // el GPS temblando (dentro de un edificio, un minuto «fuera» a 20 m).
+      if (u && trail[i].t - u.hasta <= PAUSA_HUECO_MS && haversineKm(u.lat, u.lon, lat, lon) * 1000 <= PAUSA_RADIO_M) {
+        const [la, lo] = centro(trail, u.i0, ult)
+        Object.assign(u, { i1: ult, hasta: trail[ult].t, lat: la, lon: lo })
+      } else out.push({ i0: i, i1: ult, desde: trail[i].t, hasta: trail[ult].t, lat, lon })
       i = j
     } else {
       i++

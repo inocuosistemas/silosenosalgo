@@ -1,5 +1,6 @@
 import type { TrailPoint } from '../../shared/wireTypes'
 import { haversineKm } from './liveTrack'
+import { pausasDe } from './tramosDeTransporte'
 
 /**
  * Clean a raw GPS trail for display: drop the cell/Wi-Fi "teleports" a bad
@@ -73,6 +74,11 @@ const PRECISION_SUPUESTA_M = 10
 /** Un salto más corto (m) no es pico: no se ve en el mapa ni da velocidad, y
  *  quitarlo solo movería los tiempos (el meneo de 20 m al echar a andar). */
 const PICO_MIN_M = 40
+/** O una ida y vuelta a más de esto (m/s, 36 km/h)… */
+const PICO_VELOCIDAD_MS = 10
+/** …de quien, entre la lectura de antes y la de después, casi no se ha movido
+ *  (m/s): a pie o parado nadie va y vuelve 130 m en veinte segundos. */
+const PICO_QUIETO_MS = 2
 /** Dos lecturas a menos de esto (m) son la misma posición repetida. */
 const MISMO_SITIO_M = 1
 
@@ -111,13 +117,24 @@ export function picosDeRuido(trail: TrailPoint[]): Set<number> {
       const ac = haversineKm(a.lat, a.lon, c.lat, c.lon) * 1000
       if (Math.max(ab, bc) < PICO_MIN_M || ac > PICO_VUELTA * (ab + bc)) continue
       // El error de las lecturas de los saltos: la última de antes, la que salta y la que vuelve.
-      if (Math.max(ab, bc) <= PICO_RUIDO_ERROR * (error(A.i1) + error(B.i0) + error(C.i0))) { fuera.add(vivos[k]); nuevos++; k++ }
+      const cabeEnElError = Math.max(ab, bc) <= PICO_RUIDO_ERROR * (error(A.i1) + error(B.i0) + error(C.i0))
+      if (cabeEnElError || idaYVueltaImposible(trail[A.i1], trail[B.i0], trail[B.i1], trail[C.i0], ab, bc, ac)) {
+        fuera.add(vivos[k]); nuevos++; k++
+      }
     }
     if (!nuevos) break
   }
   const out = new Set<number>()
   for (const s of fuera) for (let i = sitios[s].i0; i <= sitios[s].i1; i++) out.add(i)
   return out
+}
+
+/** Salir y volver a una velocidad que no cuadra con estar casi quieto (ver
+ *  `PICO_VELOCIDAD_MS`): la lectura suelta que el GPS pone a 130 m con ±14 m. */
+function idaYVueltaImposible(a: TrailPoint, b0: TrailPoint, b1: TrailPoint, c: TrailPoint, ab: number, bc: number, ac: number): boolean {
+  const ida = (b0.t - a.t) / 1000, vuelta = (c.t - b1.t) / 1000, total = (c.t - a.t) / 1000
+  if (ida <= 0 || vuelta <= 0 || total <= 0) return false
+  return ab / ida > PICO_VELOCIDAD_MS && bc / vuelta > PICO_VELOCIDAD_MS && ac / total <= PICO_QUIETO_MS
 }
 
 /**
@@ -135,6 +152,21 @@ export function sinPicos(trail: TrailPoint[]): TrailPoint[] {
     if (!ruido.has(i)) return (buena = p)
     return { ...p, lat: buena.lat, lon: buena.lon }
   })
+}
+
+/**
+ * Las pausas, en su sitio: las lecturas de alguien parado (ver `pausasDe`) van
+ * todas al centro de la pausa, que es donde sale su marca. Quieto, el GPS pone
+ * cada lectura en un sitio distinto de su círculo de error —dentro de una
+ * mezquita, a 20-30 m unas de otras— y unidas dibujan un garabato; tampoco son
+ * metros recorridos.
+ */
+export function pausasEnSuSitio(trail: TrailPoint[]): TrailPoint[] {
+  const pausas = pausasDe(trail)
+  if (!pausas.length) return trail
+  const out = trail.slice()
+  for (const p of pausas) for (let i = p.i0; i <= p.i1; i++) out[i] = { ...trail[i], lat: p.lat, lon: p.lon }
+  return out
 }
 
 export interface SanitizedTrail {
@@ -193,6 +225,7 @@ export function sanitizeTrail(trail: TrailPoint[], maxSpeedKmh?: number): Saniti
   }
   out.push(gated[gated.length - 1])
   // Pass 3 — los picos de ruido: saltos que caben en el error del GPS (ver
-  // `sinPicos`). No cuentan como «velocidad imposible»: son ruido.
-  return { points: sinPicos(out), droppedForSpeed }
+  // `sinPicos`). No cuentan como «velocidad imposible»: son ruido. Y el temblor
+  // de las pausas, en su centro (ver `pausasEnSuSitio`).
+  return { points: pausasEnSuSitio(sinPicos(out)), droppedForSpeed }
 }

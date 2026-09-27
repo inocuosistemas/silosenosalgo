@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
-import { picosDeRuido, sinPicos } from '../src/lib/trailSmoothing'
+import { picosDeRuido, sinPicos, pausasEnSuSitio } from '../src/lib/trailSmoothing'
 import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, nombraPausa, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
@@ -322,6 +322,30 @@ describe('picosDeRuido', () => {
     // Los 10 minutos del pico siguen siendo una pausa, en el sitio de antes.
     expect(pausasDe(sin)).toHaveLength(1)
     expect(pausasDe(sin)[0].hasta - pausasDe(sin)[0].desde).toBeGreaterThanOrEqual(15 * 60_000)
+  })
+
+  it('dentro de un edificio, el temblor de una pausa va a su centro y dos pausas casi seguidas son una', () => {
+    // 20 min quieto con lecturas a ±9 m, un minuto «fuera» a 27 m y otros 10 min.
+    const out: TrailPoint[] = []
+    let t = 0
+    for (let k = 0; k < 40; k++) { out.push({ t, lat: 40 + (k % 2 ? 1 : -1) * 0.00008, lon: (k % 3) * 0.00005, a: 14 }); t += 30_000 }
+    out.push({ t, lat: 40.00016, lon: 0.00015, a: 17 }); t += 60_000
+    for (let k = 0; k < 20; k++) { out.push({ t, lat: 40 + (k % 2 ? 1 : -1) * 0.00008, lon: 0.0001, a: 14 }); t += 30_000 }
+    expect(pausasDe(out)).toHaveLength(1)
+    const quieta = pausasEnSuSitio(out)
+    expect(new Set(quieta.map((p) => `${p.lat},${p.lon}`)).size).toBe(1)
+  })
+
+  it('quita la lectura suelta que sale 130 m y vuelve en segundos, aunque diga ±14 m', () => {
+    const out: TrailPoint[] = [
+      { t: 0, lat: 40, lon: 0, a: 14 }, { t: 20_000, lat: 40.0001, lon: 0, a: 14 },
+      { t: 30_000, lat: 40.00127, lon: 0, a: 14 },
+      { t: 40_000, lat: 40.0001, lon: 0.0001, a: 14 }, { t: 60_000, lat: 40.0002, lon: 0.0001, a: 14 },
+    ]
+    expect([...picosDeRuido(out)]).toEqual([2])
+    // En bici, 130 m en 40 s ida y otros 40 de vuelta por la misma calle: se queda.
+    const bici = out.map((p, i) => ({ ...p, t: i * 40_000 }))
+    expect(picosDeRuido(bici).size).toBe(0)
   })
 
   it('no toca el meneo de pocos metros al echar a andar', () => {
