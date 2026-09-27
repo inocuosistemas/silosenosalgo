@@ -184,7 +184,7 @@ final class FotosEnRutaModelo: ObservableObject {
     /// Reducida como las de las notas en marcha, fuera del hilo principal.
     private func anade(datos: Data, fecha: Date?, gps: CLLocationCoordinate2D?, assetId: String?) async {
         let listo = await Task.detached(priority: .userInitiated) { () -> (Data, UIImage)? in
-            guard let img = UIImage(data: datos) else { return nil }
+            guard let img = Imagen.reducida(datos, lado: 1600) else { return nil }
             let jpeg = AddNoteView.reducida(img)
             let mini = UIImage(data: jpeg)?.preparingThumbnail(of: CGSize(width: 180, height: 180)) ?? img
             return (jpeg, mini)

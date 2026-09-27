@@ -9,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -162,12 +163,10 @@ private fun EditorDeContador(original: Contador, onCerrar: () -> Unit) {
         // Se guarda reducida: el widget la recorta a su tamaño al pintarse.
         val nombre = "${c.id}-${System.currentTimeMillis()}.jpg"
         runCatching {
-            context.contentResolver.openInputStream(uri)?.use { entrada ->
-                val bmp = BitmapFactory.decodeStream(entrada) ?: return@runCatching
-                val escala = minOf(1f, 1400f / maxOf(bmp.width, bmp.height))
-                val red = android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * escala).toInt(), (bmp.height * escala).toInt(), true)
-                File(Contadores.dirFotos(context), nombre).outputStream().use { red.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
-            }
+            val bmp = Imagen.deUri(context, uri, 1400) ?: return@runCatching
+            val escala = minOf(1f, 1400f / maxOf(bmp.width, bmp.height))
+            val red = android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * escala).toInt(), (bmp.height * escala).toInt(), true)
+            File(Contadores.dirFotos(context), nombre).outputStream().use { red.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
             c = c.copy(foto = nombre, usaCartel = false, aspectoPropio = true)
         }
     }
@@ -261,6 +260,7 @@ class ConfiguraWidgetActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return }
         val lista = Contadores.ordenados(Contadores.lee(this))
+        enableEdgeToEdge()
         setContent {
             TemaSlsns {
                 Surface(Modifier.fillMaxSize(), color = Paleta.slate950) {

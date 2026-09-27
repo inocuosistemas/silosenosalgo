@@ -7,7 +7,6 @@ package com.themakercrowd.silosenosalgo
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -160,7 +159,7 @@ fun HojaAnadirNota(
             Spacer(Modifier.height(12.dp))
 
             // La foto, lo primero y en grande: es lo que casi siempre se hace.
-            val bmp = remember(foto) { foto?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }
+            val bmp = remember(foto) { foto?.let { Imagen.deBytes(it, 1600)?.asImageBitmap() } }
             when {
                 preparandoFoto -> Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Paleta.slate800).padding(16.dp),
@@ -414,7 +413,7 @@ private fun HojaDetalleNota(
     val foto = remember(nota.id) {
         if (nota.photoKey == null || sessionId == null) null
         else TrackingStore.medioDeNota(sessionId, nota.id, "photo")
-            ?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+            ?.let { bytes -> Imagen.deBytes(bytes, 1600)?.asImageBitmap() }
     }
     val ficheroAudio = remember(nota.id) {
         if (nota.audioKey == null || sessionId == null) null

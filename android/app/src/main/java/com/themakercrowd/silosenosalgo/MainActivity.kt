@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -148,6 +149,9 @@ class MainActivity : ComponentActivity() {
             }
         }
         miraSiArmar(intent)
+        // De borde a borde en TODAS las versiones, no solo desde Android 15: así
+        // se ve igual en todas, y `safeDrawingPadding` (abajo) descuenta las barras.
+        enableEdgeToEdge()
         setContent {
             TemaSlsns {
                 // El fondo tiene que ser el MÁS oscuro de la paleta, no el de

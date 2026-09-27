@@ -8,6 +8,9 @@ import UIKit
 /// tarjeta no puede quedarse en blanco. Si no hay red y la versión nueva no
 /// está, se enseña la anterior que haya.
 enum FotosDeCarrera {
+    /// El lado mayor al que se lee: la foto de la tarjeta, a lo ancho del móvil.
+    private static let lado: CGFloat = 1600
+
     private static var carpeta: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("fotos-carreras", isDirectory: true)
@@ -19,7 +22,7 @@ enum FotosDeCarrera {
         guard ev.hasPhoto == true else { return nil }
         let version = Int64(ev.photoAt ?? 0)
         let fichero = carpeta.appendingPathComponent("\(ev.id)-\(version).img")
-        if let img = UIImage(contentsOfFile: fichero.path) { return img }
+        if let img = Imagen.reducida(fichero: fichero, lado: lado) { return img }
 
         var c = URLComponents(url: Config.baseURL.appendingPathComponent("api/events/\(ev.id)/photo"),
                               resolvingAgainstBaseURL: false)
@@ -27,13 +30,13 @@ enum FotosDeCarrera {
         if let url = c?.url,
            let (data, resp) = try? await URLSession.shared.data(from: url),
            (resp as? HTTPURLResponse)?.statusCode == 200,
-           let img = UIImage(data: data) {
+           let img = Imagen.reducida(data, lado: lado) {
             // La nueva sustituye a las anteriores de esta carrera.
             for viejo in anteriores(de: ev.id) { try? FileManager.default.removeItem(at: viejo) }
             try? data.write(to: fichero, options: .atomic)
             return img
         }
-        return anteriores(de: ev.id).lazy.compactMap { UIImage(contentsOfFile: $0.path) }.first
+        return anteriores(de: ev.id).lazy.compactMap { Imagen.reducida(fichero: $0, lado: lado) }.first
     }
 
     private static func anteriores(de id: String) -> [URL] {

@@ -153,7 +153,8 @@ struct AddNoteView: View {
         var progreso: Progress?
         progreso = item.loadTransferable(type: Data.self) { resultado in
             let datos = try? resultado.get()
-            let jpeg = datos.flatMap { d in UIImage(data: d).map { Self.reducida($0) } }
+            // Ya reducida al leerla (ver `Imagen`): entera, una de 48 MP son ~190 MB.
+            let jpeg = datos.flatMap { d in Imagen.reducida(d, lado: 1600).map { Self.reducida($0) } }
             DispatchQueue.main.async {
                 photoData = jpeg ?? nil
                 fotoFallida = jpeg == nil

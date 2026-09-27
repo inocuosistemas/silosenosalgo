@@ -4,7 +4,6 @@ import android.content.Context
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import java.io.File
@@ -28,6 +27,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+
+/** El lado mayor al que se lee la foto de una carrera: la de la tarjeta, a lo ancho del móvil. */
+private const val FOTO_CARRERA_LADO = 1600
 
 /**
  * La sesión de seguimiento en vivo: la crea en el backend y va subiendo la
@@ -1030,11 +1032,11 @@ object TrackingStore {
         val version = (ev.photoAt ?: 0.0).toLong()
         val fichero = File(dir, "${ev.id}-$version.img")
         val anteriores = { dir.listFiles { f -> f.name.startsWith("${ev.id}-") }.orEmpty().toList() }
-        fun lee(f: File) = runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull()
+        fun lee(f: File) = runCatching { Imagen.deFichero(f.path, FOTO_CARRERA_LADO)?.asImageBitmap() }.getOrNull()
 
         if (fichero.exists()) lee(fichero)?.let { return@withContext it }
         val bytes = runCatching { api.fotoEvento(ev.id, version) }.getOrNull()
-        val nueva = bytes?.let { b -> runCatching { BitmapFactory.decodeByteArray(b, 0, b.size) }.getOrNull() }
+        val nueva = bytes?.let { b -> runCatching { Imagen.deBytes(b, FOTO_CARRERA_LADO) }.getOrNull() }
         if (bytes != null && nueva != null) {
             // La nueva sustituye a las anteriores de esta carrera.
             anteriores().forEach { it.delete() }

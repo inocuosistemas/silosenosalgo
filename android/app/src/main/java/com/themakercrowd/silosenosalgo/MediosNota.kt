@@ -3,7 +3,6 @@ package com.themakercrowd.silosenosalgo
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -38,9 +37,8 @@ object MediosNota {
      * tomadas en vertical se suben tumbadas.
      */
     fun preparaFoto(context: Context, uri: Uri): ByteArray? = runCatching {
-        val original = context.contentResolver.openInputStream(uri).use { entrada ->
-            BitmapFactory.decodeStream(entrada)
-        } ?: return null
+        // Ya muestreada al leerla (ver `Imagen`): entera, una de 48 MP no cabe.
+        val original = Imagen.deUri(context, uri, LADO_MAX) ?: return null
 
         val giro = context.contentResolver.openInputStream(uri).use { entrada ->
             entrada?.let { ExifInterface(it).rotationDegrees } ?: 0

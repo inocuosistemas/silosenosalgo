@@ -319,3 +319,8 @@ cd android && ./gradlew bundlePlay        # app/build/outputs/bundle/play/app-pl
 4. Si cambian permisos, sensores o datos que se recogen, revisar *App content* (seguridad
    de los datos y declaraciones) antes de enviar.
 5. La APK de GitHub sigue su camino: `./gradlew assembleRelease` y `gh release create`.
+6. Desde la 788 las versiones de release van con **R8** (encogidas y ofuscadas, lo pedía
+   el aviso «DEX code optimization»). El mapa para leer los fallos va dentro del `.aab`
+   y Play lo coge solo; el de la APK queda en `app/build/outputs/mapping/release/`.
+   Si algo falla solo en release, sospechar primero de R8: las reglas están en
+   `app/proguard-rules.pro`.

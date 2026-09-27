@@ -326,7 +326,7 @@ struct EditorContador: View {
     /// Recién elegida del carrete: se guarda el original y se abre el encuadre.
     private func preparaFoto(_ item: PhotosPickerItem) async {
         guard let datos = try? await item.loadTransferable(type: Data.self),
-              let img = UIImage(data: datos) else { return }
+              let img = Imagen.reducida(datos, lado: 1600) else { return }
         let grande = reducida(img, lado: 1600)
         FotosDeContador.guardaOriginal(grande, id: contador.id)
         // Foto nueva: el encuadre de la anterior no significa nada.

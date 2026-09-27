@@ -127,7 +127,13 @@ android {
             buildConfigField("boolean", "TIENDA_PLAY", "false")
         }
         release {
-            isMinifyEnabled = false
+            // R8: encoge y ofusca. Google Play lo pide («DEX code optimization»,
+            // ofuscación por debajo del 25 %), y la app pesa menos. El mapa para
+            // leer los fallos va dentro del .aab; el de la APK queda en
+            // app/build/outputs/mapping/.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
             buildConfigField("boolean", "TIENDA_PLAY", "false")
         }
@@ -237,6 +243,9 @@ dependencies {
     // Reconocimiento de actividad (a pie, en vehículo…), para los tramos por
     // medio de transporte. Sin los servicios de Google en el móvil, no se usa.
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // Lo trae play-services en la 1.1.0, que su autor da por caducada (aviso de
+    // Google Play): se sube a mano.
+    implementation("androidx.fragment:fragment:1.8.5")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
