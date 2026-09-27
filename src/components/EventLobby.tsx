@@ -2157,6 +2157,9 @@ function MemberRow({
   const online = m.lastSeen !== null && now - m.lastSeen < EVENT_PRESENCE_MS
   return (
     <li className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+    {/* Dos líneas: arriba quién es (marca, dorsal y el nombre entero);
+        debajo, cómo está y lo que se le puede hacer. En una sola, el
+        nombre era lo que cedía y en el móvil se quedaba en tres letras. */}
     <div className="flex items-center gap-2.5">
       {canEditMark ? (
         <button onClick={onToggleMark} title="Cambiar su marca" className="shrink-0">
@@ -2180,12 +2183,14 @@ function MemberRow({
           + dorsal
         </button>
       ) : null}
-      {/* El nombre, con su globo colgando. El envoltorio ancla y no recorta —un
-          `truncate` aquí se comería el globo— y es `group` para que la frase
-          salga también al pasar el ratón, sin esperar a que le toque turno. */}
-      <span className="group relative min-w-0">
+      {/* El nombre, ENTERO y con su globo colgando: tiene la primera línea
+          para él solo y, si no cabe, sigue en la siguiente —en el móvil, con
+          los botones al lado, salía «Alb…» y no se sabía quién era—. El
+          envoltorio ancla y no recorta, que se comería el globo, y es `group`
+          para que la frase salga también al pasar el ratón. */}
+      <span className="group relative min-w-0 flex-1">
         {m.bocadillo && <MiniBocadillo texto={m.bocadillo} visible={pensando} />}
-        <span className="block truncate text-sm text-slate-200">
+        <span className="block break-words text-sm text-slate-200">
           {m.username}{isMe && <span className="text-slate-500"> · tú</span>}
         </span>
       </span>
@@ -2206,6 +2211,8 @@ function MemberRow({
           <MessageSquare size={14} />
         </button>
       )}
+    </div>
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-[34px]">
       {/* Quién manda aquí, dicho en su fila. Sin esto, "organizador" es un
           permiso invisible: nadie sabe a quién preguntarle por el enlace. */}
       {m.isOwner && (
@@ -2216,22 +2223,8 @@ function MemberRow({
           <Shield size={10} /> organizador
         </span>
       )}
-      {canName && (
-        <button
-          onClick={() => onOrganizer(!m.isOrganizer)}
-          disabled={busy}
-          title={m.isOrganizer
-            ? `Quitar a ${m.username} de organizador`
-            : `Nombrar a ${m.username} organizador: podrá invitar y escribir el tablón`}
-          className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
-            m.isOrganizer ? 'text-sky-400 hover:text-slate-500' : 'text-slate-600 hover:text-sky-400'
-          }`}
-        >
-          <Shield size={13} />
-        </button>
-      )}
       {m.hasPlan && <span className="text-[10px] text-slate-500 shrink-0">plan propio</span>}
-      <span className="ml-auto shrink-0 text-[11px]">
+      <span className="text-[11px]">
         {/* Retirado manda sobre todo lo demás: quien se ha bajado no está
             "emitiendo" aunque su móvil siga hablando desde el coche. */}
         {m.retiredAt !== null ? (
@@ -2262,58 +2255,74 @@ function MemberRow({
           <span className="text-slate-600">desconectado</span>
         )}
       </span>
-      {/* Marcar el abandono. Lo que la traza no puede saber —una llamada, una
-          furgoneta— lo sabe quien organiza, y esto es su vía. Se deshace igual
-          de fácil: alguien se marca por error y tiene que poder volver a la
-          carrera sin dejar rastro. */}
-      {/* ¿Dónde lo dejó? Señalar un punto del recorrido en vez de teclear un
-          kilómetro: el sitio se recuerda y el número no. De ahí salen el
-          kilómetro y —mirando su traza— la hora. */}
-      {canManual && (
-        <button
-          onClick={onToggleManual}
-          title={`Modo manual de ${m.username}: anotar sus pasos por los controles`}
-          aria-label="Modo manual"
-          aria-expanded={manualAbierto}
-          className={`shrink-0 px-1 transition-colors ${m.manualPasos ? 'text-sky-300' : 'text-slate-600 hover:text-sky-400'}`}
-        >
-          <PenLine size={13} />
-        </button>
-      )}
-      {canRetire && (
-        <button
-          onClick={() => onRetire(m.retiredAt === null)}
-          disabled={busy}
-          title={m.retiredAt !== null
-            ? `Devolver a ${m.username} a la carrera`
-            : `Dar a ${m.username} por retirado`}
-          aria-label={m.retiredAt !== null ? 'Devolver a la carrera' : 'Dar por retirado'}
-          className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
-            m.retiredAt !== null ? 'text-rose-400 hover:text-emerald-400' : 'text-slate-600 hover:text-rose-400'
-          }`}
-        >
-          ⊘
-        </button>
-      )}
-      {/* La baliza completa de cada uno sigue siendo su visor de siempre: ahí
-          están su traza entera, sus notas y sus ánimos. */}
-      {live && (
-        // Con el evento a cuestas, para poder volver desde la baliza.
-        <a href={`/?t=${encodeURIComponent(m.sessionId!)}&e=${encodeURIComponent(eventId)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
-      )}
-      {/* Sacar de la parrilla. Una equis discreta y en gris: es de las cosas
-          que menos se hacen y no puede competir por la mirada con el estado de
-          cada uno, que es a lo que se viene. */}
-      {canExpel && !confirmingExpel && (
-        <button
-          onClick={onAskExpel}
-          title={`Sacar a ${m.username} de la parrilla`}
-          aria-label={`Sacar a ${m.username} de la parrilla`}
-          className="shrink-0 px-1 text-slate-600 transition-colors hover:text-red-400"
-        >
-          <X size={13} />
-        </button>
-      )}
+      <span className="ml-auto flex items-center gap-0.5">
+        {canName && (
+          <button
+            onClick={() => onOrganizer(!m.isOrganizer)}
+            disabled={busy}
+            title={m.isOrganizer
+              ? `Quitar a ${m.username} de organizador`
+              : `Nombrar a ${m.username} organizador: podrá invitar y escribir el tablón`}
+            className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
+              m.isOrganizer ? 'text-sky-400 hover:text-slate-500' : 'text-slate-600 hover:text-sky-400'
+            }`}
+          >
+            <Shield size={13} />
+          </button>
+        )}
+        {/* Marcar el abandono. Lo que la traza no puede saber —una llamada, una
+            furgoneta— lo sabe quien organiza, y esto es su vía. Se deshace igual
+            de fácil: alguien se marca por error y tiene que poder volver a la
+            carrera sin dejar rastro. */}
+        {/* ¿Dónde lo dejó? Señalar un punto del recorrido en vez de teclear un
+            kilómetro: el sitio se recuerda y el número no. De ahí salen el
+            kilómetro y —mirando su traza— la hora. */}
+        {canManual && (
+          <button
+            onClick={onToggleManual}
+            title={`Modo manual de ${m.username}: anotar sus pasos por los controles`}
+            aria-label="Modo manual"
+            aria-expanded={manualAbierto}
+            className={`shrink-0 px-1 transition-colors ${m.manualPasos ? 'text-sky-300' : 'text-slate-600 hover:text-sky-400'}`}
+          >
+            <PenLine size={13} />
+          </button>
+        )}
+        {canRetire && (
+          <button
+            onClick={() => onRetire(m.retiredAt === null)}
+            disabled={busy}
+            title={m.retiredAt !== null
+              ? `Devolver a ${m.username} a la carrera`
+              : `Dar a ${m.username} por retirado`}
+            aria-label={m.retiredAt !== null ? 'Devolver a la carrera' : 'Dar por retirado'}
+            className={`shrink-0 px-1 transition-colors disabled:opacity-40 ${
+              m.retiredAt !== null ? 'text-rose-400 hover:text-emerald-400' : 'text-slate-600 hover:text-rose-400'
+            }`}
+          >
+            ⊘
+          </button>
+        )}
+        {/* La baliza completa de cada uno sigue siendo su visor de siempre: ahí
+            están su traza entera, sus notas y sus ánimos. */}
+        {live && (
+          // Con el evento a cuestas, para poder volver desde la baliza.
+          <a href={`/?t=${encodeURIComponent(m.sessionId!)}&e=${encodeURIComponent(eventId)}`} className="shrink-0 text-[11px] text-sky-400 hover:text-sky-300">ver</a>
+        )}
+        {/* Sacar de la parrilla. Una equis discreta y en gris: es de las cosas
+            que menos se hacen y no puede competir por la mirada con el estado de
+            cada uno, que es a lo que se viene. */}
+        {canExpel && !confirmingExpel && (
+          <button
+            onClick={onAskExpel}
+            title={`Sacar a ${m.username} de la parrilla`}
+            aria-label={`Sacar a ${m.username} de la parrilla`}
+            className="shrink-0 px-1 text-slate-600 transition-colors hover:text-red-400"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </span>
     </div>
 
     {/* La confirmación, en su propia fila y contando lo que se lleva por
