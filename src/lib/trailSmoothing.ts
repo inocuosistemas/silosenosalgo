@@ -74,11 +74,16 @@ const PRECISION_SUPUESTA_M = 10
 /** Un salto más corto (m) no es pico: no se ve en el mapa ni da velocidad, y
  *  quitarlo solo movería los tiempos (el meneo de 20 m al echar a andar). */
 const PICO_MIN_M = 40
-/** O una ida y vuelta a más de esto (m/s, 36 km/h)… */
-const PICO_VELOCIDAD_MS = 10
-/** …de quien, entre la lectura de antes y la de después, casi no se ha movido
- *  (m/s): a pie o parado nadie va y vuelve 130 m en veinte segundos. */
+/** O una ida y vuelta mucho más rápida que lo que se iba justo antes y justo
+ *  después (ver `idaYVueltaImposible`): este múltiplo de esa velocidad… */
+const PICO_VECES_ENTORNO = 3
+/** …y nunca por debajo de esto (m/s, 14 km/h): nadie va y vuelve 130 m en
+ *  veinte segundos a pie. */
+const PICO_VELOCIDAD_MS = 4
+/** Entre la lectura de antes y la de después, casi sin moverse (m/s). */
 const PICO_QUIETO_MS = 2
+/** Lo que se mira antes y después para saber a qué se iba (ms). */
+const PICO_ENTORNO_MS = 60_000
 /** Dos lecturas a menos de esto (m) son la misma posición repetida. */
 const MISMO_SITIO_M = 1
 
@@ -115,11 +120,24 @@ export function picosDeRuido(trail: TrailPoint[]): Set<number> {
       const ab = haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000
       const bc = haversineKm(b.lat, b.lon, c.lat, c.lon) * 1000
       const ac = haversineKm(a.lat, a.lon, c.lat, c.lon) * 1000
-      if (Math.max(ab, bc) < PICO_MIN_M || ac > PICO_VUELTA * (ab + bc)) continue
-      // El error de las lecturas de los saltos: la última de antes, la que salta y la que vuelve.
-      const cabeEnElError = Math.max(ab, bc) <= PICO_RUIDO_ERROR * (error(A.i1) + error(B.i0) + error(C.i0))
-      if (cabeEnElError || idaYVueltaImposible(trail[A.i1], trail[B.i0], trail[B.i1], trail[C.i0], ab, bc, ac)) {
-        fuera.add(vivos[k]); nuevos++; k++
+      if (Math.max(ab, bc) >= PICO_MIN_M && ac <= PICO_VUELTA * (ab + bc)) {
+        // El error de las lecturas de los saltos: la última de antes, la que salta y la que vuelve.
+        const cabeEnElError = Math.max(ab, bc) <= PICO_RUIDO_ERROR * (error(A.i1) + error(B.i0) + error(C.i0))
+        if (cabeEnElError || idaYVueltaImposible(trail, A.i1, B.i0, B.i1, C.i0, ab, bc, ac)) {
+          fuera.add(vivos[k]); nuevos++; k++
+          continue
+        }
+      }
+      // El pico de dos posiciones seguidas allá lejos (A → B → B2 → C2), solo
+      // por velocidad: el GPS a veces se queda dos lecturas en el sitio falso.
+      if (k + 2 >= vivos.length) continue
+      const B2 = sitios[vivos[k + 1]], C2 = sitios[vivos[k + 2]]
+      const b2 = trail[B2.i0], c2 = trail[C2.i0]
+      const b2c2 = haversineKm(b2.lat, b2.lon, c2.lat, c2.lon) * 1000
+      const ac2 = haversineKm(a.lat, a.lon, c2.lat, c2.lon) * 1000
+      if (Math.min(ab, b2c2) >= PICO_MIN_M && ac2 <= PICO_VUELTA * (ab + b2c2)
+        && idaYVueltaImposible(trail, A.i1, B.i0, B2.i1, C2.i0, ab, b2c2, ac2)) {
+        fuera.add(vivos[k]); fuera.add(vivos[k + 1]); nuevos += 2; k += 2
       }
     }
     if (!nuevos) break
@@ -129,12 +147,27 @@ export function picosDeRuido(trail: TrailPoint[]): Set<number> {
   return out
 }
 
-/** Salir y volver a una velocidad que no cuadra con estar casi quieto (ver
- *  `PICO_VELOCIDAD_MS`): la lectura suelta que el GPS pone a 130 m con ±14 m. */
-function idaYVueltaImposible(a: TrailPoint, b0: TrailPoint, b1: TrailPoint, c: TrailPoint, ab: number, bc: number, ac: number): boolean {
-  const ida = (b0.t - a.t) / 1000, vuelta = (c.t - b1.t) / 1000, total = (c.t - a.t) / 1000
-  if (ida <= 0 || vuelta <= 0 || total <= 0) return false
-  return ab / ida > PICO_VELOCIDAD_MS && bc / vuelta > PICO_VELOCIDAD_MS && ac / total <= PICO_QUIETO_MS
+/**
+ * Salir y volver mucho más rápido de lo que se iba: la lectura suelta que el GPS
+ * pone a 130 m con ±14 m en mitad de una visita, a «22 km/h» ida y vuelta de
+ * quien iba a paso de visita. Se compara con la velocidad del minuto de antes y
+ * el de después (`PICO_ENTORNO_MS`): el ciclista que da la vuelta al final de
+ * una calle va y vuelve igual de rápido que venía, y se queda.
+ */
+function idaYVueltaImposible(trail: TrailPoint[], ia: number, ib0: number, ib1: number, ic: number, ab: number, bc: number, ac: number): boolean {
+  const a = trail[ia], c = trail[ic]
+  const ida = (trail[ib0].t - a.t) / 1000, vuelta = (c.t - trail[ib1].t) / 1000, total = (c.t - a.t) / 1000
+  if (ida <= 0 || vuelta <= 0 || total <= 0 || ac / total > PICO_QUIETO_MS) return false
+  // Lo recorrido en el minuto de antes y el de después, y en cuánto tiempo.
+  let m = 0, s = 0
+  for (let i = ia; i > 0 && trail[i - 1].t >= a.t - PICO_ENTORNO_MS; i--) {
+    m += haversineKm(trail[i - 1].lat, trail[i - 1].lon, trail[i].lat, trail[i].lon) * 1000; s += (trail[i].t - trail[i - 1].t) / 1000
+  }
+  for (let i = ic; i < trail.length - 1 && trail[i + 1].t <= c.t + PICO_ENTORNO_MS; i++) {
+    m += haversineKm(trail[i].lat, trail[i].lon, trail[i + 1].lat, trail[i + 1].lon) * 1000; s += (trail[i + 1].t - trail[i].t) / 1000
+  }
+  const umbral = Math.max(PICO_VELOCIDAD_MS, s > 0 ? PICO_VECES_ENTORNO * (m / s) : 0)
+  return ab / ida > umbral && bc / vuelta > umbral
 }
 
 /**

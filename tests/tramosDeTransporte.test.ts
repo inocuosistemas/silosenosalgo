@@ -346,6 +346,19 @@ describe('picosDeRuido', () => {
     // En bici, 130 m en 40 s ida y otros 40 de vuelta por la misma calle: se queda.
     const bici = out.map((p, i) => ({ ...p, t: i * 40_000 }))
     expect(picosDeRuido(bici).size).toBe(0)
+    // Igual con la lectura cada 21 s (22 km/h ida y vuelta), si antes y después
+    // se estaba quieto; y también si son dos lecturas allá arriba.
+    const lenta = out.map((p, i) => ({ ...p, t: i * 21_000 }))
+    expect([...picosDeRuido(lenta)]).toEqual([2])
+    const dos = [...lenta.slice(0, 3), { ...lenta[2], t: 52_000, lon: 0.0001 }, ...lenta.slice(3).map((p) => ({ ...p, t: p.t + 21_000 }))]
+    expect([...picosDeRuido(dos)].sort()).toEqual([2, 3])
+  })
+
+  it('no quita el final de calle de quien va en bici a 30 km/h: va y vuelve igual de rápido que venía', () => {
+    const m = 1 / 111_200 // grados por metro, hacia el norte
+    const lats = [-384, -256, -128, 0, 130, 10, -118, -246, -374]
+    const bici: TrailPoint[] = lats.map((d, i) => ({ t: i * 16_000, lat: 40 + d * m, lon: 0, a: 5 }))
+    expect(picosDeRuido(bici).size).toBe(0)
   })
 
   it('no toca el meneo de pocos metros al echar a andar', () => {
