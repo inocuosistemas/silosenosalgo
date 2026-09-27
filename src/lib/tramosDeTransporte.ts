@@ -402,8 +402,12 @@ export function refinaVehiculos(
     if (e.some((x) => !x)) { out.push(t); continue }
     // Cada muestra, con lo que dice el mapa; en rachas, con sus km.
     // La vía primero: sobre el agua Y por la vía es un puente de tren o un
-    // túnel bajo el agua (el Marmaray bajo el Bósforo), no un barco.
-    const etiqueta = (x: Entorno): Modo => (x.via ? 'tren' : x.agua || x.ferry ? 'barco' : 'coche')
+    // túnel bajo el agua (el Marmaray bajo el Bósforo), no un barco. La línea
+    // de ferry solo ayuda si el tramo pisa el agua de verdad (el barco que
+    // atraca, donde el agua del mapa no llega a la orilla): sola, es la
+    // carretera de la costa junto a los muelles de Eminönü.
+    const porElAgua = e.some((x) => x!.agua && !x!.via)
+    const etiqueta = (x: Entorno): Modo => (x.via ? 'tren' : x.agua || (x.ferry && porElAgua) ? 'barco' : 'coche')
     let rachas: { modo: Modo; k0: number; k1: number; km: number }[] = []
     m.forEach((p, k) => {
       const modo = etiqueta(e[k]!)

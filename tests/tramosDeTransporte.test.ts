@@ -129,6 +129,19 @@ describe('tramos de transporte', () => {
     expect(modos(refinaVehiculos(tr, ts, (lat) => m(lat)))).toEqual(['pie', 'barco', 'pie', 'coche'])
   })
 
+  it('la carretera de la costa junto a los muelles no es un barco: la línea de ferry sola no basta', () => {
+    // 15 km en coche, 4 de ellos a menos de 250 m de las líneas de ferry (Eminönü).
+    const tr = traza([[10, 5, 'w'], [15, 60, 'v'], [10, 5, 'w']])
+    const ts = tramosDeTransporte(tr)
+    const costa = mapa([[km(3), km(7), { ferry: true }]])
+    expect(modos(refinaVehiculos(tr, ts, (lat) => costa(lat)))).toEqual(['pie', 'coche', 'pie'])
+    // Con el agua de verdad en medio, el ferry sí alarga el barco hasta el muelle.
+    const barco = mapa([[km(3), km(4), { ferry: true }], [km(4), km(7), { agua: true }]])
+    const r = refinaVehiculos(tr, ts, (lat) => barco(lat))
+    expect(modos(r)).toEqual(['pie', 'coche', 'barco', 'coche', 'pie'])
+    expect(r[2].km).toBeGreaterThan(3.5)
+  })
+
   it('del tren al coche sin bajarse a andar: el mapa lo parte', () => {
     // 20 min en vehículo: 10 km por la vía y 10 por carretera.
     const tr = traza([[10, 5, 'w'], [20, 60, 'v'], [10, 5, 'w']])
