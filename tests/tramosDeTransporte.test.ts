@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrailPoint } from '../shared/wireTypes'
-import { picosDeRuido } from '../src/lib/trailSmoothing'
+import { picosDeRuido, sinPicos } from '../src/lib/trailSmoothing'
 import { tramosDeTransporte, refinaVehiculos, muestrasDe, resumenDeTramo, aplicaAjustes, corrige, mueveCorte, margenDeCorte, totalesPorModo, pausasDe, nombraPausa, type Entorno } from '../src/lib/tramosDeTransporte'
 
 /** Un trazado hacia el norte, un punto cada 30 s, por trozos: [minutos, km/h, sensor]. */
@@ -305,5 +305,31 @@ describe('picosDeRuido', () => {
     // Giro en una carrera: 110 m con ±5 m. Se queda.
     const giro: TrailPoint[] = ruido.map((p) => ({ ...p, a: 5 }))
     expect(picosDeRuido(giro).size).toBe(0)
+  })
+
+  it('ve el pico aunque el GPS repita cada posición varios minutos, y guarda el tiempo parado', () => {
+    // Como en la terminal del aeropuerto: sin señal nueva, la baliza repite la
+    // última posición. Aquí, 150 m fuera con ±60 m durante 10 minutos y vuelta.
+    const out: TrailPoint[] = []
+    let t = 0
+    const sitio = (lat: number, n: number, a: number) => { for (let k = 0; k < n; k++) { out.push({ t, lat, lon: 0, a }); t += 60_000 } }
+    sitio(40, 6, 25)
+    sitio(40.00135, 10, 60)
+    sitio(40.0002, 6, 25)
+    const sin = sinPicos(out)
+    expect(sin).toHaveLength(out.length)
+    expect(Math.max(...sin.map((p) => p.lat))).toBeLessThan(40.0003)
+    // Los 10 minutos del pico siguen siendo una pausa, en el sitio de antes.
+    expect(pausasDe(sin)).toHaveLength(1)
+    expect(pausasDe(sin)[0].hasta - pausasDe(sin)[0].desde).toBeGreaterThanOrEqual(15 * 60_000)
+  })
+
+  it('no toca el meneo de pocos metros al echar a andar', () => {
+    const out: TrailPoint[] = [
+      { t: 0, lat: 40, lon: 0, a: 14 }, { t: 20_000, lat: 40, lon: 0, a: 14 },
+      { t: 40_000, lat: 39.99981, lon: 0.00013, a: 14 }, { t: 60_000, lat: 40.0001, lon: 0.0003, a: 14 },
+      { t: 80_000, lat: 40.0004, lon: 0.0006, a: 14 },
+    ]
+    expect(picosDeRuido(out).size).toBe(0)
   })
 })

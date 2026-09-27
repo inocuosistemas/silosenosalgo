@@ -1,4 +1,4 @@
-import { picosDeRuido } from './trailSmoothing'
+import { sinPicos } from './trailSmoothing'
 import type { TrailPoint } from '../../shared/wireTypes'
 import { haversineKm } from './liveTrack'
 
@@ -184,14 +184,11 @@ const mediana = (xs: number[]) => {
   return s[Math.floor(s.length / 2)]
 }
 
-export function tramosDeTransporte(trailCompleta: TrailPoint[]): Tramo[] {
-  if (trailCompleta.length < 2) return []
-  // Sin los picos de ruido (ver `picosDeRuido`): se decide sobre lo que queda y
-  // al final los índices vuelven a ser los de la traza entera.
-  const ruido = picosDeRuido(trailCompleta)
-  const indice = trailCompleta.map((_, i) => i).filter((i) => !ruido.has(i))
-  const trail = ruido.size ? indice.map((i) => trailCompleta[i]) : trailCompleta
-  if (trail.length < 2) return []
+export function tramosDeTransporte(trailEntera: TrailPoint[]): Tramo[] {
+  if (trailEntera.length < 2) return []
+  // Sin los picos de ruido (ver `sinPicos`): sus lecturas se quedan donde se
+  // estaba, así que cuentan como parado. Mismos índices que la traza entera.
+  const trail = sinPicos(trailEntera)
 
   // 1. Cada segmento, con su etiqueta: la del sensor si lo hay; si no, por la
   //    velocidad del minuto que lo rodea, medida por lo RECORRIDO en ese
@@ -327,9 +324,6 @@ export function tramosDeTransporte(trailCompleta: TrailPoint[]): Tramo[] {
       const ms = t.hasta - u.desde
       Object.assign(u, { i1: t.i1, hasta: t.hasta, km: u.km + t.km, kmh: ms > 0 ? (u.km + t.km) / (ms / 3_600_000) : 0 })
     } else tramos.push(t)
-  }
-  if (ruido.size) {
-    for (const t of tramos) { t.i0 = indice[t.i0]; t.i1 = indice[t.i1] }
   }
   return tramos
 }

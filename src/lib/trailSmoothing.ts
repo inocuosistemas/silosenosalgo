@@ -59,16 +59,22 @@ const TELEPORT_SPEED_MS = 120
  *  as impossible — absorbs brief bursts and GPS noise without cutting real turns. */
 const ACTIVITY_SPEED_BUFFER = 2
 
-/** Un pico de ruido: un punto que sale y la traza vuelve casi al sitio, con un
- *  salto que no pasa de esta proporción del error de sus tres puntos. Medido: los
- *  picos del GPS en un aeropuerto dan 0,9-1,2; un giro de verdad en una carrera
- *  (±4-6 m), más de 8. */
+/** Un pico de ruido: un punto que sale y la traza vuelve hacia donde estaba,
+ *  con un salto que no pasa de esta proporción del error de sus tres puntos.
+ *  Medido: los picos del GPS en un aeropuerto dan 0,9-1,2; un giro de verdad en
+ *  una carrera (±4-6 m), más de 8. */
 const PICO_RUIDO_ERROR = 1.5
-/** La vuelta es «casi al sitio» si el punto de antes y el de después quedan a
- *  menos de esta fracción del salto más corto. */
+/** La traza «vuelve» si el punto de antes y el de después quedan a menos de
+ *  esta fracción de lo que suman los dos saltos: un giro de 60° o más cerrado.
+ *  Una esquina de verdad (90°) no lo es. */
 const PICO_VUELTA = 0.5
 /** Sin precisión declarada, lo que se le supone al GPS (m). */
 const PRECISION_SUPUESTA_M = 10
+/** Un salto más corto (m) no es pico: no se ve en el mapa ni da velocidad, y
+ *  quitarlo solo movería los tiempos (el meneo de 20 m al echar a andar). */
+const PICO_MIN_M = 40
+/** Dos lecturas a menos de esto (m) son la misma posición repetida. */
+const MISMO_SITIO_M = 1
 
 /**
  * Los índices de los picos de ruido de una traza: un punto que sale y vuelve,
@@ -76,27 +82,59 @@ const PRECISION_SUPUESTA_M = 10
  * `PICO_RUIDO_ERROR`). Con mala señal y casi quieto —dentro de un edificio—, el
  * GPS pone cada lectura en un sitio distinto de su círculo de error; unidas,
  * dibujan picotazos y, con la velocidad que parecen tener, tramos que no fueron
- * (un «corriendo» en un aeropuerto). Se quitan en varias vueltas: al quitar
- * uno, el de al lado puede quedar como pico.
+ * (un «corriendo» en un aeropuerto).
+ *
+ * Sin señal nueva, el GPS repite la última posición durante minutos: el pico no
+ * son tres lecturas seguidas sino tres posiciones, cada una con sus
+ * repeticiones. Por eso se razona sobre las posiciones distintas y, si una es
+ * pico, se quitan todas sus lecturas. Se
+ * repite hasta que no queda ninguno: al quitar uno, el de al lado puede serlo.
  */
 export function picosDeRuido(trail: TrailPoint[]): Set<number> {
+  const sitios: { i0: number; i1: number }[] = []
+  for (let i = 0; i < trail.length; i++) {
+    const p = trail[i], u = sitios[sitios.length - 1]
+    if (u && haversineKm(trail[u.i0].lat, trail[u.i0].lon, p.lat, p.lon) * 1000 < MISMO_SITIO_M) u.i1 = i
+    else sitios.push({ i0: i, i1: i })
+  }
+  const error = (i: number) => trail[i].a ?? PRECISION_SUPUESTA_M
   const fuera = new Set<number>()
-  for (let vuelta = 0; vuelta < 3; vuelta++) {
-    const vivos = trail.map((_, i) => i).filter((i) => !fuera.has(i))
+  for (let vuelta = 0; vuelta < sitios.length; vuelta++) {
+    const vivos = sitios.map((_, i) => i).filter((i) => !fuera.has(i))
     let nuevos = 0
     for (let k = 1; k < vivos.length - 1; k++) {
-      const a = trail[vivos[k - 1]], b = trail[vivos[k]], c = trail[vivos[k + 1]]
+      const A = sitios[vivos[k - 1]], B = sitios[vivos[k]], C = sitios[vivos[k + 1]]
       if (fuera.has(vivos[k - 1])) continue
+      const a = trail[A.i0], b = trail[B.i0], c = trail[C.i0]
       const ab = haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000
       const bc = haversineKm(b.lat, b.lon, c.lat, c.lon) * 1000
       const ac = haversineKm(a.lat, a.lon, c.lat, c.lon) * 1000
-      if (ab < 1 || bc < 1 || ac > PICO_VUELTA * Math.min(ab, bc)) continue
-      const error = (a.a ?? PRECISION_SUPUESTA_M) + (b.a ?? PRECISION_SUPUESTA_M) + (c.a ?? PRECISION_SUPUESTA_M)
-      if (Math.max(ab, bc) <= PICO_RUIDO_ERROR * error) { fuera.add(vivos[k]); nuevos++; k++ }
+      if (Math.max(ab, bc) < PICO_MIN_M || ac > PICO_VUELTA * (ab + bc)) continue
+      // El error de las lecturas de los saltos: la última de antes, la que salta y la que vuelve.
+      if (Math.max(ab, bc) <= PICO_RUIDO_ERROR * (error(A.i1) + error(B.i0) + error(C.i0))) { fuera.add(vivos[k]); nuevos++; k++ }
     }
     if (!nuevos) break
   }
-  return fuera
+  const out = new Set<number>()
+  for (const s of fuera) for (let i = sitios[s].i0; i <= sitios[s].i1; i++) out.add(i)
+  return out
+}
+
+/**
+ * La traza sin los picos de ruido (ver `picosDeRuido`), con el mismo largo y los
+ * mismos índices: las lecturas de un pico se quedan en la última posición buena.
+ * No se borran porque el tiempo es de verdad: con mala señal, las que repiten un
+ * pico durante minutos son alguien parado en la puerta de embarque, y sin ellas
+ * se perdería la pausa.
+ */
+export function sinPicos(trail: TrailPoint[]): TrailPoint[] {
+  const ruido = picosDeRuido(trail)
+  if (!ruido.size) return trail
+  let buena = trail[0]
+  return trail.map((p, i) => {
+    if (!ruido.has(i)) return (buena = p)
+    return { ...p, lat: buena.lat, lon: buena.lon }
+  })
 }
 
 export interface SanitizedTrail {
@@ -155,7 +193,6 @@ export function sanitizeTrail(trail: TrailPoint[], maxSpeedKmh?: number): Saniti
   }
   out.push(gated[gated.length - 1])
   // Pass 3 — los picos de ruido: saltos que caben en el error del GPS (ver
-  // `picosDeRuido`). No cuentan como «velocidad imposible»: son ruido.
-  const ruido = picosDeRuido(out)
-  return { points: ruido.size ? out.filter((_, i) => !ruido.has(i)) : out, droppedForSpeed }
+  // `sinPicos`). No cuentan como «velocidad imposible»: son ruido.
+  return { points: sinPicos(out), droppedForSpeed }
 }
