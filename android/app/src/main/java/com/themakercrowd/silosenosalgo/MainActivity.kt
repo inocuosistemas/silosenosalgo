@@ -1238,10 +1238,46 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
 
         if (pestana == Pestana.CARRERAS && sinCuenta) {
-            Seccion(titulo = "Mis carreras", icono = "🏁") {
+            // Sin cuenta, una carrera se prepara desde su enlace público: su
+            // recorrido con los cortes y la hora oficial, como ruta de este
+            // móvil, y su cuenta atrás (ver `TrackingStore.anadeCarreraPorEnlace`).
+            Seccion(titulo = "Preparar una carrera", icono = "🏁") {
+                var enlace by remember { mutableStateOf("") }
+                var anadiendo by remember { mutableStateOf(false) }
+                var aviso by remember { mutableStateOf<String?>(null) }
                 Text(
-                    "Las carreras son con cuenta: la parrilla, el mapa de todos y la porra " +
-                        "viven en el servidor. Las cuentas son por invitación; pídesela a quien organiza.",
+                    "Pega el enlace de la carrera que reparte la organización: se guardan su " +
+                        "recorrido con los cortes y la hora de salida. Luego la eliges en «Qué salida " +
+                        "es esta» para grabarla, en «Carrera en directo» para la tarjeta de tramos, y " +
+                        "tienes su cuenta atrás.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.slate400,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = enlace, onValueChange = { enlace = it; aviso = null },
+                    placeholder = { Text("https://…/?ev=…") }, singleLine = true,
+                    enabled = !anadiendo, modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    enabled = enlace.isNotBlank() && !anadiendo,
+                    onClick = {
+                        anadiendo = true
+                        scope.launch {
+                            aviso = TrackingStore.anadeCarreraPorEnlace(enlace).fold(
+                                onSuccess = { nombre -> enlace = ""; "Añadida «$nombre»: ya está en tus rutas y en la cuenta atrás." },
+                                onFailure = { e -> e.message ?: "No se ha podido añadir." },
+                            )
+                            anadiendo = false
+                        }
+                    },
+                ) { Text(if (anadiendo) "Añadiendo…" else "Añadir la carrera") }
+                aviso?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Paleta.slate400) }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Para salir en el mapa de todos, la porra y la clasificación hace falta cuenta: " +
+                        "es por invitación, pídesela a quien organiza.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Paleta.slate400,
                 )

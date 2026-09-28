@@ -416,6 +416,13 @@ enum API {
     /// Los bytes gzip de un recorrido COMPARTIDO (`/api/share/:id`). Es el
     /// camino para el recorrido de un evento, que no es una previsión propia y
     /// por tanto no está en `/api/plans`. Público: no lleva sesión.
+    /// La página pública de una carrera (`?ev=<token>`), sin cuenta.
+    static func eventoPublico(token: String) async throws -> [String: Any] {
+        let (data, http) = try await request("api/events/public/\(token)", method: "GET", token: nil)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
     static func fetchSharePayload(shareId: String) async throws -> Data {
         let (data, http) = try await request("api/share/\(shareId)", method: "GET", token: nil)
         guard ok(http) else { throw decodeError(data, http.statusCode) }

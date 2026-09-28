@@ -290,6 +290,17 @@ class Api(
      * Sin autenticación a propósito: es el endpoint público, y usarlo tal cual
      * garantiza que la baliza ve exactamente lo mismo que sus seguidores.
      */
+    /** La página pública de una carrera (`?ev=<token>`), sin cuenta. Null si no existe o no hay red. */
+    suspend fun eventoPublico(token: String): JsonObject? = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder().url("$baseUrl/api/events/public/$token").build()
+            client.newCall(req).execute().use { resp ->
+                if (!ok(resp.code)) return@use null
+                resp.body?.string()?.let { json.parseToJsonElement(it).jsonObject }
+            }
+        }.getOrNull()
+    }
+
     suspend fun estadoPublico(id: String): JsonObject? = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder().url("$baseUrl/api/track/$id").build()

@@ -72,4 +72,28 @@ final class SinCuentaUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["· Solo en este móvil"].waitForExistence(timeout: 10))
         guarda("sincuenta-4-archivo")
     }
+
+    /// Sin cuenta, una carrera se prepara pegando su enlace público: queda su
+    /// recorrido como ruta, con la hora oficial, y su cuenta atrás.
+    func testPrepararUnaCarreraPorSuEnlace() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-EmpiezaSinSesion"]
+        app.launch()
+        let sinCuenta = app.buttons["usarSinCuenta"]
+        XCTAssertTrue(sinCuenta.waitForExistence(timeout: 10))
+        sinCuenta.tap()
+        aceptaAvisos()
+        app.tabBars.buttons["Carreras"].tap()
+        let campo = app.textFields["enlaceCarrera"]
+        XCTAssertTrue(campo.waitForExistence(timeout: 10))
+        campo.tap()
+        campo.typeText("https://silosenosalgo.themakercrowd.com/?ev=jybAgWZpI8dBE0Z9n1hVAg")
+        app.buttons["Añadir la carrera"].tap()
+        let hecho = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Añadida «UP26'")).firstMatch
+        XCTAssertTrue(hecho.waitForExistence(timeout: 30), app.debugDescription)
+        guarda("sincuenta-6-carrera")
+        app.tabBars.buttons["Baliza"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'UP26'")).firstMatch.waitForExistence(timeout: 10)
+                      || app.buttons.containing(NSPredicate(format: "label CONTAINS 'UP26'")).firstMatch.exists)
+    }
 }

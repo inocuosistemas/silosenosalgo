@@ -121,6 +121,10 @@ struct TrackingView: View {
     @State private var viendoCuenta = false
     /// «Añadir fotos» a una salida terminada.
     @State private var fotosDe: TrackSessionSummary?
+    /// Preparar una carrera sin cuenta, desde su enlace público.
+    @State private var enlaceCarrera = ""
+    @State private var anadiendoCarrera = false
+    @State private var avisoCarrera: String?
     /// La salida de este móvil que se está subiendo a la cuenta (su nombre), o nil.
     @State private var subiendo: String?
     @State private var avisoSubida: String?
@@ -724,13 +728,42 @@ struct TrackingView: View {
                 }
 
                 if pestana == .carreras && ModoLocal.activo {
+                    // Sin cuenta, una carrera se prepara desde su enlace público:
+                    // su recorrido con los cortes y la hora oficial, como ruta de
+                    // este móvil, y su cuenta atrás (ver `anadeCarreraPorEnlace`).
                     Section {
-                        Text("Las carreras son con cuenta: la parrilla, el mapa de todos y la porra viven en el servidor. Las cuentas son por invitación; pídesela a quien organiza.")
+                        Text("Pega el enlace de la carrera que reparte la organización: se guardan su recorrido con los cortes y la hora de salida. Luego la eliges en «Qué salida es esta» para grabarla, en «Carrera en directo» para la tarjeta de tramos, y tienes su cuenta atrás.")
                             .font(.footnote).foregroundStyle(Theme.slate400)
-                        Button("Entrar con una cuenta") { auth.entraConCuenta() }
-                            .font(.footnote.weight(.semibold))
+                        TextField("https://…/?ev=…", text: $enlaceCarrera)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .accessibilityIdentifier("enlaceCarrera")
+                        Button(anadiendoCarrera ? "Añadiendo…" : "Añadir la carrera") {
+                            anadiendoCarrera = true
+                            Task {
+                                do {
+                                    let nombre = try await store.anadeCarreraPorEnlace(enlaceCarrera)
+                                    avisoCarrera = "Añadida «\(nombre)»: ya está en tus rutas y en la cuenta atrás."
+                                    enlaceCarrera = ""
+                                } catch {
+                                    avisoCarrera = (error as? LocalizedError)?.errorDescription ?? "No se ha podido añadir."
+                                }
+                                anadiendoCarrera = false
+                            }
+                        }
+                        .disabled(enlaceCarrera.trimmingCharacters(in: .whitespaces).isEmpty || anadiendoCarrera)
+                        if let avisoCarrera {
+                            Text(avisoCarrera).font(.footnote).foregroundStyle(Theme.slate400)
+                        }
                     } header: {
-                        cabecera("Mis carreras", "flag.checkered")
+                        cabecera("Preparar una carrera", "flag.checkered")
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Para salir en el mapa de todos, la porra y la clasificación hace falta cuenta: es por invitación, pídesela a quien organiza.")
+                            Button("Entrar con una cuenta") { auth.entraConCuenta() }
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
                 }

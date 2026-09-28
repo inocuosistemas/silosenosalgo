@@ -971,6 +971,48 @@ final class TrackingStore: ObservableObject {
         return nuevo
     }
 
+    /**
+     Preparar una carrera SIN CUENTA a partir de su enlace público (el `?ev=…`
+     que reparte la organización): su recorrido con los cortes se guarda como
+     ruta del móvil, con la hora oficial de salida, y se crea su cuenta atrás.
+     Con eso ya sirve lo de siempre: grabarla (armada hasta la salida), la
+     «Carrera en directo» y el mapa sin conexión. Lo que no hay sin cuenta es
+     salir en el mapa de todos. Devuelve el nombre. Espejo de Android.
+     */
+    func anadeCarreraPorEnlace(_ texto: String) async throws -> String {
+        let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let r = limpio.range(of: #"(?:[?&]ev=)?([A-Za-z0-9_-]{16,32})"#, options: .regularExpression) else {
+            throw GpxImporter.Fallo.conversion("Eso no parece el enlace de una carrera.")
+        }
+        let token = String(limpio[r]).replacingOccurrences(of: #"^[?&]ev="#, with: "", options: .regularExpression)
+        let ev: [String: Any]
+        do { ev = try await API.eventoPublico(token: token) }
+        catch { throw GpxImporter.Fallo.conversion("No se ha encontrado esa carrera (o no hay conexión).") }
+        let nombre = ev["name"] as? String ?? "Carrera"
+        let salida = ev["startsAt"] as? Double
+        guard let share = ev["planShareId"] as? String else {
+            throw GpxImporter.Fallo.conversion("Esa carrera aún no tiene recorrido publicado.")
+        }
+        let gz = try await API.fetchSharePayload(shareId: share)
+        let km = Gzip.inflate(gz)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { ($0["track"] as? [String: Any])?["totalDistanceKm"] as? Double }
+        let plan = PlanSummary(
+            id: "carrera-\(token)", name: nombre, routeName: nil, distanceKm: km,
+            startTime: salida.map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0 / 1000)) },
+            eventId: nil, activity: nil, withForecast: false,
+        )
+        PlanesLocales.guarda(plan, bytes: gz)
+        await loadPlans()
+        if let salida, salida / 1000 > Date().timeIntervalSince1970 {
+            var propios = AlmacenContadores.lee().contadores.filter { $0.origen == .propio && $0.id != "carrera-local-\(token)" }
+            propios.append(Contador(id: "carrera-local-\(token)", nombre: nombre,
+                                    fecha: Date(timeIntervalSince1970: salida / 1000), emoji: "🏁", alPasar: .contarArriba))
+            ContadoresDeCarreras.guardaPropios(propios)
+        }
+        return nombre
+    }
+
     func deleteSession(_ id: String) async {
         if esLocal(id) {
             SalidasLocales.borra(id)

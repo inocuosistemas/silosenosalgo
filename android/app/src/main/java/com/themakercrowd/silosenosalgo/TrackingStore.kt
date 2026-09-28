@@ -258,6 +258,45 @@ object TrackingStore {
         api.createPlan(t, gz, nombre, num("totalDistanceKm"), num("elevGainM"), null).id
     }.getOrNull()
 
+    /**
+     * Preparar una carrera SIN CUENTA a partir de su enlace público (el `?ev=…`
+     * que reparte la organización): su recorrido con los cortes se guarda como
+     * ruta del móvil, con la hora oficial de salida, y se crea su cuenta atrás.
+     * Con eso ya sirve lo de siempre: grabarla (armada hasta la salida), la
+     * «Carrera en directo» y el mapa sin conexión. Lo que no hay sin cuenta es
+     * salir en el mapa de todos. Devuelve el nombre de la carrera.
+     */
+    suspend fun anadeCarreraPorEnlace(texto: String): Result<String> = runCatching {
+        val token = Regex("(?:[?&]ev=)?([A-Za-z0-9_-]{16,32})").find(texto.trim())?.groupValues?.get(1)
+            ?: throw ConversorGpx.Fallo("Eso no parece el enlace de una carrera.")
+        val ev = api.eventoPublico(token)
+            ?: throw ConversorGpx.Fallo("No se ha encontrado esa carrera (o no hay conexión).")
+        val cadena = { k: String -> (ev[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content }
+        val nombre = cadena("name") ?: "Carrera"
+        val salida = (ev["startsAt"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()
+        val share = cadena("planShareId") ?: throw ConversorGpx.Fallo("Esa carrera aún no tiene recorrido publicado.")
+        val gz = api.fetchSharePayload(share)
+        val km = runCatching {
+            val json = java.util.zip.GZIPInputStream(gz.inputStream()).use { it.readBytes().toString(Charsets.UTF_8) }
+            ((Api.json.parseToJsonElement(json) as kotlinx.serialization.json.JsonObject)["track"] as kotlinx.serialization.json.JsonObject)["totalDistanceKm"]
+                ?.let { (it as kotlinx.serialization.json.JsonPrimitive).content.toDoubleOrNull() }
+        }.getOrNull()
+        val plan = PlanSummary(
+            id = "carrera-$token", name = nombre, distanceKm = km, updatedAt = ahoraMs,
+            startTime = salida?.let { java.time.Instant.ofEpochMilli(it.toLong()).toString() },
+        )
+        almacen.guardaPlanLocal(plan, gz)
+        cargaPlanes()
+        appCtx?.let { ctx ->
+            if (salida != null && salida > ahoraMs) {
+                Contadores.guardaUno(ctx, Contador(
+                    id = "carrera-local-$token", nombre = nombre, fechaMs = salida, emoji = "🏁", alPasar = "contarArriba",
+                ))
+            }
+        }
+        nombre
+    }
+
     /** Borrarla es borrarla del todo: no hay copia en ningún otro sitio. */
     fun borraSalidaLocal(id: String) {
         olvidaSalidaLocal(id)
