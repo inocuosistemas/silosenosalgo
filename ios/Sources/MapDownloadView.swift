@@ -21,8 +21,10 @@ struct MapDownloadView: View {
     let polyline: [(lat: Double, lon: Double)]?
 
     @Environment(\.dismiss) private var dismiss
-    private let zMin = 11
-    @State private var zMax = 15
+    private let zMin = 9
+    // Vectorial: todo el detalle está en el 14 y se amplía desde ahí (ver
+    // `OfmCache`), así que no hay «detalle» que elegir.
+    private let zMax = OfmCache.zoomMax
     @State private var corridorMeters: Double = 800
     @State private var tileCount = 0
     @State private var cachedCount = 0
@@ -59,9 +61,6 @@ struct MapDownloadView: View {
                         if let n = routeName {
                             LabeledContent("Ruta", value: n)
                         }
-                        Picker("Detalle (zoom máx.)", selection: $zMax) {
-                            ForEach([13, 14, 15, 16], id: \.self) { Text(zoomLabel($0)).tag($0) }
-                        }
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("Ancho del corredor").foregroundStyle(Theme.slate100)
@@ -74,7 +73,7 @@ struct MapDownloadView: View {
                             Label("Corredor descargado · \(tileCount) tiles", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
                         } else {
-                            Text("≈ \(tileCount) tiles · ≈ \(sizeLabel(TileCache.estimatedBytes(tileCount: tileCount))) · en caché: \(cachedCount) de \(tileCount)")
+                            Text("≈ \(tileCount) tiles · ≈ \(sizeLabel(OfmCache.estimatedBytes(tileCount: tileCount))) · en caché: \(cachedCount) de \(tileCount)")
                                 .font(.caption).foregroundStyle(Theme.slate400)
                         }
                         if downloading {
@@ -96,7 +95,7 @@ struct MapDownloadView: View {
                 Section {
                     LabeledContent("Ocupa", value: sizeLabel(cacheBytes))
                     Button("Vaciar caché de mapas", role: .destructive) {
-                        TileCache.shared.clear(); refreshCache(); refreshEstimate()
+                        OfmCache.shared.clear(); refreshCache(); refreshEstimate()
                     }
                 } header: {
                     Text("Caché de mapas").foregroundStyle(Theme.slate400)
@@ -113,7 +112,6 @@ struct MapDownloadView: View {
                 }
             }
             .onAppear { refreshEstimate(); refreshCache() }
-            .onChange(of: zMax) { _ in refreshEstimate() }
             .onChange(of: corridorMeters) { _ in refreshEstimate() }
         }
     }
@@ -123,7 +121,7 @@ struct MapDownloadView: View {
         downloading = true; cancel.flag = false; done = 0; total = tileCount
         let box = cancel
         Task {
-            await TileCache.shared.downloadCorridor(
+            await OfmCache.shared.downloadCorridor(
                 polyline: poly, corridorMeters: corridorMeters, zMin: zMin, zMax: zMax,
                 progress: { d, t in Task { @MainActor in done = d; total = t } },
                 isCancelled: { box.flag }
@@ -139,22 +137,13 @@ struct MapDownloadView: View {
         let (w, zx, zn) = (corridorMeters, zMax, zMin)
         Task.detached {
             let set = TileCache.corridorTiles(polyline: poly, corridorMeters: w, zMin: zn, zMax: zx)
-            let cached = TileCache.shared.cachedTiles(in: set)
-            let cov = TileCache.shared.cachedCoverage(polyline: poly)
+            let cached = OfmCache.shared.cachedTiles(in: set)
+            let cov = OfmCache.shared.cachedCoverage(polyline: poly)
             await MainActor.run { tileCount = set.count; cachedCount = cached; coverage = cov }
         }
     }
 
-    private func refreshCache() { cacheBytes = TileCache.shared.cacheSizeBytes() }
-
-    private func zoomLabel(_ z: Int) -> String {
-        switch z {
-        case 13: return "z13 · básico"
-        case 14: return "z14 · medio"
-        case 15: return "z15 · alto"
-        default: return "z16 · máximo"
-        }
-    }
+    private func refreshCache() { cacheBytes = OfmCache.shared.cacheSizeBytes() }
 
     private func sizeLabel(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)

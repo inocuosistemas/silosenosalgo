@@ -54,6 +54,15 @@ final class SinCuentaUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Grabando en este móvil"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Sesión caducada'")).firstMatch.exists)
         guarda("sincuenta-3-grabando")
+        // Su mapa, con el fondo de OpenFreeMap servido por la app (`/_ofm/`).
+        let mapa = app.buttons["Ver mi ruta en el mapa (offline)"]
+        XCTAssertTrue(mapa.waitForExistence(timeout: 5))
+        mapa.tap()
+        sleep(12)
+        guarda("sincuenta-3b-mapa")
+        let cerrar = app.buttons.matching(NSPredicate(format: "label IN {'Cerrar', 'Volver', 'Listo'}")).firstMatch
+        if cerrar.exists { cerrar.tap() } else { app.swipeDown(velocity: .fast) }
+        sleep(2)
 
         app.buttons["Terminar la salida"].tap()
         let si = app.buttons["Sí, terminar"]

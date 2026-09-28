@@ -60,6 +60,10 @@ struct WebView: UIViewRepresentable {
             comps.queryItems = [
                 URLQueryItem(name: "t", value: token),
                 URLQueryItem(name: "embedded", value: "1"),
+                // Esta app sirve OpenFreeMap por `/_ofm/` (ver `OfmCache`); sin
+                // esto la web usa los mosaicos de antes, que es lo que saben
+                // servir las versiones anteriores.
+                URLQueryItem(name: "ofm", value: "1"),
             ] + bordeABorde
             return URLRequest(url: comps.url!)
         case .online(let url):

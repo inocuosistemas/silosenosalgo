@@ -306,9 +306,9 @@ struct PantallaPrepararCarrera: View {
             // Hasta el 13: con eso ya se ve por dónde se va. Se puede haber
             // bajado con más o menos detalle («Preparar el mapa» deja elegir),
             // y exigir el 15 daba por a medias un mapa que sirve.
-            let tiles = TileCache.corridorTiles(polyline: r, corridorMeters: 800, zMin: 11, zMax: 13)
+            let tiles = TileCache.corridorTiles(polyline: r, corridorMeters: 800, zMin: 12, zMax: OfmCache.zoomMax)
             guard !tiles.isEmpty else { return 0.0 }
-            return Double(TileCache.shared.cachedTiles(in: tiles)) / Double(tiles.count)
+            return Double(OfmCache.shared.cachedTiles(in: tiles)) / Double(tiles.count)
         }.value
         mapa = fraccion
     }

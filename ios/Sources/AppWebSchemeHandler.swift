@@ -38,7 +38,23 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
         guard let url = task.request.url else { return finish404(task, url: nil) }
         let path = url.path.isEmpty ? "/" : url.path
 
-        // Async tile route.
+        // El mapa de OpenFreeMap (estilo, iconos, letras, mosaicos), por su
+        // caché: ver `OfmCache`. Lo que no hay forma de tener, 404, y MapLibre
+        // deja ese trozo en blanco.
+        if path.hasPrefix("/_ofm/") {
+            let ruta = String(path.dropFirst("/_ofm/".count))
+            Task {
+                let r = await OfmCache.shared.recurso(ruta)
+                await MainActor.run {
+                    if let (data, mime) = r { self.respond(task, url: url, data: data, mime: mime) }
+                    else { self.finish404(task, url: url) }
+                }
+            }
+            return
+        }
+
+        // Los mosaicos de antes: solo para una web anterior guardada (la que aún
+        // no sabe de OpenFreeMap).
         if path.hasPrefix("/_tile/"), let key = Self.parseTile(path) {
             Task {
                 let data = await TileCache.shared.tile(key.z, key.x, key.y)
