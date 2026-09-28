@@ -111,11 +111,16 @@ desinstalarla para pasar a la de Play.
 
 **Descripción breve** (80):
 
-> Tu baliza GPS: que te sigan en directo en tus salidas, rutas y carreras.
+> Tu baliza GPS: graba tus salidas y que te sigan en directo en rutas y carreras.
 
 **Descripción completa**:
 
 > SiLoSeNoSalgo convierte tu móvil en una baliza GPS. Ármala al salir y comparte un enlace: quien lo tenga ve en el mapa por dónde vas, en directo, sin instalar nada ni tener cuenta.
+>
+> SIN CUENTA TAMBIÉN
+> • Úsala sin registrarte: graba tus salidas y míralas en el mapa, con sus tramos, notas y fotos, en tu móvil y sin conexión.
+> • Carga un GPX y síguelo, también en la «Carrera en directo» de la pantalla de bloqueo.
+> • Nada de lo que grabas sin cuenta sale de tu móvil.
 >
 > TUS SALIDAS
 > • Seguimiento en directo con la pantalla bloqueada, con una notificación mientras la baliza está armada.
@@ -142,21 +147,32 @@ desinstalarla para pasar a la de Play.
 > • Los seguimientos caducan solos. Sin publicidad, sin analítica y sin venta de datos.
 > • Puedes borrar tu cuenta cuando quieras, desde la app.
 >
-> Las cuentas se crean por invitación, desde la web.
+> Para compartir tu posición en directo y para las carreras hace falta cuenta: se crean por invitación, desde la web.
 
 **Notas de la versión** (500):
 
 > Primera versión en Google Play: baliza en directo, salidas por tramos, carreras, maqueta 3D con vídeo y tu posición en el mapa.
 
+Notas de la **siguiente** versión (la que lleva el uso sin cuenta):
+
+> Ya se puede usar sin cuenta: graba tus salidas y míralas en el mapa, en tu móvil y sin conexión. Mapas nuevos (OpenFreeMap), también para descargarlos antes de salir. Y más ligera y rápida.
+
+> *(en-US)* You can now use it without an account: record your outings and see them on the map, on your phone and offline. New maps (OpenFreeMap), also downloadable before you head out. Lighter and faster.
+
 ## Ficha (en-US, traducción)
 
 **Short description**:
 
-> Your GPS beacon: let people follow you live on outings, routes and races.
+> Your GPS beacon: record your outings and let people follow you live on races.
 
 **Full description**:
 
 > SiLoSeNoSalgo turns your phone into a GPS beacon. Arm it when you head out and share a link: anyone with it sees where you are on the map, live, with nothing to install and no account.
+>
+> NO ACCOUNT NEEDED, TOO
+> • Use it without signing up: record your outings and see them on the map, with their legs, notes and photos, on your phone and offline.
+> • Load a GPX and follow it, also with the lock-screen "Live race" card.
+> • Nothing you record without an account leaves your phone.
 >
 > YOUR OUTINGS
 > • Live tracking with the screen locked, with a notification while the beacon is armed.
@@ -183,7 +199,7 @@ desinstalarla para pasar a la de Play.
 > • Tracks expire on their own. No ads, no analytics, no selling of data.
 > • Delete your account whenever you want, from the app.
 >
-> Accounts are created by invitation, from the web.
+> Sharing your position live and races need an account: accounts are created by invitation, from the web.
 
 ## Datos de la app y de contacto
 
@@ -195,9 +211,12 @@ desinstalarla para pasar a la de Play.
 
 ## Contenido de la aplicación (formularios)
 
-**Acceso a la aplicación**: toda la funcionalidad necesita cuenta. Instrucciones:
-«Entra con el usuario y la contraseña indicados. Para ver una salida en directo,
-en Baliza toca «Compartir · sin carrera»; en Archivo están las salidas guardadas.»
+**Acceso a la aplicación**: parte de la funcionalidad necesita cuenta («All or some
+functionality is restricted»; desde la versión con uso sin cuenta). Instrucciones:
+«Sin cuenta: en la pantalla de entrar, "Usar sin cuenta"; en Baliza, "Empezar a grabar".
+Con cuenta (compartir en directo y carreras): entra con el usuario y la contraseña
+indicados; en Baliza toca "Compartir · sin carrera"; en Archivo están las salidas.»
+(Hasta la 774, «toda la funcionalidad necesita cuenta».)
 La cuenta de revisión se crea con una invitación desde la web de administración;
 usuario y contraseña se escriben directamente en la consola.
 
@@ -228,6 +247,8 @@ aplicaciones»: sin violencia, sexo, lenguaje, drogas ni apuestas con dinero.
 | Actividad en la app → otro contenido generado por el usuario | Sí | Sí | Funcionalidad de la app (notas, pausas con nombre) |
 
 Nada de analítica, publicidad, identificadores de dispositivo ni informes de fallos.
+Sin cuenta no se recoge nada (no sale del móvil): las declaraciones de arriba siguen
+valiendo, porque describen el uso con cuenta y no cambian.
 
 **Funciones de salud**: Actividad física y fitness.
 
