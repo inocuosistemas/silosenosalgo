@@ -66,6 +66,17 @@ function PlansBody({
   const [plans, setPlans] = useState<PlanMeta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Qué se está guardando, y lo último que se guardó (para decirlo: sin esto
+   *  «Actualizar» no daba ninguna señal y parecía no hacer nada). */
+  const [haciendo, setHaciendo] = useState<'actualizar' | 'nueva' | null>(null)
+  const [hecho, setHecho] = useState<{ que: 'actualizar' | 'nueva'; hora: string } | null>(null)
+  useEffect(() => {
+    if (!hecho) return
+    const t = window.setTimeout(() => setHecho(null), 4000)
+    return () => window.clearTimeout(t)
+  }, [hecho])
+  const marcaHecho = (que: 'actualizar' | 'nueva') =>
+    setHecho({ que, hora: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) })
   const [name, setName] = useState('')
   /** La previsión que se está convirtiendo en evento (con su payload ya leído). */
   const [converting, setConverting] = useState<{ payload: SharePayloadV1; name: string } | null>(null)
@@ -87,26 +98,28 @@ function PlansBody({
 
   async function saveNew() {
     if (!hasTrack || !name.trim()) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setHecho(null); setHaciendo('nueva')
     try {
       // La procedencia solo se marca al CREAR: actualizar una previsión
       // existente conserva la que ya tuviera (el servidor no la toca).
       const meta = await createPlan(getPayload(), name.trim(), eventId)
       onSaved(meta.id, meta.name)
       await refresh()
+      marcaHecho('nueva')
     } catch (e) { setError(plansErrorMessage(codeOf(e))) }
-    finally { setBusy(false) }
+    finally { setBusy(false); setHaciendo(null) }
   }
 
   async function update() {
     if (!hasTrack || !current || !name.trim()) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setHecho(null); setHaciendo('actualizar')
     try {
       await updatePlan(current.id, getPayload(), name.trim())
       onSaved(current.id, name.trim())
       await refresh()
+      marcaHecho('actualizar')
     } catch (e) { setError(plansErrorMessage(codeOf(e))) }
-    finally { setBusy(false) }
+    finally { setBusy(false); setHaciendo(null) }
   }
 
   async function load(p: PlanMeta) {
@@ -162,7 +175,7 @@ function PlansBody({
               disabled={!hasTrack || !name.trim() || busy}
               className="flex-1 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 transition-colors"
             >
-              Actualizar
+              {haciendo === 'actualizar' ? 'Actualizando…' : hecho?.que === 'actualizar' ? '✓ Actualizada' : 'Actualizar'}
             </button>
           )}
           <button
@@ -174,9 +187,18 @@ function PlansBody({
                 : 'bg-sky-600 hover:bg-sky-500 text-white'
             }`}
           >
-            {current ? 'Guardar como nueva' : 'Guardar'}
+            {haciendo === 'nueva' ? 'Guardando…'
+              : hecho?.que === 'nueva' ? '✓ Guardada'
+              : current ? 'Guardar como nueva' : 'Guardar'}
           </button>
         </div>
+        {hecho && (
+          <p className="mt-2 text-xs text-emerald-400" role="status">
+            {hecho.que === 'actualizar'
+              ? `Ruta actualizada a las ${hecho.hora}: recorrido, puntos y previsión.`
+              : `Guardada como ruta nueva a las ${hecho.hora}.`}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-red-400 text-xs">{error}</p>}
