@@ -112,7 +112,49 @@ function DownloadIcon() {
 
 // ── Help / format modal ──────────────────────────────────────────────────────
 
+/**
+ * Las instrucciones, en texto plano, para copiarlas: se pegan en una hoja, en un
+ * mensaje a quien prepara los puntos o en un asistente que los redacte, y lo
+ * que vuelva se pega aquí tal cual. Lo mismo que dice la ventana.
+ */
+const INSTRUCCIONES_POIS = `Cómo preparar los POIs para SiLoSeNoSalgo
+
+Una línea por punto:
+km | nombre | descripción | corte | parada
+
+- km: punto kilométrico, decimal con punto o coma (15.5 o 15,5).
+- nombre: obligatorio.
+- descripción: opcional; deja vacío entre los separadores si no aplica.
+- corte: opcional, solo la hora en formato HH:MM. El día se calcula solo: el primer corte es el día de la salida si su hora es posterior a la de salida (si no, el siguiente), y cada corte que tenga una hora menor que el anterior pasa al día siguiente.
+- parada: opcional, minutos previstos parado en el punto.
+
+Separadores: | (pipe), tabulador o punto y coma. Las líneas que empiezan por # y la cabecera "km | nombre…" se ignoran. No hacen falta coordenadas: la posición se calcula sobre el track.
+
+Recomendación para nombres y descripciones
+Para que los POIs sean fáciles de identificar en relojes GPS y dispositivos con pantallas pequeñas:
+- nombre: una abreviatura del punto seguida de la hora de corte en formato HHMM, si existe.
+- Que el nombre completo no supere los 8 caracteres.
+- descripción: el nombre completo del punto y, si corresponde, que dispone de avituallamiento.
+- corte: mantener la hora de corte en formato HH:MM aunque ya aparezca abreviada en el nombre. Es el campo que usa la aplicación para calcular los tiempos y el día.
+- Si el punto no tiene hora de corte, solo una abreviatura reconocible del nombre.
+
+Ejemplos:
+9.9 | REB0800 | Rebost - Avituallamiento | 08:00 |
+70.3 | EST2330 | Estasen - Avituallamiento | 23:30 |
+74.0 | GRES | Gresolet - Avituallamiento | |
+84.1 | AUL0330 | Aula Natura - Avituallamiento | 03:30 |
+
+Así, al ver el waypoint en un Garmin u otro dispositivo, el propio nombre identifica el punto y su hora límite de salida.`
+
 function HelpModal({ onClose }: { onClose: () => void }) {
+  const [copiadas, setCopiadas] = useState(false)
+  const copiaInstrucciones = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTRUCCIONES_POIS)
+      setCopiadas(true)
+      setTimeout(() => setCopiadas(false), 2000)
+    } catch { /* sin permiso para el portapapeles: el texto sigue ahí para seleccionarlo */ }
+  }
   // Close on Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -170,6 +212,30 @@ km | nombre        | descripción            | corte | parada
             </pre>
             <p className="text-xs text-slate-400 mt-2">
               Las líneas que empiezan con <code className="text-slate-200">#</code> y la cabecera <code className="text-slate-200">km | nombre…</code> se ignoran.
+            </p>
+          </section>
+
+          <section className="bg-emerald-950/20 border border-emerald-800/40 rounded-lg p-3">
+            <h4 className="text-emerald-300 font-semibold mb-1.5">💡 Recomendación para nombres y descripciones</h4>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Para que los POIs sean fáciles de identificar en relojes GPS y dispositivos con pantallas pequeñas, se recomienda:
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-slate-300 list-disc pl-5">
+              <li><code className="text-slate-200">nombre</code>: usar una abreviatura del punto seguida de la hora de corte en formato <code className="text-slate-200">HHMM</code>, si existe.</li>
+              <li>Intentar que el nombre completo no supere los 8 caracteres.</li>
+              <li><code className="text-slate-200">descripción</code>: indicar el nombre completo del punto y, si corresponde, que dispone de avituallamiento.</li>
+              <li><code className="text-slate-200">corte</code>: mantener la hora de corte en formato <code className="text-slate-200">HH:MM</code>, aunque ya aparezca abreviada en el nombre. Este campo es el que utiliza la aplicación para calcular los tiempos y el día correspondiente.</li>
+              <li>Si el punto no tiene hora de corte, usar únicamente una abreviatura reconocible del nombre.</li>
+            </ul>
+            <p className="text-xs text-slate-400 mt-2">Ejemplos</p>
+            <pre className="mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-300 overflow-x-auto leading-relaxed">
+{`9.9 | REB0800 | Rebost - Avituallamiento | 08:00 |
+70.3 | EST2330 | Estasen - Avituallamiento | 23:30 |
+74.0 | GRES | Gresolet - Avituallamiento | |
+84.1 | AUL0330 | Aula Natura - Avituallamiento | 03:30 |`}
+            </pre>
+            <p className="text-xs text-slate-400 mt-2">
+              De esta forma, al visualizar el waypoint en un Garmin u otro dispositivo, el propio nombre permite identificar rápidamente el punto y su hora límite de salida.
             </p>
           </section>
 
@@ -234,7 +300,14 @@ km | nombre        | descripción            | corte | parada
           </section>
         </div>
 
-        <div className="px-5 py-3 border-t border-slate-800 flex justify-end sticky bottom-0 bg-slate-900">
+        <div className="px-5 py-3 border-t border-slate-800 flex justify-between gap-2 sticky bottom-0 bg-slate-900">
+          <button
+            onClick={() => void copiaInstrucciones()}
+            title="Copiar estas instrucciones como texto, para pasárselas a quien prepara los puntos"
+            className="inline-flex items-center gap-1.5 border border-slate-700 hover:border-slate-500 text-slate-200 font-medium py-1.5 px-3 rounded-lg text-sm transition-colors"
+          >
+            <CopyIcon /> {copiadas ? 'Copiadas ✓' : 'Copiar instrucciones'}
+          </button>
           <button
             onClick={onClose}
             className="bg-sky-600 hover:bg-sky-500 text-white font-medium py-1.5 px-4 rounded-lg text-sm transition-colors"
