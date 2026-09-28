@@ -8,7 +8,8 @@ import { snapFixToTrack } from '../lib/useLivePosition'
 // corredor—: ahí dicen algo que un icono gris no dice. Ver AuthMenu.
 import { Pause, RadioTower, MessageSquare, StickyNote, PenLine, Magnet, MapPin, Map as MapIcon, Activity, Repeat, AlertTriangle, ChevronRight, Users, Flag, SlidersHorizontal, Clapperboard, Navigation } from 'lucide-react'
 import { ClipboardList, Trash2, TrendingUp, TrendingDown, Timer, BatteryMedium, BatteryCharging, OctagonX, CloudRain, Mountain, Thermometer, Droplets, Wind, Moon, Sun, Sunset, Gauge, Route } from 'lucide-react'
-import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
+import { CapaBase } from './CapaBase'
+import { MapContainer, Polyline, Circle, CircleMarker, Marker, Popup, Tooltip, Pane, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../lib/leafletRotate'
@@ -3881,7 +3882,7 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
         rotateControl={false}
       >
         <Rumbo onRumbo={setRumbo} />
-        <TileLayer attribution='&copy; OpenStreetMap' url={tileUrl} />
+        <CapaBase />
         {/* RainViewer solo sirve hasta el zoom 7: más cerca se estira esa
             imagen, igual que en el planificador. */}
         {radarFrames.length > 0 && <RainRadarLayer frames={radarFrames} currentIndex={radarIdx} />}

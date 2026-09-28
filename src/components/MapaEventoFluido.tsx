@@ -8,6 +8,7 @@ import { iconoDeFoto, iconoFotoPrevia, MINIATURAS_HASTA, RADIO_GRUPO_PX } from '
 import { agrupaFotos } from '../lib/agrupaFotos'
 import { extremosDelRecorrido, flechasDelSentido, marcasDeExtremos, type LadoRotulo } from '../lib/sentidoRecorrido'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
+import { fusionaConOfm, transformaPeticion } from '../lib/mapaBase'
 import { LADO_ICONO_PUNTO } from '../lib/iconosPunto'
 import type { EventFoto } from '../../shared/wireTypes'
 
@@ -131,7 +132,8 @@ export default function MapaEventoFluido(p: Props) {
   // ── El mapa, una vez ────────────────────────────────────────────────────
   useEffect(() => {
     if (!contenedor.current) return
-    const estilo: StyleSpecification = {
+    const caja = contenedor.current
+    const estiloBase: StyleSpecification = {
       version: 8,
       sources: {
         osm: { type: 'raster', tiles: urlsDeMosaicos(OSM), tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
@@ -150,10 +152,15 @@ export default function MapaEventoFluido(p: Props) {
         },
       ],
     }
+    // El fondo es OpenFreeMap metido en este estilo (ver `fusionaConOfm`): el
+    // mapa nace cuando llega el suyo.
+    let vivo = true
+    let quita: (() => void) | undefined
+    const arranca = (estilo: StyleSpecification): (() => void) | undefined => {
     let map: MapaGL
     try {
       map = new MapaGL({
-        container: contenedor.current, style: estilo, center: [0.9, 42.4], zoom: 8,
+        container: caja, style: estilo, transformRequest: transformaPeticion, center: [0.9, 42.4], zoom: 8,
         maxZoom: 19, maxPitch: 60, attributionControl: { compact: true },
       })
     } catch (e) {
@@ -265,6 +272,9 @@ export default function MapaEventoFluido(p: Props) {
     })
 
     return () => { map.remove(); mapaRef.current = null; setListo(false) }
+    }
+    void fusionaConOfm(estiloBase).then((estilo) => { if (vivo) quita = arranca(estilo) })
+    return () => { vivo = false; quita?.() }
   }, [])
 
   const fuente = (id: string) => mapaRef.current?.getSource(id) as GeoJSONSource | undefined

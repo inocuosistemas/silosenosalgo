@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { VistaMapa } from '../lib/vistaEvento'
 import { Eye, Move, Pause, Search, Settings, X } from 'lucide-react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import { CapaBase } from './CapaBase'
+import { MapContainer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { CapaRelieve } from './CapaRelieve'
 import type { CorredorFluido } from './MapaEventoFluido'
 import { leeMotorMapa, type MotorMapa } from '../lib/motorMapa'
@@ -1708,7 +1709,7 @@ export default function EventLiveMap({ source, vista, onVista, nav }: {
         </Suspense>
       ) : view === 'mapa' ? (
         <MapContainer {...vistaInicial} className="h-full w-full" zoomControl={false} attributionControl={false}>
-          <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <CapaBase />
           {relieve && <CapaRelieve />}
           <ZoomWatch onZoom={setZoom} />
           <MapTap onTap={() => setHoverKm(null)} />

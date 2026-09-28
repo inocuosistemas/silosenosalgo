@@ -3,7 +3,8 @@ import '../lib/gestureHandling'
 import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
 import { Pause, Play, RotateCcw, Search } from 'lucide-react'
 import L from 'leaflet'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
+import { CapaBase } from './CapaBase'
+import { MapContainer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import type { GpxTrack } from '../lib/gpx'
 import { projectToTrack } from '../lib/customPois'
 import { cutoffWptKey } from '../lib/cutoffInference'
@@ -1371,10 +1372,7 @@ export function RouteMap({
             },
           }}
         >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          />
+          <CapaBase />
 
           {radarActive && radarFrames.length > 0 && (
             <RainRadarLayer

@@ -5,6 +5,7 @@ import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url
 import { Map as IconoMapa, Mountain, Pause, RotateCw, X } from 'lucide-react'
 import type { EventFoto } from '../../shared/wireTypes'
 import { URL_ALTURAS, ZOOM_MAX_ALTURAS } from '../lib/relieve'
+import { fusionaConOfm, muestraFondo, transformaPeticion } from '../lib/mapaBase'
 import { COLOR_AGUA, COLOR_MESA, EMOJIS_HASTA, coloresMaqueta, encuadre3D, htmlCorredor3D, htmlPunto3D, type Corredor3D, type EstiloMapa3D, type Punto3D, type RangoAlturas } from '../lib/mapa3d'
 import { htmlDeFoto } from './EventFotos'
 import { CargandoMarca } from './CargandoMarca'
@@ -201,7 +202,7 @@ function aplicaEstilo(m: MapaGL, estilo: AspectoMapLibre, cotas: RangoAlturas | 
   const a = ASPECTO[estilo]
   const maqueta = estilo === 'relieve'
   for (const capa of ['maqueta', 'agua-lagos', 'agua-rios']) m.setLayoutProperty(capa, 'visibility', maqueta ? 'visible' : 'none')
-  m.setLayoutProperty('osm', 'visibility', maqueta ? 'none' : 'visible')
+  muestraFondo(m, !maqueta)
   m.setPaintProperty('maqueta', 'color-relief-color', coloresMaqueta(cotas))
   m.setPaintProperty('fondo', 'background-color', a.fondo)
   m.setPaintProperty('sombra', 'hillshade-exaggeration', a.sombra)
@@ -299,9 +300,19 @@ export default function EventMapa3D({ ruta, cotas, nombre, planId, corredores, p
     if (!hayWebGL || !caja.current) return
     const { ruta: ruta0, corredores: corredores0, cotas: cotas0 } = inicio.current
     const vista = encuadre3D(ruta0, corredores0.map((c) => c.punto))
-    const m = new MapaGL({
-      container: caja.current,
-      style: construyeEstilo(aspecto.current, cotas0),
+    const contenedor = caja.current
+    const vivas = marcas.current
+    let m: MapaGL | null = null
+    let vivo = true
+    // El fondo es OpenFreeMap metido en el estilo propio (ver `fusionaConOfm`),
+    // así que el mapa nace cuando llega su estilo.
+    void (async () => {
+    const estilo0 = await fusionaConOfm(construyeEstilo(aspecto.current, cotas0))
+    if (!vivo) return
+    const mapaNuevo = new MapaGL({
+      container: contenedor,
+      style: estilo0,
+      transformRequest: transformaPeticion,
       ...('limites' in vista
         ? { bounds: vista.limites, fitBoundsOptions: { padding: 48 } }
         : { center: vista.centro, zoom: vista.zoom }),
@@ -309,25 +320,27 @@ export default function EventMapa3D({ ruta, cotas, nombre, planId, corredores, p
       attributionControl: { compact: true },
       locale: EN_ESPANOL,
     })
-    m.addControl(new NavigationControl({ visualizePitch: true }), 'top-right')
+    m = mapaNuevo
+    mapaNuevo.addControl(new NavigationControl({ visualizePitch: true }), 'top-right')
     // Sin red, o sin alturas, se queda plano: no es un error que enseñar.
-    m.on('error', () => {})
-    m.on('pitchend', () => setInclinado(m.getPitch() > 5))
-    m.on('click', () => setElegido(null))
-    m.on('zoomend', () => setCerca(m.getZoom() >= ZOOM_ROTULOS))
-    m.once('load', () => {
+    mapaNuevo.on('error', () => {})
+    mapaNuevo.on('pitchend', () => setInclinado(mapaNuevo.getPitch() > 5))
+    mapaNuevo.on('click', () => setElegido(null))
+    mapaNuevo.on('zoomend', () => setCerca(mapaNuevo.getZoom() >= ZOOM_ROTULOS))
+    mapaNuevo.once('load', () => {
       setListo(true)
-      m.getCanvas().focus()
+      mapaNuevo.getCanvas().focus()
       // Nace desde arriba, como el mapa de siempre, y se inclina: así se ve de
       // dónde sale el 3D. Y se acerca un poco, que inclinado lo del fondo se
       // encoge y la carrera quedaba pequeña en medio de la pantalla.
-      m.easeTo({ pitch: INCLINACION, bearing: -20, zoom: m.getZoom() + 0.4, duration: 1800 })
+      mapaNuevo.easeTo({ pitch: INCLINACION, bearing: -20, zoom: mapaNuevo.getZoom() + 0.4, duration: 1800 })
     })
-    mapa.current = m
-    const vivas = marcas.current
+    mapa.current = mapaNuevo
+    })()
     return () => {
+      vivo = false
       vivas.clear()
-      m.remove()
+      m?.remove()
       mapa.current = null
     }
   }, [hayWebGL])

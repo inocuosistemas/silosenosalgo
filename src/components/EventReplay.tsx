@@ -8,7 +8,8 @@ const EventMaqueta3D = lazy(() => import('./EventMaqueta3D'))
 /** El replay no lleva puntos del recorrido. Siempre el mismo array: uno nuevo
  *  en cada fotograma hacía redibujar las chinchetas fijas de la maqueta. */
 const SIN_PUNTOS: Punto3D[] = []
-import { MapContainer, TileLayer, Polyline, Marker, useMap } from 'react-leaflet'
+import { MapContainer, Polyline, Marker, useMap } from 'react-leaflet'
+import { CapaBase } from './CapaBase'
 import { CapaRelieve } from './CapaRelieve'
 import { CargandoMarca } from './CargandoMarca'
 import { SentidoRecorrido } from './SentidoRecorrido'
@@ -221,7 +222,7 @@ export function EventReplay({ source, route, relieve, planId, nombre, onBack }: 
         </Suspense>
       ) : (
       <MapContainer center={centro} zoom={13} className="h-full w-full" zoomControl={false} attributionControl={false}>
-        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <CapaBase />
         {relieve && <CapaRelieve />}
         {route && (
           <>

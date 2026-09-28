@@ -4,6 +4,7 @@ import { LngLatBounds, Map as MapaGL, Marker, Popup, addProtocol, setWorkerUrl, 
 import 'maplibre-gl/dist/maplibre-gl.css'
 import urlDelTrabajador from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type L from 'leaflet'
+import { ESTILO_OFM, baseDelMapa, transformaPeticion } from '../lib/mapaBase'
 import { svgPausa } from '../lib/tramosDeTransporte'
 
 /**
@@ -245,7 +246,10 @@ export default function MapaFluido(p: Props) {
   // ── El mapa, una vez ────────────────────────────────────────────────────
   useEffect(() => {
     if (!contenedor.current) return
-    const estilo: StyleSpecification = {
+    // OpenFreeMap (ver `lib/mapaBase`); en una app que aún no sabe de él, sus
+    // mosaicos de antes con el gris claro del clásico de fondo.
+    const vectorial = baseDelMapa().tipo === 'vector'
+    const estilo: StyleSpecification | string = vectorial ? ESTILO_OFM : {
       version: 8,
       sources: {
         osm: {
@@ -268,6 +272,7 @@ export default function MapaFluido(p: Props) {
       map = new MapaGL({
         container: contenedor.current,
         style: estilo,
+        transformRequest: transformaPeticion,
         center: lonLat(p.centro),
         zoom: p.zoom,
         maxZoom: 19,
