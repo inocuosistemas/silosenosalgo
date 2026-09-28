@@ -56,11 +56,13 @@ fun SeccionMapaOffline(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val teselas = remember { TileCache(context.applicationContext) }
+    // El mapa de OpenFreeMap (ver `OfmCache`): vectorial, con todo el detalle
+    // en el zoom 14 y ampliado desde ahí, así que no hay «detalle» que elegir.
+    val teselas = remember { OfmCache(context.applicationContext) }
 
     var corredorMetros by remember { mutableStateOf(800.0) }
-    var zoomMax by remember { mutableIntStateOf(15) }
-    val zoomMin = 11
+    val zoomMax = OfmCache.ZOOM_MAX
+    val zoomMin = 9
 
     var ruta by remember { mutableStateOf<List<Pair<Double, Double>>?>(null) }
     var cargandoRuta by remember { mutableStateOf(false) }
@@ -136,14 +138,6 @@ fun SeccionMapaOffline(
         Spacer(Modifier.height(14.dp))
     }
 
-    Text("Detalle del mapa", style = MaterialTheme.typography.bodySmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(13, 14, 15, 16).forEach { z ->
-            BotonZoom(etiquetaZoom(z), zoomMax == z) { zoomMax = z }
-        }
-    }
-
-    Spacer(Modifier.height(6.dp))
     Text("Ancho del corredor: ${corredorMetros.toInt()} m", style = MaterialTheme.typography.bodySmall)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf(250.0, 500.0, 800.0, 1200.0, 2000.0).forEach { m ->
@@ -230,13 +224,6 @@ private fun BotonZoom(texto: String, elegido: Boolean, onClick: () -> Unit) {
 
 /** El zoom se nombra por lo que se ve, no por su número: "16" no le dice nada a
  *  nadie, "hasta los senderos" sí. */
-private fun etiquetaZoom(z: Int): String = when (z) {
-    13 -> "Básico"
-    14 -> "Normal"
-    15 -> "Detallado"
-    else -> "Máximo"
-}
-
 private fun formateaBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024 * 1024 ->
         String.format(Locale.getDefault(), "%.1f GB", bytes / 1024.0 / 1024 / 1024)

@@ -23,9 +23,10 @@ object TileMath {
     /** Una tesela del mapa. */
     data class Tesela(val z: Int, val x: Int, val y: Int)
 
-    /** Bytes aproximados que ocupa un conjunto. Una tesela raster de OSM ronda
-     *  los 20 KB; sirve para avisar antes de bajar, no para contabilidad. */
-    fun bytesEstimados(numeroDeTeselas: Int): Long = numeroDeTeselas.toLong() * 20_000L
+    /** Bytes aproximados que ocupa un conjunto. Un mosaico vectorial de
+     *  OpenFreeMap ronda los 30 KB; sirve para avisar antes de bajar, no para
+     *  contabilidad. */
+    fun bytesEstimados(numeroDeTeselas: Int): Long = numeroDeTeselas.toLong() * 30_000L
 
     /** Coordenadas de la tesela que contiene un punto (slippy map). */
     fun teselaDe(lat: Double, lon: Double, z: Int): Pair<Int, Int> {

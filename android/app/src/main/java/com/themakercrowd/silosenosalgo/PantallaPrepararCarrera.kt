@@ -97,9 +97,9 @@ fun PantallaPrepararCarrera(
         mapa = if (ruta == null) null else withContext(Dispatchers.Default) {
             // Hasta el 13: con eso ya se ve por dónde se va (se puede haber
             // bajado con más o menos detalle).
-            val teselas = TileMath.teselasDelCorredor(ruta, 800.0, 11, 13)
+            val teselas = TileMath.teselasDelCorredor(ruta, 800.0, 12, OfmCache.ZOOM_MAX)
             if (teselas.isEmpty()) 0.0
-            else TileCache(context.applicationContext).cuantasHay(teselas).toDouble() / teselas.size
+            else OfmCache(context.applicationContext).cuantasHay(teselas).toDouble() / teselas.size
         }
         buscandoMapa = false
     }

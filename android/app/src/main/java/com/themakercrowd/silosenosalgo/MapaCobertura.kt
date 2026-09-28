@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MapaCobertura(
     ruta: List<Pair<Double, Double>>,
-    cache: TileCache,
+    cache: OfmCache,
     zoomPedido: Int,
     corredorMetros: Double,
     modifier: Modifier = Modifier,

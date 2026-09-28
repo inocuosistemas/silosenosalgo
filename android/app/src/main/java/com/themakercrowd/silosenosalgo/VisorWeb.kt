@@ -46,7 +46,10 @@ object VisorWeb {
      *  seguro. No sale a la red: todo lo resuelve el interceptor. */
     const val ORIGEN = "https://appassets.androidplatform.net"
 
-    fun urlDelVisor(sessionId: String): String = "$ORIGEN/index.html?t=$sessionId&embedded=1"
+    // `ofm=1`: esta app sirve OpenFreeMap por `/_ofm/` (ver `OfmCache`); sin él,
+    // la web usa los mosaicos de antes, que es lo que saben servir las versiones
+    // anteriores.
+    fun urlDelVisor(sessionId: String): String = "$ORIGEN/index.html?t=$sessionId&embedded=1&ofm=1"
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -112,6 +115,7 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
 
     private val assets = WebAssetStore(context.applicationContext)
     private val teselas = TileCache(context.applicationContext)
+    private val ofm = OfmCache(context.applicationContext)
 
     companion object {
         /** El estado y las notas que se le enseñan al visor. Se actualizan desde
@@ -193,6 +197,16 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
         // Teselas del mapa. El interceptor es síncrono y WebView ya lo llama en
         // un hilo de trabajo, así que aquí sí se puede bloquear: es lo que hace
         // que el mapa dibuje en orden en vez de a saltos.
+        // El mapa de OpenFreeMap (estilo, iconos, letras, mosaicos), por su
+        // caché: ver `OfmCache`. Lo que no hay forma de tener, 404, y MapLibre
+        // deja ese trozo en blanco.
+        if (ruta.startsWith("/_ofm/")) {
+            val (bytes, tipo) = runBlocking { ofm.lee(ruta.removePrefix("/_ofm/")) } ?: return noEncontrado()
+            return respuesta(bytes, tipo)
+        }
+
+        // Los mosaicos de antes: solo para una web anterior guardada (la que
+        // aún no sabe de OpenFreeMap).
         TileCache.parseaRuta(ruta)?.let { (z, x, y) ->
             val bytes = runBlocking { teselas.tesela(z, x, y) }
             return respuesta(bytes, "image/png")

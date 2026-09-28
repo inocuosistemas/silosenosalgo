@@ -183,6 +183,6 @@ class TileMathTest {
     @Test fun `el tamano estimado avisa antes de gastar datos`() {
         // 1000 teselas ≈ 20 MB: es la cifra que se le enseña a alguien antes de
         // dejarle darle a descargar con datos móviles.
-        assertEquals(20_000_000L, TileMath.bytesEstimados(1000))
+        assertEquals(30_000_000L, TileMath.bytesEstimados(1000))
     }
 }
