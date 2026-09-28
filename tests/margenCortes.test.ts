@@ -110,3 +110,22 @@ describe('el ritmo que pide cada margen', () => {
     expect(conParada[0].requiredPaceMinPerKm).toBeCloseTo(10, 2)
   })
 })
+
+describe('lo que pide de verdad el tramo que manda', () => {
+  it('con subida, el ritmo base es en llano y el tramo dice su media real', () => {
+    // 10 km subiendo 1.000 m (100 m por km) y corte a las 10:00: 2 h.
+    const subida = pistaLlana(10)
+    subida.points.forEach((p, i) => { p.ele = 1000 + i * 100 })
+    subida.elevGainM = 1000
+    const conDmas: PaceConfig = { ...aPie(6), mode: 'naismith', naismithMin100mUp: 6 }
+    const [c] = computeMarginChoices([30], {
+      track: subida, namedWaypoints: [corte('Rebost', 10, 10)], startTime: salida, paceConfig: conDmas,
+    })
+    // 90 min: 60 de subida (6 por cada 100 m) y 30 para 10 km → 3:00 en llano…
+    expect(c.requiredPaceMinPerKm).toBeCloseTo(3, 1)
+    // …que son 9 min/km de media en ese tramo, que es lo que se pide de verdad.
+    expect(c.bottleneckTramo!.km).toBe(10)
+    expect(c.bottleneckTramo!.subidaM).toBeCloseTo(1000, -1)
+    expect(c.bottleneckTramo!.minutos / c.bottleneckTramo!.km).toBeCloseTo(9, 1)
+  })
+})

@@ -25,6 +25,12 @@ function marginLabel(min: number): string {
   return m === 0 ? `${h} h` : `${h} h ${m}`
 }
 
+/** "2 h 00 min", "45 min". */
+function duracion(min: number): string {
+  const { h, m } = splitHoursMinutes(Math.round(min))
+  return h === 0 ? `${m} min` : `${h} h ${String(m).padStart(2, '0')} min`
+}
+
 /** Dos ritmos son el mismo si se diferencian en menos de un segundo por km. */
 const SAME_PACE = 1 / 60
 
@@ -53,6 +59,10 @@ export function CutoffMarginPicker({
   if (choices.length === 0) return null
 
   const selected = choices.find((c) => c.marginMin === marginMin) ?? null
+  const tramo = selected?.bottleneckTramo ?? null
+  // En «D+» e «Inteligente» el ritmo base es en llano: el modelo suma la subida
+  // aparte. Con los tiempos del GPX, al ponerlo se pasa a ritmo fijo.
+  const enLlano = paceMode === 'naismith' || paceMode === 'smart'
   const required = selected?.requiredPaceMinPerKm ?? null
   const alreadyApplied = required !== null && Math.abs(required - currentPaceMinPerKm) < SAME_PACE
   // Los tiempos del GPX mandan tramo a tramo, así que un ritmo base no pintaría
@@ -71,8 +81,9 @@ export function CutoffMarginPicker({
       <p className="text-sm font-semibold text-sky-100">¿Cuánto quieres llegar antes de cada corte?</p>
       <p className="mt-1 text-xs leading-relaxed text-slate-400">
         Es la forma más rápida de salir de dudas: eliges el colchón que quieres y te digo el ritmo
-        que hace falta para tenerlo en <strong>todos</strong> los cortes. El modelo y el ritmo base
-        de abajo son para afinar después.
+        que hace falta para tenerlo en <strong>todos</strong> los cortes
+        {enLlano && <> (el ritmo base, en llano: el modelo le suma después la subida)</>}. El modelo y
+        el ritmo base de abajo son para afinar después.
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -131,7 +142,9 @@ export function CutoffMarginPicker({
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="min-w-0 text-xs leading-relaxed text-slate-300">
-                Hace falta <span className="font-mono text-sky-200">{formatPace(required, activity)}</span>
+                Hace falta {enLlano ? 'un ritmo base de ' : ''}
+                <span className="font-mono text-sky-200">{formatPace(required, activity)}</span>
+                {enLlano && ' en llano'}
                 {selected.bottleneckLabel && (
                   <>
                     {' '}— lo marca <strong className="text-slate-200">{selected.bottleneckLabel}</strong>
@@ -140,7 +153,17 @@ export function CutoffMarginPicker({
                     )}
                   </>
                 )}
-                . En el resto de cortes llegarás con más colchón que el pedido.
+                .
+                {tramo && tramo.km > 0 && (
+                  <>
+                    {' '}Desde {tramo.desde} son {tramo.km.toFixed(1)} km
+                    {tramo.subidaM >= 50 && <> y +{Math.round(tramo.subidaM).toLocaleString('es-ES')} m</>} en{' '}
+                    {duracion(tramo.minutos)}:{' '}
+                    <strong className="text-slate-100">{formatPace(tramo.minutos / tramo.km, activity)} de media</strong>
+                    {enLlano && tramo.subidaM >= 50 && <>, que es lo que pide de verdad</>}.
+                  </>
+                )}
+                {' '}En el resto de cortes llegarás con más colchón que el pedido.
                 {switchesToFixed && (
                   <span className="block text-slate-500">
                     Ponerlo cambia el modelo a ritmo fijo: los tiempos del GPX mandan tramo a tramo y

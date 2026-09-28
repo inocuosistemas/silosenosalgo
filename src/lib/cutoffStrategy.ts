@@ -341,6 +341,13 @@ export interface MarginChoice {
   bottleneckLabel: string | null
   /** Km del corte que manda. */
   bottleneckKm: number | null
+  /**
+   * El tramo que manda, para decir qué pide de verdad: el ritmo base de «D+» e
+   * «Inteligente» es en LLANO (luego el modelo suma la subida), y a secas —«hace
+   * falta 4:38»— se lee como el ritmo de carrera. Hasta el primer corte de una
+   * ultra con 1.200 m de subida, ese 4:38 son 12 min/km de media.
+   */
+  bottleneckTramo: { desde: string; km: number; subidaM: number; minutos: number } | null
   /** Cuántos cortes quedan fuera de alcance con ese margen. */
   unreachableCount: number
 }
@@ -388,6 +395,9 @@ export function computeMarginChoices(
       requiredPaceMinPerKm: strategy.singlePace,
       bottleneckLabel: tightest?.toLabel ?? null,
       bottleneckKm: tightest?.toKm ?? null,
+      bottleneckTramo: tightest && tightest.availableMin > 0
+        ? { desde: tightest.fromLabel, km: tightest.distanceKm, subidaM: tightest.elevGainM, minutos: tightest.availableMin }
+        : null,
       unreachableCount: strategy.segments.filter((s) => s.requiredPaceMinPerKm === null).length,
     }
   })
