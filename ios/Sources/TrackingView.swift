@@ -572,7 +572,7 @@ struct TrackingView: View {
                     } label: {
                         Text(abandonaAlParar ? "Abandonar"
                              : store.isStandby ? "Desarmar"
-                             : store.isSharing ? "Dejar de compartir"
+                             : store.isSharing ? (ModoLocal.activo ? "Terminar la salida" : "Dejar de compartir")
                              : dosFormasDeEmpezar ? "Iniciar ahora"
                              : textoCompartir)
                             .fontWeight(.semibold)
@@ -720,7 +720,18 @@ struct TrackingView: View {
                     .listRowBackground(Theme.slate900)
                 }
 
-                if pestana == .carreras && store.events.isEmpty && store.pastEvents.isEmpty {
+                if pestana == .carreras && ModoLocal.activo {
+                    Section {
+                        Text("Las carreras son con cuenta: la parrilla, el mapa de todos y la porra viven en el servidor. Las cuentas son por invitación; pídesela a quien organiza.")
+                            .font(.footnote).foregroundStyle(Theme.slate400)
+                        Button("Entrar con una cuenta") { auth.entraConCuenta() }
+                            .font(.footnote.weight(.semibold))
+                    } header: {
+                        cabecera("Mis carreras", "flag.checkered")
+                    }
+                    .listRowBackground(Theme.slate900)
+                }
+                if pestana == .carreras && !ModoLocal.activo && store.events.isEmpty && store.pastEvents.isEmpty {
                     Section {
                         // Qué pasa, y no «no tienes ninguna» mientras llega la
                         // lista o si no llega: parecía que no tenías nada.
@@ -1174,7 +1185,10 @@ struct TrackingView: View {
                         Text("SALIDAS")
                             .font(.caption2.weight(.bold)).kerning(0.6)
                             .foregroundStyle(Theme.slate400)
-                        if store.sessions.isEmpty {
+                        if store.archivo.isEmpty && ModoLocal.activo {
+                            Text("Aún no has grabado ninguna. Al terminar una salida queda aquí, con su mapa.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        } else if store.archivo.isEmpty {
                             // Vacía mientras llega, o porque no llegó, NO es
                             // «no tienes»: decirlo es mentir, y quien lo lee
                             // cree que ha perdido sus salidas.
@@ -1204,7 +1218,7 @@ struct TrackingView: View {
                             // Las que ya no sirven para nada: el servidor borró su
                             // ruta y en el móvil no queda traza. Borrarlas de una
                             // en una por una lista larga es un trabajo tonto.
-                            let unusable = store.sessions.filter {
+                            let unusable = store.archivo.filter {
                                 !store.isActive($0) && store.isPurged($0) && !LocalStore.hasTrail($0.id)
                             }
                             if !unusable.isEmpty {
@@ -1223,15 +1237,15 @@ struct TrackingView: View {
                             // viene a buscar es casi siempre la de hoy o la de
                             // ayer. El resto sigue ahí, a un toque.
                             let visibles = verTodasLasSalidas
-                                ? store.sessions
-                                : Array(store.sessions.prefix(salidasVisibles))
+                                ? store.archivo
+                                : Array(store.archivo.prefix(salidasVisibles))
                             ForEach(visibles) { session in
                                 sessionRow(session)
                             }
-                            if store.sessions.count > salidasVisibles {
+                            if store.archivo.count > salidasVisibles {
                                 Button(verTodasLasSalidas
                                        ? "Ver menos"
-                                       : "Ver las \(store.sessions.count - salidasVisibles) restantes") {
+                                       : "Ver las \(store.archivo.count - salidasVisibles) restantes") {
                                     withAnimation { verTodasLasSalidas.toggle() }
                                 }
                                 .buttonStyle(.borderless)
@@ -1246,7 +1260,9 @@ struct TrackingView: View {
                             Spacer()
                             // Con la lista de la última vez a la vista, mientras
                             // llega la de ahora (o si no llegó).
-                            if !store.sessions.isEmpty {
+                            if ModoLocal.activo {
+                                Text("en este móvil").font(.caption2).foregroundStyle(Theme.slate400)
+                            } else if !store.sessions.isEmpty {
                                 if store.cargaDeSalidas == .cargando {
                                     ProgressView().controlSize(.small)
                                 } else if store.cargaDeSalidas == .fallo {
@@ -1255,7 +1271,9 @@ struct TrackingView: View {
                             }
                         }
                     } footer: {
-                        Text("Las guías llevan dentro la ruta, el recorrido real, las notas, las fotos y los audios; no, las teselas del mapa. Las salidas se conservan el plazo que elegiste, salvo las fijadas con la chincheta.")
+                        Text("Las guías llevan dentro la ruta, el recorrido real, las notas, las fotos y los audios; no, las teselas del mapa. "
+                             + (ModoLocal.activo ? "Las salidas sin cuenta se guardan en este móvil hasta que las borres."
+                                : "Las salidas se conservan el plazo que elegiste, salvo las fijadas con la chincheta."))
                             .font(.caption).foregroundStyle(Theme.slate400)
                     }
                     .listRowBackground(Theme.slate900)
@@ -1332,7 +1350,9 @@ struct TrackingView: View {
                 }
                 Button("Cancelar", role: .cancel) { pendingDelete = nil }
             } message: { session in
-                Text("Se borrará por completo \"\(store.labelForSession(session))\". Esta acción no se puede deshacer.")
+                Text(store.esLocal(session.id)
+                     ? "\"\(store.labelForSession(session))\" solo estaba en este móvil: se borra la única copia. Esta acción no se puede deshacer."
+                     : "Se borrará por completo \"\(store.labelForSession(session))\". Esta acción no se puede deshacer.")
             }
             .alert("¿Limpiar seguimientos?", isPresented: Binding(
                 get: { pendingCleanup != nil },
@@ -1413,6 +1433,9 @@ struct TrackingView: View {
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
+                // Sin cuenta no hay servidor al que preguntar: solo las rutas de
+                // GPX de este móvil.
+                if ModoLocal.activo { await store.loadPlans(); return }
                 // La marca de arriba a la derecha, al día (sin red, la guardada).
                 Task { await auth.cargaPerfil() }
                 // Cheer alerts need permission; asked here, on opening the
@@ -1436,13 +1459,13 @@ struct TrackingView: View {
             // lo que hubiera al abrir la app —o con nada, si entonces no había
             // red— y había que refrescar a mano.
             .task {
-                guard pestana == .archivo, !PruebaDePantallaPrincipal.pedida else { return }
+                guard pestana == .archivo, !PruebaDePantallaPrincipal.pedida, !ModoLocal.activo else { return }
                 store.cargaSalidasGuardadas()
                 await store.loadSessions()
             }
             // Si no llegaron (sin cobertura), en cuanto vuelva la red.
             .onChange(of: net.online) { _, online in
-                guard pestana == .baliza, online, store.cargaDeCarreras == .fallo else { return }
+                guard pestana == .baliza, online, !ModoLocal.activo, store.cargaDeCarreras == .fallo else { return }
                 Task { await store.loadEvents() }
             }
             // La pantalla de las cuentas atrás, colgada de la LISTA y no de la
@@ -1482,6 +1505,7 @@ struct TrackingView: View {
                 // created on the web, o un evento al que te acaban de invitar)
                 // without leaving the screen.
                 await store.loadPlans()
+                if ModoLocal.activo { return }
                 await store.loadEvents()
                 await store.loadSessions()
             }
@@ -1619,6 +1643,7 @@ struct TrackingView: View {
             return "\(base) · \(Self.cuandoArranca(salida))"
         }
         if let ev = store.activeEvent { return "Compartir para \(ev.name)" }
+        if ModoLocal.activo { return "Empezar a grabar" }
         return store.events.isEmpty ? "Compartir mi ubicación" : "Compartir mi ubicación · sin carrera"
     }
 
@@ -1641,7 +1666,7 @@ struct TrackingView: View {
                 Text("SiLoSeNoSalgo")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(Theme.slate100)
-                Text(["Baliza", auth.user?.username].compactMap { $0 }.joined(separator: " · "))
+                Text(["Baliza", ModoLocal.activo ? "sin cuenta" : auth.user?.username].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(Theme.slate400)
                     .lineLimit(1)
@@ -1668,6 +1693,13 @@ struct TrackingView: View {
                     .foregroundStyle(.yellow)
                 // La salida de la espera («Salir ya») está en la tarjeta de
                 // arriba (ver `ListaParaSalir`).
+            }
+        } else if store.isSharing, store.pendienteDeAlta, ModoLocal.activo {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Grabando en este móvil", systemImage: "iphone")
+                    .foregroundStyle(.green)
+                Text("Sin cuenta, la salida se graba solo aquí: la ves en su mapa, y al terminar queda en el Archivo. Para que te sigan en directo por un enlace hace falta cuenta.")
+                    .font(.caption).foregroundStyle(Theme.slate400)
             }
         } else if store.isSharing, store.pendienteDeAlta {
             // Grabando de verdad, pero sin enlace todavía: hay que decir las dos
@@ -1728,8 +1760,11 @@ struct TrackingView: View {
     @ViewBuilder
     private var resumenEnVivo: some View {
         let retraso = store.lastSentAt.map { Date().timeIntervalSince($0) } ?? 0
-        let atrasado = store.pendingCount > 0
-            || (store.followerGapMeters.map { $0 > 150 } ?? false)
+        // Sin cuenta no se envía nada: ni enviadas, ni cola, ni «te ven a», que
+        // parecerían falta de cobertura.
+        let sinCuenta = ModoLocal.activo
+        let atrasado = !sinCuenta && (store.pendingCount > 0
+            || (store.followerGapMeters.map { $0 > 150 } ?? false))
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 12) {
                 if let viewers = store.activeViewers {
@@ -1738,8 +1773,8 @@ struct TrackingView: View {
                 if store.lastSentAt != nil {
                     dato("hace \(gapTimeLabel(retraso))", "arrow.up.circle", sendFreshnessTint(retraso))
                 }
-                dato("\(store.pingCount)", "paperplane.fill", Theme.slate400)
-                if store.pendingCount > 0 {
+                if !sinCuenta { dato("\(store.pingCount)", "paperplane.fill", Theme.slate400) }
+                if store.pendingCount > 0 && !sinCuenta {
                     dato("\(store.pendingCount) en cola", "antenna.radiowaves.left.and.right.slash", .orange)
                 }
                 Spacer(minLength: 0)
@@ -1748,7 +1783,7 @@ struct TrackingView: View {
                 if let loc = store.lastLocation, loc.horizontalAccuracy >= 0 {
                     dato(String(format: "± %.0f m", loc.horizontalAccuracy), "location.circle", Theme.slate400)
                 }
-                if let gap = store.followerGapMeters {
+                if let gap = store.followerGapMeters, !sinCuenta {
                     dato("te ven a \(distanceLabel(gap))", "binoculars.fill", atrasado ? .orange : Theme.slate400)
                 }
                 if store.heldReadings > 0 {
@@ -1938,7 +1973,12 @@ struct TrackingView: View {
                         .foregroundStyle(Theme.slate400)
                         .lineLimit(1)
                 }
-                if !active && !purged {
+                if store.esLocal(session.id) {
+                    Text("· Solo en este móvil")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.sky500)
+                        .lineLimit(1)
+                } else if !active && !purged {
                     if session.isPinned {
                         Text("· Sin caducidad (fijado)")
                             .font(.caption2)
@@ -1966,13 +2006,13 @@ struct TrackingView: View {
                 Text("Para continuarla, termina antes la que está en marcha.")
                     .font(.caption2).foregroundStyle(Theme.slate400)
                     .padding(.top, 2)
-            } else if active {
+            } else if active && !store.esLocal(session.id) {
                 Button("Continuar →") { store.continueSession(session.id) }
                     .buttonStyle(.borderless)
                     .font(.caption)
                     .foregroundStyle(Theme.sky500)
                     .padding(.top, 2)
-            } else if !purged {
+            } else if !purged && !store.esLocal(session.id) {
                 // Las fotos se suben al volver, con la salida ya cerrada: a la
                 // vista, que es lo que se viene a hacer aquí después de una ruta.
                 Button { fotosDe = session } label: {
@@ -1994,18 +2034,22 @@ struct TrackingView: View {
     @ViewBuilder
     private func sessionMenu(_ session: TrackSessionSummary, purged: Bool, hasLocal: Bool) -> some View {
         let link = store.shareLink(for: session.id)
+        // Solo en este móvil: el servidor no la conoce, así que no hay enlace,
+        // ni chincheta, ni fotos que subir, ni reanudar; sí su mapa, renombrarla,
+        // sus tramos, la guía y borrarla.
+        let soloAqui = store.esLocal(session.id)
         Menu {
             // Reanudar conserva el started_at original, así que solo tiene
             // sentido en una sesión recién terminada con sus datos intactos
             // ("parar y volver a compartir"). Una caducada resucitaría con una
             // salida vieja y sin ruta: mejor empezar otra, y por eso no se
             // ofrece.
-            if !store.isActive(session) && !purged && !store.isSharing {
+            if !store.isActive(session) && !purged && !store.isSharing && !soloAqui {
                 Button { store.resumeSession(session.id) } label: {
                     Label("Reanudar", systemImage: "play.circle")
                 }
             }
-            if !store.isActive(session) && !purged {
+            if !store.isActive(session) && !purged && !soloAqui {
                 Button { fotosDe = session } label: {
                     Label("Añadir fotos", systemImage: "photo.badge.plus")
                 }
@@ -2021,7 +2065,7 @@ struct TrackingView: View {
             }
             // Una caducada no se puede conservar (sus datos ya no están), así
             // que la chincheta no significaría nada.
-            if !purged {
+            if !purged && !soloAqui {
                 Button {
                     Task { await store.setPinned(session.id, !session.isPinned) }
                 } label: {
@@ -2038,12 +2082,13 @@ struct TrackingView: View {
             // Ver su mapa: con la traza en el móvil se abre el visor incrustado
             // sin cobertura (con sus notas y fotos); si no, queda el enlace
             // público, que solo existe mientras la ruta no haya caducado.
-            if !purged || (hasLocal && !store.isSharing) {
+            if soloAqui ? hasLocal && (!store.isSharing || session.id == store.claveDeDatos)
+                : !purged || (hasLocal && !store.isSharing) {
                 Button { openSessionMap(session, hasLocal: hasLocal, purged: purged) } label: {
                     Label("Ver mapa", systemImage: "map")
                 }
             }
-            if !purged {
+            if !purged && !soloAqui {
                 Button {
                     UIPasteboard.general.string = link
                 } label: {
@@ -2073,9 +2118,14 @@ struct TrackingView: View {
     /// Pasa una salida terminada a «Automático» y abre su mapa, ya en tramos.
     private func detectaTramos(_ session: TrackSessionSummary) {
         Task {
-            await API.setActivity(token: store.token, id: session.id, activity: nil)
-            await store.loadSessions()
-            let s = store.sessions.first { $0.id == session.id } ?? session
+            if store.esLocal(session.id) {
+                SalidasLocales.cambia(session.id) { $0.actividad = nil }
+                store.refrescaSalidasLocales()
+            } else {
+                await API.setActivity(token: store.token, id: session.id, activity: nil)
+                await store.loadSessions()
+            }
+            let s = store.archivo.first { $0.id == session.id } ?? session
             openSessionMap(s, hasLocal: LocalStore.hasTrail(s.id), purged: store.isPurged(s))
         }
     }
@@ -2280,15 +2330,17 @@ private struct ConfirmacionesDeBaliza: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog("¿Dejas de compartir?",
+            .confirmationDialog(ModoLocal.activo ? "¿Terminas la salida?" : "¿Dejas de compartir?",
                                 isPresented: $confirmandoParada, titleVisibility: .visible) {
-                Button("Sí, dejar de compartir", role: .destructive) {
+                Button(ModoLocal.activo ? "Sí, terminar" : "Sí, dejar de compartir", role: .destructive) {
                     Vibra.fin()
                     Task { @MainActor in await TrackingStore.shared.stopSharing() }
                 }
                 Button("No, sigo", role: .cancel) {}
             } message: {
-                Text("Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. Si solo te paras un rato, usa la pausa.")
+                Text(ModoLocal.activo
+                     ? "Deja de grabar y la salida queda en el Archivo, con su mapa. Si solo te paras un rato, usa la pausa."
+                     : "Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. Si solo te paras un rato, usa la pausa.")
             }
             .confirmationDialog(
                 carreraAUnir.map { "¿Unes esta baliza a \($0.name)?" } ?? "",

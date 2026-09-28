@@ -57,6 +57,15 @@ final class AuthStore: ObservableObject {
     }
 
     func bootstrap() async {
+        #if DEBUG
+        // Pruebas de interfaz (ver `-EmpiezaSinSesion` en App.swift): este
+        // objeto se creó antes de que se limpiara, con lo de la vez anterior.
+        if ProcessInfo.processInfo.arguments.contains("-EmpiezaSinSesion") {
+            token = nil
+            entraConCuenta()
+            TrackingStore.shared.refrescaSalidasLocales()
+        }
+        #endif
         guard let t = token else { status = .anonymous; return }
         // Trust the stored token right away: the app must work with NO connectivity.
         user = loadCachedUser()
@@ -82,6 +91,13 @@ final class AuthStore: ObservableObject {
         try await apply(API.login(username: username, password: password))
     }
 
+    /// Usar la app sin cuenta (ver `ModoLocal`): la principal, grabando solo en
+    /// el móvil. Y volver a la de entrar para hacerlo con una; lo grabado sin
+    /// ella se queda.
+    @Published private(set) var sinCuenta = ModoLocal.activo
+    func usaSinCuenta() { ModoLocal.activo = true; sinCuenta = true }
+    func entraConCuenta() { ModoLocal.activo = false; sinCuenta = false }
+
     /// Borra la cuenta en el servidor y, después, todo lo de este móvil. Sin
     /// logout: la sesión se ha ido con la cuenta.
     func borraCuenta(contrasena: String) async throws {
@@ -97,6 +113,7 @@ final class AuthStore: ObservableObject {
 
     private func apply(_ res: AuthResponse) throws {
         guard let t = res.token else { throw APIError(status: 0, code: "network") }
+        entraConCuenta()
         Keychain.save(t)
         token = t
         user = res.user

@@ -2676,6 +2676,9 @@ export default function LiveViewer({ token, guide, onClose }: LiveViewerProps) {
       case 'perdida': return { tono: 'rojo' as const, late: false, texto: 'sin cobertura · grabando', clase: 'text-rose-400' }
       case 'sinEnlace': return { tono: 'ambar' as const, late: false, texto: 'grabando · sin enlace todavía', clase: 'text-amber-400' }
       case 'armada': return { tono: 'ambar' as const, late: false, texto: 'armada', clase: 'text-amber-400' }
+      // Sin cuenta: se graba en el móvil y no se comparte. No es falta de
+      // cobertura, así que ni ámbar ni «sin enlace todavía».
+      case 'soloEnElMovil': return { tono: 'verde' as const, late: true, texto: 'grabando en este móvil', clase: 'text-emerald-400' }
       default: return fr?.stale
         ? { tono: 'ambar' as const, late: false, texto: 'en directo', clase: 'text-amber-400' }
         : { tono: 'verde' as const, late: true, texto: 'en directo', clase: 'text-emerald-400' }

@@ -320,6 +320,8 @@ final class ViewerDataProvider {
     /// en el servidor desde otro sitio (la web, otro móvil): los ánimos, las
     /// correcciones de los tramos y la actividad. Una vez, al abrirla.
     func traeDelServidor(token: String) {
+        // Las de este móvil no están en el servidor: no hay nada que traer.
+        if ModoLocal.activo || SalidasLocales.contiene(token) { return }
         let url = Config.baseURL.appendingPathComponent("api/track/\(token)")
         URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
             guard let self, let data,
@@ -361,7 +363,7 @@ final class ViewerDataProvider {
 
     /// Trae los ánimos del endpoint público si toca. Al mejor esfuerzo.
     func refreshCheers() {
-        guard let token = currentToken else { return }
+        guard let token = currentToken, !ModoLocal.activo, !SalidasLocales.contiene(token) else { return }
         guard Date().timeIntervalSince(lastCheerFetch) >= Self.cheersInterval else { return }
         lastCheerFetch = Date()
 

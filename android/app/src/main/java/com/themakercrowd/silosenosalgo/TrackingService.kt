@@ -315,14 +315,20 @@ class TrackingService : Service() {
             val carrera = TrackingStore.eventoActual()?.let { (it.myEmoji?.let { e -> "$e " } ?: "") + it.name }
             return NotificacionDeTramo.construye(this, CANAL, tramo, carrera, accionesDeLaBaliza())
         }
+        // Sin cuenta no hay nada que transmitir: se graba en el móvil, y la cola
+        // que crece no es falta de cobertura.
+        val sinCuenta = ModoLocal.esta && estado.pendienteDeAlta
         val titulo = when {
             estado.enEspera -> "Preparado · aún sin transmitir"
+            sinCuenta -> "Grabando tu salida en este móvil"
             estado.pendientes > 0 -> "Sin cobertura · ${estado.pendientes} en cola"
             else -> "Compartiendo tu posición"
         }
         val detalle = buildString {
             if (estado.enEspera) {
                 append("Empezará a la hora prevista.")
+            } else if (sinCuenta) {
+                append("${estado.pendientes} posiciones · sin cuenta, no se comparte")
             } else {
                 append("${estado.subidas} posiciones enviadas")
                 estado.seguidores?.let { append(" · $it siguiendo") }
@@ -339,7 +345,7 @@ class TrackingService : Service() {
             .setContentText(detalle)
             .setSmallIcon(R.drawable.ic_notificacion)
             .setContentIntent(abrir)
-            .addAction(0, "Dejar de compartir", parar)
+            .addAction(0, if (sinCuenta) "Terminar" else "Dejar de compartir", parar)
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)

@@ -131,6 +131,8 @@ final class TrackingStore: ObservableObject {
         /// Graba, pero el servidor aún no le ha dado identificador: todavía no
         /// la ve nadie.
         case sinEnlace
+        /// Sin cuenta: se graba en el móvil y no se comparte (ver `ModoLocal`).
+        case soloEnElMovil
         /// Todo lo grabado está subido.
         case enDirecto
         /// Graba y guarda, pero hace un rato que no consigue subir.
@@ -141,7 +143,7 @@ final class TrackingStore: ObservableObject {
 
     func estadoDeEmision(_ ahora: Date = Date()) -> EstadoDeEmision {
         if isStandby { return .armada }
-        if sessionToken == nil { return .sinEnlace }
+        if sessionToken == nil { return ModoLocal.activo ? .soloEnElMovil : .sinEnlace }
         guard let desdeMs = colaDesdeMs else { return .enDirecto }
         let espera = ahora.timeIntervalSince1970 - desdeMs / 1000
         // Margen sobre la propia cadencia: en modo tiempo, una cola de menos de
@@ -157,6 +159,19 @@ final class TrackingStore: ObservableObject {
     /// si la puso alguien a mano y entonces se queda.
     private var startAtFromPlan: Date? = nil
     @Published var sessions: [TrackSessionSummary] = []
+
+    /// Las salidas de este móvil (ver `SalidaLocal`), publicadas para el Archivo.
+    @Published private(set) var salidasLocales: [SalidaLocal] = SalidasLocales.todas
+    func refrescaSalidasLocales() { salidasLocales = SalidasLocales.todas }
+    func esLocal(_ id: String) -> Bool { salidasLocales.contains { $0.id == id } }
+
+    /// El Archivo: las del servidor y, junto a ellas, las que solo están en este
+    /// móvil. Sin cuenta, solo esas.
+    var archivo: [TrackSessionSummary] {
+        let locales = salidasLocales.map(\.comoResumen)
+        let lista = ModoLocal.activo ? locales : sessions + locales.filter { l in !sessions.contains { $0.id == l.id } }
+        return lista.sorted { Self.finishKey($0) > Self.finishKey($1) }
+    }
     /// Eventos en los que participo que TODAVÍA admiten baliza: los que se
     /// pueden elegir al salir.
     @Published var events: [EventSummary] = []
@@ -357,6 +372,17 @@ final class TrackingStore: ObservableObject {
         let conversor = conversorGpx ?? GpxImporter()
         conversorGpx = conversor
         let ruta = try await conversor.convierte(texto: texto, fichero: url.lastPathComponent, actividad: activity?.rawValue)
+        // Sin cuenta, la ruta se queda en el móvil: la conversión ya es local, y
+        // con ella se sigue la salida y la «Carrera en directo» igual.
+        if ModoLocal.activo {
+            let local = PlanSummary(id: "gpx-" + Self.genId(), name: ruta.nombre, routeName: nil,
+                                    distanceKm: ruta.distanciaKm, startTime: nil, eventId: nil,
+                                    activity: activity?.rawValue, withForecast: false)
+            PlanesLocales.guarda(local, bytes: ruta.cuerpo)
+            await loadPlans()
+            selectedPlanId = local.id
+            return local.name
+        }
         let plan: PlanSummary
         do {
             plan = try await API.createPlan(
@@ -373,9 +399,12 @@ final class TrackingStore: ObservableObject {
     }
 
     func loadPlans() async {
+        // Las de GPX cargadas sin cuenta, siempre; con cuenta, junto a las suyas.
+        let locales = PlanesLocales.todos
+        if ModoLocal.activo { plans = locales; return }
         // Best-effort: if it fails we simply offer "Sin ruta"; never crash.
         if let result = try? await API.listPlans(token: token) {
-            plans = result
+            plans = result + locales
             applyPlanStart() // if a plan was already selected, pick up its start
             // Si la carrera se eligió antes de que llegaran las previsiones
             // (la de hoy se propone sola al abrir), ahora sí se puede coger la suya.
@@ -761,6 +790,9 @@ final class TrackingStore: ObservableObject {
         keep.formUnion(GuideLibrary.shared.storageIds)
         if let t = sessionToken { keep.insert(t) }
         if let t = claveLocal { keep.insert(t) }
+        // Y las de este móvil, que el servidor no lista: sin esto, entrar con
+        // una cuenta se llevaba lo grabado sin ella.
+        keep.formUnion(SalidasLocales.todas.map(\.id))
         LocalStore.prune(keep: keep)
     }
 
@@ -782,6 +814,13 @@ final class TrackingStore: ObservableObject {
     /// Rename a finished/pinned session so it's identifiable later in the list
     /// (pass nil/empty to clear it). Refreshes to reflect the new label.
     func rename(_ id: String, _ title: String?) async {
+        // Una de este móvil: el nombre vive en su índice.
+        if esLocal(id) {
+            if id == claveLocal { activeTitle = title; ViewerDataProvider.shared.setTitle(token: id, title: title) }
+            SalidasLocales.cambia(id) { $0.titulo = title?.isEmpty == false ? title : nil }
+            refrescaSalidasLocales()
+            return
+        }
         // Si es la salida EN MARCHA, el nombre nuevo es el suyo aquí también:
         // si no, seguiría emitiendo con el viejo hasta parar y volver a abrir.
         if id == sessionToken {
@@ -869,6 +908,11 @@ final class TrackingStore: ObservableObject {
     }
 
     func deleteSession(_ id: String) async {
+        if esLocal(id) {
+            SalidasLocales.borra(id)
+            refrescaSalidasLocales()
+            return
+        }
         await API.deleteSession(token: token, id: id)
         LocalStore.remove(id) // drop the local trail + cached plan for good
         if id == sessionToken {
@@ -934,7 +978,7 @@ final class TrackingStore: ObservableObject {
         // ¿Hay otra baliza viva en esta cuenta? Se pregunta ANTES de crear la
         // sesión: después ya está hecho, y "acabo de dejar mudo el otro móvil"
         // no es algo que se pueda deshacer con un botón de atrás.
-        if !force, let otra = await activeElsewhere() {
+        if !force, !ModoLocal.activo, let otra = await activeElsewhere() {
             takeoverAsk = otra
             return
         }
@@ -975,6 +1019,17 @@ final class TrackingStore: ObservableObject {
             clave: claveLocal,
         )
         guardaAltaPendiente()
+        // Apuntada como de este móvil hasta que entre el alta: sin cuenta, para
+        // siempre; sin cobertura, si se para antes se queda aquí con su nombre.
+        // Sin cuenta, sin alta para siempre: es lo que dice «grabando en este móvil».
+        if ModoLocal.activo { pendienteDeAlta = true }
+        if let clave = claveLocal {
+            SalidasLocales.apunta(SalidaLocal(id: clave, titulo: nombre, startedAt: start.timeIntervalSince1970 * 1000,
+                                              endedAt: nil, actividad: activity))
+            refrescaSalidasLocales()
+            // La ruta, si es de un GPX de este móvil: su mapa y su kilómetro.
+            if ModoLocal.activo { cachePlanBytes(for: clave, planId: selectedPlanId) }
+        }
         await intentaAlta()
     }
 
@@ -1056,7 +1111,8 @@ final class TrackingStore: ObservableObject {
      cuando su dueño pulsó.
      */
     private func intentaAlta() async {
-        guard isSharing, sessionToken == nil, let alta = altaPendiente else { return }
+        // Sin cuenta no hay alta: se graba en el móvil y ya (ver `ModoLocal`).
+        guard isSharing, sessionToken == nil, !ModoLocal.activo, let alta = altaPendiente else { return }
         do {
             let res = try await API.createTrack(
                 token: token, title: alta.title, planId: alta.planId,
@@ -1067,6 +1123,7 @@ final class TrackingStore: ObservableObject {
             let provisional = claveLocal
             sessionToken = res.id
             claveLocal = nil
+            if let provisional { SalidasLocales.olvida(provisional); refrescaSalidasLocales() }
             pendienteDeAlta = false
             altaPendiente = nil
             UserDefaults.standard.removeObject(forKey: altaKey)
@@ -1213,6 +1270,7 @@ final class TrackingStore: ObservableObject {
         isSharing = false
         isStandby = false
         activePlanName = nil
+        let tituloAlParar = activeTitle
         activeTitle = nil
         clearActive() // explicit stop (or server-ended): don't resume on relaunch
         // Y si se paró antes de que el alta llegara a entrar, que no entre
@@ -1224,7 +1282,25 @@ final class TrackingStore: ObservableObject {
         ViewerDataProvider.shared.updateStatus("ended")
         let t = sessionToken
         sessionToken = nil
-        limpiaLocal()
+        if t == nil, let clave = claveLocal {
+            // Sin alta (sin cuenta, o sin cobertura hasta el final): se queda en
+            // el móvil, terminada y con su nombre, en el Archivo. Antes se
+            // borraba: una salida entera perdida por no haber tenido red.
+            let ahoraMs = Date().timeIntervalSince1970 * 1000
+            let previa = SalidasLocales.una(clave)
+            SalidasLocales.apunta(SalidaLocal(
+                id: clave, titulo: tituloAlParar ?? previa?.titulo,
+                startedAt: previa?.startedAt ?? trail.first?.t ?? ahoraMs,
+                endedAt: ahoraMs, actividad: activity ?? effectiveActivity,
+            ))
+            refrescaSalidasLocales()
+            claveLocal = nil
+            for k in [pendingKey(clave), notesPendingKey(clave), noteDeletesPendingKey(clave), mediaPendingKey(clave)] {
+                UserDefaults.standard.removeObject(forKey: k)
+            }
+        } else {
+            limpiaLocal()
+        }
         if let t {
             // Best-effort: push any remaining backlog before ending (direct, so
             // it can't recurse through flush()).
@@ -1760,7 +1836,9 @@ final class TrackingStore: ObservableObject {
             // solo se guardaba la propia, así que quien corría "con la del
             // evento" se quedaba sin recorrido con el que medir nada.
             var bytes: Data?
-            if let planId {
+            if let planId, let local = PlanesLocales.bytes(planId) {
+                bytes = local
+            } else if let planId {
                 bytes = try? await API.fetchPlanPayload(token: token, planId: planId)
             } else if let shareId = activeEvent?.planShareId {
                 bytes = try? await API.fetchSharePayload(shareId: shareId)
@@ -1932,7 +2010,20 @@ final class TrackingStore: ObservableObject {
             // Más allá de una salida larga, se abandona: reanudar una baliza de
             // anteayer no es continuar nada.
             guard Date().timeIntervalSince(inicio) < 20 * 3600 else {
-                if let clave = alta.clave { borraRastroLocal(clave) }
+                // Ya no se retoma, pero lo grabado no se tira: queda terminada
+                // en el Archivo, como si se hubiera parado.
+                if let clave = alta.clave, LocalStore.hasTrail(clave) {
+                    let puntos = (try? Data(contentsOf: LocalStore.trailURL(clave)))
+                        .flatMap { try? JSONDecoder().decode([TrailPoint].self, from: $0) } ?? []
+                    SalidasLocales.apunta(SalidaLocal(
+                        id: clave, titulo: alta.title, startedAt: alta.startAtMs,
+                        endedAt: puntos.last?.t ?? alta.startAtMs,
+                        actividad: alta.activity.flatMap(BeaconActivity.init(rawValue:)),
+                    ))
+                    refrescaSalidasLocales()
+                } else if let clave = alta.clave {
+                    borraRastroLocal(clave)
+                }
                 olvidaAltaPendiente(); return
             }
             altaPendiente = alta

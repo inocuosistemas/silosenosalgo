@@ -65,7 +65,10 @@ final class CarreraConTrazado: NSObject, ObservableObject, CLLocationManagerDele
      */
     static func hoja(plan: PlanSummary, salida: Date, token: String) async throws -> HojaDeTramos {
         let clave = clave(de: plan.id)
-        let bytes = try await API.fetchPlanPayload(token: token, planId: plan.id)
+        // La de un GPX cargado sin cuenta está en el móvil (ver `PlanesLocales`).
+        let bytes: Data
+        if let local = PlanesLocales.bytes(plan.id) { bytes = local }
+        else { bytes = try await API.fetchPlanPayload(token: token, planId: plan.id) }
         try? bytes.write(to: LocalStore.planURL(clave), options: .atomic)
         let web = GpxImporter()
         defer { web.suelta() }

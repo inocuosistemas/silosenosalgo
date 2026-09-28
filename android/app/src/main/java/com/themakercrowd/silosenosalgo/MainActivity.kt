@@ -208,9 +208,19 @@ private fun App() {
         return
     }
 
-    if (token == null) {
+    // Sin cuenta (ver `ModoLocal`): la app entera, grabando solo en el móvil.
+    val sinCuenta by ModoLocal.activo.collectAsState()
+    if (token == null && sinCuenta) {
+        PantallaSeguimiento(
+            usuario = null,
+            // «Salir» sin cuenta es ir a entrar con una: lo grabado se queda.
+            onSalir = { ModoLocal.pon(context, false) },
+        )
+    } else if (token == null) {
         PantallaEntrar(
+            onSinCuenta = { ModoLocal.pon(context, true) },
             onEntrado = { nuevo, quien ->
+                ModoLocal.pon(context, false)
                 almacenToken.token = nuevo
                 // El visor incrustado enseña quién transmite, igual que el que
                 // se abre desde el enlace.
@@ -234,7 +244,7 @@ private fun App() {
 // ── Entrar ───────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
+private fun PantallaEntrar(onEntrado: (String, String?) -> Unit, onSinCuenta: () -> Unit) {
     val context = LocalContext.current
     val api = remember { Api() }
     val scope = rememberCoroutineScope()
@@ -314,6 +324,20 @@ private fun PantallaEntrar(onEntrado: (String, String?) -> Unit) {
             else Text("Entrar")
         }
 
+        // Sin invitación también se puede usar: lo que no pasa por el servidor.
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = onSinCuenta, enabled = !trabajando, modifier = Modifier.fillMaxWidth()) {
+            Text("Usar sin cuenta")
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Sin cuenta, grabas tus salidas y las ves en el mapa, en este móvil y sin " +
+                "conexión. Para que te sigan en directo por un enlace, y para las " +
+                "carreras, hace falta cuenta.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         // Aquí había un botón de "Crear cuenta" que NO podía funcionar: el alta
         // es solo por invitación y el backend rechaza cualquier registro sin un
         // código válido (400 antes de mirar nada más). Prometer una cuenta y dar
@@ -346,7 +370,16 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val estado by TrackingStore.estado.collectAsState()
-    val sesiones by TrackingStore.sesiones.collectAsState()
+    val sesionesDelServidor by TrackingStore.sesiones.collectAsState()
+    val salidasLocales by TrackingStore.salidasLocales.collectAsState()
+    val sinCuenta by ModoLocal.activo.collectAsState()
+    // El Archivo: las del servidor y, junto a ellas, las que solo están en este
+    // móvil (sin cuenta, o sin cobertura hasta el final). Sin cuenta, solo esas.
+    val sesiones = remember(sesionesDelServidor, salidasLocales, sinCuenta) {
+        val locales = salidasLocales.map { it.comoResumen() }
+        if (sinCuenta) TrackingRules.ordenaSesiones(locales)
+        else TrackingRules.ordenaSesiones(sesionesDelServidor + locales.filter { l -> sesionesDelServidor.none { it.id == l.id } })
+    }
     val planes by TrackingStore.planes.collectAsState()
     val eventos by TrackingStore.eventos.collectAsState()
     val eventosPasados by TrackingStore.eventosPasados.collectAsState()
@@ -524,7 +557,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     // conteste el servidor.
     LaunchedEffect(Unit) {
         Cuenta.lee(context)
-        if (!(BuildConfig.DEBUG && PruebaDePantalla.pedida)) Cuenta.carga(context)
+        if (!(BuildConfig.DEBUG && PruebaDePantalla.pedida) && !ModoLocal.esta) Cuenta.carga(context)
     }
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -541,26 +574,31 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         }
         // Las últimas carreras que llegaron, ya; y las de ahora, a la vez que lo
         // demás: en fila, si otra lista tardaba, «Carreras» se quedaba vacía.
-        TrackingStore.cargaCarrerasGuardadas()
-        TrackingStore.cargaSalidasGuardadas()
-        coroutineScope {
-            launch { TrackingStore.cargaEventos() }
-            launch { TrackingStore.cargaSesiones() }
-            launch { TrackingStore.cargaPlanes() }
+        // Sin cuenta, nada de esto: no hay servidor al que preguntar (las rutas
+        // de GPX de este móvil, sí).
+        if (ModoLocal.esta) TrackingStore.cargaPlanes()
+        if (!ModoLocal.esta) {
+            TrackingStore.cargaCarrerasGuardadas()
+            TrackingStore.cargaSalidasGuardadas()
+            coroutineScope {
+                launch { TrackingStore.cargaEventos() }
+                launch { TrackingStore.cargaSesiones() }
+                launch { TrackingStore.cargaPlanes() }
+            }
+            TrackingStore.refrescaAlmacenamiento()
         }
-        TrackingStore.refrescaAlmacenamiento()
         TrackingStore.cargaGuias()
     }
     // El archivo, al día cada vez que se entra: sin esto se quedaba con lo que
     // hubiera al abrir la app —o con nada, si entonces no había red—.
     LaunchedEffect(pestana) {
-        if (pestana == Pestana.ARCHIVO) TrackingStore.cargaSesiones()
+        if (pestana == Pestana.ARCHIVO && !ModoLocal.esta) TrackingStore.cargaSesiones()
     }
     val cargaSalidas by TrackingStore.cargaDeSalidas.collectAsState()
     // Si no llegaron (sin cobertura), en cuanto vuelva la red.
     val cargaCarreras by TrackingStore.cargaDeCarreras.collectAsState()
     LaunchedEffect(hayRed) {
-        if (hayRed && TrackingStore.cargaDeCarreras.value == TrackingStore.CargaDeCarreras.FALLO) {
+        if (hayRed && !ModoLocal.esta && TrackingStore.cargaDeCarreras.value == TrackingStore.CargaDeCarreras.FALLO) {
             TrackingStore.cargaEventos()
         }
     }
@@ -577,7 +615,27 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
     // «Mi cuenta», a pantalla completa. Salir se sigue preguntando antes, en
     // el diálogo de esta pantalla (que en marcha hay que detener la baliza).
-    if (cuentaAbierta) {
+    // Sin cuenta, «Mi cuenta» es cómo conseguir una.
+    if (cuentaAbierta && sinCuenta) {
+        AlertDialog(
+            onDismissRequest = { cuentaAbierta = false },
+            title = { Text("Estás usando la app sin cuenta") },
+            text = {
+                Text(
+                    "Tus salidas se guardan solo en este móvil. Con una cuenta, además, " +
+                        "te pueden seguir en directo por un enlace, y puedes apuntarte a " +
+                        "carreras. Las cuentas son por invitación: pídesela a quien " +
+                        "organiza. Lo que grabes sin cuenta no se pierde al entrar.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { cuentaAbierta = false; onSalir() }) { Text("Entrar con una cuenta") }
+            },
+            dismissButton = {
+                TextButton(onClick = { cuentaAbierta = false }) { Text("Seguir sin cuenta") }
+            },
+        )
+    } else if (cuentaAbierta) {
         PantallaMiCuenta(
             usuario = usuario,
             onCerrar = { cuentaAbierta = false },
@@ -769,7 +827,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                     // "Baliza" y de quién: la app hace más cosas, y el enlace que
                     // se comparte lleva ese nombre.
                     Text(
-                        listOfNotNull("Baliza", usuario).joinToString(" · "),
+                        listOfNotNull("Baliza", if (sinCuenta) "sin cuenta" else usuario).joinToString(" · "),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Paleta.slate400,
                     )
@@ -991,7 +1049,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             else TrackingRules.salidaQueArmaria(estado.salidaMs, estado.salidaTocada, ahoraMs)
         val dosFormas = salidaArmaria != null && !TrackingRules.carreraImponeHora(eventoElegido?.startsAt, ahoraMs)
         val textoBase = eventoElegido?.let { "Compartir para ${it.name}" }
-            ?: if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera"
+            ?: if (sinCuenta) "Empezar a grabar"
+            else if (eventos.isEmpty()) "Empezar a compartir" else "Compartir · sin carrera"
         EstadoCompacto(
             estado = estado,
             arrancando = arrancando,
@@ -1081,9 +1140,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
 
         if (estado.compartiendo) {
             if (estado.pendienteDeAlta) {
-                Seccion(titulo = "Enlace para compartir", icono = "🔗") {
+                Seccion(titulo = if (sinCuenta) "Solo en este móvil" else "Enlace para compartir", icono = if (sinCuenta) "📱" else "🔗") {
                     Text(
-                        "Empezaste sin cobertura: tu ruta se está grabando desde que pulsaste. " +
+                        if (sinCuenta) "Sin cuenta, la salida se graba solo en este móvil: la ves en su " +
+                            "mapa, y al terminar queda en el Archivo. Para que te sigan en directo por " +
+                            "un enlace hace falta cuenta."
+                        else "Empezaste sin cobertura: tu ruta se está grabando desde que pulsaste. " +
                             "El enlace aparece en cuanto haya red, y lo grabado se sube entero con su hora.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Paleta.slate400,
@@ -1172,7 +1234,18 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             }
         }
 
-        if (pestana == Pestana.CARRERAS && eventos.isEmpty() && eventosPasados.isEmpty()) {
+        if (pestana == Pestana.CARRERAS && sinCuenta) {
+            Seccion(titulo = "Mis carreras", icono = "🏁") {
+                Text(
+                    "Las carreras son con cuenta: la parrilla, el mapa de todos y la porra " +
+                        "viven en el servidor. Las cuentas son por invitación; pídesela a quien organiza.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Paleta.slate400,
+                )
+                TextButton(onClick = onSalir, contentPadding = PaddingValues(0.dp)) { Text("Entrar con una cuenta") }
+            }
+        }
+        if (pestana == Pestana.CARRERAS && !sinCuenta && eventos.isEmpty() && eventosPasados.isEmpty()) {
             Seccion(titulo = "Mis carreras", icono = "🏁") {
                 // Qué pasa, y no «no tienes ninguna» mientras llega la lista o si
                 // no llega: parecía que no tenías nada.
@@ -1378,8 +1451,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             titulo = "Lo que tienes grabado",
             icono = "🗂️",
             pie = "Las guías llevan dentro la ruta, el recorrido real, las notas, " +
-                "las fotos y los audios; no, las teselas del mapa. Las salidas se " +
-                "conservan el plazo que elegiste, salvo las fijadas con la chincheta.",
+                "las fotos y los audios; no, las teselas del mapa. " +
+                if (sinCuenta) "Las salidas sin cuenta se guardan en este móvil hasta que las borres."
+                else "Las salidas se conservan el plazo que elegiste, salvo las fijadas con la chincheta.",
         ) {
             Text(
                 "GUÍAS",
@@ -1408,7 +1482,9 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 // Con la lista de la última vez a la vista, mientras llega la de
                 // ahora (o si no llegó).
-                if (sesiones.isNotEmpty() && cargaSalidas == TrackingStore.CargaDeSalidas.CARGANDO) {
+                if (sinCuenta) {
+                    Text("en este móvil", style = MaterialTheme.typography.labelSmall, color = Paleta.slate400)
+                } else if (sesiones.isNotEmpty() && cargaSalidas == TrackingStore.CargaDeSalidas.CARGANDO) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                 } else if (sesiones.isNotEmpty() && cargaSalidas == TrackingStore.CargaDeSalidas.FALLO) {
                     Text("sin actualizar", style = MaterialTheme.typography.labelSmall, color = Paleta.ambar)
@@ -1416,7 +1492,13 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             }
             // Vacía mientras llega, o porque no llegó, NO es «no tienes»: sin
             // decir nada parecía que se habían perdido las salidas.
-            if (sesiones.isEmpty()) {
+            if (sesiones.isEmpty() && sinCuenta) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Aún no has grabado ninguna. Al terminar una salida queda aquí, con su mapa.",
+                    style = MaterialTheme.typography.bodySmall, color = Paleta.slate400,
+                )
+            } else if (sesiones.isEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 when (cargaSalidas) {
                     TrackingStore.CargaDeSalidas.CARGANDO -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1670,6 +1752,7 @@ private fun EstadoCompacto(
         val (texto, color) = when {
             estado.enEspera -> "🌙 Armado · ahorrando batería" to Paleta.ambar
             // Sin cobertura al empezar: graba, pero aún no hay enlace.
+            estado.compartiendo && estado.pendienteDeAlta && ModoLocal.esta -> "● Grabando en este móvil" to Paleta.verde
             estado.compartiendo && estado.pendienteDeAlta -> "● Grabando · sin enlace todavía" to Paleta.ambar
             estado.compartiendo -> "● Compartiendo en directo" to Paleta.verde
             else -> "⏸ Detenido" to Paleta.slate400
@@ -1789,10 +1872,12 @@ private fun EstadoCompacto(
         if (confirmaParada) {
             AlertDialog(
                 onDismissRequest = { confirmaParada = false },
-                title = { Text("¿Dejas de compartir?") },
+                title = { Text(if (ModoLocal.esta) "¿Terminas la salida?" else "¿Dejas de compartir?") },
                 text = {
                     Text(
-                        "Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. " +
+                        if (ModoLocal.esta) "Deja de grabar y la salida queda en el Archivo, con su mapa. " +
+                            "Si solo te paras un rato, usa la pausa."
+                        else "Se cierra la baliza y tu enlace deja de moverse. La traza se conserva. " +
                             "Si solo te paras un rato, usa la pausa.",
                     )
                 },
@@ -1801,7 +1886,7 @@ private fun EstadoCompacto(
                         confirmaParada = false
                         Vibracion.fin(vista)
                         onParar()
-                    }) { Text("Sí, dejar de compartir") }
+                    }) { Text(if (ModoLocal.esta) "Sí, terminar" else "Sí, dejar de compartir") }
                 },
                 dismissButton = {
                     TextButton(onClick = { confirmaParada = false }) { Text("No, sigo") }
@@ -1877,7 +1962,7 @@ private fun EstadoCompacto(
                     contentColor = Paleta.slate950,
                 ),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (abandonaAlParar) "Abandonar" else "Dejar de compartir") }
+            ) { Text(if (abandonaAlParar) "Abandonar" else if (ModoLocal.esta) "Terminar la salida" else "Dejar de compartir") }
         } else {
             // CON QUÉ se va a salir, resumido justo encima del botón. Los ajustes
             // viven plegados en dos secciones y nadie las despliega para
@@ -1927,7 +2012,8 @@ private fun EstadoCompacto(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Al iniciar uno nuevo, el anterior se cierra y se conserva " +
+                if (ModoLocal.esta) "Al terminar, la salida queda en el Archivo de este móvil, con su mapa."
+                else "Al iniciar uno nuevo, el anterior se cierra y se conserva " +
                     "${TrackingRules.etiquetaRetencion(estado.retenerHoras)} para poder " +
                     "consultarlo (o para siempre si lo fijas con la chincheta). El plazo " +
                     "se elige en «Cómo se registra».",
@@ -1944,8 +2030,12 @@ private fun DatosDeLaSesion(estado: TrackingStore.Estado) {
             estado.seguidores?.let {
                 Dato("Seguidores activos", "$it")
             }
-            Dato("Posiciones enviadas", "${estado.subidas}")
-            Dato("En cola", "${estado.pendientes}")
+            // Sin cuenta no se envía nada: ni enviadas ni cola, que parecería
+            // falta de cobertura.
+            if (!ModoLocal.esta) {
+                Dato("Posiciones enviadas", "${estado.subidas}")
+                Dato("En cola", "${estado.pendientes}")
+            }
             Dato("Puntos de traza", "${estado.puntosTraza}")
             // Cuántas lecturas no superaron el ruido. Si andando salen muchas,
             // el umbral está demasiado alto y hay que bajarlo.

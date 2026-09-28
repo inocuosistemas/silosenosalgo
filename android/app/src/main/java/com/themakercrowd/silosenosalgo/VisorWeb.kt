@@ -224,6 +224,8 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
         // Estas dos sí van al backend en el momento, porque son escrituras: sin
         // cobertura no hay nada que hacer, y el visor ya lo maneja.
         if (ruta.startsWith("/api/track/") && ruta.contains("/cheers")) {
+            // Una salida de este móvil no tiene ánimos: nadie la sigue.
+            if (TrackingStore.esLocal(ruta.removePrefix("/api/track/").substringBefore('/'))) return noEncontrado()
             val consulta = url.query?.let { "?$it" } ?: ""
             val delBackend = TrackingStore.pasarela(
                 ruta.removePrefix("/") + consulta,
@@ -262,6 +264,13 @@ internal class ClienteVisor(context: Context) : WebViewClient() {
                 val actividad = BeaconActivity.entries.firstOrNull { it.wire == v }?.wire
                 ViewerData.ponActividad(id, actividad)
                 if (actividad == null) """{"activity":null}""" else """{"activity":"$actividad"}"""
+            }
+            // Una salida de este móvil se queda aquí: el servidor no la conoce.
+            if (TrackingStore.esLocal(id)) {
+                if (ruta.endsWith("/activity")) {
+                    TrackingStore.cambiaActividadDeSalidaLocal(id, BeaconActivity.entries.firstOrNull { it.wire == url.getQueryParameter("activity") })
+                }
+                return respuesta("{}".toByteArray(), "application/json", sinCache = true)
             }
             if (!TrackingStore.pasarelaJson(ruta, cuerpo)) return noEncontrado()
             return respuesta("{}".toByteArray(), "application/json", sinCache = true)

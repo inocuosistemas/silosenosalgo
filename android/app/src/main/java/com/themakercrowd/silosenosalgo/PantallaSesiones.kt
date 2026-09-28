@@ -210,7 +210,8 @@ fun SeccionSesiones(
             title = { Text("¿Borrar este seguimiento?") },
             text = {
                 Text(
-                    "Se borra la ruta del servidor y el enlace deja de funcionar " +
+                    if (TrackingStore.esLocal(s.id)) "Solo estaba en este móvil: se borra la única copia. No se puede deshacer."
+                    else "Se borra la ruta del servidor y el enlace deja de funcionar " +
                         "para quien lo tenga guardado. No se puede deshacer.",
                 )
             },
@@ -243,7 +244,12 @@ private fun FilaSesion(
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
     // Las fotos se suben al volver, con la salida ya cerrada (ver
     // `PantallaFotosEnRuta`). Una caducada ya no tiene recorrido donde ponerlas.
-    val admiteFotos = !esLaActual && !sesion.isActive && !caducada
+    // Solo en este móvil (sin cuenta, o sin cobertura hasta el final): el
+    // servidor no la conoce, así que no hay enlace, ni chincheta, ni fotos que
+    // subir; sí su mapa, renombrarla, sus tramos, la guía y borrarla.
+    val soloAqui = remember(sesion.id) { TrackingStore.esLocal(sesion.id) }
+    val admiteFotos = !esLaActual && !sesion.isActive && !caducada && !soloAqui
+    val admiteTramos = !esLaActual && !sesion.isActive && !caducada
     val hayDatosLocales = remember(sesion.id) { TrackingStore.hayDatosLocales(sesion.id) }
     var menuAbierto by remember { mutableStateOf(false) }
 
@@ -287,7 +293,10 @@ private fun FilaSesion(
                         else -> "Finalizado" to Paleta.slate700
                     }
                     Chip(texto, color.copy(alpha = 0.25f), Paleta.slate100)
-                    if (hayDatosLocales) {
+                    if (soloAqui) {
+                        Spacer(Modifier.width(6.dp))
+                        Chip("Solo en este móvil", Paleta.sky600.copy(alpha = 0.25f), Paleta.sky500)
+                    } else if (hayDatosLocales) {
                         // Lo que decide si una sesion caducada sirve para algo:
                         // con traza en el movil se puede seguir viendo su mapa y
                         // exportarla; sin ella solo se puede borrar.
@@ -326,7 +335,7 @@ private fun FilaSesion(
                     Text("⋮", style = MaterialTheme.typography.titleMedium, color = Paleta.sky500)
                 }
                 DropdownMenu(expanded = menuAbierto, onDismissRequest = { menuAbierto = false }) {
-                    if (!esLaActual) {
+                    if (!esLaActual && !soloAqui) {
                         // Activa → se puede seguir transmitiendo sin tocar el
                         // backend. Terminada → hay que reabrirla primero, y el
                         // enlace sigue siendo el mismo.
@@ -348,14 +357,16 @@ private fun FilaSesion(
                     // Se salió con un solo medio y al final hubo más: pasarla a
                     // «Automático» la parte en tramos que se corrigen en su mapa.
                     // Sin ruta ni evento, como la detección automática.
-                    if (admiteFotos && sesion.activity != null && sesion.eventId == null && sesion.planName == null) {
+                    if (admiteTramos && sesion.activity != null && sesion.eventId == null && sesion.planName == null) {
                         Opcion("Detectar tramos") { menuAbierto = false; onDetectarTramos() }
                     }
-                    Opcion(
-                        if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",
-                    ) { menuAbierto = false; onChincheta() }
+                    if (!soloAqui) {
+                        Opcion(
+                            if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",
+                        ) { menuAbierto = false; onChincheta() }
+                    }
                     Opcion("Renombrar") { menuAbierto = false; onRenombrar() }
-                    if (!caducada) {
+                    if (!caducada && !soloAqui) {
                         Opcion("Copiar enlace") { menuAbierto = false; onCopiar() }
                         Opcion("Compartir enlace") { menuAbierto = false; onCompartir() }
                     }

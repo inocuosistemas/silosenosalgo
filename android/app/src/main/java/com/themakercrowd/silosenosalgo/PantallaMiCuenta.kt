@@ -120,6 +120,7 @@ object Cuenta {
         // Las listas guardadas para enseñarlas sin cobertura son de ESTA cuenta:
         // quien entre después en el móvil no tiene por qué verlas.
         for (nombre in listOf("salidas", "carreras")) ctx.getSharedPreferences(nombre, Context.MODE_PRIVATE).edit().clear().apply()
+        TrackingStore.olvidaDatosDeCuenta()
         _perfil.value = PerfilDeCuenta()
     }
 
@@ -164,7 +165,9 @@ fun BotonDeCuenta(usuario: String?, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .semantics { contentDescription = "Mi cuenta" },
     ) {
-        MarcaEvento(perfil.favEmoji ?: usuario?.firstOrNull()?.uppercase() ?: "·", perfil.favColor, tam = 40.dp)
+        // Sin cuenta, una silueta: es por donde se entra a una.
+        val marca = if (ModoLocal.esta) "👤" else perfil.favEmoji ?: usuario?.firstOrNull()?.uppercase() ?: "·"
+        MarcaEvento(marca, if (ModoLocal.esta) null else perfil.favColor, tam = 40.dp)
     }
 }
 

@@ -165,6 +165,52 @@ object TrackingStore {
     private val _guias = MutableStateFlow<List<GuideRules.GuiaLocal>>(emptyList())
     val guias: StateFlow<List<GuideRules.GuiaLocal>> = _guias.asStateFlow()
 
+    /** Las salidas grabadas solo en este móvil (ver `SalidaLocal`). */
+    private val _salidasLocales = MutableStateFlow<List<SalidaLocal>>(emptyList())
+    val salidasLocales: StateFlow<List<SalidaLocal>> = _salidasLocales.asStateFlow()
+
+    fun esLocal(id: String): Boolean =
+        _salidasLocales.value.any { it.id == id } ||
+            (_estado.value.sessionId == id && _estado.value.pendienteDeAlta)
+
+    /** Apunta (o actualiza) una salida en el índice de las de este móvil. */
+    private fun apuntaSalidaLocal(s: SalidaLocal) {
+        _salidasLocales.value = listOf(s) + _salidasLocales.value.filter { it.id != s.id }
+        almacen.guardaSalidasLocales(_salidasLocales.value)
+    }
+
+    private fun olvidaSalidaLocal(id: String) {
+        if (_salidasLocales.value.none { it.id == id }) return
+        _salidasLocales.value = _salidasLocales.value.filter { it.id != id }
+        almacen.guardaSalidasLocales(_salidasLocales.value)
+    }
+
+    fun renombraSalidaLocal(id: String, titulo: String?) {
+        val s = _salidasLocales.value.firstOrNull { it.id == id } ?: return
+        apuntaSalidaLocal(s.copy(titulo = titulo?.takeIf { it.isNotBlank() }))
+    }
+
+    fun cambiaActividadDeSalidaLocal(id: String, actividad: BeaconActivity?) {
+        val s = _salidasLocales.value.firstOrNull { it.id == id } ?: return
+        apuntaSalidaLocal(s.copy(actividad = actividad))
+        ViewerData.ponActividad(id, actividad?.wire)
+    }
+
+    /** Al salir de la cuenta: sus carreras, salidas y rutas no son de quien
+     *  entre después (ni del uso sin cuenta). Lo de este móvil se queda. */
+    fun olvidaDatosDeCuenta() {
+        _eventos.value = emptyList()
+        _eventosPasados.value = emptyList()
+        _sesiones.value = emptyList()
+        _planes.value = almacen.leePlanesLocales()
+    }
+
+    /** Borrarla es borrarla del todo: no hay copia en ningún otro sitio. */
+    fun borraSalidaLocal(id: String) {
+        olvidaSalidaLocal(id)
+        almacen.limpiaSesion(id)
+    }
+
     /** Las notas de campo de la sesión actual, de la más nueva a la más vieja. */
     private val _notas = MutableStateFlow<List<Note>>(emptyList())
     val notas: StateFlow<List<Note>> = _notas.asStateFlow()
@@ -242,6 +288,8 @@ object TrackingStore {
         val app = context.applicationContext
         appCtx = app
         almacen = LocalStore(app)
+        ModoLocal.lee(app)
+        _salidasLocales.value = almacen.leeSalidasLocales()
         _notaRelevo.value = almacen.leeNotaRelevo()
         tokenStore = TokenStore(app)
         motor = LocationEngine(app)
@@ -327,9 +375,14 @@ object TrackingStore {
             // servicio y notificación de verdad, sin servidor—. Es lo que hace
             // falta para grabar el vídeo de la ubicación en segundo plano que
             // pide Google Play.
-            if (BuildConfig.DEBUG && PruebaDePantalla.pedida) {
+            // Y sin cuenta (ver `ModoLocal`): igual, y para siempre.
+            if (ModoLocal.esta || (BuildConfig.DEBUG && PruebaDePantalla.pedida)) {
                 val id = TrackingRules.claveProvisional()
-                empiezaEnLocal(id, pendiente = true, titulo ?: nombrePorDefecto(salidaMs), planId, salidaMs, actividad)
+                val nombre = titulo ?: nombrePorDefecto(salidaMs)
+                empiezaEnLocal(id, pendiente = true, nombre, planId, salidaMs, actividad)
+                apuntaSalidaLocal(SalidaLocal(id, nombre, salidaMs, null, actividad))
+                // La ruta, si es de un GPX de este móvil: su mapa y sus tramos.
+                cachePlan(id, planId)
                 return Result.success(id)
             }
             return Result.failure(ApiException(401, "unauthorized"))
@@ -355,6 +408,9 @@ object TrackingStore {
         val res = alta.getOrNull()
         val id = res?.id ?: TrackingRules.claveProvisional()
         empiezaEnLocal(id, pendiente = res == null, nombre, planId, salidaMs, actividad)
+        // Sin cobertura, apuntada como de este móvil hasta que entre el alta: si
+        // se para antes, se queda aquí con su nombre en vez de perderse.
+        if (res == null) apuntaSalidaLocal(SalidaLocal(id, nombre, salidaMs, null, actividad))
         if (res != null) cachePlan(res.id, planId)
         scope.launch { cargaSesiones() }
         return Result.success(id)
@@ -420,6 +476,7 @@ object TrackingStore {
                 e.actividad, e.eventoId, nombreDeEsteAparato(),
             )
             almacen.renombraSesion(provisional, res.id)
+            olvidaSalidaLocal(provisional)
             _estado.value = _estado.value.copy(sessionId = res.id, pendienteDeAlta = false, error = null)
             ViewerData.registra(res.id)
             cachePlan(res.id, e.planId)
@@ -594,6 +651,15 @@ object TrackingStore {
             // son lo que permite revisar la ruta o exportarla como guía después,
             // sin cobertura. Se limpian al borrar la sesión o al podar.
         }
+        // Sin alta (sin cuenta, o sin cobertura hasta el final): se queda en el
+        // móvil, terminada y con su nombre, en el Archivo.
+        val e = _estado.value
+        if (id != null && e.pendienteDeAlta) {
+            apuntaSalidaLocal(SalidaLocal(
+                id, e.titulo, _salidasLocales.value.firstOrNull { it.id == id }?.startedAt ?: e.salidaMs,
+                ahoraMs, e.actividad ?: actividadDeducida,
+            ))
+        }
         almacen.borraActivo()
         ViewerData.registra(null)
         olvidaHoja()
@@ -658,6 +724,9 @@ object TrackingStore {
                 val conservar = lista.map { it.id }.toMutableSet()
                 _estado.value.sessionId?.let { conservar.add(it) }
                 conservar.addAll(_guias.value.map { it.id })
+                // Y las de este móvil, que el servidor no lista: sin esto, entrar
+                // con una cuenta se llevaba lo grabado sin ella.
+                conservar.addAll(_salidasLocales.value.map { it.id })
                 almacen.poda(conservar)
             }
         // Y barrer las carpetas vacías, que no tienen nada que perder.
@@ -701,7 +770,8 @@ object TrackingStore {
      * cual. Espejo de `importaGpx` en iOS.
      */
     suspend fun importaGpx(uri: android.net.Uri): String {
-        val t = token ?: throw ApiException(401, "unauthorized")
+        val t = token
+        if (t == null && !ModoLocal.esta) throw ApiException(401, "unauthorized")
         val ctx = appCtx ?: throw ConversorGpx.Fallo("La app no está lista todavía.")
         val (texto, fichero) = withContext(Dispatchers.IO) {
             val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -713,6 +783,18 @@ object TrackingStore {
         val conversor = conversorGpx ?: ConversorGpx(ctx).also { conversorGpx = it }
         val actividad = _estado.value.actividad?.name?.lowercase()
         val ruta = conversor.convierte(texto, fichero, actividad)
+        // Sin cuenta, la ruta se queda en el móvil: la conversión ya es local, y
+        // con ella se sigue la salida y la «Carrera en directo» igual.
+        if (t == null) {
+            val plan = PlanSummary(
+                id = "gpx-" + TrackingRules.claveProvisional(), name = ruta.nombre,
+                distanceKm = ruta.distanciaKm, updatedAt = ahoraMs,
+            )
+            almacen.guardaPlanLocal(plan, ruta.cuerpo)
+            cargaPlanes()
+            eligePlan(plan.id)
+            return ruta.nombre
+        }
         val plan = try {
             api.createPlan(t, ruta.cuerpo, ruta.nombre, ruta.distanciaKm, ruta.desnivelM, actividad)
         } catch (e: ApiException) {
@@ -731,9 +813,11 @@ object TrackingStore {
     }
 
     suspend fun cargaPlanes() {
-        val t = token ?: return
+        // Las de GPX cargadas sin cuenta, siempre; con cuenta, junto a las suyas.
+        val locales = almacen.leePlanesLocales()
+        val t = token ?: run { _planes.value = locales; return }
         runCatching { api.listPlans(t) }.onSuccess {
-            _planes.value = it
+            _planes.value = it + locales
             // Si la carrera se eligió antes de que llegaran las previsiones
             // (la de hoy se propone sola al abrir), ahora sí se coge la suya.
             aplicaPlanDelEvento()
@@ -1276,6 +1360,15 @@ object TrackingStore {
 
     /** Un título vacío la devuelve a "Sin nombre". */
     suspend fun renombraSesion(id: String, titulo: String?) {
+        // Una de este móvil: el nombre vive en su índice.
+        if (esLocal(id)) {
+            if (id == _estado.value.sessionId) {
+                _estado.value = _estado.value.copy(titulo = titulo)
+                guardaActivo()
+            }
+            renombraSalidaLocal(id, titulo)
+            return
+        }
         val t = token ?: return
         // Si es la salida EN MARCHA, el nombre nuevo es el suyo aquí también.
         // Sin esto el servidor y la lista se enteraban, pero el estado vivo no:
@@ -1291,9 +1384,13 @@ object TrackingStore {
     }
 
     suspend fun borraSesion(id: String) {
-        val t = token ?: return
-        api.deleteSession(t, id)
-        almacen.limpiaSesion(id)
+        if (esLocal(id)) {
+            borraSalidaLocal(id)
+        } else {
+            val t = token ?: return
+            api.deleteSession(t, id)
+            almacen.limpiaSesion(id)
+        }
         if (id == _estado.value.sessionId) {
             motor.para()
             almacen.borraActivo()
@@ -1385,13 +1482,15 @@ object TrackingStore {
 
     /** Los bytes de una ruta de la cuenta (para la tarjeta con ruta propia). */
     suspend fun bytesDelPlan(planId: String): ByteArray? {
+        almacen.leePlanLocal(planId)?.let { return it }
         val t = token ?: return null
         return runCatching { api.fetchPlanPayload(t, planId) }.getOrNull()
     }
 
     suspend fun trazadoDelPlan(planId: String): List<Pair<Double, Double>>? {
-        val t = token ?: return null
-        val bytes = runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() ?: return null
+        val bytes = almacen.leePlanLocal(planId)
+            ?: token?.let { t -> runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() }
+            ?: return null
         _estado.value.sessionId?.let { almacen.guardaPlan(it, bytes) }
         return PlanGeometry.trazado(bytes)
     }
@@ -1437,7 +1536,8 @@ object TrackingStore {
             val bytes = when {
                 // La previsión propia manda; si no hay, la del evento, que es un
                 // recorrido como cualquier otro solo que vive en la carrera.
-                planId != null -> token?.let { t -> runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() }
+                planId != null -> almacen.leePlanLocal(planId)
+                    ?: token?.let { t -> runCatching { api.fetchPlanPayload(t, planId) }.getOrNull() }
                 else -> eventoActual()?.planShareId?.let { runCatching { api.fetchSharePayload(it) }.getOrNull() }
             }
             if (bytes != null) {
@@ -1501,6 +1601,7 @@ object TrackingStore {
     /** Pasar una salida terminada a otra actividad; null = «Automático», que
      *  es lo que la parte en tramos por medio de transporte. */
     suspend fun cambiaActividadDe(id: String, actividad: BeaconActivity?) {
+        if (esLocal(id)) { cambiaActividadDeSalidaLocal(id, actividad); return }
         val t = token ?: return
         api.setActivity(t, id, actividad)
         ViewerData.ponActividad(id, actividad?.wire)

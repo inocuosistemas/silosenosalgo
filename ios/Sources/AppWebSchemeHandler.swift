@@ -89,6 +89,9 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
         // servidor. Estas son escrituras, así que van al backend en el momento;
         // sin cobertura no hay nada que hacer y el visor ya lo maneja.
         if path.hasPrefix("/api/track/"), path.contains("/cheers") {
+            // Una salida de este móvil no tiene ánimos: nadie la sigue.
+            let t = String(path.dropFirst("/api/track/".count).split(separator: "/").first ?? "")
+            if ModoLocal.activo || SalidasLocales.contiene(t) { return finish404(task, url: url) }
             forwardCheers(url: url, method: task.request.httpMethod ?? "GET") { data, mime in
                 if let data {
                     self.respond(task, url: url, data: data, mime: mime, noStore: true)
@@ -118,6 +121,15 @@ final class AppWebSchemeHandler: NSObject, WKURLSchemeHandler {
                 cuerpo = ["activity": actividad?.rawValue ?? NSNull()]
             }
             guard let cuerpo else { return finish404(task, url: url) }
+            // Una salida de este móvil se queda aquí: el servidor no la conoce.
+            if ModoLocal.activo || SalidasLocales.contiene(token) {
+                if path.hasSuffix("/activity") {
+                    let v = q.first(where: { $0.name == "activity" })?.value
+                    SalidasLocales.cambia(token) { $0.actividad = v.flatMap(BeaconActivity.init(rawValue:)) }
+                    Task { @MainActor in TrackingStore.shared.refrescaSalidasLocales() }
+                }
+                return respond(task, url: url, data: Data("{}".utf8), mime: "application/json", noStore: true)
+            }
             forwardJSON(path: path, body: cuerpo) { ok in
                 if ok { self.respond(task, url: url, data: Data("{}".utf8), mime: "application/json", noStore: true) }
                 else { self.finish404(task, url: url) }

@@ -137,7 +137,8 @@ object ViewerData {
         enConsulta = id
         // Lo que haya cambiado en el servidor desde otro sitio (la web, otro
         // móvil): las correcciones de los tramos y la actividad.
-        if (id != null) TrackingStore.traeDelServidor(id)
+        // Las de este móvil no están en el servidor: no hay nada que traer.
+        if (id != null && !TrackingStore.esLocal(id)) TrackingStore.traeDelServidor(id)
     }
 
     /** La actividad de una salida consultada, si su dueño la cambió desde aquí
@@ -162,6 +163,7 @@ object ViewerData {
         // una importada, o de "Mis seguimientos" si es una propia.
         val guia = TrackingStore.guias.value.firstOrNull { it.id == id }
         val sesion = TrackingStore.sesiones.value.firstOrNull { it.id == id }
+            ?: TrackingStore.salidasLocales.value.firstOrNull { it.id == id }?.comoResumen()
         val ultima = traza.lastOrNull()
 
         val wire = EstadoWire(
@@ -217,7 +219,9 @@ object ViewerData {
             fix = real,
             trail = TrackingStore.trazaActual(),
             reportedFix = reportada,
-            emision = if (estado.compartiendo) {
+            emision = if (estado.compartiendo && estado.pendienteDeAlta && ModoLocal.esta) {
+                "soloEnElMovil"
+            } else if (estado.compartiendo) {
                 TrackingRules.estadoDeEmision(
                     estado.enEspera, estado.colaDesdeMs, estado.ritmo.intervaloSegundos, System.currentTimeMillis().toDouble(),
                 )

@@ -374,7 +374,7 @@ export interface TrackStateResponse {
    *  (lleva lo grabado subido, lleva un rato sin cobertura, aún no tiene enlace,
    *  está armada). La API pública nunca lo manda: quien sigue a alguien lo
    *  deduce de lo fresca que es la última posición. */
-  emision?: 'enDirecto' | 'rezagada' | 'perdida' | 'sinEnlace' | 'armada' | null
+  emision?: 'enDirecto' | 'rezagada' | 'perdida' | 'sinEnlace' | 'armada' | 'soloEnElMovil' | null
   /** Active followers currently watching this session (presence heartbeat count).
    *  Only set for active sessions; undefined once ended. */
   viewers?: number

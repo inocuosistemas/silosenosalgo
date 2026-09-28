@@ -11,7 +11,9 @@ struct BotonDeCuenta: View {
 
     var body: some View {
         Button(action: accion) {
-            MarcaEvento(emoji: auth.perfil.favEmoji ?? inicial, colorSlug: auth.perfil.favColor, size: 40)
+            // Sin cuenta, una silueta: es por donde se entra a una.
+            MarcaEvento(emoji: auth.sinCuenta ? "👤" : auth.perfil.favEmoji ?? inicial,
+                        colorSlug: auth.sinCuenta ? nil : auth.perfil.favColor, size: 40)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Mi cuenta")
@@ -77,6 +79,39 @@ struct PantallaMiCuenta: View {
     private static let minimo = 8
 
     var body: some View {
+        if auth.sinCuenta { sinCuenta } else { conCuenta }
+    }
+
+    /// Sin cuenta, «Mi cuenta» es cómo conseguir una.
+    private var sinCuenta: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Tus salidas se guardan solo en este móvil. Con una cuenta, además, te pueden seguir en directo por un enlace, y puedes apuntarte a carreras. Las cuentas son por invitación: pídesela a quien organiza. Lo que grabes sin cuenta no se pierde al entrar.")
+                        .font(.footnote).foregroundStyle(Theme.slate400)
+                    Button("Entrar con una cuenta") {
+                        dismiss()
+                        auth.entraConCuenta()
+                    }
+                    .accessibilityIdentifier("entrarConCuenta")
+                } header: {
+                    Text("Estás usando la app sin cuenta")
+                }
+                .listRowBackground(Theme.slate900)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.slate950)
+            .navigationTitle("Mi cuenta")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Cerrar") { dismiss() } }
+            }
+        }
+        .tint(Theme.sky500)
+        .preferredColorScheme(.dark)
+    }
+
+    private var conCuenta: some View {
         NavigationStack {
             Form {
                 seccionMarca

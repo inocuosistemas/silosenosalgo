@@ -12,7 +12,8 @@ struct ContentView: View {
                     .tint(Theme.sky500)
                     .foregroundStyle(Theme.slate400)
             case .anonymous:
-                LoginView()
+                // Sin cuenta, la app entera grabando solo en el móvil.
+                if auth.sinCuenta { PantallaPrincipal() } else { LoginView() }
             case .authed:
                 if auth.token != nil {
                     PantallaPrincipal()

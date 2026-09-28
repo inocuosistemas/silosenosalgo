@@ -69,7 +69,18 @@ struct LoginView: View {
             .cornerRadius(12)
             .disabled(!canSubmit)
 
-            Text("El acceso es solo con cuenta. Pide una invitación al organizador para crearla desde la web.")
+            // Sin invitación también se puede usar: lo que no pasa por el servidor.
+            Button { auth.usaSinCuenta() } label: {
+                Text("Usar sin cuenta").fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+            }
+            .foregroundStyle(Theme.sky500)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.slate700, lineWidth: 1))
+            .disabled(busy)
+            .accessibilityIdentifier("usarSinCuenta")
+
+            Text("Sin cuenta, grabas tus salidas y las ves en el mapa, en este móvil y sin conexión. Para que te sigan en directo por un enlace, y para las carreras, hace falta cuenta: es por invitación, pídesela a quien organiza.")
                 .font(.footnote)
                 .foregroundStyle(Theme.slate400)
                 .multilineTextAlignment(.center)

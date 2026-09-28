@@ -187,6 +187,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        #if DEBUG
+        // Pruebas de interfaz: arrancar como recién instalada (sin sesión, sin
+        // modo local, sin salidas de este móvil ni una a medias). Antes que nada:
+        // lo de abajo retoma la salida que hubiera.
+        if ProcessInfo.processInfo.arguments.contains("-EmpiezaSinSesion") {
+            Keychain.clear()
+            ModoLocal.activo = false
+            for k in ["salidasLocales-v1", "baliza.altaPendiente"] { UserDefaults.standard.removeObject(forKey: k) }
+        }
+        #endif
         UNUserNotificationCenter.current().delegate = self
         // UIKit lifecycle callbacks run on the main thread, where TrackingStore
         // (a @MainActor singleton) is safe to touch.
@@ -198,6 +208,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             CarreraConTrazado.shared.reanuda()
             if let token = Keychain.load() {
                 TrackingStore.shared.configure(token: token)
+                TrackingStore.shared.restoreActiveSession()
+            } else if ModoLocal.activo {
+                // Sin cuenta también se retoma la salida que quedó a medias.
                 TrackingStore.shared.restoreActiveSession()
             }
         }

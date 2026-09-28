@@ -290,6 +290,42 @@ class LocalStore(context: Context) {
             }
             ?: emptyList()
 
+    // ── Rutas de GPX guardadas solo en este móvil ────────────────────────────
+
+    /** Sin cuenta, un GPX cargado se queda aquí en vez de subirse: su índice
+     *  (como el de las del servidor) y su blob, fuera de `seguimiento/` para que
+     *  la poda de salidas no lo toque. */
+    private val dirPlanesLocales = File(context.filesDir, "planes-locales")
+
+    fun guardaPlanLocal(plan: PlanSummary, gz: ByteArray) {
+        runCatching {
+            dirPlanesLocales.mkdirs()
+            File(dirPlanesLocales, "${plan.id}.gz").writeBytes(gz)
+            prefs.edit().putString(CLAVE_PLANES_LOCALES, Api.json.encodeToString(listOf(plan) + leePlanesLocales().filter { it.id != plan.id })).apply()
+        }
+    }
+
+    fun leePlanesLocales(): List<PlanSummary> =
+        prefs.getString(CLAVE_PLANES_LOCALES, null)
+            ?.let { runCatching { Api.json.decodeFromString<List<PlanSummary>>(it) }.getOrNull() }
+            ?: emptyList()
+
+    fun leePlanLocal(planId: String): ByteArray? =
+        runCatching { File(dirPlanesLocales, "$planId.gz").takeIf { it.exists() }?.readBytes() }.getOrNull()
+
+    // ── Salidas solo de este móvil ───────────────────────────────────────────
+
+    /** El índice de las salidas que el servidor no conoce (ver `SalidaLocal`).
+     *  Como el de guías: lista corta, en preferencias. */
+    fun guardaSalidasLocales(salidas: List<SalidaLocal>) {
+        prefs.edit().putString(CLAVE_SALIDAS_LOCALES, Api.json.encodeToString(salidas)).apply()
+    }
+
+    fun leeSalidasLocales(): List<SalidaLocal> =
+        prefs.getString(CLAVE_SALIDAS_LOCALES, null)
+            ?.let { runCatching { Api.json.decodeFromString<List<SalidaLocal>>(it) }.getOrNull() }
+            ?: emptyList()
+
     // ── Estado activo ────────────────────────────────────────────────────────
 
     fun guardaActivo(estado: EstadoActivo) {
@@ -377,5 +413,7 @@ class LocalStore(context: Context) {
     companion object {
         private const val CLAVE_ACTIVO = "estado_activo"
         private const val CLAVE_GUIAS = "guias"
+        private const val CLAVE_SALIDAS_LOCALES = "salidas_locales"
+        private const val CLAVE_PLANES_LOCALES = "planes_locales"
     }
 }
