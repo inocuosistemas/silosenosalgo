@@ -2177,6 +2177,23 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
     return actualMin - expectedMin  // positive = slow, negative = fast
   }, [appMode, effectiveNow, livePos.coords, livePos.trackKm, startTime, track, paceConfig])
 
+  // El perfil de altura: debajo del mapa en la página, y también dentro de su
+  // pantalla completa (ver `RouteMap`), con los mismos datos.
+  const perfilDeAltura = track && (
+    <ElevationProfile
+      track={track}
+      mode={viewMode}
+      namedWaypoints={track.namedWaypoints}
+      analyzeRange={analyzeRange}
+      onHoverKm={setHoverKm}
+      waypoints={enrichedWaypoints}
+      pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
+      pollenData={pollenArr.length > 0 ? pollenArr : undefined}
+      pollenType={selectedPollenType}
+      daylightAnchor={daylightAnchor}
+    />
+  )
+
   return (
     <div className="min-h-dvh bg-slate-950 text-slate-100">
       {/* ── Header ── */}
@@ -2564,6 +2581,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
 
         {track && (
           <RouteMap
+            perfil={perfilDeAltura}
             track={track}
             waypoints={enrichedWaypoints}
             namedWaypoints={enrichedNamedWaypoints}
@@ -2663,20 +2681,7 @@ function PlanningApp({ onGuideLoaded }: { onGuideLoaded: (guide: BrowserGuide) =
 
         {/* ── 🛤️ Perfil de altura: track-only, aparece junto al mapa al cargar.
             Coloreado por pendiente + POIs/cortes + resaltado del tramo. ── */}
-        {track && (
-          <ElevationProfile
-            track={track}
-            mode={viewMode}
-            namedWaypoints={track.namedWaypoints}
-            analyzeRange={analyzeRange}
-            onHoverKm={setHoverKm}
-            waypoints={enrichedWaypoints}
-            pointTerrains={terrainPoints.length > 0 ? terrainPoints : undefined}
-            pollenData={pollenArr.length > 0 ? pollenArr : undefined}
-            pollenType={selectedPollenType}
-            daylightAnchor={daylightAnchor}
-          />
-        )}
+        {perfilDeAltura}
 
         {/* ── Plan mode sections ── */}
         {appMode === 'plan' && (

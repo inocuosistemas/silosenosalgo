@@ -149,6 +149,8 @@ interface Props {
    * vista chips and the map's own legend live on the same line.
    */
   headerSlot?: React.ReactNode
+  /** Lo que se enseña debajo en pantalla completa: el perfil de altura. */
+  perfil?: React.ReactNode
   /**
    * When true the 🚩 POI flags become draggable. Dragging is *magnetic*: the
    * flag rides the track and never leaves it, snapping to the projected km on
@@ -351,14 +353,19 @@ function StatPill({ label, value, color = 'text-slate-200' }: { label: string; v
   )
 }
 
-/** Leaflet mide su caja al nacer: al cambiar de tamaño (pantalla completa) hay
- *  que decírselo, o se queda pintando la mitad. */
-function AjustaTamano({ clave }: { clave: unknown }) {
+/** Al entrar y salir de pantalla completa. Leaflet mide su caja al nacer: al
+ *  cambiar de tamaño hay que decírselo, o se queda pintando la mitad. Y en
+ *  pantalla completa la rueda hace zoom sin Ctrl: ahí se está trabajando con
+ *  el mapa, no bajando por la página. */
+function ModoCompleto({ completa }: { completa: boolean }) {
   const map = useMap()
   useEffect(() => {
     const t = window.setTimeout(() => map.invalidateSize(), 60)
+    const gestos = (map as unknown as { gestureHandling?: { enable(): void; disable(): void } }).gestureHandling
+    if (completa) gestos?.disable()
+    else gestos?.enable()
     return () => window.clearTimeout(t)
-  }, [clave, map])
+  }, [completa, map])
   return null
 }
 
@@ -397,6 +404,7 @@ export function RouteMap({
   daylightAnchor,
   hoverKm = null,
   headerSlot,
+  perfil,
   editablePois = false,
   onMovePoi,
   startTime,
@@ -1430,7 +1438,7 @@ export function RouteMap({
         >
           <CapaBase />
 
-          <AjustaTamano clave={completa} />
+          <ModoCompleto completa={completa} />
           {radarActive && radarFrames.length > 0 && (
             <RainRadarLayer
               frames={radarFrames}
@@ -2204,6 +2212,9 @@ export function RouteMap({
           </div>
         </div>
       )}
+      {/* El perfil, también en pantalla completa: mapa y perfil van juntos
+          (pasar el ratón por uno marca el sitio en el otro). */}
+      {completa && perfil}
     </div>
   )
 }
