@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css'
 import '../lib/gestureHandling'
 import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react'
-import { Pause, Play, RotateCcw, Search } from 'lucide-react'
+import { Maximize2, Minimize2, Pause, Play, RotateCcw, Search } from 'lucide-react'
 import L from 'leaflet'
 import { CapaBase } from './CapaBase'
 import { MapContainer, Polyline, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
@@ -351,6 +351,17 @@ function StatPill({ label, value, color = 'text-slate-200' }: { label: string; v
   )
 }
 
+/** Leaflet mide su caja al nacer: al cambiar de tamaño (pantalla completa) hay
+ *  que decírselo, o se queda pintando la mitad. */
+function AjustaTamano({ clave }: { clave: unknown }) {
+  const map = useMap()
+  useEffect(() => {
+    const t = window.setTimeout(() => map.invalidateSize(), 60)
+    return () => window.clearTimeout(t)
+  }, [clave, map])
+  return null
+}
+
 export function RouteMap({
   track,
   waypoints,
@@ -402,6 +413,31 @@ export function RouteMap({
   const mapMode = mode
 
   // ── Rain-radar state (RainViewer animated overlay) ────────────────────────
+  // ── Pantalla completa ─────────────────────────────────────────────────────
+  const bloque = useRef<HTMLDivElement>(null)
+  const [completa, setCompleta] = useState(false)
+  const cambiaCompleta = async (v: boolean) => {
+    setCompleta(v)
+    // La del navegador cuando la hay; si no (Safari en el iPhone), basta con
+    // ocupar la ventana, que es lo que ya hace `completa`.
+    try {
+      if (v && !document.fullscreenElement) await bloque.current?.requestFullscreen?.()
+      else if (!v && document.fullscreenElement) await document.exitFullscreen()
+    } catch { /* sin permiso o sin soporte: se queda en la ventana */ }
+  }
+  useEffect(() => {
+    if (!completa) return
+    // Salir con Esc (sin la del navegador), o cuando el navegador la cierra.
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') void cambiaCompleta(false) }
+    const cambio = () => { if (!document.fullscreenElement) setCompleta(false) }
+    window.addEventListener('keydown', tecla)
+    document.addEventListener('fullscreenchange', cambio)
+    return () => {
+      window.removeEventListener('keydown', tecla)
+      document.removeEventListener('fullscreenchange', cambio)
+    }
+  }, [completa])
+
   const [radarFrames, setRadarFrames]   = useState<RadarFrame[]>([])
   const [radarIndex, setRadarIndex]     = useState(0)
   const [radarPlaying, setRadarPlaying] = useState(true)   // auto-play per spec
@@ -1167,7 +1203,12 @@ export function RouteMap({
     })
 
   return (
-    <div className="space-y-2">
+    <div
+      ref={bloque}
+      className={completa
+        ? 'fixed inset-0 z-[1200] flex flex-col gap-2 overflow-auto bg-slate-950 p-3 sm:p-4'
+        : 'space-y-2'}
+    >
       {/* ── Header row: mode-selector slot on the left, legend on the right ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">{headerSlot}</div>
@@ -1356,7 +1397,22 @@ export function RouteMap({
       </div>
 
       {/* ── Map ── */}
-      <div className="relative rounded-xl overflow-hidden border border-slate-700" style={{ height: 420 }}>
+      <div
+        className={`relative rounded-xl overflow-hidden border border-slate-700 ${completa ? 'min-h-[320px] flex-1' : ''}`}
+        style={completa ? undefined : { height: 420 }}
+      >
+        {/* Pantalla completa: el mapa con sus modos, la leyenda y la
+            reproducción. En el ordenador, la del navegador; en el móvil
+            (Safari no deja ponerla a un trozo de página), toda la ventana. */}
+        <button
+          type="button"
+          onClick={() => void cambiaCompleta(!completa)}
+          title={completa ? 'Salir de pantalla completa (Esc)' : 'Pantalla completa'}
+          aria-label={completa ? 'Salir de pantalla completa' : 'Pantalla completa'}
+          className="absolute right-2.5 top-2.5 z-[1000] flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow hover:bg-slate-100"
+        >
+          {completa ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+        </button>
         <MapContainer
           key={track.name + track.points.length}
           bounds={bounds}
@@ -1374,6 +1430,7 @@ export function RouteMap({
         >
           <CapaBase />
 
+          <AjustaTamano clave={completa} />
           {radarActive && radarFrames.length > 0 && (
             <RainRadarLayer
               frames={radarFrames}
