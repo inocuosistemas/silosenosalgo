@@ -618,10 +618,32 @@ object TrackingStore {
 
     /** Refresca la lista. Al mejor esfuerzo: si falla se queda la que había —
      *  sin cobertura, una lista vieja es más útil que una lista vacía. */
+    /** Cómo va la lista de salidas: el Archivo lo dice en vez de quedarse en
+     *  blanco. Vacía mientras llega —o porque no llegó— no es «no tienes».
+     *  Espejo de `cargaDeSalidas` en iOS. */
+    enum class CargaDeSalidas { CARGANDO, CARGADAS, FALLO }
+    private val _cargaDeSalidas = MutableStateFlow(CargaDeSalidas.CARGANDO)
+    val cargaDeSalidas: StateFlow<CargaDeSalidas> = _cargaDeSalidas.asStateFlow()
+
+    /** La última lista que llegó, guardada: el Archivo la enseña al momento,
+     *  también sin cobertura, mientras se pide la de ahora. */
+    fun cargaSalidasGuardadas() {
+        if (_sesiones.value.isNotEmpty()) return
+        val s = appCtx?.getSharedPreferences("salidas", Context.MODE_PRIVATE)?.getString("ultimas", null) ?: return
+        runCatching { jsonCarreras.decodeFromString(kotlinx.serialization.builtins.ListSerializer(TrackSessionSummary.serializer()), s) }
+            .getOrNull()?.let { _sesiones.value = TrackingRules.ordenaSesiones(it) }
+    }
+
     suspend fun cargaSesiones() {
-        val t = token ?: return
+        val t = token ?: run { _cargaDeSalidas.value = CargaDeSalidas.FALLO; return }
+        _cargaDeSalidas.value = CargaDeSalidas.CARGANDO
         runCatching { api.listSessions(t) }
+            .onFailure { _cargaDeSalidas.value = CargaDeSalidas.FALLO }
             .onSuccess { lista ->
+                _cargaDeSalidas.value = CargaDeSalidas.CARGADAS
+                appCtx?.getSharedPreferences("salidas", Context.MODE_PRIVATE)?.edit()
+                    ?.putString("ultimas", jsonCarreras.encodeToString(kotlinx.serialization.builtins.ListSerializer(TrackSessionSummary.serializer()), lista))
+                    ?.apply()
                 _sesiones.value = TrackingRules.ordenaSesiones(lista)
 
                 // Poda, como `LocalStore.prune` en iOS: se tira lo local de las

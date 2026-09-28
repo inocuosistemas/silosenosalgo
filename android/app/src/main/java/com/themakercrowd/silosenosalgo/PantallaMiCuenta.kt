@@ -117,6 +117,9 @@ object Cuenta {
 
     fun olvida(ctx: Context) {
         prefs(ctx).edit().remove("perfil").apply()
+        // Las listas guardadas para enseñarlas sin cobertura son de ESTA cuenta:
+        // quien entre después en el móvil no tiene por qué verlas.
+        for (nombre in listOf("salidas", "carreras")) ctx.getSharedPreferences(nombre, Context.MODE_PRIVATE).edit().clear().apply()
         _perfil.value = PerfilDeCuenta()
     }
 

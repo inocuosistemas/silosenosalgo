@@ -721,25 +721,47 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /// Cómo va la lista de salidas: el Archivo lo dice en vez de quedarse en
+    /// blanco. Vacía mientras llega —o porque no llegó— no es «no tienes».
+    enum CargaDeSalidas { case cargando, cargadas, fallo }
+    @Published var cargaDeSalidas: CargaDeSalidas = .cargando
+
+    private static let claveSalidas = "salidas.ultimas"
+
+    /// La última lista que llegó, guardada: el Archivo la enseña al momento,
+    /// también sin cobertura, mientras se pide la de ahora. Espejo de
+    /// `cargaCarrerasGuardadas`.
+    func cargaSalidasGuardadas() {
+        guard sessions.isEmpty,
+              let d = UserDefaults.standard.data(forKey: Self.claveSalidas),
+              let lista = try? JSONDecoder().decode([TrackSessionSummary].self, from: d) else { return }
+        sessions = lista.sorted { Self.finishKey($0) > Self.finishKey($1) }
+    }
+
     func loadSessions() async {
+        cargaDeSalidas = .cargando
         // Best-effort: if it fails we keep whatever we had; never crash.
-        if let result = try? await API.listSessions(token: token) {
-            // La más reciente arriba, SIEMPRE, chincheta o no.
-            //
-            // Antes las fijadas subían al principio, y eso confundía dos cosas
-            // distintas: la chincheta dice "esta no caduca", no "esta importa
-            // más que la de hoy". El resultado era que la salida de esta mañana
-            // aparecía por debajo de una de hace meses, justo cuando es la que
-            // se viene a buscar. Que no caduque se sigue viendo en su fila.
-            sessions = result.sorted { Self.finishKey($0) > Self.finishKey($1) }
-            // Drop local trail/plan files for sessions the server no longer lists
-            // (keep the current one even if it hasn't surfaced in the list yet).
-            var keep = Set(result.map { $0.id })
-            keep.formUnion(GuideLibrary.shared.storageIds)
-            if let t = sessionToken { keep.insert(t) }
-            if let t = claveLocal { keep.insert(t) }
-            LocalStore.prune(keep: keep)
+        guard let result = try? await API.listSessions(token: token) else {
+            cargaDeSalidas = .fallo
+            return
         }
+        cargaDeSalidas = .cargadas
+        if let d = try? JSONEncoder().encode(result) { UserDefaults.standard.set(d, forKey: Self.claveSalidas) }
+        // La más reciente arriba, SIEMPRE, chincheta o no.
+        //
+        // Antes las fijadas subían al principio, y eso confundía dos cosas
+        // distintas: la chincheta dice "esta no caduca", no "esta importa
+        // más que la de hoy". El resultado era que la salida de esta mañana
+        // aparecía por debajo de una de hace meses, justo cuando es la que
+        // se viene a buscar. Que no caduque se sigue viendo en su fila.
+        sessions = result.sorted { Self.finishKey($0) > Self.finishKey($1) }
+        // Drop local trail/plan files for sessions the server no longer lists
+        // (keep the current one even if it hasn't surfaced in the list yet).
+        var keep = Set(result.map { $0.id })
+        keep.formUnion(GuideLibrary.shared.storageIds)
+        if let t = sessionToken { keep.insert(t) }
+        if let t = claveLocal { keep.insert(t) }
+        LocalStore.prune(keep: keep)
     }
 
     /// Recency key for ordering "Mis seguimientos": most recently finished first.

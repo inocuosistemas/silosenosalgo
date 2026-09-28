@@ -542,6 +542,7 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         // Las últimas carreras que llegaron, ya; y las de ahora, a la vez que lo
         // demás: en fila, si otra lista tardaba, «Carreras» se quedaba vacía.
         TrackingStore.cargaCarrerasGuardadas()
+        TrackingStore.cargaSalidasGuardadas()
         coroutineScope {
             launch { TrackingStore.cargaEventos() }
             launch { TrackingStore.cargaSesiones() }
@@ -550,6 +551,12 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
         TrackingStore.refrescaAlmacenamiento()
         TrackingStore.cargaGuias()
     }
+    // El archivo, al día cada vez que se entra: sin esto se quedaba con lo que
+    // hubiera al abrir la app —o con nada, si entonces no había red—.
+    LaunchedEffect(pestana) {
+        if (pestana == Pestana.ARCHIVO) TrackingStore.cargaSesiones()
+    }
+    val cargaSalidas by TrackingStore.cargaDeSalidas.collectAsState()
     // Si no llegaron (sin cobertura), en cuanto vuelva la red.
     val cargaCarreras by TrackingStore.cargaDeCarreras.collectAsState()
     LaunchedEffect(hayRed) {
@@ -1391,12 +1398,44 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
 
             Spacer(Modifier.height(14.dp))
-            Text(
-                "SALIDAS",
-                style = MaterialTheme.typography.labelSmall,
-                color = Paleta.slate400,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "SALIDAS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Paleta.slate400,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.weight(1f))
+                // Con la lista de la última vez a la vista, mientras llega la de
+                // ahora (o si no llegó).
+                if (sesiones.isNotEmpty() && cargaSalidas == TrackingStore.CargaDeSalidas.CARGANDO) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                } else if (sesiones.isNotEmpty() && cargaSalidas == TrackingStore.CargaDeSalidas.FALLO) {
+                    Text("sin actualizar", style = MaterialTheme.typography.labelSmall, color = Paleta.ambar)
+                }
+            }
+            // Vacía mientras llega, o porque no llegó, NO es «no tienes»: sin
+            // decir nada parecía que se habían perdido las salidas.
+            if (sesiones.isEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                when (cargaSalidas) {
+                    TrackingStore.CargaDeSalidas.CARGANDO -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Consultando tus salidas…", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                    }
+                    TrackingStore.CargaDeSalidas.FALLO -> Column {
+                        Text(
+                            if (hayRed) "No se ha podido contactar con el servidor." else "Sin conexión: no se pueden consultar tus salidas.",
+                            style = MaterialTheme.typography.bodySmall, color = Paleta.ambar,
+                        )
+                        TextButton(onClick = { scope.launch { TrackingStore.cargaSesiones() } }) { Text("Reintentar") }
+                    }
+                    TrackingStore.CargaDeSalidas.CARGADAS -> Text(
+                        "No tienes seguimientos.", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400,
+                    )
+                }
+            }
             SeccionSesiones(
             sesiones = sesiones,
             idActual = estado.sessionId,

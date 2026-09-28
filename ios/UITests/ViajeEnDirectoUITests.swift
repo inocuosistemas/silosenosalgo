@@ -592,6 +592,26 @@ final class ViajeEnDirectoUITests: XCTestCase {
         guarda("carreras-sin-conexion")
     }
 
+    /// El archivo sin la lista de salidas todavía, o sin poder traerla: se
+    /// dice, y no «no tienes seguimientos» (parecía vacío y había que refrescar).
+    func testArchivoCargandoOSinConexion() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-PruebaDePantallaPrincipal", "-SalidasCargando"]
+        app.launch()
+        app.tabBars.buttons["Archivo"].tap()
+        XCTAssertTrue(app.staticTexts["Consultando tus salidas…"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["No tienes seguimientos."].exists)
+        guarda("archivo-cargando")
+        app.terminate()
+        app.launchArguments = ["-PruebaDePantallaPrincipal", "-SalidasFallo"]
+        app.launch()
+        app.tabBars.buttons["Archivo"].tap()
+        let aviso = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'No se ha podido contactar' OR label BEGINSWITH 'Sin conexión'")).firstMatch
+        XCTAssertTrue(aviso.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Reintentar"].exists)
+        guarda("archivo-sin-conexion")
+    }
+
     /// Preparar la carrera la noche antes: la lista, «Dejar lista», y la
     /// tarjeta de la carrera dice «Lista».
     func testPrepararLaCarreraLaNocheAntes() {

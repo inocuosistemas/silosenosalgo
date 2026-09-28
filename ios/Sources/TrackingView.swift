@@ -1116,16 +1116,14 @@ struct TrackingView: View {
                 .listRowBackground(Theme.slate900)
                 }
 
-                if pestana == .archivo && store.isSharing {
-                    Section {
-                        Text("Mientras compartes, lo grabado se guarda para después: al terminar la salida lo tienes aquí.")
-                            .font(.footnote).foregroundStyle(Theme.slate400)
-                    } header: {
-                        cabecera("Lo que tienes grabado", "tray.full")
-                    }
-                    .listRowBackground(Theme.slate900)
-                }
-                if pestana == .archivo && !store.isSharing {
+                // El archivo, también con una salida en marcha: antes se
+                // escondía entero («al terminar la salida lo tienes aquí») y
+                // parecía vacío. Lo único que no se puede con una en marcha es
+                // lo que ocupa el visor sin conexión, que es uno y lo está
+                // usando ella: abrir una guía, o el mapa de otra salida sin
+                // cobertura (se abre el de internet), y continuar o reanudar
+                // otra.
+                if pestana == .archivo {
                     Section {
                         Text("GUÍAS")
                             .font(.caption2.weight(.bold)).kerning(0.6)
@@ -1150,6 +1148,7 @@ struct TrackingView: View {
                                     Image(systemName: "map")
                                 }
                                 .buttonStyle(.borderless)
+                                .disabled(store.isSharing)
                                 .accessibilityLabel("Abrir guía offline")
                                 Menu {
                                     Button(role: .destructive) { guideLibrary.delete(guide) } label: {
@@ -1162,6 +1161,10 @@ struct TrackingView: View {
                                 .accessibilityLabel("Más opciones de la guía")
                             }
                         }
+                        if store.isSharing && !guideLibrary.guides.isEmpty {
+                            Text("Con una salida en marcha, las guías se abren al terminarla.")
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                        }
                         // Y en la MISMA sección, debajo, las salidas: son la
                         // respuesta a la misma pregunta —"¿qué tengo grabado?"—
                         // y en dos apartados obligaban a mirar en dos sitios lo
@@ -1172,14 +1175,31 @@ struct TrackingView: View {
                             .font(.caption2.weight(.bold)).kerning(0.6)
                             .foregroundStyle(Theme.slate400)
                         if store.sessions.isEmpty {
-                            // Sin red la lista viene vacía por no poder
-                            // consultarla, no por no tener nada: decir "no
-                            // tienes" seria mentir.
-                            Text(net.online
-                                 ? "No tienes seguimientos."
-                                 : "Sin conexión: no se pueden consultar tus seguimientos.")
-                                .font(.caption)
-                                .foregroundStyle(Theme.slate400)
+                            // Vacía mientras llega, o porque no llegó, NO es
+                            // «no tienes»: decirlo es mentir, y quien lo lee
+                            // cree que ha perdido sus salidas.
+                            switch store.cargaDeSalidas {
+                            case .cargando:
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Consultando tus salidas…")
+                                }
+                                .font(.caption).foregroundStyle(Theme.slate400)
+                            case .fallo:
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(net.online
+                                         ? "No se ha podido contactar con el servidor."
+                                         : "Sin conexión: no se pueden consultar tus salidas.")
+                                        .font(.caption).foregroundStyle(Color.orange)
+                                    Button("Reintentar") { Task { await store.loadSessions() } }
+                                        .buttonStyle(.borderless)
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.sky500)
+                                }
+                            case .cargadas:
+                                Text("No tienes seguimientos.")
+                                    .font(.caption).foregroundStyle(Theme.slate400)
+                            }
                         } else {
                             // Las que ya no sirven para nada: el servidor borró su
                             // ruta y en el móvil no queda traza. Borrarlas de una
@@ -1221,7 +1241,19 @@ struct TrackingView: View {
                             }
                         }
                     } header: {
-                        cabecera("Lo que tienes grabado", "tray.full")
+                        HStack {
+                            cabecera("Lo que tienes grabado", "tray.full")
+                            Spacer()
+                            // Con la lista de la última vez a la vista, mientras
+                            // llega la de ahora (o si no llegó).
+                            if !store.sessions.isEmpty {
+                                if store.cargaDeSalidas == .cargando {
+                                    ProgressView().controlSize(.small)
+                                } else if store.cargaDeSalidas == .fallo {
+                                    Text("sin actualizar").font(.caption2).foregroundStyle(Color.orange)
+                                }
+                            }
+                        }
                     } footer: {
                         Text("Las guías llevan dentro la ruta, el recorrido real, las notas, las fotos y los audios; no, las teselas del mapa. Las salidas se conservan el plazo que elegiste, salvo las fijadas con la chincheta.")
                             .font(.caption).foregroundStyle(Theme.slate400)
@@ -1377,6 +1409,7 @@ struct TrackingView: View {
                 guard pestana == .baliza, !PruebaDePantallaPrincipal.pedida else { return }
                 // Las últimas carreras que llegaron, ya: sin esperar a la red.
                 store.cargaCarrerasGuardadas()
+                store.cargaSalidasGuardadas()
                 store.configure(token: auth.token ?? "")
                 store.viewerUsername = auth.user?.username
                 store.restoreActiveSession() // resume the last active beacon if not explicitly stopped
@@ -1398,6 +1431,14 @@ struct TrackingView: View {
                 async let rutas: Void = store.loadPlans()
                 async let salidas: Void = store.loadSessions()
                 _ = await (carreras, rutas, salidas)
+            }
+            // El archivo, al día cada vez que se entra: sin esto se quedaba con
+            // lo que hubiera al abrir la app —o con nada, si entonces no había
+            // red— y había que refrescar a mano.
+            .task {
+                guard pestana == .archivo, !PruebaDePantallaPrincipal.pedida else { return }
+                store.cargaSalidasGuardadas()
+                await store.loadSessions()
             }
             // Si no llegaron (sin cobertura), en cuanto vuelva la red.
             .onChange(of: net.online) { _, online in
@@ -1915,7 +1956,17 @@ struct TrackingView: View {
             // Continuar se queda a la vista: es lo que se pulsa al recuperar una
             // salida en marcha, con prisa y a veces con frío. Reanudar, que es
             // excepcional, se fue al menú.
-            if active {
+            if active && session.id == store.claveDeDatos && store.isSharing {
+                Text("La que está en marcha")
+                    .font(.caption).foregroundStyle(.green)
+                    .padding(.top, 2)
+            } else if active && store.isSharing {
+                // Otra activa (de otro móvil, o que no se cerró): no se pueden
+                // llevar dos a la vez.
+                Text("Para continuarla, termina antes la que está en marcha.")
+                    .font(.caption2).foregroundStyle(Theme.slate400)
+                    .padding(.top, 2)
+            } else if active {
                 Button("Continuar →") { store.continueSession(session.id) }
                     .buttonStyle(.borderless)
                     .font(.caption)
@@ -1949,7 +2000,7 @@ struct TrackingView: View {
             // ("parar y volver a compartir"). Una caducada resucitaría con una
             // salida vieja y sin ruta: mejor empezar otra, y por eso no se
             // ofrece.
-            if !store.isActive(session) && !purged {
+            if !store.isActive(session) && !purged && !store.isSharing {
                 Button { store.resumeSession(session.id) } label: {
                     Label("Reanudar", systemImage: "play.circle")
                 }
@@ -1987,7 +2038,7 @@ struct TrackingView: View {
             // Ver su mapa: con la traza en el móvil se abre el visor incrustado
             // sin cobertura (con sus notas y fotos); si no, queda el enlace
             // público, que solo existe mientras la ruta no haya caducado.
-            if hasLocal || !purged {
+            if !purged || (hasLocal && !store.isSharing) {
                 Button { openSessionMap(session, hasLocal: hasLocal, purged: purged) } label: {
                     Label("Ver mapa", systemImage: "map")
                 }
@@ -2032,7 +2083,11 @@ struct TrackingView: View {
     /// "Ver mapa" for a finished session: offline (from the local trail) when
     /// this device still keeps it, else the public link in the online viewer.
     private func openSessionMap(_ session: TrackSessionSummary, hasLocal: Bool, purged: Bool) {
-        if hasLocal {
+        // La que está en marcha, en su mapa de siempre (el de la baliza).
+        if store.isSharing && session.id == store.claveDeDatos { showLiveMap = true; return }
+        // Con una salida en marcha, el visor sin conexión es suyo: el mapa de
+        // las demás, el de internet.
+        if hasLocal && !store.isSharing {
             do {
                 try store.prepareOfflineReview(session)
                 reviewSession = session

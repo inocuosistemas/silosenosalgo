@@ -108,6 +108,9 @@ final class AuthStore: ObservableObject {
         Keychain.clear()
         UserDefaults.standard.removeObject(forKey: cachedUserKey)
         UserDefaults.standard.removeObject(forKey: perfilKey)
+        // Las listas guardadas para enseñarlas sin cobertura son de ESTA cuenta:
+        // quien entre después en el móvil no tiene por qué verlas.
+        for clave in ["salidas.ultimas", "carreras.ultimas"] { UserDefaults.standard.removeObject(forKey: clave) }
         perfil = PerfilDeCuenta()
         token = nil
         user = nil

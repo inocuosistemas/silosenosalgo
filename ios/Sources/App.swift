@@ -438,6 +438,12 @@ enum PruebaDePantallaPrincipal {
         t.cargaDeCarreras = .cargadas
         // Sin lista todavía (`-CarrerasCargando`) o sin poder traerla (`-CarrerasFallo`).
         let args = ProcessInfo.processInfo.arguments
+        // El archivo sin lista todavía (`-SalidasCargando`) o sin poder traerla (`-SalidasFallo`).
+        t.cargaDeSalidas = .cargadas
+        if args.contains("-SalidasCargando") || args.contains("-SalidasFallo") {
+            t.sessions = []
+            t.cargaDeSalidas = args.contains("-SalidasFallo") ? .fallo : .cargando
+        }
         if args.contains("-CarrerasCargando") || args.contains("-CarrerasFallo") {
             t.events = []
             t.pastEvents = []
