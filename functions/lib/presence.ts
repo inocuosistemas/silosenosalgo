@@ -46,6 +46,18 @@ export async function countViewers(env: Env, sessionId: string): Promise<number>
  *
  * Devuelve cuántos hay mirando (quien pregunta incluido).
  */
+/** Solo el latido de quien mira un evento (sin contar): lo que se hace en cada
+ *  sondeo cuando el mapa sale de la caché (ver `events/public/[token]`). */
+export async function apuntaVisorDeEvento(env: Env, eventId: string, viewerId: string | null): Promise<void> {
+  if (!viewerId || !VIEWER_RE.test(viewerId)) return
+  const ahora = Date.now()
+  await env.DB.prepare(
+    `INSERT INTO event_viewers (event_id, viewer_id, last_seen) VALUES (?, ?, ?)
+       ON CONFLICT(event_id, viewer_id) DO UPDATE SET last_seen = excluded.last_seen
+       WHERE event_viewers.last_seen < excluded.last_seen - 25000`,
+  ).bind(eventId, viewerId, ahora).run()
+}
+
 export async function latidoEnEvento(env: Env, eventId: string, viewerId: string | null): Promise<number> {
   const ahora = Date.now()
   if (viewerId && VIEWER_RE.test(viewerId)) {

@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import type { Env } from '../../../lib/db'
 import { leeAjustes } from '../../../lib/puntos'
-import { latidoEnEvento } from '../../../lib/presence'
+import { apuntaVisorDeEvento, latidoEnEvento } from '../../../lib/presence'
 import { json } from '../../../lib/http'
 import { TOKEN_RE, isBeaconActivity } from '../../../../shared/validate'
 import { EVENT_TAIL_POINTS } from '../../../../shared/wireTypes'
@@ -24,9 +24,32 @@ import type {
  * por ellos.
  */
 
+/**
+ * Cuánto dura el mapa en la caché, compartido por todos los que miran.
+ *
+ * Cada quien sigue la carrera pide esto cada 10 s, y cada petición leía el
+ * evento, a todos los corredores con sus trazas y el recuento de quién mira:
+ * con 500 personas en meta eran 50 lecturas por segundo de lo mismo. Con la
+ * caché, una cada 8 s por región, y cada petición solo apunta que sigue
+ * mirando. 8 s es menos que el sondeo y que lo que tarda en llegar una
+ * posición nueva: nadie ve el mapa más viejo que antes.
+ */
+const CACHE_S = 8
+
 export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
   const token = String(params.token)
   if (!TOKEN_RE.test(token)) return json({ error: 'bad_id' }, 400)
+  const visor = new URL(request.url).searchParams.get('v')
+
+  const cache = typeof caches === 'undefined' ? null : (caches as unknown as { default: Cache }).default
+  const clave = new Request(`https://cache.silosenosalgo/api/events/public/${token}`)
+  const guardada = await cache?.match(clave)
+  if (guardada) {
+    const res = await guardada.json() as EventPublicResponse
+    // Que conste que este sigue mirando (el recuento va en lo guardado).
+    if (res.endedAt === null) { try { await apuntaVisorDeEvento(env, res.id, visor) } catch { /* es un extra */ } }
+    return json(res, 200, { 'Cache-Control': 'no-store' })
+  }
 
   const ev = await env.DB.prepare(
     `SELECT id, name, plan_share_id AS planShareId, tracking_url AS trackingUrl, website_url AS websiteUrl, puntos_ajustes AS puntosAjustes,
@@ -145,6 +168,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     stats: endedAt !== null ? await leeStats(env, ev.id, ev.stats) : null,
     runners,
     mirando: await mirando(env, request, ev.id, endedAt),
+  }
+  if (cache) {
+    await cache.put(clave, new Response(JSON.stringify(res), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_S}` },
+    }))
   }
   return json(res, 200, { 'Cache-Control': 'no-store' })
 }
