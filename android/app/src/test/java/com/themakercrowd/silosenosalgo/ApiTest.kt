@@ -213,4 +213,18 @@ class ApiTest {
         api.setPinned("tok", "s1", true)
         api.rename("tok", "s1", "otro")
     }
+
+    @Test fun `subir una salida de este movil va a importa con su traza entera y devuelve el id`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"nuevo0000000000001"}"""))
+        val traza = listOf(TrailPoint(1_000.0, 41.39, 2.17, 5, "w"), TrailPoint(61_000.0, 41.40, 2.18, 6, null))
+        val id = api.importaSalida("tok_1", "Montseny", 500.0, 70_000.0, BeaconActivity.WALK, traza, null, "Pixel")
+        assertEquals("nuevo0000000000001", id)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/api/track/importa", req.path)
+        val cuerpo = req.body.readUtf8()
+        assertTrue(cuerpo, cuerpo.contains("\"title\":\"Montseny\"") && cuerpo.contains("\"startAt\":500.0"))
+        assertTrue(cuerpo, cuerpo.contains("\"activity\":\"walk\"") && cuerpo.contains("\"trail\":[{"))
+        assertTrue(cuerpo, cuerpo.contains("\"m\":\"w\""))
+    }
 }

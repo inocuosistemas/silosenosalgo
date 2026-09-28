@@ -907,6 +907,70 @@ final class TrackingStore: ObservableObject {
         }
     }
 
+    /**
+     Sube a la cuenta una salida de este móvil: su traza, su ruta (si era un GPX
+     cargado sin cuenta), sus notas con fotos y audios, y los tramos corregidos.
+     Nace terminada y con chincheta (ver `API.importaSalida`) y a partir de ahí
+     es una salida más: con enlace, fotos, chincheta… Devuelve el id nuevo. Si
+     algo falla a medias, la salida sigue en el móvil tal cual. Espejo de
+     `subeSalidaLocal` en Android.
+     */
+    func subeSalidaLocal(_ id: String) async throws -> String {
+        guard !token.isEmpty else { throw APIError(status: 401, code: "unauthorized") }
+        guard let s = SalidasLocales.una(id), s.endedAt != nil, !(isSharing && claveDeDatos == id) else {
+            throw GpxImporter.Fallo.conversion("Termina antes la salida para subirla.")
+        }
+        let traza = (try? Data(contentsOf: LocalStore.trailURL(id)))
+            .flatMap { try? JSONDecoder().decode([TrailPoint].self, from: $0) } ?? []
+        guard !traza.isEmpty else { throw GpxImporter.Fallo.conversion("Esta salida no tiene puntos que subir.") }
+        // La ruta que llevaba, a «tus rutas».
+        var planId: String?
+        if let gz = try? Data(contentsOf: LocalStore.planURL(id)),
+           let json = Gzip.inflate(gz),
+           let track = (try? JSONSerialization.jsonObject(with: json) as? [String: Any])?["track"] as? [String: Any] {
+            planId = try? await API.createPlan(
+                token: token, cuerpo: gz, nombre: track["name"] as? String ?? s.titulo ?? "Ruta",
+                distanciaKm: track["totalDistanceKm"] as? Double ?? 0, desnivelM: track["elevGainM"] as? Double ?? 0,
+                actividad: nil,
+            ).id
+        }
+        let nuevo = try await API.importaSalida(
+            token: token, title: s.titulo, startAt: s.startedAt, endedAt: s.endedAt, activity: s.actividad,
+            trail: traza, planId: planId, device: Self.deviceName,
+        )
+        // Notas y sus archivos.
+        let notas = (try? Data(contentsOf: LocalStore.notesURL(id)))
+            .flatMap { try? JSONDecoder().decode([Note].self, from: $0) } ?? []
+        for nota in notas {
+            try? await API.createNote(token: token, sessionId: nuevo, note: nota)
+            for kind in ["photo", "audio"] {
+                guard let datos = try? Data(contentsOf: LocalStore.mediaFileURL(id, "\(nota.id)_\(kind).\(mediaExt(kind))")) else { continue }
+                try? await API.uploadNoteMedia(token: token, sessionId: nuevo, noteId: nota.id, kind: kind, data: datos,
+                                               contentType: kind == "audio" ? "audio/mp4" : "image/jpeg")
+            }
+        }
+        // Los tramos que se corrigieron aquí.
+        if let a = ViewerDataProvider.ajustesDeTramos(id), let lista = try? JSONSerialization.jsonObject(with: a) {
+            _ = await API.guardaTramos(token: token, id: nuevo, ajustes: lista)
+        }
+        ViewerDataProvider.mueveAjustesDeTramos(de: id, a: nuevo)
+        // Lo del móvil, bajo la clave nueva (sirve para verla sin cobertura).
+        let fm = FileManager.default
+        for (de, a) in [(LocalStore.trailURL(id), LocalStore.trailURL(nuevo)), (LocalStore.notesURL(id), LocalStore.notesURL(nuevo)),
+                        (LocalStore.planURL(id), LocalStore.planURL(nuevo)), (LocalStore.formURL(id), LocalStore.formURL(nuevo))]
+        where fm.fileExists(atPath: de.path) {
+            try? fm.removeItem(at: a); try? fm.moveItem(at: de, to: a)
+        }
+        for url in (try? fm.contentsOfDirectory(at: LocalStore.mediaDir(id), includingPropertiesForKeys: nil)) ?? [] {
+            try? fm.moveItem(at: url, to: LocalStore.mediaFileURL(nuevo, url.lastPathComponent))
+        }
+        try? fm.removeItem(at: LocalStore.mediaDir(id))
+        SalidasLocales.olvida(id)
+        refrescaSalidasLocales()
+        await loadSessions()
+        return nuevo
+    }
+
     func deleteSession(_ id: String) async {
         if esLocal(id) {
             SalidasLocales.borra(id)

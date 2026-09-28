@@ -121,6 +121,9 @@ struct TrackingView: View {
     @State private var viendoCuenta = false
     /// «Añadir fotos» a una salida terminada.
     @State private var fotosDe: TrackSessionSummary?
+    /// La salida de este móvil que se está subiendo a la cuenta (su nombre), o nil.
+    @State private var subiendo: String?
+    @State private var avisoSubida: String?
     /// Cuántas salidas se enseñan sin tener que pedir más.
     private let salidasVisibles = 4
     @State private var verTodasLasSalidas = false
@@ -1182,6 +1185,33 @@ struct TrackingView: View {
                         // que se busca de una vez. Sin `Divider`: en una
                         // lista cada vista es una fila, y salía una fila vacía;
                         // la separación ya la ponen las filas.
+                        // Lo grabado sin cuenta (o sin cobertura hasta el final),
+                        // ya con cuenta: se ofrece subirlo, todo de una vez. Con
+                        // chincheta, que una salida de hace semanas caducaría.
+                        let paraSubir = store.salidasLocales.filter { $0.endedAt != nil && $0.id != store.claveDeDatos }
+                        if !ModoLocal.activo && !paraSubir.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(paraSubir.count == 1 ? "Tienes 1 salida solo en este móvil"
+                                     : "Tienes \(paraSubir.count) salidas solo en este móvil")
+                                    .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.slate100)
+                                Text("Súbelas a tu cuenta para tener su enlace y verlas desde la web. Van con la chincheta puesta.")
+                                    .font(.caption).foregroundStyle(Theme.slate400)
+                                if let subiendo {
+                                    HStack(spacing: 8) {
+                                        ProgressView().controlSize(.small)
+                                        Text("Subiendo «\(subiendo)»…").font(.caption).foregroundStyle(Theme.slate400)
+                                    }
+                                } else {
+                                    Button(paraSubir.count == 1 ? "Subirla a tu cuenta" : "Subirlas a tu cuenta") {
+                                        Task { await subeTodas(paraSubir) }
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Theme.sky500)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
                         Text("SALIDAS")
                             .font(.caption2.weight(.bold)).kerning(0.6)
                             .foregroundStyle(Theme.slate400)
@@ -1339,6 +1369,12 @@ struct TrackingView: View {
                 .listRowBackground(Color.clear)
                 }
 
+            }
+            .alert(avisoSubida ?? "", isPresented: Binding(
+                get: { avisoSubida != nil },
+                set: { if !$0 { avisoSubida = nil } }
+            )) {
+                Button("Vale", role: .cancel) { avisoSubida = nil }
             }
             .alert("Eliminar seguimiento", isPresented: Binding(
                 get: { pendingDelete != nil },
@@ -2065,6 +2101,12 @@ struct TrackingView: View {
             }
             // Una caducada no se puede conservar (sus datos ya no están), así
             // que la chincheta no significaría nada.
+            // Las de este móvil, a la cuenta: con enlace, fotos y chincheta.
+            if soloAqui && !ModoLocal.activo && !store.isActive(session) {
+                Button { Task { await subeUna(session) } } label: {
+                    Label("Subir a mi cuenta", systemImage: "icloud.and.arrow.up")
+                }
+            }
             if !purged && !soloAqui {
                 Button {
                     Task { await store.setPinned(session.id, !session.isPinned) }
@@ -2113,6 +2155,32 @@ struct TrackingView: View {
         .buttonStyle(.borderless)
         .foregroundStyle(Theme.slate400)
         .accessibilityLabel("Más opciones")
+    }
+
+    /// Sube a la cuenta una salida de este móvil (ver `TrackingStore.subeSalidaLocal`).
+    private func subeUna(_ session: TrackSessionSummary) async {
+        subiendo = store.labelForSession(session)
+        do {
+            _ = try await store.subeSalidaLocal(session.id)
+            avisoSubida = "Subida a tu cuenta, con la chincheta puesta."
+        } catch {
+            avisoSubida = "No se ha podido subir: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+        }
+        subiendo = nil
+    }
+
+    /// Todas las de este móvil, una tras otra. Las que fallen se quedan en él.
+    private func subeTodas(_ salidas: [SalidaLocal]) async {
+        var bien = 0
+        var fallo: String?
+        for s in salidas {
+            subiendo = s.titulo ?? "la salida"
+            do { _ = try await store.subeSalidaLocal(s.id); bien += 1 }
+            catch { fallo = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+        }
+        subiendo = nil
+        avisoSubida = fallo == nil ? "Subidas a tu cuenta: \(bien), con la chincheta puesta."
+            : "Subidas \(bien) de \(salidas.count). Las demás siguen en el móvil: \(fallo!)"
     }
 
     /// Pasa una salida terminada a «Automático» y abre su mapa, ya en tramos.

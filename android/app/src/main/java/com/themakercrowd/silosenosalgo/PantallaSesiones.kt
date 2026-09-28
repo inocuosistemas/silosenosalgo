@@ -104,6 +104,8 @@ fun SeccionSesiones(
     onBorrar: (String) -> Unit,
     onAnadirFotos: (TrackSessionSummary) -> Unit = {},
     onDetectarTramos: (TrackSessionSummary) -> Unit = {},
+    /** Subir a la cuenta una de este móvil; null = sin cuenta, no se ofrece. */
+    onSubir: ((TrackSessionSummary) -> Unit)? = null,
 ) {
     if (sesiones.isEmpty()) return
     var renombrando by remember { mutableStateOf<TrackSessionSummary?>(null) }
@@ -158,6 +160,7 @@ fun SeccionSesiones(
             onBorrar = { borrando = s },
             onAnadirFotos = { onAnadirFotos(s) },
             onDetectarTramos = { onDetectarTramos(s) },
+            onSubir = onSubir?.let { f -> { f(s) } },
         )
     }
 
@@ -240,6 +243,7 @@ private fun FilaSesion(
     onBorrar: () -> Unit,
     onAnadirFotos: () -> Unit,
     onDetectarTramos: () -> Unit,
+    onSubir: (() -> Unit)? = null,
 ) {
     val caducada = TrackingRules.estaCaducada(sesion, System.currentTimeMillis().toDouble())
     // Las fotos se suben al volver, con la salida ya cerrada (ver
@@ -364,6 +368,10 @@ private fun FilaSesion(
                         Opcion(
                             if (sesion.isPinned) "Quitar chincheta" else "Fijar con chincheta",
                         ) { menuAbierto = false; onChincheta() }
+                    }
+                    // Las de este móvil, a la cuenta: con enlace, fotos y chincheta.
+                    if (soloAqui && onSubir != null && !sesion.isActive) {
+                        Opcion("Subir a mi cuenta") { menuAbierto = false; onSubir() }
                     }
                     Opcion("Renombrar") { menuAbierto = false; onRenombrar() }
                     if (!caducada && !soloAqui) {

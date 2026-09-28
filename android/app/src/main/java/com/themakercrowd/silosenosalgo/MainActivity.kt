@@ -40,6 +40,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -423,6 +424,8 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
     val guias by TrackingStore.guias.collectAsState()
     var guiaEnMapa by remember { mutableStateOf<String?>(null) }
     var avisoGuia by remember { mutableStateOf<String?>(null) }
+    /** La salida que se está subiendo a la cuenta (su nombre), o null. */
+    var subiendo by remember { mutableStateOf<String?>(null) }
 
     // Cargar un GPX como ruta: se convierte en el móvil, se guarda en la cuenta
     // y queda elegida para empezar ya. Cualquier tipo: cada app etiqueta los
@@ -1472,6 +1475,52 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
             )
 
             Spacer(Modifier.height(14.dp))
+            // Lo grabado sin cuenta (o sin cobertura hasta el final), ya con
+            // cuenta: se ofrece subirlo, todo de una vez. Con chincheta, porque
+            // una salida de hace semanas caducaría enseguida.
+            val paraSubir = salidasLocales.filter { it.endedAt != null && it.id != estado.sessionId }
+            if (!sinCuenta && paraSubir.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Paleta.sky600.copy(alpha = 0.15f)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            if (paraSubir.size == 1) "Tienes 1 salida solo en este móvil"
+                            else "Tienes ${paraSubir.size} salidas solo en este móvil",
+                            color = Paleta.slate100, fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "Súbelas a tu cuenta para tener su enlace y verlas desde la web. Van con la chincheta puesta.",
+                            style = MaterialTheme.typography.bodySmall, color = Paleta.slate400,
+                        )
+                        subiendo?.let {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Subiendo «$it»…", style = MaterialTheme.typography.bodySmall, color = Paleta.slate400)
+                            }
+                        } ?: TextButton(
+                            onClick = {
+                                scope.launch {
+                                    var bien = 0
+                                    var fallo: String? = null
+                                    for (s in paraSubir) {
+                                        subiendo = s.titulo ?: "la salida"
+                                        TrackingStore.subeSalidaLocal(s.id)
+                                            .onSuccess { bien++ }
+                                            .onFailure { e -> fallo = (e as? ApiException)?.message ?: e.message }
+                                    }
+                                    subiendo = null
+                                    avisoGuia = if (fallo == null) "Subidas a tu cuenta: $bien, con la chincheta puesta."
+                                        else "Subidas $bien de ${paraSubir.size}. Las demás siguen en el móvil: $fallo"
+                                }
+                            },
+                            contentPadding = PaddingValues(0.dp),
+                        ) { Text(if (paraSubir.size == 1) "Subirla a tu cuenta" else "Subirlas a tu cuenta") }
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "SALIDAS",
@@ -1584,6 +1633,16 @@ private fun PantallaSeguimiento(usuario: String?, onSalir: () -> Unit) {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TrackingStore.enlaceDe(sesion.id))))
                         }
                     }
+                }
+            },
+            onSubir = if (sinCuenta) null else { sesion ->
+                scope.launch {
+                    subiendo = sesion.title ?: "la salida"
+                    avisoGuia = TrackingStore.subeSalidaLocal(sesion.id).fold(
+                        onSuccess = { "Subida a tu cuenta, con la chincheta puesta." },
+                        onFailure = { e -> "No se ha podido subir: " + ((e as? ApiException)?.message ?: e.message ?: "sin conexión") },
+                    )
+                    subiendo = null
                 }
             },
             )

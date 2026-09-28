@@ -460,6 +460,32 @@ class Api(
         return decode(body)
     }
 
+    /**
+     * Sube a la cuenta una salida grabada sin ella (ver `functions/api/track/
+     * importa.ts`): nace terminada y con chincheta, con su traza y su fecha
+     * real, y sin cerrar la baliza que esté en marcha. Devuelve su id.
+     */
+    suspend fun importaSalida(
+        token: String, title: String?, startAt: Double, endedAt: Double?, activity: BeaconActivity?,
+        trail: List<TrailPoint>, planId: String?, device: String?,
+    ): String {
+        val (body, status) = request(
+            "api/track/importa", "POST", token,
+            buildJsonObject {
+                if (!title.isNullOrEmpty()) put("title", JsonPrimitive(title))
+                put("startAt", JsonPrimitive(startAt))
+                if (endedAt != null) put("endedAt", JsonPrimitive(endedAt))
+                if (activity != null) put("activity", JsonPrimitive(activity.wire))
+                put("trail", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(TrailPoint.serializer()), trail))
+                if (planId != null) put("planId", JsonPrimitive(planId))
+                if (!device.isNullOrEmpty()) put("device", JsonPrimitive(device))
+            },
+        )
+        if (!ok(status)) throw decodeError(body, status)
+        return (json.parseToJsonElement(body) as kotlinx.serialization.json.JsonObject)["id"]
+            ?.let { (it as JsonPrimitive).content } ?: throw ApiException(status, "bad_response")
+    }
+
     private fun fixJson(f: Fix) = buildJsonObject {
         put("lat", JsonPrimitive(f.lat))
         put("lon", JsonPrimitive(f.lon))

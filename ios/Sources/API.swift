@@ -498,6 +498,32 @@ enum API {
         guard ok(http) else { throw decodeError(data, http.statusCode) }
     }
 
+    /// Sube a la cuenta una salida grabada sin ella (ver `functions/api/track/
+    /// importa.ts`): nace terminada y con chincheta, con su traza y su fecha
+    /// real, y sin cerrar la baliza que esté en marcha. Devuelve su id.
+    static func importaSalida(token: String, title: String?, startAt: Double, endedAt: Double?,
+                              activity: BeaconActivity?, trail: [TrailPoint], planId: String?,
+                              device: String?) async throws -> String {
+        var body: [String: Any] = ["startAt": startAt]
+        if let title, !title.isEmpty { body["title"] = title }
+        if let endedAt { body["endedAt"] = endedAt }
+        if let activity { body["activity"] = activity.rawValue }
+        if let planId { body["planId"] = planId }
+        if let device, !device.isEmpty { body["device"] = device }
+        body["trail"] = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(trail))) ?? []
+        let (data, http) = try await request("api/track/importa", method: "POST", token: token, body: body)
+        guard ok(http) else { throw decodeError(data, http.statusCode) }
+        struct R: Decodable { let id: String }
+        return try JSONDecoder().decode(R.self, from: data).id
+    }
+
+    /// Las correcciones de los tramos de una salida, a su servidor.
+    static func guardaTramos(token: String, id: String, ajustes: Any) async -> Bool {
+        guard let (_, http) = try? await request("api/track/\(id)/tramos", method: "POST", token: token,
+                                                 body: ["ajustes": ajustes]) else { return false }
+        return ok(http)
+    }
+
     static func createTrack(token: String, title: String?, planId: String? = nil, startAt: Double? = nil, activity: BeaconActivity? = nil, eventId: String? = nil, device: String? = nil) async throws -> CreateTrackResponse {
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }

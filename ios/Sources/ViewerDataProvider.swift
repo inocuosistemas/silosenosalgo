@@ -304,6 +304,17 @@ final class ViewerDataProvider {
         return dir.appendingPathComponent("\(token).json")
     }
 
+    /// Las correcciones de los tramos guardadas para una salida (su JSON), o nil.
+    static func ajustesDeTramos(_ token: String) -> Data? { try? Data(contentsOf: tramosURL(token)) }
+
+    /// Al subir una salida de este móvil a la cuenta: sus correcciones, bajo la clave nueva.
+    static func mueveAjustesDeTramos(de: String, a: String) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: tramosURL(de).path) else { return }
+        try? fm.removeItem(at: tramosURL(a))
+        try? fm.moveItem(at: tramosURL(de), to: tramosURL(a))
+    }
+
     /// Su dueño corrigió los tramos desde el visor (lo reenvía el manejador al
     /// servidor): aquí, para que se vea sin esperar y sin cobertura.
     func setTramosAjustes(token: String, json: Data?) {

@@ -205,6 +205,59 @@ object TrackingStore {
         _planes.value = almacen.leePlanesLocales()
     }
 
+    /**
+     * Sube a la cuenta una salida de este móvil: su traza, su ruta (si era un
+     * GPX cargado sin cuenta), sus notas con fotos y audios, y los tramos
+     * corregidos. Nace terminada y con chincheta (ver `Api.importaSalida`), y a
+     * partir de ahí es una salida más: con enlace, fotos, chincheta… Devuelve el
+     * id nuevo. Si algo falla a medias, la salida sigue en el móvil tal cual.
+     */
+    suspend fun subeSalidaLocal(id: String): Result<String> = runCatching {
+        val t = token ?: throw ApiException(401, "unauthorized")
+        val s = _salidasLocales.value.firstOrNull { it.id == id } ?: throw ApiException(404, "not_found")
+        if (s.endedAt == null || (_estado.value.compartiendo && _estado.value.sessionId == id)) {
+            throw ConversorGpx.Fallo("Termina antes la salida para subirla.")
+        }
+        // La traza entera: sin cuenta, la cola de lo no enviado tiene todos los
+        // puntos (la traza del mapa se aclara al pasar de 2.000).
+        val cola = almacen.leePendientes(id).filter { it.fixAt != null }
+            .map { TrailPoint(it.fixAt!!, it.lat, it.lon, it.accuracy?.let { a -> Math.round(a).toInt() }, it.m) }
+        val traza = if (cola.size > almacen.leeTraza(id).size) cola else almacen.leeTraza(id)
+        if (traza.isEmpty()) throw ConversorGpx.Fallo("Esta salida no tiene puntos que subir.")
+        // La ruta que llevaba, a «tus rutas».
+        val planId = almacen.leePlan(id)?.let { gz -> subePlanDeSalida(t, gz, s.titulo) }
+        val nuevo = api.importaSalida(t, s.titulo, s.startedAt, s.endedAt, s.actividad, traza, planId, nombreDeEsteAparato())
+        // Notas y sus archivos.
+        for (nota in almacen.leeNotas(id)) {
+            runCatching { api.createNote(t, nuevo, nota) }
+            for (kind in listOf("photo", "audio")) {
+                val datos = almacen.leeMedio(id, almacen.nombreMedio(nota.id, kind)) ?: continue
+                runCatching { api.uploadNoteMedia(t, nuevo, nota.id, kind, datos, if (kind == "audio") "audio/mp4" else "image/jpeg") }
+            }
+        }
+        // Los tramos que se corrigieron aquí.
+        leeAjustesTramos(id)?.let { a ->
+            if (api.postJsonBloqueante("api/track/$nuevo/tramos", "{\"ajustes\":$a}", t)) guardaAjustesTramos(nuevo, a)
+            guardaAjustesTramos(id, null)
+        }
+        // Lo del móvil, bajo la clave nueva (sirve para verla sin cobertura).
+        almacen.renombraSesion(id, nuevo)
+        olvidaSalidaLocal(id)
+        cargaSesiones()
+        nuevo
+    }
+
+    /** La ruta de un GPX cargado sin cuenta, a «tus rutas»; su id, o null si no se pudo. */
+    private suspend fun subePlanDeSalida(t: String, gz: ByteArray, titulo: String?): String? = runCatching {
+        val track = withContext(Dispatchers.IO) {
+            val json = java.util.zip.GZIPInputStream(gz.inputStream()).use { it.readBytes().toString(Charsets.UTF_8) }
+            (Api.json.parseToJsonElement(json) as kotlinx.serialization.json.JsonObject)["track"] as kotlinx.serialization.json.JsonObject
+        }
+        val num = { k: String -> (track[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() ?: 0.0 }
+        val nombre = (track["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: titulo ?: "Ruta"
+        api.createPlan(t, gz, nombre, num("totalDistanceKm"), num("elevGainM"), null).id
+    }.getOrNull()
+
     /** Borrarla es borrarla del todo: no hay copia en ningún otro sitio. */
     fun borraSalidaLocal(id: String) {
         olvidaSalidaLocal(id)
